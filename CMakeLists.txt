@@ -1,0 +1,65 @@
+cmake_minimum_required(VERSION 3.28)
+
+project(DeepRun VERSION 0.1.0 LANGUAGES CXX)
+
+if(NOT WIN32)
+    message(FATAL_ERROR "Milestone 0 supports Windows x86-64 only")
+endif()
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+include(CompilerOptions)
+include(Dependencies)
+
+add_library(DeepRunEngine STATIC
+    Engine/Audio/AudioEngine.cpp
+    Engine/Core/Application.cpp
+    Engine/Core/CoreServices.cpp
+    Engine/Core/Random.cpp
+    Engine/Core/Time.cpp
+    Engine/Diagnostics/DebugOverlay.cpp
+    Engine/Diagnostics/Logger.cpp
+    Engine/Input/InputSystem.cpp
+    Engine/Physics/PhysicsWorld.cpp
+    Engine/Platform/Windows/WinPlatform.cpp
+    Engine/Platform/Windows/WinWindow.cpp
+    Engine/Render/D3D12Renderer.cpp
+)
+
+target_compile_features(DeepRunEngine PUBLIC cxx_std_23)
+target_include_directories(DeepRunEngine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(DeepRunEngine PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    UNICODE
+    _UNICODE
+    $<$<CONFIG:Debug>:DEEPRUN_DEBUG=1>
+)
+deeprun_set_project_warnings(DeepRunEngine)
+
+target_link_libraries(DeepRunEngine
+    PRIVATE
+        Jolt
+        miniaudio
+        imgui
+        d3d12
+        dxgi
+        dxguid
+        xinput9_1_0
+)
+
+add_executable(DeepRun DeepRun/Main.cpp)
+target_compile_features(DeepRun PRIVATE cxx_std_23)
+deeprun_set_project_warnings(DeepRun)
+target_link_libraries(DeepRun PRIVATE DeepRunEngine)
+
+enable_testing()
+
+add_executable(DeepRunTests Tests/TestMain.cpp)
+target_compile_features(DeepRunTests PRIVATE cxx_std_23)
+deeprun_set_project_warnings(DeepRunTests)
+target_link_libraries(DeepRunTests PRIVATE DeepRunEngine)
+
+add_test(NAME DeepRunTests COMMAND DeepRunTests)
+
+set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)

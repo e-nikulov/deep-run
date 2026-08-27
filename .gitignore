@@ -1,0 +1,28 @@
+# CMake and Visual Studio build output
+/build/
+/out/
+CMakeUserPresets.json
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+
+# Compiled output and diagnostics
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.obj
+*.log
+
+# Local editor and temporary files
+*.user
+*.suo
+*.tmp
+*.bak
+*.swp
+.idea/
+.vscode/
+/imgui.ini
