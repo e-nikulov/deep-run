@@ -1199,7 +1199,13 @@ Voice
 
 # 33. DeepRun Acoustic Simulation
 
-Это НЕ Audio Engine.
+Gameplay-relevant underwater acoustics belongs to `Simulation/Acoustics/`.
+It is separate from audible presentation in `Engine/Audio/`.
+
+This section describes subsystem placement only. The canonical behaviour for
+propagation, signatures, sonar and acoustic observations is defined in:
+
+`docs/architecture/acoustics-spec.md`
 
 ```text
 Simulation/Acoustics/
@@ -1214,158 +1220,108 @@ Simulation/Acoustics/
 ├── AmbientNoiseModel.h
 ├── PassiveSonar.h
 ├── ActiveSonar.h
-├── SonarContact.h
+├── AcousticObservation.h
 └── AcousticDebugger.h
 ```
+
+These entries are a conceptual layout, not placeholder implementation work.
+Contacts and tracks belong to the perceived-state layer described in
+`docs/architecture/simulation-spec.md`.
 
 ---
 
 # 34. Acoustic Signature
 
-Каждый шумящий объект имеет:
+Gameplay-relevant emitters expose data-driven acoustic signatures. A signature
+may represent broadband, machinery, propulsion, cavitation and transient
+energy using a small number of spectral bands.
 
-```text
-broadband noise
-propeller noise
-engine noise
-machinery noise
-cavitation noise
-transient noise
-```
-
-Можно представить спектр несколькими frequency bands.
-
-Например:
-
-```text
-31 Hz
-63 Hz
-125 Hz
-250 Hz
-500 Hz
-1 kHz
-2 kHz
-4 kHz
-```
-
-Не требуется полноценный waveform simulation.
+The authoritative spectral representation and band boundaries are defined in
+`docs/architecture/acoustics-spec.md`; they are tuning data rather than a
+second fixed engine contract. Full waveform simulation is not required.
 
 ---
 
 # 35. Passive Sonar
 
-Расчёт:
+Passive sonar produces acoustic observations through this conceptual flow:
 
 ```text
-Source
- ↓
-Transmission Loss
- ↓
-Thermocline
- ↓
-Terrain Occlusion
- ↓
-Ambient Noise
- ↓
-Receiver
+received signal
++ noise / masking
+-> SNR and observable features
+-> AcousticObservation
+-> Contact / Track processing
 ```
 
-Основной gameplay результат:
-
-```text
-SNR
-```
-
-На основании SNR определяются:
-
-```text
-Detection
-Classification
-BearingAccuracy
-TrackingQuality
-```
+SNR remains an acoustic metric. It may influence observation confidence,
+bearing uncertainty and classification features, but it does not reveal a
+perfect known enemy. Final contacts, classifications and track quality are
+owned by the perceived-state layer defined in
+`docs/architecture/simulation-spec.md`.
 
 ---
 
 # 36. Active Sonar
 
-Active ping:
+Active sonar follows this conceptual flow:
 
 ```text
 Emitter
- ↓
-Propagation
- ↓
-Object
- ↓
-Reflection
- ↓
-Return propagation
- ↓
+ ->
+outbound propagation
+ ->
+Reflector
+ ->
+return propagation
+ ->
 Receiver
+ ->
+AcousticObservation
 ```
 
-Результат:
+The observation preserves round-trip propagation delay. The outgoing ping is
+itself observable by other receivers, so a transmitter may reveal itself
+before receiving its own echo. Final contacts and tracks belong to the
+perceived-state layer.
 
-```text
-range
-bearing
-contact confidence
-classification quality
-```
-
-Использовать acoustic ray approximation.
-
-Не моделировать реальные волновые уравнения воды.
+Reflection, multipath and reverberation behaviour is defined only in
+`docs/architecture/acoustics-spec.md`.
 
 ---
 
 # 37. Sonar Environment
 
-Система должна учитывать:
+`AcousticWorld` owns gameplay propagation through the authored underwater
+environment, including distance loss, terrain effects, acoustic layers and
+ambient noise. Jolt may provide coarse geometry queries but does not own
+acoustic propagation.
 
-```text
-depth
-thermocline
-seabed material
-surface state
-water column
-terrain
-ambient noise
-shipping noise
-weather
-```
+Detailed environmental, reflection and noise behaviour is canonical only in
+`docs/architecture/acoustics-spec.md`.
 
 ---
 
 # 38. Acoustic Debugger
 
-Очень важный инструмент.
-
-Должен показывать:
+The developer-only Acoustic Debugger should explain the observation pipeline,
+including:
 
 ```text
 source
 receiver
-rays
-reflections
+propagation paths
+arrival times
 SNR
 losses
-thermocline
-contact confidence
+ambient and self-noise
+AcousticObservation
+ground-truth versus observed / estimated state
 ```
 
-Например:
-
-```text
-Source Level       82
-Distance Loss     -28
-Thermocline       -12
-Terrain            -8
-Ambient Noise     -19
----------------------
-Final SNR          15
-```
+Ground-truth identity is available to developer diagnostics, not ordinary
+sensor consumers. Detailed diagnostic expectations are defined in the
+canonical acoustic and perceived-state specifications.
 
 ---
 
@@ -1409,7 +1365,8 @@ Guidance system — gameplay system.
 
 Physics — Jolt + marine physics.
 
-Sonar seeker использует AcousticWorld.
+Sonar seeker получает `AcousticObservation` от `AcousticWorld` и формирует
+собственное targeting knowledge без доступа к hostile ground truth.
 
 ---
 
@@ -2533,25 +2490,31 @@ Simulation → Engine
 
 # 81. Interfaces
 
-Пример правильного API:
+Пример правильного observation-oriented API:
 
 ```cpp
 class AcousticWorld
 {
 public:
-    AcousticContact QueryPassive(
-        const AcousticReceiver& receiver,
-        EntityId emitter) const;
+    void Update(SimulationTime now);
+
+    ObservationBatch CollectObservations(
+        const AcousticReceiver& receiver) const;
 };
 ```
+
+Caller не передаёт target или hostile `EntityId`. `AcousticWorld` может
+использовать entity identifiers внутри simulation и developer diagnostics, но
+authoritative source identity не должна попадать обычному sensor consumer.
+Contacts и Tracks создаются после observation stage.
 
 Неправильно:
 
 ```cpp
-CalculateEnemyDestroyerSonarDetectionForGrom();
+DetectEnemySubmarine(EntityId knownEnemy);
 ```
 
-Simulation должна оставаться переиспользуемой внутри игры.
+Target-specific detection API обходит perception pipeline и запрещён.
 
 ---
 
@@ -2654,9 +2617,11 @@ Renderer
 ```text
 AcousticWorld
       ↓
-simulation result
+acoustic observations
       ↓
-Sonar gameplay
+Contact / Track processing
+      ↓
+UI / AI / Weapons
 ```
 
 и отдельно:
@@ -2738,14 +2703,15 @@ Submarine gameplay и physical playground в этот milestone не входя�
 Должно работать:
 
 ```text
-ocean
 submarine mesh
-camera
-rigid body
+submarine rigid body
+basic water plane
 buoyancy
-thrust
-depth
-drag
+hydrodynamic drag
+propulsion / thrust
+control surfaces
+depth response
+side-view camera
 controller-driven submarine commands
 basic gamepad haptics
 ```
@@ -2774,14 +2740,11 @@ basic ship buoyancy
 Добавить:
 
 ```text
-acoustic emitters
-passive sonar
-active sonar
-SNR
-distance loss
-terrain occlusion
-basic thermocline
-cavitation noise
+AcousticWorld with coarse spectral emitters and receivers
+bounded propagation, delay, environmental loss and noise
+passive and active AcousticObservations with SNR and uncertainty
+minimal Contact / Track vertical slice
+cavitation acoustic signature
 Acoustic Debugger
 ```
 
@@ -3017,6 +2980,21 @@ Exact class names and file layout may evolve.
 
 Their responsibilities SHALL remain separated from presentation systems.
 
+## Ownership boundaries
+
+Engine owns generic platform, timing, physics-query and presentation services;
+it does not own gameplay acoustic or perceived-state knowledge.
+
+`Simulation/Acoustics` owns acoustic signatures, propagation and
+`AcousticObservation` production.
+
+The Simulation perceived-state layer owns sensor observations, contacts,
+tracks and persistent signature fields. Exact Contact and Track file placement
+remains an implementation detail.
+
+Game UI, AI and weapons consume perceived-state information appropriate to
+their role. They do not bypass Simulation to obtain hostile ground truth.
+
 ## Perception pipeline
 
 The engine architecture SHALL preserve this information flow:
@@ -3070,6 +3048,12 @@ It does NOT determine gameplay:
 
 Gameplay acoustics MUST remain functional even when audio output is disabled
 or unavailable.
+
+## Presentation boundary
+
+The renderer and `AudioEngine` visualize or present simulation-owned state.
+They do not create acoustic observations, contacts, tracks or persistent
+signatures. Ground-truth overlays are restricted to developer diagnostics.
 
 ## Deterministic simulation time
 

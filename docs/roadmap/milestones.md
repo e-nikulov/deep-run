@@ -2,13 +2,13 @@
 
 Status: Active
 
-## Completed milestone
+## Completed milestones
 
-Milestone 0 - Engine Bootstrap
+### Milestone 0 - Engine Bootstrap
 
 Status: COMPLETE
 
-## Milestone 0 goal
+#### Goal
 
 Produce the first minimal DeepRun executable and establish the technical foundation of the engine.
 
@@ -28,9 +28,9 @@ At the end of this milestone the project must have:
 
 No submarine gameplay is required yet.
 
-## Milestone 0 required work
+#### Required work
 
-### Build
+##### Build
 
 - CMake root project
 - CMakePresets.json
@@ -39,7 +39,7 @@ No submarine gameplay is required yet.
 - compiler warnings
 - clear Debug and Release configuration
 
-### Application
+##### Application
 
 - application startup
 - application shutdown
@@ -47,7 +47,7 @@ No submarine gameplay is required yet.
 - clean subsystem initialization
 - clean subsystem shutdown
 
-### Platform
+##### Platform
 
 - Windows platform layer
 - Win32 window
@@ -55,7 +55,7 @@ No submarine gameplay is required yet.
 - timing
 - basic filesystem path support
 
-### Rendering
+##### Rendering
 
 - D3D12 device
 - command queue
@@ -68,7 +68,7 @@ No submarine gameplay is required yet.
 
 Do not implement a full renderer.
 
-### Input
+##### Input
 
 Support at minimum:
 
@@ -80,7 +80,7 @@ Gameplay-facing code must use input actions rather than raw key checks.
 
 For Milestone 0, a minimal debug input mapping is sufficient.
 
-### Physics
+##### Physics
 
 - integrate Jolt
 - initialize physics system
@@ -90,7 +90,7 @@ For Milestone 0, a minimal debug input mapping is sufficient.
 
 Do not implement marine physics yet.
 
-### Audio
+##### Audio
 
 - integrate miniaudio
 - initialize audio device
@@ -100,7 +100,7 @@ Do not implement marine physics yet.
 
 Do not implement acoustic simulation yet.
 
-### Debug UI
+##### Debug UI
 
 Integrate Dear ImGui.
 
@@ -114,7 +114,7 @@ Display:
 - audio status
 - controller status
 
-### Logging
+##### Logging
 
 Create basic logging with categories:
 
@@ -127,7 +127,7 @@ Create basic logging with categories:
 
 Log startup and shutdown of every subsystem.
 
-### Headless mode
+##### Headless mode
 
 Support:
 
@@ -140,7 +140,7 @@ Headless mode must:
 - initialize non-rendering core services required by tests
 - exit cleanly
 
-### Tests
+##### Tests
 
 Create DeepRunTests executable or equivalent test target.
 
@@ -152,7 +152,7 @@ Required tests:
 - simple rigid body simulation
 - audio abstraction construction without gameplay dependencies
 
-### Smoke test
+##### Smoke test
 
 Normal mode:
 
@@ -174,7 +174,7 @@ Headless mode:
 5. shutdown cleanly
 6. return exit code 0
 
-## Milestone 0 completion criteria
+#### Completion criteria
 
 Milestone 0 is complete only when:
 
@@ -191,7 +191,7 @@ Milestone 0 is complete only when:
 - headless smoke test returns exit code 0
 - shutdown produces no known resource lifetime errors
 
-## Explicitly forbidden during Milestone 0
+#### Explicitly forbidden during Milestone 0
 
 Do not implement:
 
@@ -219,21 +219,19 @@ Do not implement:
 
 Do not create placeholder implementations for these systems.
 
-## Current milestone
-
-Milestone 1 - Core Engine
+### Milestone 1 - Core Engine
 
 Status: COMPLETE
 
-## Milestone 1 goal
+#### Goal
 
 Turn the M0 bootstrap into a modular, reusable engine core while preserving all M0 runtime behavior.
 
 M1 is infrastructure only. It must remain headless-capable and contain no submarine-specific gameplay.
 
-## Milestone 1 scope
+#### Scope
 
-### Lifecycle and frame state
+##### Lifecycle and frame state
 
 - explicit engine initialization, update, render, shutdown, and shutdown-request phases
 - deterministic subsystem ownership and cleanup
@@ -241,14 +239,14 @@ M1 is infrastructure only. It must remain headless-capable and contain no submar
 - configurable fixed physics step
 - thin application entry point
 
-### Scene and transform
+##### Scene and transform
 
 - lightweight EnTT registry hidden behind the DeepRun Scene API
 - generation-safe entity creation, destruction, validity, iteration, and cleanup
 - generic Transform and Tag components
 - right-handed world coordinates with +X right, +Y up, +Z toward the camera, and XY as the 2.5D plane
 
-### Assets and configuration
+##### Assets and configuration
 
 - normalized relative asset identifiers
 - root-relative path resolution
@@ -256,20 +254,20 @@ M1 is infrastructure only. It must remain headless-capable and contain no submar
 - predictable missing/invalid resource errors
 - validated JSON engine configuration without machine-specific paths
 
-### Input and diagnostics
+##### Input and diagnostics
 
 - frame-stable engine input state for actions, mouse, and gamepad
 - disconnected controller as a valid state
 - M1 frame, scene, and resource diagnostics
 
-### Tests and compatibility
+##### Tests and compatibility
 
 - headless tests for lifecycle, timing, scene/entity, transforms, resources, configuration, and input state
 - preserve Debug and Release builds
 - preserve `--headless` and `--smoke-test`
 - preserve D3D12, resize, ImGui, Jolt, miniaudio, keyboard/mouse, XInput, and clean shutdown
 
-## Milestone 1 completion criteria
+#### Completion criteria
 
 M1 is complete only when:
 
@@ -280,7 +278,7 @@ M1 is complete only when:
 - automated smoke runs exercise D3D12 presentation, resize, and clean shutdown
 - no submarine gameplay or future rendering systems have been added
 
-## Explicitly forbidden during Milestone 1
+#### Explicitly forbidden during Milestone 1
 
 Do not implement:
 
@@ -292,25 +290,29 @@ Do not implement:
 - production asset pipeline, Blender integration, or complete glTF loading
 - final game UI, networking, or Xbox GDK
 
-## Milestone 2
+## Current milestone
 
-Physical Playground
+### Milestone 2 - Physical Playground
 
-Future work:
+Status: READY
 
+Scope:
+
+- submarine mesh
 - submarine rigid body
+- basic water plane
 - buoyancy
 - hydrodynamic drag
-- propulsion
+- propulsion / thrust
 - control surfaces
+- depth response
 - side-view camera
-- basic water plane
+- controller-driven submarine commands
+- basic gamepad haptics
 
-Do not start until Milestone 1 is complete.
+## Future milestones
 
-## Milestone 3
-
-Underwater Environment
+### Milestone 3 - Underwater Environment
 
 Future work:
 
@@ -320,24 +322,72 @@ Future work:
 - Gerstner ocean
 - floating body wave response
 
-## Milestone 4
+### Milestone 4 - Acoustic Playground
 
-Acoustic Playground
+Milestone 4 remains a bounded playground for proving the first acoustic
+perception vertical slice.
 
-Future work:
+#### Core
 
-- acoustic emitters
-- passive sonar
-- active sonar
+- AcousticWorld
+- AcousticEmitter
+- AcousticReceiver
+- coarse spectral representation
+
+#### Propagation
+
+- distance attenuation / transmission loss
+- propagation delay
+- terrain attenuation / occlusion approximation
+- basic thermocline
+- ambient noise
+- self-noise
+
+#### Passive sonar
+
+- passive acoustic observations
 - SNR
-- distance attenuation
-- terrain occlusion
-- thermocline
-- cavitation signature
+- bearing uncertainty
 
-## Milestone 5
+#### Active sonar
 
-Combat Playground
+- active pulse
+- outbound propagation
+- reflection
+- return propagation
+- round-trip latency
+- detection of outgoing active transmission
+
+#### Minimal perception
+
+- SensorObservation / AcousticObservation integration
+- Contact
+- basic TrackManager
+- track confidence
+- track ageing / coasting
+
+#### Signature integration
+
+- cavitation acoustic signature
+
+#### Debug
+
+- AcousticDebugger
+- ground-truth versus observed / estimated state
+
+Secondary or later Milestone 4 scope may include:
+
+- surface reflection
+- bottom reflection
+- bounded multipath
+- reverberation envelope
+- synthetic biological acoustic source
+
+Hydrodynamic wake is not required for the first working Milestone 4 vertical
+slice. Synthetic/debug emitters and reflectors should be used where practical;
+torpedoes, destroyers, explosions and full combat remain in Milestone 5.
+
+### Milestone 5 - Combat Playground
 
 Future work:
 
@@ -348,9 +398,7 @@ Future work:
 - explosions
 - basic damage
 
-## Milestone 6
-
-Submarine Systems
+### Milestone 6 - Submarine Systems
 
 Future work:
 
@@ -364,17 +412,13 @@ Future work:
 - repairs
 - lighting failures
 
-## Milestone 7
-
-Cascading Failure Scenario
+### Milestone 7 - Cascading Failure Scenario
 
 Future goal:
 
 Create the first complete systemic emergency sequence involving detection, attack, damage, flooding, power loss, crew reassignment, damage control, and escape.
 
-## Milestone 8
-
-Roguelite Layer
+### Milestone 8 - Roguelite Layer
 
 Future work:
 
@@ -386,9 +430,7 @@ Future work:
 - upgrades
 - run summary
 
-## Milestone 9
-
-Advanced Warfare
+### Milestone 9 - Advanced Warfare
 
 Future work:
 

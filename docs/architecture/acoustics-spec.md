@@ -1,4 +1,16 @@
+# DeepRun Acoustic Simulation — Technical Specification v0.1
 
+Status: Accepted architecture contract
+
+This document is the canonical specification for gameplay-relevant underwater
+acoustics, sonar propagation, acoustic signatures and acoustic sensor
+observations.
+
+Engine-level ownership and integration boundaries are defined in
+`docs/architecture/engine-spec.md`.
+
+Perceived-world state, contacts, tracks and persistent signature fields are
+defined in `docs/architecture/simulation-spec.md`.
 
 <!-- BEGIN: acoustic-world-contract -->
 

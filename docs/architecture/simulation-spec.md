@@ -1,4 +1,16 @@
+# DeepRun Detection and Signature Simulation — Technical Specification v0.1
 
+Status: Accepted architecture contract
+
+This document is the canonical specification for perceived-world state,
+sensor observations, contacts, tracks, persistent signatures and hydrodynamic
+wake representation.
+
+Gameplay acoustic propagation is defined in
+`docs/architecture/acoustics-spec.md`.
+
+Engine-level ownership and integration boundaries are defined in
+`docs/architecture/engine-spec.md`.
 
 <!-- BEGIN: detection-track-signature-contract -->
 
