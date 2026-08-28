@@ -1,10 +1,18 @@
 #pragma once
 
+#include <functional>
 #include <span>
 #include <string_view>
 
+namespace DeepRun::Render
+{
+class D3D12Renderer;
+}
+
 namespace DeepRun::Core
 {
+class Engine;
+
 struct ApplicationOptions
 {
     bool headless = false;
@@ -16,10 +24,18 @@ struct ApplicationOptions
 class Application final
 {
 public:
-    explicit Application(ApplicationOptions options);
+    using StartupHook = std::function<bool(Engine&)>;
+    using RenderHook = std::function<bool(Render::D3D12Renderer&)>;
+
+    explicit Application(
+        ApplicationOptions options,
+        StartupHook startupHook = {},
+        RenderHook renderHook = {});
     [[nodiscard]] int Run();
 
 private:
     ApplicationOptions options_;
+    StartupHook startupHook_;
+    RenderHook renderHook_;
 };
 }

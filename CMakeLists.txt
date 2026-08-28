@@ -11,6 +11,40 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
 include(Dependencies)
 
+file(GLOB DEEPRUN_DXC_CANDIDATES
+    "C:/Program Files (x86)/Windows Kits/10/bin/*/x64/dxc.exe"
+)
+list(SORT DEEPRUN_DXC_CANDIDATES COMPARE NATURAL ORDER DESCENDING)
+if(NOT DEEPRUN_DXC_CANDIDATES)
+    message(FATAL_ERROR "DXC was not found in the installed Windows SDK")
+endif()
+list(GET DEEPRUN_DXC_CANDIDATES 0 DEEPRUN_DXC_EXECUTABLE)
+
+set(DEEPRUN_COMPILED_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/CompiledShaders")
+set(DEEPRUN_MODEL_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ModelVS.cso")
+set(DEEPRUN_MODEL_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ModelPS.cso")
+add_custom_command(
+    OUTPUT "${DEEPRUN_MODEL_VERTEX_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPRUN_COMPILED_SHADER_DIR}"
+    COMMAND "${DEEPRUN_DXC_EXECUTABLE}"
+        -T vs_6_0 -E VSMain -Fo "${DEEPRUN_MODEL_VERTEX_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Model.hlsl"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Model.hlsl"
+    VERBATIM
+)
+add_custom_command(
+    OUTPUT "${DEEPRUN_MODEL_PIXEL_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPRUN_COMPILED_SHADER_DIR}"
+    COMMAND "${DEEPRUN_DXC_EXECUTABLE}"
+        -T ps_6_0 -E PSMain -Fo "${DEEPRUN_MODEL_PIXEL_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Model.hlsl"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Model.hlsl"
+    VERBATIM
+)
+add_custom_target(DeepRunShaders ALL
+    DEPENDS "${DEEPRUN_MODEL_VERTEX_SHADER}" "${DEEPRUN_MODEL_PIXEL_SHADER}"
+)
+
 add_library(DeepRunEngine STATIC
     Engine/Assets/AssetManager.cpp
     Engine/Assets/GltfModelLoader.cpp
@@ -29,7 +63,10 @@ add_library(DeepRunEngine STATIC
     Engine/Physics/PhysicsWorld.cpp
     Engine/Platform/Windows/WinPlatform.cpp
     Engine/Platform/Windows/WinWindow.cpp
+    Engine/Render/Camera.cpp
     Engine/Render/D3D12Renderer.cpp
+    Engine/Render/IndexedGeometry.cpp
+    Engine/Render/ModelDraw.cpp
     Engine/Scene/Scene.cpp
 )
 
@@ -59,7 +96,10 @@ target_link_libraries(DeepRunEngine
         xinput9_1_0
 )
 
-add_executable(DeepRun DeepRun/Main.cpp)
+add_executable(DeepRun
+    DeepRun/Main.cpp
+    Game/PhysicalPlayground.cpp
+)
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
 target_link_libraries(DeepRun PRIVATE DeepRunEngine)
@@ -70,11 +110,29 @@ add_custom_target(DeepRunConfig ALL
         "$<TARGET_FILE_DIR:DeepRun>/Config/engine.json"
 )
 add_dependencies(DeepRun DeepRunConfig)
+add_dependencies(DeepRun DeepRunShaders)
+add_custom_command(TARGET DeepRun POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/prototype"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/submarines/prototype/submarine_prototype.glb"
+        "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/prototype/submarine_prototype.glb"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${DEEPRUN_MODEL_VERTEX_SHADER}"
+        "${DEEPRUN_MODEL_PIXEL_SHADER}"
+        "$<TARGET_FILE_DIR:DeepRun>/Shaders"
+)
 
 enable_testing()
 
 add_executable(DeepRunTests Tests/TestMain.cpp)
 target_compile_features(DeepRunTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    DEEPRUN_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 deeprun_set_project_warnings(DeepRunTests)
 target_link_libraries(DeepRunTests PRIVATE DeepRunEngine)
 add_custom_command(TARGET DeepRunTests POST_BUILD

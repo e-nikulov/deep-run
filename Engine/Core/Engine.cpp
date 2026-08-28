@@ -80,7 +80,11 @@ public:
 
                 renderer = std::make_unique<Render::D3D12Renderer>(core.Log());
                 if (!renderer->Initialize(
-                        window->NativeHandle(), window->Width(), window->Height(), config.renderer.vsync))
+                        window->NativeHandle(),
+                        window->Width(),
+                        window->Height(),
+                        config.renderer.vsync,
+                        options.shaderRoot))
                 {
                     exitCode = 4;
                     ShutdownSubsystems();
@@ -193,11 +197,11 @@ public:
         return true;
     }
 
-    void Render()
+    bool Render(const Engine::RenderHook& renderHook)
     {
         if (lifecycle != EngineLifecycle::Running || options.headless)
         {
-            return;
+            return false;
         }
 
         debugOverlay->BeginFrame();
@@ -214,8 +218,16 @@ public:
             .controllerConnected = input->IsControllerConnected()});
 
         renderer->BeginFrame();
+        const bool gameRenderSucceeded = !renderHook || renderHook(*renderer);
         debugOverlay->Render(renderer->CommandList());
         renderer->EndFrame();
+        if (!gameRenderSucceeded)
+        {
+            core.Log().Error(Diagnostics::LogCategory::Render, "Game render hook failed");
+            exitCode = 10;
+            RequestShutdown();
+        }
+        return gameRenderSucceeded;
     }
 
     void RequestShutdown() noexcept
@@ -309,9 +321,9 @@ bool Engine::Update()
     return impl_->Update();
 }
 
-void Engine::Render()
+bool Engine::Render(const RenderHook& renderHook)
 {
-    impl_->Render();
+    return impl_->Render(renderHook);
 }
 
 void Engine::RequestShutdown() noexcept
@@ -342,6 +354,11 @@ Scene::Scene& Engine::ActiveScene() noexcept
 Assets::AssetManager& Engine::Assets() noexcept
 {
     return impl_->assets;
+}
+
+Render::D3D12Renderer* Engine::Renderer() noexcept
+{
+    return impl_->renderer.get();
 }
 
 int Engine::ExitCode() const noexcept

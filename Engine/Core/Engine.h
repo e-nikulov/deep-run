@@ -3,6 +3,7 @@
 #include "Engine/Core/Time.h"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 
 namespace DeepRun::Assets
@@ -15,6 +16,11 @@ namespace DeepRun::Scene
 class Scene;
 }
 
+namespace DeepRun::Render
+{
+class D3D12Renderer;
+}
+
 namespace DeepRun::Core
 {
 struct EngineOptions final
@@ -23,6 +29,7 @@ struct EngineOptions final
     bool smokeTest = false;
     std::filesystem::path configPath;
     std::filesystem::path contentRoot;
+    std::filesystem::path shaderRoot;
 };
 
 enum class EngineLifecycle
@@ -36,6 +43,8 @@ enum class EngineLifecycle
 class Engine final
 {
 public:
+    using RenderHook = std::function<bool(Render::D3D12Renderer&)>;
+
     explicit Engine(EngineOptions options);
     ~Engine();
 
@@ -44,7 +53,7 @@ public:
 
     [[nodiscard]] bool Initialize();
     [[nodiscard]] bool Update();
-    void Render();
+    [[nodiscard]] bool Render(const RenderHook& renderHook = {});
     void RequestShutdown() noexcept;
     void Shutdown() noexcept;
 
@@ -52,6 +61,7 @@ public:
     [[nodiscard]] const FrameState& CurrentFrame() const noexcept;
     [[nodiscard]] Scene::Scene& ActiveScene() noexcept;
     [[nodiscard]] Assets::AssetManager& Assets() noexcept;
+    [[nodiscard]] Render::D3D12Renderer* Renderer() noexcept;
     [[nodiscard]] int ExitCode() const noexcept;
 
 private:

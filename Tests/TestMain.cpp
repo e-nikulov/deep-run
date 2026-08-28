@@ -10,10 +10,15 @@
 #include "Engine/Diagnostics/Logger.h"
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
+#include "Engine/Render/Camera.h"
+#include "Engine/Render/D3D12Renderer.h"
+#include "Engine/Render/IndexedGeometry.h"
+#include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -279,6 +284,210 @@ bool CanonicalModelPreservesStructure()
         }
     }
     return foundHull && foundSail && foundControlSurfaces && foundPropeller;
+}
+
+bool CanonicalIndexedGpuLayout()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+
+    const auto layout = DeepRun::Render::BuildIndexedGeometryLayout(**loaded);
+    if (!layout || layout->primitives.size() != 4 || layout->totals.primitiveCount != 4 ||
+        layout->totals.vertexCount != 296 || layout->totals.indexCount != 1632 ||
+        layout->totals.vertexBytes != 7104 || layout->totals.indexBytes != 6528 ||
+        layout->totals.uploadCompleted)
+    {
+        return false;
+    }
+
+    constexpr std::array<std::uint32_t, 4> ExpectedVertices{32, 170, 84, 10};
+    constexpr std::array<std::uint32_t, 4> ExpectedIndices{144, 1008, 432, 48};
+    for (std::size_t index = 0; index < layout->primitives.size(); ++index)
+    {
+        const DeepRun::Render::IndexedPrimitiveLayout& primitive = layout->primitives[index];
+        if (primitive.primitiveIndex != index || primitive.vertexCount != ExpectedVertices[index] ||
+            primitive.indexCount != ExpectedIndices[index] ||
+            primitive.vertexBytes != ExpectedVertices[index] * sizeof(DeepRun::Assets::MeshVertex) ||
+            primitive.indexBytes != ExpectedIndices[index] * sizeof(std::uint32_t))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool InvalidIndexedGpuLayoutIsRejected()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+
+    DeepRun::Assets::ModelAsset invalid = **loaded;
+    invalid.primitives.front().vertices.clear();
+    const auto layout = DeepRun::Render::BuildIndexedGeometryLayout(invalid);
+    return !layout && layout.error().find("primitive 0") != std::string::npos;
+}
+
+bool DefaultGpuModelHandleIsInvalid()
+{
+    const DeepRun::Render::GpuModelHandle first;
+    const DeepRun::Render::GpuModelHandle second;
+    return !first.IsValid() && first == second;
+}
+
+bool GenericEngineCoreHasNoSubmarineDependency()
+{
+    const std::filesystem::path engineCore =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Core";
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::recursive_directory_iterator(engineCore))
+    {
+        if (!entry.is_regular_file())
+        {
+            continue;
+        }
+        const std::filesystem::path extension = entry.path().extension();
+        if (extension != ".h" && extension != ".cpp")
+        {
+            continue;
+        }
+
+        std::ifstream input(entry.path(), std::ios::binary);
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character)
+        {
+            return static_cast<char>(std::tolower(character));
+        });
+        if (contents.find("submarine") != std::string::npos)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SideViewCameraContract()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+
+    const auto wide = DeepRun::Render::BuildSideViewCamera((*loaded)->bounds, 16.0F / 9.0F);
+    const auto narrow = DeepRun::Render::BuildSideViewCamera((*loaded)->bounds, 4.0F / 3.0F);
+    return wide && narrow && wide->viewDirection.x == 0.0F && wide->viewDirection.y == 0.0F &&
+           wide->viewDirection.z == -1.0F && wide->up.x == 0.0F && wide->up.y == 1.0F &&
+           wide->up.z == 0.0F &&
+           wide->position.z > (*loaded)->bounds.maximum.z && wide->nearPlane > 0.0F &&
+           wide->farPlane > wide->nearPlane && DeepRun::Render::IsFinite(wide->viewProjection) &&
+           DeepRun::Render::IsFinite(narrow->viewProjection) &&
+           DeepRun::Render::BoundsFitInCamera((*loaded)->bounds, *wide) &&
+           DeepRun::Render::BoundsFitInCamera((*loaded)->bounds, *narrow) &&
+           std::abs(wide->width / wide->height - 16.0F / 9.0F) < 0.0001F &&
+           std::abs(narrow->width / narrow->height - 4.0F / 3.0F) < 0.0001F;
+}
+
+bool ModelAndNormalTransformContract()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+
+    const auto draws = DeepRun::Render::PrepareModelDraws(**loaded);
+    if (!draws)
+    {
+        return false;
+    }
+    const auto propeller = std::ranges::find_if(*draws, [&loaded](const DeepRun::Render::ModelDrawInstance& draw)
+    {
+        return (*loaded)->nodes[draw.nodeIndex].name == "SM_Submarine_Prototype_Propeller";
+    });
+    if (propeller == draws->end() || std::abs(propeller->modelToWorld.values[12] + 49.0F) > 0.0001F ||
+        std::abs(propeller->modelToWorld.values[13]) > 0.0001F ||
+        std::abs(propeller->modelToWorld.values[14]) > 0.0001F)
+    {
+        return false;
+    }
+
+    DeepRun::Assets::ModelTransform translated;
+    translated.values[12] = 20.0F;
+    translated.values[13] = -7.0F;
+    translated.values[14] = 3.0F;
+    const auto translatedNormal = DeepRun::Render::BuildNormalTransform(translated);
+
+    DeepRun::Assets::ModelTransform scaled;
+    scaled.values[0] = 2.0F;
+    scaled.values[5] = 3.0F;
+    scaled.values[10] = 4.0F;
+    scaled.values[12] = 100.0F;
+    const auto scaledNormal = DeepRun::Render::BuildNormalTransform(scaled);
+    if (!translatedNormal || !scaledNormal)
+    {
+        return false;
+    }
+
+    const std::array<float, 3> translatedResult =
+        DeepRun::Render::TransformNormal(*translatedNormal, {1.0F, 2.0F, 3.0F});
+    const std::array<float, 3> scaledResult =
+        DeepRun::Render::TransformNormal(*scaledNormal, {2.0F, 3.0F, 4.0F});
+    return translatedResult == std::array{1.0F, 2.0F, 3.0F} &&
+           std::abs(scaledResult[0] - 1.0F) < 0.0001F &&
+           std::abs(scaledResult[1] - 1.0F) < 0.0001F &&
+           std::abs(scaledResult[2] - 1.0F) < 0.0001F;
+}
+
+bool ModelDrawPreparationContract()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+
+    const auto draws = DeepRun::Render::PrepareModelDraws(**loaded);
+    if (!draws || draws->size() != 4)
+    {
+        return false;
+    }
+    for (const DeepRun::Render::ModelDrawInstance& draw : *draws)
+    {
+        if (draw.nodeIndex >= (*loaded)->nodes.size() ||
+            draw.primitiveIndex >= (*loaded)->primitives.size() ||
+            draw.material.name != "M_Submarine_Prototype" ||
+            (*loaded)->nodes[draw.nodeIndex].primitiveIndices.front() != draw.primitiveIndex)
+        {
+            return false;
+        }
+    }
+
+    DeepRun::Assets::ModelAsset badPrimitive = **loaded;
+    badPrimitive.nodes.front().primitiveIndices.front() = badPrimitive.primitives.size();
+    DeepRun::Assets::ModelAsset badMaterial = **loaded;
+    badMaterial.primitives.front().materialIndex = badMaterial.materials.size();
+    return !DeepRun::Render::PrepareModelDraws(badPrimitive) &&
+           !DeepRun::Render::PrepareModelDraws(badMaterial);
+}
+
+bool InvalidGpuModelDrawIsRejected()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Render::D3D12Renderer renderer(logger);
+    const DeepRun::Render::GpuModelHandle invalid;
+    const auto result = renderer.DrawModel(invalid, {}, {});
+    return !result && result.error().find("invalid or foreign") != std::string::npos;
 }
 
 bool ModelIdentityAndCache()
@@ -649,6 +858,14 @@ int main(const int argumentCount, const char* const* arguments)
         {"Canonical C0 model bounds", CanonicalModelHasFiniteBounds},
         {"Canonical C0 material transport", CanonicalModelPreservesMaterial},
         {"Canonical C0 node structure", CanonicalModelPreservesStructure},
+        {"Canonical indexed GPU layout", CanonicalIndexedGpuLayout},
+        {"Invalid indexed GPU layout", InvalidIndexedGpuLayoutIsRejected},
+        {"Default GPU model handle", DefaultGpuModelHandleIsInvalid},
+        {"Generic Engine Core dependency boundary", GenericEngineCoreHasNoSubmarineDependency},
+        {"Side-view camera contract", SideViewCameraContract},
+        {"Model and normal transform contract", ModelAndNormalTransformContract},
+        {"Model draw preparation contract", ModelDrawPreparationContract},
+        {"Invalid GPU model draw", InvalidGpuModelDrawIsRejected},
         {"Model identity and cache", ModelIdentityAndCache},
         {"Missing model asset", MissingModelAsset},
         {"Invalid model data", InvalidModelDataIsRejected},

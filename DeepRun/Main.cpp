@@ -1,4 +1,6 @@
 #include "Engine/Core/Application.h"
+#include "Engine/Core/Engine.h"
+#include "Game/PhysicalPlayground.h"
 
 #include <exception>
 #include <iostream>
@@ -16,7 +18,43 @@ int main(const int argumentCount, char** argumentValues)
             arguments.emplace_back(argumentValues[index]);
         }
 
-        DeepRun::Core::Application application(DeepRun::Core::ApplicationOptions::Parse(arguments));
+        const DeepRun::Core::ApplicationOptions options = DeepRun::Core::ApplicationOptions::Parse(arguments);
+        DeepRun::Game::PhysicalPlayground playground;
+        DeepRun::Core::Application application(
+            options,
+            [&options, &playground](DeepRun::Core::Engine& engine)
+            {
+                if (options.headless)
+                {
+                    return true;
+                }
+
+                DeepRun::Render::D3D12Renderer* renderer = engine.Renderer();
+                if (renderer == nullptr)
+                {
+                    std::cerr << "[Game][ERROR] Physical playground requires a windowed renderer\n";
+                    return false;
+                }
+
+                const auto initialized = playground.Initialize(engine.Assets(), *renderer, options.smokeTest);
+                if (!initialized)
+                {
+                    std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
+                    return false;
+                }
+                return playground.SubmarineModel().IsValid();
+            },
+            [&playground](DeepRun::Render::D3D12Renderer& renderer)
+            {
+                const auto rendered = playground.Render(renderer);
+                if (!rendered)
+                {
+                    std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
+                    return false;
+                }
+                return rendered->drawCalls == 4 && rendered->submittedPrimitives == 4 &&
+                       rendered->submittedIndices == 1632;
+            });
         return application.Run();
     }
     catch (const std::exception& exception)
