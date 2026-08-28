@@ -13,6 +13,7 @@ include(Dependencies)
 
 add_library(DeepRunEngine STATIC
     Engine/Assets/AssetManager.cpp
+    Engine/Assets/GltfModelLoader.cpp
     Engine/Audio/AudioEngine.cpp
     Engine/Core/Application.cpp
     Engine/Core/CoreServices.cpp
@@ -50,6 +51,7 @@ target_link_libraries(DeepRunEngine
         Jolt
         miniaudio
         imgui
+        fastgltf::fastgltf
         nlohmann_json::nlohmann_json
         d3d12
         dxgi
@@ -75,7 +77,17 @@ add_executable(DeepRunTests Tests/TestMain.cpp)
 target_compile_features(DeepRunTests PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRunTests)
 target_link_libraries(DeepRunTests PRIVATE DeepRunEngine)
+add_custom_command(TARGET DeepRunTests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DeepRunTests>/Assets/submarines/prototype"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/submarines/prototype/submarine_prototype.glb"
+        "$<TARGET_FILE_DIR:DeepRunTests>/Assets/submarines/prototype/submarine_prototype.glb"
+)
 
-add_test(NAME DeepRunTests COMMAND DeepRunTests)
+add_test(NAME DeepRunTests COMMAND DeepRunTests --asset-root Assets)
+set_tests_properties(DeepRunTests PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:DeepRunTests>"
+)
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)

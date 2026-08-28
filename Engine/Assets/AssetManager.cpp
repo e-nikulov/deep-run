@@ -1,5 +1,8 @@
 #include "Engine/Assets/AssetManager.h"
 
+#include "Engine/Assets/GltfModelLoader.h"
+#include "Engine/Assets/ModelAsset.h"
+
 #include <fstream>
 #include <iterator>
 #include <system_error>
@@ -88,6 +91,33 @@ std::expected<AssetHandle<TextAsset>, AssetError> AssetManager::LoadText(
     return AssetHandle<TextAsset>(asset);
 }
 
+std::expected<AssetHandle<ModelAsset>, AssetError> AssetManager::LoadModel(
+    const std::filesystem::path& relativePath)
+{
+    const auto idResult = AssetId::FromPath(relativePath);
+    if (!idResult)
+    {
+        return std::unexpected(AssetError{AssetErrorCode::InvalidPath, relativePath, idResult.error()});
+    }
+
+    const AssetId id = *idResult;
+    const std::string key(id.Value());
+    if (const auto found = modelCache_.find(key); found != modelCache_.end())
+    {
+        return AssetHandle<ModelAsset>(found->second);
+    }
+
+    auto modelResult = LoadGltfModel(id, Resolve(id));
+    if (!modelResult)
+    {
+        return std::unexpected(std::move(modelResult.error()));
+    }
+
+    auto asset = std::make_shared<const ModelAsset>(std::move(*modelResult));
+    modelCache_.emplace(key, asset);
+    return AssetHandle<ModelAsset>(asset);
+}
+
 std::filesystem::path AssetManager::Resolve(const AssetId& id) const
 {
     return (root_ / std::filesystem::path(id.Value())).lexically_normal();
@@ -100,11 +130,12 @@ const std::filesystem::path& AssetManager::Root() const noexcept
 
 std::size_t AssetManager::CachedResourceCount() const noexcept
 {
-    return textCache_.size();
+    return textCache_.size() + modelCache_.size();
 }
 
 void AssetManager::Clear() noexcept
 {
     textCache_.clear();
+    modelCache_.clear();
 }
 }

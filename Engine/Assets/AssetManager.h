@@ -12,6 +12,7 @@
 namespace DeepRun::Assets
 {
 class AssetManager;
+struct ModelAsset;
 
 template <typename T>
 class AssetHandle final
@@ -84,6 +85,8 @@ enum class AssetErrorCode
     InvalidPath,
     NotFound,
     ReadFailed,
+    InvalidData,
+    UnsupportedData,
 };
 
 struct AssetError final
@@ -100,6 +103,8 @@ public:
 
     [[nodiscard]] std::expected<AssetHandle<TextAsset>, AssetError> LoadText(
         const std::filesystem::path& relativePath);
+    [[nodiscard]] std::expected<AssetHandle<ModelAsset>, AssetError> LoadModel(
+        const std::filesystem::path& relativePath);
     [[nodiscard]] std::filesystem::path Resolve(const AssetId& id) const;
     [[nodiscard]] const std::filesystem::path& Root() const noexcept;
     [[nodiscard]] std::size_t CachedResourceCount() const noexcept;
@@ -108,5 +113,6 @@ public:
 private:
     std::filesystem::path root_;
     std::unordered_map<std::string, std::shared_ptr<const TextAsset>> textCache_;
+    std::unordered_map<std::string, std::shared_ptr<const ModelAsset>> modelCache_;
 };
 }

@@ -51,7 +51,20 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(JoltPhysics miniaudio_source imgui_source EnTT nlohmann_json)
+set(FASTGLTF_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_CPP_MODULES OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    fastgltf
+    GIT_REPOSITORY https://github.com/spnda/fastgltf.git
+    GIT_TAG v0.9.0
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(JoltPhysics miniaudio_source imgui_source EnTT nlohmann_json fastgltf)
 
 add_library(miniaudio INTERFACE)
 target_include_directories(miniaudio SYSTEM INTERFACE "${miniaudio_source_SOURCE_DIR}")

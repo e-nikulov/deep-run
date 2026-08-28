@@ -1,5 +1,6 @@
 #include "Engine/Audio/AudioEngine.h"
 #include "Engine/Assets/AssetManager.h"
+#include "Engine/Assets/ModelAsset.h"
 #include "Engine/Core/CoreServices.h"
 #include "Engine/Core/Engine.h"
 #include "Engine/Core/EngineConfig.h"
@@ -11,13 +12,20 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Scene/Scene.h"
 
+#include <algorithm>
+#include <bit>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <iterator>
+#include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,6 +34,8 @@
 namespace
 {
 using Test = std::pair<std::string_view, std::function<bool()>>;
+constexpr std::string_view CanonicalModelPath = "submarines/prototype/submarine_prototype.glb";
+std::filesystem::path testAssetRoot;
 
 class TemporaryDirectory final
 {
@@ -33,7 +43,7 @@ public:
     TemporaryDirectory()
     {
         const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
-        path_ = std::filesystem::temp_directory_path() / ("DeepRunM1Tests-" + std::to_string(suffix));
+        path_ = std::filesystem::temp_directory_path() / ("DeepRunTests-" + std::to_string(suffix));
         std::filesystem::create_directories(path_);
     }
 
@@ -57,6 +67,291 @@ void WriteFile(const std::filesystem::path& path, const std::string_view content
     std::filesystem::create_directories(path.parent_path());
     std::ofstream output(path, std::ios::binary);
     output << contents;
+}
+
+void AppendUint32(std::vector<std::byte>& bytes, const std::uint32_t value)
+{
+    bytes.push_back(static_cast<std::byte>(value & 0xFFU));
+    bytes.push_back(static_cast<std::byte>((value >> 8U) & 0xFFU));
+    bytes.push_back(static_cast<std::byte>((value >> 16U) & 0xFFU));
+    bytes.push_back(static_cast<std::byte>((value >> 24U) & 0xFFU));
+}
+
+void AppendFloat(std::vector<std::byte>& bytes, const float value)
+{
+    AppendUint32(bytes, std::bit_cast<std::uint32_t>(value));
+}
+
+void WriteBinaryFile(const std::filesystem::path& path, const std::vector<std::byte>& bytes)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary);
+    output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+void WriteTriangleGlb(
+    const std::filesystem::path& path,
+    const std::uint32_t primitiveMode,
+    const bool includePosition,
+    const bool outOfRangeIndex,
+    const bool nonFinitePosition,
+    const std::optional<std::size_t> materialIndex = std::nullopt)
+{
+    std::vector<std::byte> binary;
+    const float positionValues[] = {
+        nonFinitePosition ? std::numeric_limits<float>::quiet_NaN() : 0.0F, 0.0F, 0.0F,
+        1.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F};
+    for (const float value : positionValues)
+    {
+        AppendFloat(binary, value);
+    }
+    binary.push_back(std::byte{0});
+    binary.push_back(std::byte{0});
+    binary.push_back(std::byte{1});
+    binary.push_back(std::byte{0});
+    binary.push_back(static_cast<std::byte>(outOfRangeIndex ? 3 : 2));
+    binary.push_back(std::byte{0});
+
+    std::string json =
+        R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],)"
+        R"("nodes":[{"name":"FixtureNode","mesh":0}],)"
+        R"("meshes":[{"name":"FixtureMesh","primitives":[{"attributes":)";
+    json += includePosition ? R"({"POSITION":0})" : "{}";
+    json += R"(,"indices":1,"mode":)" + std::to_string(primitiveMode);
+    if (materialIndex.has_value())
+    {
+        json += R"(,"material":)" + std::to_string(*materialIndex);
+    }
+    json += R"(}]}],"materials":[{"name":"FixtureMaterial"}],"buffers":[{"byteLength":42}],)"
+            R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},)"
+            R"({"buffer":0,"byteOffset":36,"byteLength":6}],)"
+            R"("accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3",)"
+            R"("min":[0,0,0],"max":[1,1,0]},)"
+            R"({"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}]})";
+
+    while (json.size() % 4 != 0)
+    {
+        json.push_back(' ');
+    }
+    while (binary.size() % 4 != 0)
+    {
+        binary.push_back(std::byte{0});
+    }
+
+    std::vector<std::byte> glb;
+    const std::uint32_t totalLength = static_cast<std::uint32_t>(12 + 8 + json.size() + 8 + binary.size());
+    AppendUint32(glb, 0x46546C67U);
+    AppendUint32(glb, 2U);
+    AppendUint32(glb, totalLength);
+    AppendUint32(glb, static_cast<std::uint32_t>(json.size()));
+    AppendUint32(glb, 0x4E4F534AU);
+    for (const char character : json)
+    {
+        glb.push_back(static_cast<std::byte>(character));
+    }
+    AppendUint32(glb, static_cast<std::uint32_t>(binary.size()));
+    AppendUint32(glb, 0x004E4942U);
+    glb.insert(glb.end(), binary.begin(), binary.end());
+    WriteBinaryFile(path, glb);
+}
+
+bool CanonicalModelLoads()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    return loaded && loaded->IsValid() && loaded->Get()->id.Value() == CanonicalModelPath;
+}
+
+bool CanonicalModelHasIndexedGeometry()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded || loaded->Get()->primitives.empty())
+    {
+        return false;
+    }
+
+    for (const DeepRun::Assets::MeshPrimitiveData& primitive : loaded->Get()->primitives)
+    {
+        if (primitive.vertices.empty() || primitive.indices.empty() || primitive.indices.size() % 3 != 0 ||
+            !primitive.hasNormals)
+        {
+            return false;
+        }
+        for (const std::uint32_t index : primitive.indices)
+        {
+            if (index >= primitive.vertices.size())
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool CanonicalModelHasFiniteBounds()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+
+    const DeepRun::Assets::ModelBounds& bounds = loaded->Get()->bounds;
+    const float values[] = {
+        bounds.minimum.x,
+        bounds.minimum.y,
+        bounds.minimum.z,
+        bounds.maximum.x,
+        bounds.maximum.y,
+        bounds.maximum.z};
+    return std::all_of(std::begin(values), std::end(values), [](const float value) { return std::isfinite(value); }) &&
+           bounds.maximum.x > bounds.minimum.x && bounds.maximum.y > bounds.minimum.y &&
+           bounds.maximum.z > bounds.minimum.z;
+}
+
+bool CanonicalModelPreservesMaterial()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded || loaded->Get()->materials.size() != 1)
+    {
+        return false;
+    }
+
+    const DeepRun::Assets::ModelMaterialData& material = loaded->Get()->materials.front();
+    constexpr float Epsilon = 0.0001F;
+    const bool factorsMatch = material.name == "M_Submarine_Prototype" &&
+                              std::abs(material.baseColorFactor[0] - 0.028F) < Epsilon &&
+                              std::abs(material.baseColorFactor[1] - 0.075F) < Epsilon &&
+                              std::abs(material.baseColorFactor[2] - 0.105F) < Epsilon &&
+                              std::abs(material.baseColorFactor[3] - 1.0F) < Epsilon &&
+                              std::abs(material.metallicFactor - 0.15F) < Epsilon &&
+                              std::abs(material.roughnessFactor - 0.62F) < Epsilon;
+    return factorsMatch &&
+           std::all_of(
+               loaded->Get()->primitives.begin(),
+               loaded->Get()->primitives.end(),
+               [](const DeepRun::Assets::MeshPrimitiveData& primitive)
+               {
+                   return primitive.materialIndex.has_value() && *primitive.materialIndex == 0;
+               });
+}
+
+bool CanonicalModelPreservesStructure()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded || loaded->Get()->nodes.size() != 4 || loaded->Get()->primitives.size() != 4)
+    {
+        return false;
+    }
+
+    bool foundHull = false;
+    bool foundSail = false;
+    bool foundControlSurfaces = false;
+    bool foundPropeller = false;
+    for (const DeepRun::Assets::MeshNodeData& node : loaded->Get()->nodes)
+    {
+        if (node.primitiveIndices.size() != 1 || node.primitiveIndices.front() >= loaded->Get()->primitives.size())
+        {
+            return false;
+        }
+        if (node.name == "SM_Submarine_Prototype_Hull")
+        {
+            foundHull = true;
+        }
+        else if (node.name == "SM_Submarine_Prototype_Sail")
+        {
+            foundSail = true;
+        }
+        else if (node.name == "SM_Submarine_Prototype_ControlSurfaces")
+        {
+            foundControlSurfaces = true;
+        }
+        else if (node.name == "SM_Submarine_Prototype_Propeller")
+        {
+            foundPropeller = std::abs(node.localToModel.values[12] + 49.0F) < 0.0001F &&
+                             std::abs(node.localToModel.values[13]) < 0.0001F &&
+                             std::abs(node.localToModel.values[14]) < 0.0001F;
+        }
+    }
+    return foundHull && foundSail && foundControlSurfaces && foundPropeller;
+}
+
+bool ModelIdentityAndCache()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto first = assets.LoadModel(CanonicalModelPath);
+    const auto duplicate = assets.LoadModel("submarines/prototype/./submarine_prototype.glb");
+    if (!first || !duplicate || first->Get() != duplicate->Get() || *first != *duplicate ||
+        assets.CachedResourceCount() != 1)
+    {
+        return false;
+    }
+
+    const DeepRun::Assets::AssetHandle<DeepRun::Assets::ModelAsset> handle = *first;
+    assets.Clear();
+    return assets.CachedResourceCount() == 0 && !handle.IsValid() && handle.Get() == nullptr;
+}
+
+bool MissingModelAsset()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto missing = assets.LoadModel("submarines/prototype/missing.glb");
+    return !missing && missing.error().code == DeepRun::Assets::AssetErrorCode::NotFound &&
+           missing.error().message.find("submarines/prototype/missing.glb") != std::string::npos;
+}
+
+bool InvalidModelDataIsRejected()
+{
+    TemporaryDirectory temporary;
+    WriteTriangleGlb(temporary.Path() / "missing-position.glb", 4, false, false, false);
+    WriteTriangleGlb(temporary.Path() / "lines.glb", 1, true, false, false);
+    WriteTriangleGlb(temporary.Path() / "bad-index.glb", 4, true, true, false);
+    WriteTriangleGlb(temporary.Path() / "non-finite.glb", 4, true, false, true);
+
+    DeepRun::Assets::AssetManager assets(temporary.Path());
+    const auto missingPosition = assets.LoadModel("missing-position.glb");
+    const auto lines = assets.LoadModel("lines.glb");
+    const auto badIndex = assets.LoadModel("bad-index.glb");
+    const auto nonFinite = assets.LoadModel("non-finite.glb");
+    return !missingPosition && !lines && !badIndex && !nonFinite &&
+           missingPosition.error().code == DeepRun::Assets::AssetErrorCode::InvalidData &&
+           missingPosition.error().message.find("POSITION") != std::string::npos &&
+           lines.error().code == DeepRun::Assets::AssetErrorCode::UnsupportedData &&
+           lines.error().message.find("TRIANGLES") != std::string::npos &&
+           badIndex.error().code == DeepRun::Assets::AssetErrorCode::InvalidData &&
+           badIndex.error().message.find("out of range") != std::string::npos &&
+           nonFinite.error().code == DeepRun::Assets::AssetErrorCode::InvalidData &&
+           nonFinite.error().message.find("non-finite") != std::string::npos &&
+           assets.CachedResourceCount() == 0;
+}
+
+bool MaterialDefaultsAndInvalidReference()
+{
+    TemporaryDirectory temporary;
+    WriteTriangleGlb(temporary.Path() / "default-material.glb", 4, true, false, false, 0);
+    WriteTriangleGlb(temporary.Path() / "bad-material.glb", 4, true, false, false, 1);
+
+    DeepRun::Assets::AssetManager assets(temporary.Path());
+    const auto defaults = assets.LoadModel("default-material.glb");
+    if (!defaults || defaults->Get()->materials.size() != 1 || defaults->Get()->primitives.size() != 1)
+    {
+        return false;
+    }
+
+    const DeepRun::Assets::ModelMaterialData& material = defaults->Get()->materials.front();
+    const DeepRun::Assets::MeshPrimitiveData& primitive = defaults->Get()->primitives.front();
+    const auto malformed = assets.LoadModel("bad-material.glb");
+    return material.name == "FixtureMaterial" &&
+           material.baseColorFactor == std::array{1.0F, 1.0F, 1.0F, 1.0F} &&
+           material.metallicFactor == 1.0F && material.roughnessFactor == 1.0F &&
+           primitive.materialIndex.has_value() && *primitive.materialIndex == 0 &&
+           !malformed && malformed.error().code == DeepRun::Assets::AssetErrorCode::InvalidData &&
+           malformed.error().message.find("material index") != std::string::npos;
 }
 
 bool CoreStartupShutdown()
@@ -329,8 +624,17 @@ bool AudioBoundary()
 }
 }
 
-int main()
+int main(const int argumentCount, const char* const* arguments)
 {
+    if (argumentCount == 3 && std::string_view(arguments[1]) == "--asset-root")
+    {
+        testAssetRoot = arguments[2];
+    }
+    else
+    {
+        testAssetRoot = "Assets";
+    }
+
     const std::vector<Test> tests{
         {"Core startup/shutdown", CoreStartupShutdown},
         {"Frame lifecycle", FrameLifecycle},
@@ -340,6 +644,15 @@ int main()
         {"Scene entity lifecycle", SceneEntityLifecycle},
         {"Resource identity and cache", ResourceIdentityAndCache},
         {"Asset path normalization", AssetPathNormalization},
+        {"Canonical C0 model load", CanonicalModelLoads},
+        {"Canonical C0 indexed geometry", CanonicalModelHasIndexedGeometry},
+        {"Canonical C0 model bounds", CanonicalModelHasFiniteBounds},
+        {"Canonical C0 material transport", CanonicalModelPreservesMaterial},
+        {"Canonical C0 node structure", CanonicalModelPreservesStructure},
+        {"Model identity and cache", ModelIdentityAndCache},
+        {"Missing model asset", MissingModelAsset},
+        {"Invalid model data", InvalidModelDataIsRejected},
+        {"Material defaults and references", MaterialDefaultsAndInvalidReference},
         {"Configuration loading", ConfigurationLoading},
         {"Input state transitions", InputStateTransitions},
         {"Deterministic random", DeterministicRandom},
