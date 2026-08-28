@@ -484,7 +484,11 @@ Exact controller and keyboard bindings should be selected during the Milestone
 
 ## 18. Crew interaction
 
-Crew management is team / role oriented by default.
+Authoritative crew simulation may track important crew members individually,
+including specialty, qualification, availability, health, current compartment,
+protective-equipment state, and assignment.
+
+Player interaction remains primarily team / role / watch oriented.
 
 The production control model must not require moving every individual crew
 member as an FTL-style room sprite.
@@ -492,13 +496,33 @@ member as an FTL-style room sprite.
 Controller interactions should operate on meaningful orders such as:
 
 ```text
+assign best available team
 assign damage-control team
+seal damaged compartment
+attempt emergency access
+rescue isolated crew
+route via alternate path
 prioritize repair
+inspect required qualifications
+inspect proposed specialists
+inspect blocked route / boundary
+override a proposed assignment
 restore system
 cancel assignment
 ```
 
----
+Individual selection is an optional precision tool for exceptional situations,
+not the default interaction loop.
+
+The UI must clearly distinguish:
+
+```text
+qualified but unavailable
+qualified but unreachable
+reachable but unqualified
+available with required protection
+isolated / trapped
+```
 
 ## 19. Command-layer navigation
 

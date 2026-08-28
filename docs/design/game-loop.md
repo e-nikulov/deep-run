@@ -120,44 +120,82 @@ Combat should be relatively short compared with search, stalking, and recovery.
 After meaningful damage:
 
 ```text
-identify problem
-    -> contain spread
-    -> choose power / crew priorities
+identify casualty
+    -> establish immediate boundaries
+    -> evaluate flooding / fire / atmosphere
+    -> determine whether the casualty is reachable
+    -> identify required qualifications and protection
+    -> choose rescue / containment / repair priorities
+    -> assign best available reachable team
     -> stabilize depth / flooding
-    -> restore critical capability
+    -> perform proper, degraded, or improvised restoration
+    -> reassess isolated crew and compartment habitability
     -> accept permanent loss where necessary
     -> decide whether the mission remains viable
 ```
 
 Damage control is not a separate minigame.
-It changes the tactical situation.
 
----
+Closing a boundary may save the submarine while trapping personnel or making a
+critical system unreachable.
+
+Opening it again may enable rescue or repair while risking progressive flooding,
+smoke, heat, or toxic-atmosphere spread.
+
+Damage control therefore changes the tactical situation.
 
 ## 7. Systemic decision loop
 
 The intended systemic pressure comes from competing needs:
 
 ```text
-I need more speed
-but speed raises noise.
+I need this casualty repaired,
+but my only qualified specialist is required elsewhere.
 
-I need pumps
-but pumps consume power and may raise noise.
+The specialist is available,
+but the damaged compartment is isolated and currently unreachable.
 
-I need better sonar information
-but active transmission reveals me.
+I can open the boundary to rescue trapped crew,
+but water or smoke may spread.
 
-I need repairs
-but the damage-control team cannot be everywhere.
+I can keep the boundary sealed,
+but the isolated crew's habitability is degrading.
 
-I can keep fighting
-but another hit may make return impossible.
+I need better classification,
+but my senior sonar operator is already handling another high-priority track.
+
+I need damage control,
+but sending more qualified people leaves another station undermanned.
+
+I can wake or reassign additional personnel,
+but readiness and fatigue will suffer.
+
+I can attempt an improvised repair,
+but it will take longer and may restore only partial capability.
+
+I need emergency pumping,
+but the action may increase acoustic exposure.
+
+I can keep fighting,
+but another casualty may isolate or remove a specialist I cannot replace.
 ```
 
-The game should repeatedly generate choices of this form.
+Electrical capacity remains relevant when actual distribution or generation is
+damaged, but it is not the universal resource governing all systems.
 
----
+The primary gameplay pressure is the submarine's limited operational capacity:
+
+```text
+qualified people
+reachability
+attention
+time
+readiness
+habitability
+acoustic discretion
+surviving equipment
+local electrical capacity
+```
 
 ## 8. Tactical pause loop
 
@@ -313,17 +351,19 @@ The first major proof of DeepRun is:
 4. Player chooses whether to use active sonar.
 5. Player attacks or is attacked.
 6. A torpedo can hit the submarine.
-7. The hit damages a compartment.
-8. Flooding affects the vessel.
-9. Power becomes constrained.
-10. The player activates pumps / reassigns crew.
-11. Emergency actions affect acoustic exposure.
-12. The player escapes or fails.
+7. The hit damages a compartment and starts flooding / smoke / fire as applicable.
+8. Player establishes a boundary to contain the casualty.
+9. The boundary changes the authoritative crew-access graph.
+10. One useful specialist or team becomes isolated or unable to reach the casualty.
+11. Local habitability degrades according to occupants, smoke, CO2/O2, heat, and available emergency systems.
+12. Player chooses rescue, containment, alternate personnel, or degraded repair.
+13. Electrical damage may constrain local systems.
+14. Emergency pumping / repair / access actions affect acoustic exposure.
+15. Another duty becomes undermanned because specialists were moved.
+16. Player escapes or fails.
 ```
 
 This slice spans several milestones and must not be implemented all at once.
-
----
 
 ## 16. Design test for every new feature
 

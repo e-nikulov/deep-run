@@ -175,51 +175,71 @@ Presentation may derive simplified views from this state, but presentation must 
 
 ---
 
-## 5. Power as a constrained resource
+## 5. Operational capacity as a constrained resource
 
-Power allocation is a commander-level trade-off, not a decorative stat.
+DeepRun must not use reactor power as its universal FTL-like resource.
 
-Typical consumers may include:
+For a nuclear submarine, the more interesting gameplay constraint is the
+submarine's ability to handle several important tasks at the same time.
+
+The primary constrained resources are:
 
 ```text
-propulsion
-sonar
-pumps
-life support
-weapon preparation
-auxiliary systems
-reserve
+crew availability
+crew qualifications
+crew attention
+time
+system readiness
+acoustic discretion
+damage state
+physical access
+local electrical capacity
+limited consumables / ammunition where applicable
 ```
 
-The exact electrical model may remain abstracted.
+Electrical power remains simulated at gameplay-relevant fidelity, especially
+when generators, buses, distribution, or local equipment are damaged.
 
-The gameplay requirement is that the player cannot keep every high-demand system at maximum effectiveness simultaneously.
+It is not the default universal "mana" used to prevent every system from
+operating simultaneously.
 
-Power changes should have consequences such as:
+The design rule is:
+
+> DeepRun limits the player primarily through people, readiness, time, access,
+> noise, damage, and local capability rather than through an arbitrary global
+> reactor power budget.
+
+Examples:
 
 ```text
 more propulsion
     -> more speed
-    -> usually more self-noise / cavitation risk
+    -> more self-noise / cavitation risk
+    -> no artificial requirement to steal generic power points from sonar
 
-more sonar processing
-    -> better sensing capability
-    -> less power elsewhere
+more sonar effort
+    -> better classification / tracking performance
+    -> requires qualified sonar personnel and attention
+    -> may reduce capacity for other sonar tasks
 
-more pumping
-    -> slower flooding recovery
-    -> power consumption
-    -> possible acoustic cost
+more damage control
+    -> faster containment / repair
+    -> consumes available qualified crew
+    -> may require an accessible route to the casualty
+    -> leaves fewer people for other stations or emergencies
 
 weapon preparation
-    -> readiness improves
-    -> power / crew / time cost
+    -> improves readiness
+    -> requires time and qualified weapons personnel
+    -> may compete with other crew tasks
+
+electrical casualty
+    -> local or ship-wide electrical capacity becomes genuinely constrained
+    -> some systems may be unavailable, degraded, or mutually exclusive
 ```
 
-Power allocation must not behave like instant magic buffs.
-Important systems should have bounded transition times where this improves gameplay.
-
----
+Where electrical limits matter, they should emerge from the actual damaged or
+configured submarine state rather than from a generic balancing bar.
 
 ## 6. Acoustic cost is the submarine equivalent of defense pressure
 
@@ -266,45 +286,177 @@ Noise values shown to the player may be abstracted and must not imply unrealisti
 
 ---
 
-## 7. Compartments and watertight boundaries
+## 7. Compartments, watertight boundaries, and access
 
-The submarine is divided into gameplay compartments.
+The submarine is divided into gameplay compartments connected by meaningful
+access boundaries.
 
 A compartment may expose state such as:
 
 ```text
 integrity
 flooding
-fire / smoke where applicable
+fire
+smoke / toxic atmosphere
+air quality
+temperature
+pressure where gameplay-relevant
 power availability
 important installed systems
 crew presence
 repair status
 ```
 
-Watertight boundaries create meaningful decisions.
+The game must not assume that every watertight door or hatch is permanently
+closed during normal operation.
+
+Normal access configuration may leave selected boundaries open for movement,
+communication, and work.
+
+A casualty can require the crew to establish a watertight or fire boundary.
+
+### 7.1 Boundary isolation
+
+Gameplay-level isolation may involve more than closing one visible door.
+
+Conceptually it can include:
+
+```text
+watertight door / hatch
+ventilation isolation
+piping / stop valves
+other modeled cross-boundary paths
+```
+
+The exact set is abstracted to the level required for gameplay.
+
+A player command such as:
+
+```text
+SealBoundary
+```
+
+means "establish the required modeled boundary", not "magically toggle every
+real valve on a submarine".
+
+### 7.2 Boundary state
+
+A modeled boundary can have state such as:
+
+```text
+Open
+Closing
+Closed
+Leaking
+JammedOpen
+JammedClosed
+Destroyed
+```
+
+Exact names are deferred until Milestone 6.
+
+Damage, obstruction, deformation, pressure differential, fire, or flooding may
+prevent normal operation.
+
+Closing a boundary is therefore an action with time, access, and failure risk,
+not an instantaneous universal switch.
+
+### 7.3 Access graph
+
+Crew movement is constrained by an authoritative compartment-access graph.
+
+A route can become unavailable because of:
+
+```text
+sealed watertight boundary
+jammed closure
+heavy flooding
+dangerous pressure differential
+fire / extreme heat
+dense smoke / toxic atmosphere
+structural damage
+loss of required breathing protection
+```
+
+This means that a qualified specialist may exist on board but still be unable
+to reach the casualty.
+
+The UI should communicate:
+
+```text
+task location
+available routes
+blocked boundaries
+estimated travel time
+required protective equipment
+risk
+```
+
+without forcing the player to manually path every sailor through every hatch.
+
+### 7.4 Isolation trade-off
+
+Sealing a damaged compartment can save the submarine while creating a new
+problem.
 
 Example:
 
 ```text
 breach
     -> flooding increases
-    -> boundary can be sealed
-    -> spread is limited
-    -> crew access may be cut
-    -> damaged equipment may become unavailable
+    -> boundary is ordered sealed
+    -> progressive flooding is limited
+    -> access route is lost
+    -> crew or equipment may remain isolated
+    -> rescue / repair options become more difficult
 ```
 
-The game must avoid presenting every internal door as a click-heavy simulation.
-Only boundaries that create meaningful gameplay decisions should be modeled.
+The game must allow the possibility that people are trapped on the wrong side
+of a boundary.
 
----
+Opening a boundary later may:
 
-## 8. Flooding and buoyancy coupling
+```text
+restore access
+allow rescue
+allow repair
+```
+
+but can also:
+
+```text
+spread flooding
+spread smoke / toxic products
+destroy an established fire boundary
+expose adjacent spaces to pressure / heat
+```
+
+This is a commander decision, not a simple "open is good / closed is good"
+toggle.
+
+### 7.5 Player interaction level
+
+The player should issue meaningful orders such as:
+
+```text
+seal damaged compartment
+attempt emergency access
+route team through alternate path
+rescue isolated crew
+maintain boundary
+re-open after conditions improve
+```
+
+The player must not be required to click every individual hatch or ventilation
+valve unless a future scenario makes that specific interaction genuinely
+interesting.
+
+## 8. Flooding, buoyancy, and compartment atmosphere
 
 Flooding is not merely "submarine HP".
 
-Water mass must influence the physical vessel state at the level required by gameplay.
+Water mass must influence the physical vessel state at the level required by
+gameplay.
 
 Possible consequences:
 
@@ -316,6 +468,8 @@ increased depth tendency
 reduced manoeuvrability
 system failures
 crew hazards
+loss of access
+pressure changes where relevant
 ```
 
 Damage control can counter these effects through:
@@ -328,49 +482,368 @@ propulsion / depth control
 repair
 ```
 
-Emergency actions should have costs in time, noise, power, crew availability, or future capability.
+Emergency actions should have costs in time, noise, access, crew availability,
+or future capability.
 
----
+### 8.1 Local atmosphere
+
+An isolated compartment does not immediately "run out of oxygen".
+
+At gameplay-relevant fidelity, local habitability can depend on:
+
+```text
+oxygen
+carbon dioxide
+smoke
+toxic contaminants
+temperature
+pressure
+number and condition of occupants
+available atmosphere-control equipment
+available emergency breathing air
+```
+
+Oxygen percentage alone must not be used as the universal survival timer.
+
+Carbon-dioxide accumulation, fire products, smoke, heat, or toxic contaminants
+may become the dominant hazard before oxygen depletion.
+
+### 8.2 Atmosphere-control capabilities
+
+The game may model capabilities such as:
+
+```text
+normal atmosphere circulation
+oxygen addition / generation
+carbon-dioxide removal
+atmosphere monitoring
+emergency breathing air
+portable / local emergency protection
+```
+
+These are capabilities rather than promises that every compartment remains
+habitable under every casualty.
+
+Emergency breathing air may keep personnel capable of movement or emergency
+work in an otherwise unbreathable environment.
+
+It does not automatically:
+
+```text
+remove smoke
+remove heat
+restore visibility
+repair damage
+make flooding safe
+make an inaccessible route accessible
+```
+
+### 8.3 Fire and smoke
+
+Fire can couple several systems:
+
+```text
+fire
+    -> heat
+    -> smoke / toxic products
+    -> equipment damage
+    -> visibility / access degradation
+    -> atmosphere degradation
+    -> possible need to isolate ventilation / compartment
+```
+
+A fire boundary may conflict with rescue or repair access.
+
+The player may therefore face:
+
+```text
+keep compartment isolated
+    -> limits spread
+    -> isolated crew remain at risk
+
+open boundary for rescue / attack on fire
+    -> restores access
+    -> risks smoke / heat spread
+```
+
+### 8.4 Disabled-submarine survival
+
+If a compartment or the whole submarine becomes isolated from normal
+atmosphere-control capability, survivability is determined by the remaining
+habitable volume, occupants, contamination, emergency systems, and damage state.
+
+This is not represented by a single fixed countdown.
+
+The UI may present an estimate such as:
+
+```text
+Habitability: Stable
+Habitability: Degrading
+CO2: Elevated
+Smoke: Severe
+Emergency breathing: Available
+Estimated safe occupancy: Uncertain / Limited
+```
+
+Exact hidden state may be more detailed than the player-facing estimate.
+
+### 8.5 Continuous state and probability
+
+DeepRun should not resolve atmosphere, flooding, or access by repeatedly
+rolling arbitrary random checks every second.
+
+Prefer deterministic or rate-based state where practical:
+
+```text
+water ingress rate
+pump removal rate
+oxygen consumption
+CO2 generation / removal
+smoke / contaminant accumulation
+temperature trend
+travel time
+repair progress
+```
+
+Use deterministic seeded probability for discrete uncertain outcomes such as:
+
+```text
+closure fails after structural damage
+damaged seal leaks
+crew member is injured during hazardous access
+improvised repair fails or degrades
+damaged equipment fails under load
+```
+
+Probabilities must be derived from understandable state and tuned data.
+
+The player should normally see qualitative risk and evidence rather than raw
+percentages.
+
+Examples:
+
+```text
+Closure integrity: POOR
+Access risk: EXTREME
+Atmosphere: UNBREATHABLE
+Improvised repair: HIGH RISK
+```
+
+This preserves uncertainty without turning the simulation into arbitrary dice
+rolls.
 
 ## 9. Crew model
 
-DeepRun should not require FTL-style movement of every individual sailor.
+DeepRun simulates important crew members individually, but the player primarily
+commands teams, roles, watches, and tasks.
 
-The default abstraction is teams, roles, or watches.
-
-Possible groups:
-
-```text
-control room / command watch
-sonar team
-engineering watch
-weapons team
-damage-control team
-```
-
-Gameplay orders operate at team level:
+This distinction is authoritative:
 
 ```text
-assign damage-control team to compartment
-prioritize sonar station
-support weapon preparation
-repair pump
-restore electrical bus
+simulation
+    = individual crew members and their state
+
+player interaction
+    = primarily team / role / watch level
 ```
 
-Crew assignments may affect:
+The game must not require FTL-style room-by-room movement of every sailor.
+
+### 9.1 Crew member state
+
+A gameplay-relevant crew member may contain:
 
 ```text
-repair speed
-system efficiency
-fatigue / readiness later
-availability elsewhere
-casualty consequences
+identity
+rank
+primary specialty
+secondary specialties
+qualifications
+skill / experience
+current watch / assignment
+current task
+availability
+health / incapacitation
+fatigue / readiness
+current compartment
+protective equipment state where relevant
 ```
 
-Individual named characters may exist for narrative or progression later, but the core interaction must not depend on moving dozens of sprites between rooms.
+Exact data structures are deferred until Milestone 6.
 
----
+Rank, specialty, qualification, and experience are distinct concepts:
+
+```text
+rank
+    -> authority / leadership role
+
+specialty
+    -> professional domain
+
+qualification
+    -> tasks / stations the person is currently capable of performing
+
+experience
+    -> effectiveness, speed, reliability, or judgement within that capability
+```
+
+A senior officer is therefore not automatically the best person to repair a
+specific electrical, hydraulic, sonar, or weapon-system casualty.
+
+### 9.2 General damage-control capability
+
+Crew specialization must not imply that everyone except one specialist becomes
+helpless during an emergency.
+
+Most crew represented by the game may possess baseline common damage-control
+capability such as:
+
+```text
+basic firefighting
+basic flooding response
+isolation
+assistance
+casualty response
+moving equipment / supplies
+supporting a qualified specialist
+```
+
+Specialized restoration of complex equipment can require appropriate
+qualifications.
+
+### 9.3 Crew tasks
+
+A task may define requirements such as:
+
+```text
+required specialty
+minimum qualification
+required personnel
+optional supporting qualifications
+location
+required access route
+required protective equipment
+duration
+priority
+risk
+required equipment / system state
+```
+
+Examples:
+
+```text
+contain compartment flooding
+establish watertight boundary
+rescue isolated crew
+repair electrical bus
+restore pump
+repair sonar processing equipment
+prepare weapon
+operate a critical watchstation
+perform an improvised bypass
+```
+
+Task resolution must answer:
+
+```text
+can the task be attempted?
+who is eligible?
+can they reach the casualty?
+what protection is required?
+how long will it take?
+what effectiveness is expected?
+what risk exists?
+which other duties become undermanned?
+```
+
+### 9.4 Proper, degraded, and improvised work
+
+Not every casualty should be binary "repairable / impossible".
+
+Where gameplay benefits, a task may support:
+
+```text
+proper repair
+    -> correct qualifications
+    -> high reliability
+    -> restores intended capability
+
+degraded / bypass repair
+    -> partial qualification or alternate expertise
+    -> reduced capability
+    -> longer time and/or higher failure risk
+
+isolation / containment
+    -> broad damage-control qualification
+    -> system remains unavailable
+    -> prevents a worse secondary consequence
+```
+
+A missing or unreachable specialist should therefore create a difficult
+operational problem rather than always producing a dead-end button.
+
+### 9.5 Team formation
+
+The UI may automatically build the best eligible and reachable team for a task.
+
+Example:
+
+```text
+Assign best available team
+```
+
+The player may optionally inspect or override the proposed assignment when a
+specific specialist must be preserved for another critical duty.
+
+This supports meaningful decisions without requiring constant individual
+micromanagement.
+
+### 9.6 Scarcity and overlap
+
+Crew gameplay is driven by overlapping demands.
+
+Example:
+
+```text
+the only highly qualified electrical specialist
+    -> is maintaining a critical watch
+
+a casualty requires that specialist
+    -> reassign them
+    -> original station becomes degraded
+
+but the casualty compartment is isolated
+    -> alternate route may be unavailable
+    -> emergency access may expose the team to smoke / flooding
+```
+
+The central pressure is:
+
+> Too many simultaneous problems for the available qualified and reachable
+> people.
+
+### 9.7 Injury, loss, isolation, and persistence
+
+Injury or incapacitation matters through lost capability, not merely through a
+smaller crew counter.
+
+Isolation matters in the same way.
+
+Example:
+
+```text
+Senior Sonar Operator isolated behind a sealed boundary
+    -> operator is alive
+    -> operator is currently unavailable to the sonar watch
+    -> classification capability is degraded
+```
+
+Likewise, losing or isolating a specialist can turn later repairs into degraded
+or improvised work.
+
+Long-term named-character progression, replacement crew, training, psychology,
+and campaign persistence belong to later design work and are not required for
+the first Milestone 6 implementation.
 
 ## 10. Sonar and uncertainty
 
@@ -652,13 +1125,15 @@ controller control feels good
 haptics support vessel feel
 ```
 
-No compartments, power allocation, crew, tactical pause, sonar combat, or command queue.
+No compartments, power allocation, crew, tactical pause, sonar combat, or
+command queue.
 
 ### M3 — Underwater Environment
 
 Presentation/environment milestone.
 
-Do not introduce submarine-management systems merely to populate the environment.
+Do not introduce submarine-management systems merely to populate the
+environment.
 
 ### M4 — Acoustic Playground
 
@@ -671,7 +1146,8 @@ contacts / tracks carry uncertainty
 passive and active sonar produce meaningful tactical information
 ```
 
-A minimal read-only tactical presentation is allowed as needed to debug and play the acoustic slice.
+A minimal read-only tactical presentation is allowed as needed to debug and
+play the acoustic slice.
 
 ### M5 — Combat Playground
 
@@ -692,19 +1168,33 @@ Introduce the systemic command layer:
 
 ```text
 compartments
+watertight / fire boundaries
+authoritative access graph
 flooding
+local atmosphere / habitability
+fire / smoke / contaminants
+emergency breathing capability
 pumps
-power allocation
+gameplay-relevant electrical distribution
 system damage
-crew teams
-repair
+individual authoritative crew roster
+specialties and qualifications
+crew reachability
+task requirements
+protective-equipment requirements
+team formation and assignment
+basic fatigue / readiness
+injury / incapacitation
+proper vs degraded / improvised repair
+seeded discrete casualty risks
 noise consequences
 systems UI
 ```
 
 ### M7 — Cascading Failure Scenario
 
-Prove that the systems create a compelling emergency chain.
+Prove that the systems create a compelling emergency chain including isolation,
+access, specialist scarcity, atmosphere, and rescue trade-offs.
 
 ### M8 — Roguelite Layer
 
@@ -722,9 +1212,8 @@ run summary
 
 ### M9 — Advanced Warfare
 
-Expand the already proven loop with advanced threats and combined-force systems.
-
----
+Expand the already proven loop with advanced threats and combined-force
+systems.
 
 ## 21. Success test
 
@@ -737,11 +1226,21 @@ contact detected
     -> prepare attack
     -> enemy reacts
     -> submarine is hit
-    -> flooding starts
-    -> power becomes insufficient
-    -> pump activation increases noise
-    -> crew is reassigned
+    -> one compartment floods and becomes hazardous
+    -> commander orders a watertight boundary established
+    -> progressive flooding is limited
+    -> crew / specialist on the far side becomes isolated
+    -> local atmosphere or smoke begins to degrade
+    -> another casualty requires that specialist
+    -> player chooses rescue, alternate specialist, or degraded repair
+    -> local electrical damage may constrain available equipment
+    -> pump / repair actions add noise or consume crew attention
     -> player chooses between continuing the fight and escaping
 ```
 
-and every step follows from understandable state and player decisions rather than scripted exceptions.
+Every step must follow from understandable state and player decisions rather
+than scripted exceptions.
+
+Randomness may influence discrete damaged-state outcomes, but the resulting
+situation must remain explainable from the casualty, access, crew, atmosphere,
+and equipment state.

@@ -521,19 +521,36 @@ M6 is the main submarine command-layer milestone.
 
 Required systemic goals:
 
-- compartments and meaningful watertight boundaries
+- compartments and meaningful watertight / fire boundaries
+- explicit normal/open versus casualty-isolated boundary state
+- authoritative compartment-access graph
+- boundary states that can close, leak, jam, or be destroyed
 - flooding coupled to vessel state at gameplay-relevant fidelity
-- pumps with power and acoustic consequences
-- reactor / available-power model at gameplay abstraction level
-- power prioritization / allocation
+- physical access consequences from flooding, pressure, heat, smoke, and structural damage
+- local compartment habitability including O2, CO2, smoke / contaminants, heat, and emergency breathing capability at gameplay abstraction level
+- rate-based atmosphere / flooding state rather than arbitrary per-second random checks
+- pumps with acoustic and operational consequences
+- gameplay-relevant electrical generation / distribution without a universal power-mana model
 - local system damage and loss of capability
-- crew represented primarily as teams / roles, not individual room-clicking sprites
-- damage-control assignments and repair
+- individual authoritative crew records for gameplay-relevant personnel
+- rank, specialty, qualification, availability, health, current compartment, and basic readiness / fatigue
+- baseline common damage-control capability plus specialist task requirements
+- crew tasks with required qualifications, personnel counts, access, and protective-equipment requirements
+- automatic best-available-and-reachable team formation
+- optional player override of proposed specialist assignments
+- proper, degraded / bypass, and containment-only repair outcomes where appropriate
+- crew represented in production UI primarily as teams / roles / watches, not individual room-clicking sprites
+- injury / incapacitation / isolation affecting actual ship capability
+- seeded deterministic probability for discrete casualty outcomes such as damaged closures, hazardous access injury, and improvised-repair failure
 - system state that is authoritative outside UI
 - controller-first systems / damage-control UI
-- cross-system consequences between power, noise, sonar, propulsion, flooding, weapons, and repair
+- cross-system consequences between qualified crew, access, habitability, readiness, time, noise, sonar, propulsion, flooding, weapons, damage, and local electrical capacity
 
-The goal is not maximum simulation detail. The goal is constrained commander decisions.
+The goal is not maximum simulation detail.
+
+The goal is constrained commander decisions caused by too many simultaneous
+problems for the available qualified and reachable people, safe access routes,
+and surviving equipment.
 
 <!-- deeprun-m6-command-note:end -->
 
@@ -546,7 +563,8 @@ Create the first complete systemic emergency sequence involving detection, attac
 
 Acceptance intent:
 
-This milestone must prove that the systems create a decision chain rather than a scripted cutscene.
+This milestone must prove that the systems create a decision chain rather than
+a scripted cutscene.
 
 A representative sequence is:
 
@@ -554,17 +572,29 @@ A representative sequence is:
 uncertain hostile contact
     -> detection / attack
     -> torpedo hit
-    -> local breach
+    -> local breach / fire / smoke
     -> flooding
-    -> loss or shortage of power
-    -> pump / repair decision
-    -> increased acoustic exposure
-    -> crew reassignment
+    -> commander establishes a watertight / fire boundary
+    -> progressive casualty spread is reduced
+    -> crew access graph changes
+    -> one specialist or team becomes isolated
+    -> local habitability degrades
+    -> another casualty requires that specialist
+    -> rescue / containment / alternate-specialist decision
+    -> proper or improvised repair decision
+    -> possible local electrical limitation
+    -> increased acoustic exposure from emergency action
     -> escape / continued fight decision
 ```
 
-If the player can understand why each consequence happened and can choose between
-multiple costly responses, the core systemic gameplay is working.
+The scenario must support outcomes where sealing a boundary is correct even
+though it temporarily sacrifices access to crew or equipment.
+
+Re-opening a boundary must be a meaningful risk when flooding, smoke, heat,
+pressure, or toxic atmosphere can propagate.
+
+If the player can understand why each consequence happened and can choose
+between multiple costly responses, the core systemic gameplay is working.
 
 <!-- deeprun-m7-command-note:end -->
 
