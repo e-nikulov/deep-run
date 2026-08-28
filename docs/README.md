@@ -100,9 +100,11 @@ require a model, textures, materials, sounds, VFX, an icon, and related data
 definitions. It does not belong to each individual asset such as
 `antey_hull.glb`, `antey_albedo.dds`, or `propeller_loop.wav`.
 
-No C specification package has been assigned an ID yet. The index at
-[content/README.md](content/README.md) defines where future C specifications
-belong; C0 must be created only when the first concrete package is specified.
+Current registry:
+
+| ID | Package | Primary document | Supporting contract |
+|---|---|---|---|
+| C0 | Player Submarine Prototype | [content/submarine-prototype.md](content/submarine-prototype.md) | [content/asset-pipeline.md](content/asset-pipeline.md) |
 
 ## Content specifications, authored content, and asset runtime
 
@@ -111,8 +113,8 @@ The repository uses three distinct concepts:
 | Path | Responsibility |
 |---|---|
 | `docs/content/` | Text C-specifications describing which logical content package must be created |
-| `Content/` | Real authored game assets and data definitions, including models, textures, materials, audio, and JSON |
-| `Engine/Assets/` | Runtime engine code for asset IDs, loading, caching, ownership, and resource management |
+| `Content/` | Editable/source game assets and authored data definitions |
+| `Engine/Assets/` | Runtime asset code plus runtime-ready assets in asset-specific subdirectories |
 
 `docs/architecture/engine-spec.md` is the canonical source for the repository
 structure and the concrete `Content/Models/`, `Content/Textures/`,
