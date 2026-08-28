@@ -20,9 +20,6 @@ public:
     [[nodiscard]] int Run();
 
 private:
-    [[nodiscard]] int RunHeadless();
-    [[nodiscard]] int RunWindowed();
-
     ApplicationOptions options_;
 };
 }

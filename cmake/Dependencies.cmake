@@ -37,7 +37,21 @@ FetchContent_Declare(
     SOURCE_SUBDIR deeprun-no-cmake
 )
 
-FetchContent_MakeAvailable(JoltPhysics miniaudio_source imgui_source)
+FetchContent_Declare(
+    EnTT
+    GIT_REPOSITORY https://github.com/skypjack/entt.git
+    GIT_TAG v3.16.0
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.12.0
+    GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(JoltPhysics miniaudio_source imgui_source EnTT nlohmann_json)
 
 add_library(miniaudio INTERFACE)
 target_include_directories(miniaudio SYSTEM INTERFACE "${miniaudio_source_SOURCE_DIR}")

@@ -1,0 +1,10 @@
+{
+  "renderer": {
+    "vsync": true,
+    "width": 1280,
+    "height": 720
+  },
+  "physics": {
+    "fixedHz": 60
+  }
+}

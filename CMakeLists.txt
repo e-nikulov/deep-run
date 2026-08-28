@@ -12,18 +12,24 @@ include(CompilerOptions)
 include(Dependencies)
 
 add_library(DeepRunEngine STATIC
+    Engine/Assets/AssetManager.cpp
     Engine/Audio/AudioEngine.cpp
     Engine/Core/Application.cpp
     Engine/Core/CoreServices.cpp
+    Engine/Core/Engine.cpp
+    Engine/Core/EngineConfig.cpp
+    Engine/Core/FixedStepAccumulator.cpp
     Engine/Core/Random.cpp
     Engine/Core/Time.cpp
     Engine/Diagnostics/DebugOverlay.cpp
     Engine/Diagnostics/Logger.cpp
+    Engine/Input/InputState.cpp
     Engine/Input/InputSystem.cpp
     Engine/Physics/PhysicsWorld.cpp
     Engine/Platform/Windows/WinPlatform.cpp
     Engine/Platform/Windows/WinWindow.cpp
     Engine/Render/D3D12Renderer.cpp
+    Engine/Scene/Scene.cpp
 )
 
 target_compile_features(DeepRunEngine PUBLIC cxx_std_23)
@@ -38,10 +44,13 @@ target_compile_definitions(DeepRunEngine PRIVATE
 deeprun_set_project_warnings(DeepRunEngine)
 
 target_link_libraries(DeepRunEngine
+    PUBLIC
+        EnTT::EnTT
     PRIVATE
         Jolt
         miniaudio
         imgui
+        nlohmann_json::nlohmann_json
         d3d12
         dxgi
         dxguid
@@ -52,6 +61,13 @@ add_executable(DeepRun DeepRun/Main.cpp)
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
 target_link_libraries(DeepRun PRIVATE DeepRunEngine)
+add_custom_target(DeepRunConfig ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Config"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Config/engine.json"
+        "$<TARGET_FILE_DIR:DeepRun>/Config/engine.json"
+)
+add_dependencies(DeepRun DeepRunConfig)
 
 enable_testing()
 

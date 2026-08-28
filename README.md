@@ -1,6 +1,6 @@
 # DeepRun
 
-DeepRun is a Windows submarine roguelite built on a purpose-built C++23 engine. The current implementation is Milestone 0: a Win32 and Direct3D 12 engine bootstrap with Jolt Physics, miniaudio, Dear ImGui diagnostics, input, logging, tests, and a headless smoke path.
+DeepRun is a Windows submarine roguelite built on a purpose-built C++23 engine. The current implementation is Milestone 1: a modular core with explicit lifecycle and frame state, an EnTT-backed Scene, generic transforms, runtime resource caching, validated JSON configuration, input state, diagnostics, tests, and a headless smoke path. It preserves the Milestone 0 Win32, Direct3D 12, Jolt Physics, miniaudio, and Dear ImGui foundation.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ cmake --preset windows-release
 cmake --build --preset windows-release
 ```
 
-Jolt Physics, miniaudio, and Dear ImGui are fetched at pinned Git tags into the CMake build directory. No manual dependency downloads are required.
+Jolt Physics, miniaudio, Dear ImGui, EnTT, and nlohmann/json are fetched at pinned Git tags into the CMake build directory. No manual dependency downloads are required. `Config/engine.json` is copied next to the executable after each build.
 
 ## Run
 
@@ -52,4 +52,4 @@ ctest --preset windows-debug
 ctest --preset windows-release
 ```
 
-Headless mode deliberately skips window, renderer, Dear ImGui, input, and audio device initialization. It initializes Jolt, runs a deterministic rigid-body simulation, and returns a non-zero exit code on failure.
+Headless mode deliberately skips window, renderer, Dear ImGui, input hardware polling, and audio device initialization. It loads and validates engine configuration, initializes the core Scene/resource services and Jolt, runs a deterministic rigid-body simulation, and returns a non-zero exit code on failure.

@@ -102,6 +102,10 @@ void DebugOverlay::Draw(const DebugStatus& status)
     ImGui::Begin("DeepRun Engine", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
     ImGui::Text("FPS: %.1f", status.framesPerSecond);
     ImGui::Text("Frame time: %.2f ms", status.frameMilliseconds);
+    ImGui::Text("Elapsed: %.2f s", status.elapsedSeconds);
+    ImGui::Text("Frame: %llu", static_cast<unsigned long long>(status.frameIndex));
+    ImGui::Text("Entities: %zu", status.entityCount);
+    ImGui::Text("Resources: %zu", status.resourceCount);
     ImGui::Separator();
     ImGui::Text("Renderer: %s", status.rendererReady ? "OK" : "ERROR");
     ImGui::Text("Physics: %s", status.physicsReady ? "OK" : "ERROR");

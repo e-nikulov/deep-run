@@ -439,6 +439,12 @@ JobSystem
 Diagnostics
 ```
 
+Для Milestone 1 `Engine` владеет только уже требуемыми runtime services: `PhysicsWorld`, `AudioEngine`,
+`InputSystem`, `AssetManager`, active `Scene`, renderer и diagnostics. `JobSystem`, `EventBus`, UUID и
+другие перечисленные расширения создаются только тогда, когда их потребует текущая gameplay-механика.
+`Application` только разбирает process options и управляет явными фазами `Initialize`, `Update`,
+`Render`, shutdown request и `Shutdown`.
+
 ---
 
 # 7. Main Loop
@@ -480,6 +486,9 @@ Render()
 ```text
 60 Hz
 ```
+
+Milestone 1 хранит accumulator policy в testable `FixedStepAccumulator`; `Engine` использует этот же
+utility и передаёт в `PhysicsWorld` только fixed step, а не variable frame delta.
 
 Используется для:
 
@@ -697,6 +706,13 @@ AssetHandle<AudioClip> LoadAudio(path);
 
 Asset lifetime должен управляться централизованно.
 
+В Milestone 1 runtime asset core поддерживает нормализованные относительные идентификаторы,
+root-relative resolution, централизованный cache и загрузку текстовых definitions. Typed loaders для
+mesh, texture и audio добавляются вместе с потребляющими их milestones; production cooker здесь не нужен.
+`AssetManager` является единственным runtime owner. Caller получает typed `AssetHandle<T>` без shared
+ownership; после `Clear()` handle становится invalid. Logical `AssetId` сохраняет регистр, нормализует
+separators и safe `.` segments, запрещает `..` escape и не содержит absolute machine path.
+
 ---
 
 # 14. Content formats
@@ -752,6 +768,14 @@ Tag
 ```
 
 Gameplay components должны жить в `Game/`, а не `Engine/`.
+
+Milestone 1 создаёт только `Transform` и `Tag`: остальные generic components появляются вместе с
+соответствующими renderer, physics и audio features. Registry реализован через EnTT и скрыт за API
+`Scene`. Entity handle принадлежит создавшей его `Scene` и не может использоваться с другой Scene.
+World space является right-handed: +X вправо, +Y вверх, +Z направлен к камере. Default side-view camera
+смотрит вдоль -Z в сцену; primary 2.5D gameplay plane — XY. Z используется для render depth, layering,
+particles, camera distance, 3D effects и будущего spatial presentation. `Transform` содержит position,
+quaternion rotation и scale.
 
 ---
 
@@ -2120,6 +2144,10 @@ Content/Ships/asw_destroyer.acoustic.json
 Config/engine.json
 ```
 
+Configuration loader обязан проверять типы и диапазоны значений, возвращать путь и полезное описание
+ошибки и не зависеть от machine-specific absolute paths. Milestone 1 загружает только уже используемые
+`renderer` и `physics` sections; gameplay balancing и acoustics config добавляются позже.
+
 Пример:
 
 ```json
@@ -2521,7 +2549,26 @@ headless mode работает
 
 ---
 
-# 89. Milestone 1 — Physical Playground
+# 89. Milestone 1 — Core Engine
+
+Должно работать:
+
+```text
+explicit lifecycle
+frame state
+Scene and entity foundation
+Transform and Tag
+runtime asset identity and cache
+validated JSON configuration
+engine input state
+headless core tests
+```
+
+Submarine gameplay и physical playground в этот milestone не входят.
+
+---
+
+# 90. Milestone 2 — Physical Playground
 
 Должно работать:
 
@@ -2541,7 +2588,7 @@ controller
 
 ---
 
-# 90. Milestone 2 — Underwater Environment
+# 91. Milestone 3 — Underwater Environment
 
 Добавить:
 
@@ -2556,7 +2603,7 @@ basic ship buoyancy
 
 ---
 
-# 91. Milestone 3 — Acoustic Playground
+# 92. Milestone 4 — Acoustic Playground
 
 Добавить:
 
@@ -2574,7 +2621,7 @@ Acoustic Debugger
 
 ---
 
-# 92. Milestone 4 — Combat Playground
+# 93. Milestone 5 — Combat Playground
 
 Добавить:
 
@@ -2589,7 +2636,7 @@ damage
 
 ---
 
-# 93. Milestone 5 — Submarine Systems
+# 94. Milestone 6 — Submarine Systems
 
 Добавить:
 
@@ -2607,7 +2654,7 @@ repair
 
 ---
 
-# 94. Milestone 6 — Cascading Failure Scenario
+# 95. Milestone 7 — Cascading Failure Scenario
 
 Первый главный gameplay test:
 
@@ -2635,7 +2682,7 @@ escape
 
 ---
 
-# 95. Milestone 7 — Roguelite
+# 96. Milestone 8 — Roguelite
 
 Только теперь добавить:
 
@@ -2653,7 +2700,7 @@ new run
 
 ---
 
-# 96. Milestone 8 — Advanced Warfare
+# 97. Milestone 9 — Advanced Warfare
 
 После доказанного core gameplay:
 
@@ -2670,7 +2717,7 @@ group AI
 
 ---
 
-# 97. Критерий успеха движка
+# 98. Критерий успеха движка
 
 DeepRun Engine считается удачным не тогда, когда:
 
@@ -2700,7 +2747,7 @@ DeepRun Engine считается удачным не тогда, когда:
 
 ---
 
-# 98. Главный архитектурный принцип
+# 99. Главный архитектурный принцип
 
 Мы пишем не:
 
@@ -2716,7 +2763,7 @@ DeepRun Engine считается удачным не тогда, когда:
 
 ---
 
-# 99. Итоговая технологическая схема
+# 100. Итоговая технологическая схема
 
 ```text
                          DEEP RUN
@@ -2746,7 +2793,7 @@ DeepRun Engine считается удачным не тогда, когда:
 
 ---
 
-# 100. Самое важное правило для Codex
+# 101. Самое важное правило для Codex
 
 При реализации любой подсистемы Codex обязан сначала ответить на вопрос:
 

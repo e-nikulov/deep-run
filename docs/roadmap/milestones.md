@@ -2,11 +2,11 @@
 
 Status: Active
 
-## Current milestone
+## Completed milestone
 
 Milestone 0 - Engine Bootstrap
 
-Status: NOT STARTED
+Status: COMPLETE
 
 ## Milestone 0 goal
 
@@ -219,7 +219,80 @@ Do not implement:
 
 Do not create placeholder implementations for these systems.
 
-## Milestone 1
+## Current milestone
+
+Milestone 1 - Core Engine
+
+Status: COMPLETE
+
+## Milestone 1 goal
+
+Turn the M0 bootstrap into a modular, reusable engine core while preserving all M0 runtime behavior.
+
+M1 is infrastructure only. It must remain headless-capable and contain no submarine-specific gameplay.
+
+## Milestone 1 scope
+
+### Lifecycle and frame state
+
+- explicit engine initialization, update, render, shutdown, and shutdown-request phases
+- deterministic subsystem ownership and cleanup
+- frame delta time, elapsed time, and frame index
+- configurable fixed physics step
+- thin application entry point
+
+### Scene and transform
+
+- lightweight EnTT registry hidden behind the DeepRun Scene API
+- generation-safe entity creation, destruction, validity, iteration, and cleanup
+- generic Transform and Tag components
+- right-handed world coordinates with +X right, +Y up, +Z toward the camera, and XY as the 2.5D plane
+
+### Assets and configuration
+
+- normalized relative asset identifiers
+- root-relative path resolution
+- centralized resource ownership and duplicate-load cache
+- predictable missing/invalid resource errors
+- validated JSON engine configuration without machine-specific paths
+
+### Input and diagnostics
+
+- frame-stable engine input state for actions, mouse, and gamepad
+- disconnected controller as a valid state
+- M1 frame, scene, and resource diagnostics
+
+### Tests and compatibility
+
+- headless tests for lifecycle, timing, scene/entity, transforms, resources, configuration, and input state
+- preserve Debug and Release builds
+- preserve `--headless` and `--smoke-test`
+- preserve D3D12, resize, ImGui, Jolt, miniaudio, keyboard/mouse, XInput, and clean shutdown
+
+## Milestone 1 completion criteria
+
+M1 is complete only when:
+
+- Debug and Release configure and build succeed
+- Debug and Release CTest pass
+- Debug and Release headless runs return exit code 0
+- Debug and Release windowed smoke runs return exit code 0
+- automated smoke runs exercise D3D12 presentation, resize, and clean shutdown
+- no submarine gameplay or future rendering systems have been added
+
+## Explicitly forbidden during Milestone 1
+
+Do not implement:
+
+- submarine movement or physics
+- buoyancy, hydrodynamic drag, propulsion, or control surfaces
+- ocean, waves, or underwater effects
+- sonar or acoustic simulation
+- weapons, damage, flooding, crew, AI, missions, or roguelite systems
+- production asset pipeline, Blender integration, or complete glTF loading
+- final game UI, networking, or Xbox GDK
+
+## Milestone 2
 
 Physical Playground
 
@@ -233,9 +306,9 @@ Future work:
 - side-view camera
 - basic water plane
 
-Do not start until Milestone 0 is complete.
+Do not start until Milestone 1 is complete.
 
-## Milestone 2
+## Milestone 3
 
 Underwater Environment
 
@@ -247,7 +320,7 @@ Future work:
 - Gerstner ocean
 - floating body wave response
 
-## Milestone 3
+## Milestone 4
 
 Acoustic Playground
 
@@ -262,7 +335,7 @@ Future work:
 - thermocline
 - cavitation signature
 
-## Milestone 4
+## Milestone 5
 
 Combat Playground
 
@@ -275,7 +348,7 @@ Future work:
 - explosions
 - basic damage
 
-## Milestone 5
+## Milestone 6
 
 Submarine Systems
 
@@ -291,7 +364,7 @@ Future work:
 - repairs
 - lighting failures
 
-## Milestone 6
+## Milestone 7
 
 Cascading Failure Scenario
 
@@ -299,7 +372,7 @@ Future goal:
 
 Create the first complete systemic emergency sequence involving detection, attack, damage, flooding, power loss, crew reassignment, damage control, and escape.
 
-## Milestone 7
+## Milestone 8
 
 Roguelite Layer
 
@@ -313,7 +386,7 @@ Future work:
 - upgrades
 - run summary
 
-## Milestone 8
+## Milestone 9
 
 Advanced Warfare
 

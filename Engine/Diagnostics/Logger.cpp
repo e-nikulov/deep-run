@@ -16,6 +16,7 @@ constexpr std::string_view ToString(const LogCategory category)
     case LogCategory::Physics: return "Physics";
     case LogCategory::Audio: return "Audio";
     case LogCategory::Input: return "Input";
+    case LogCategory::Assets: return "Assets";
     }
     return "Unknown";
 }

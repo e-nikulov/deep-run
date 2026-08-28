@@ -59,7 +59,11 @@ public:
         Shutdown();
     }
 
-    bool Initialize(void* nativeHandle, const std::uint32_t requestedWidth, const std::uint32_t requestedHeight)
+    bool Initialize(
+        void* nativeHandle,
+        const std::uint32_t requestedWidth,
+        const std::uint32_t requestedHeight,
+        const bool requestedVsync)
     {
         try
         {
@@ -127,6 +131,7 @@ public:
 
             width = requestedWidth;
             height = requestedHeight;
+            vsync = requestedVsync;
             CreateSwapChain(static_cast<HWND>(nativeHandle));
             CreateRenderTargets();
 
@@ -322,7 +327,7 @@ public:
 
         ID3D12CommandList* lists[] = {commandList.Get()};
         commandQueue->ExecuteCommandLists(1, lists);
-        ThrowIfFailed(swapChain->Present(1, 0), "Present");
+        ThrowIfFailed(swapChain->Present(vsync ? 1U : 0U, 0), "Present");
 
         const std::uint64_t signalValue = nextFenceValue++;
         ThrowIfFailed(commandQueue->Signal(fence.Get(), signalValue), "Signal frame fence");
@@ -377,6 +382,7 @@ public:
     std::uint32_t height = 0;
     UINT rtvIncrement = 0;
     bool initialized = false;
+    bool vsync = true;
 };
 
 D3D12Renderer::D3D12Renderer(Diagnostics::Logger& logger)
@@ -386,14 +392,23 @@ D3D12Renderer::D3D12Renderer(Diagnostics::Logger& logger)
 
 D3D12Renderer::~D3D12Renderer() = default;
 
-bool D3D12Renderer::Initialize(void* windowHandle, const std::uint32_t width, const std::uint32_t height)
+bool D3D12Renderer::Initialize(
+    void* windowHandle,
+    const std::uint32_t width,
+    const std::uint32_t height,
+    const bool vsync)
 {
-    return impl_->Initialize(windowHandle, width, height);
+    return impl_->Initialize(windowHandle, width, height, vsync);
 }
 
 void D3D12Renderer::Resize(const std::uint32_t width, const std::uint32_t height)
 {
     impl_->Resize(width, height);
+}
+
+void D3D12Renderer::WaitForIdle()
+{
+    impl_->FlushGpu();
 }
 
 void D3D12Renderer::BeginFrame()

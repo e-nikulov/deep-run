@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
 struct ID3D12GraphicsCommandList;
@@ -22,6 +24,10 @@ struct DebugStatus
 {
     double framesPerSecond = 0.0;
     double frameMilliseconds = 0.0;
+    double elapsedSeconds = 0.0;
+    std::uint64_t frameIndex = 0;
+    std::size_t entityCount = 0;
+    std::size_t resourceCount = 0;
     bool rendererReady = false;
     bool physicsReady = false;
     bool audioReady = false;

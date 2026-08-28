@@ -5,10 +5,20 @@
 #include <Windows.h>
 #include <Xinput.h>
 
-#include <algorithm>
+#include <limits>
 
 namespace DeepRun::Input
 {
+namespace
+{
+float NormalizeStick(const short value) noexcept
+{
+    constexpr float PositiveScale = 1.0F / 32'767.0F;
+    constexpr float NegativeScale = 1.0F / 32'768.0F;
+    return static_cast<float>(value) * (value >= 0 ? PositiveScale : NegativeScale);
+}
+}
+
 InputSystem::InputSystem(Diagnostics::Logger& logger)
     : logger_(logger)
 {
@@ -23,7 +33,7 @@ InputSystem::~InputSystem()
 
 void InputSystem::BeginFrame()
 {
-    std::ranges::fill(pressed_, false);
+    state_.BeginFrame();
 }
 
 void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> events)
@@ -34,23 +44,34 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
         {
             if (event.key == Platform::Key::Escape)
             {
-                pressed_[static_cast<std::size_t>(InputAction::Quit)] = true;
+                state_.SetActionDown(InputAction::Quit, true);
             }
             else if (event.key == Platform::Key::F1)
             {
-                pressed_[static_cast<std::size_t>(InputAction::ToggleDebugUi)] = true;
+                state_.SetActionDown(InputAction::ToggleDebugUi, true);
+            }
+        }
+        else if (event.type == Platform::WindowEventType::KeyUp)
+        {
+            if (event.key == Platform::Key::Escape)
+            {
+                state_.SetActionDown(InputAction::Quit, false);
+            }
+            else if (event.key == Platform::Key::F1)
+            {
+                state_.SetActionDown(InputAction::ToggleDebugUi, false);
             }
         }
         else if (event.type == Platform::WindowEventType::MouseMove)
         {
-            mouseX_ = event.mouseX;
-            mouseY_ = event.mouseY;
+            state_.SetMousePosition(event.mouseX, event.mouseY);
         }
         else if (event.type == Platform::WindowEventType::MouseButtonDown ||
                  event.type == Platform::WindowEventType::MouseButtonUp)
         {
-            mouseButtons_[static_cast<std::size_t>(event.mouseButton)] =
-                event.type == Platform::WindowEventType::MouseButtonDown;
+            state_.SetMouseButtonDown(
+                static_cast<std::size_t>(event.mouseButton),
+                event.type == Platform::WindowEventType::MouseButtonDown);
         }
     }
 }
@@ -59,6 +80,20 @@ void InputSystem::UpdateController()
 {
     XINPUT_STATE state{};
     const bool connected = XInputGetState(0, &state) == ERROR_SUCCESS;
+    GamepadState gamepad;
+    gamepad.connected = connected;
+    if (connected)
+    {
+        constexpr float TriggerScale = 1.0F / static_cast<float>(std::numeric_limits<unsigned char>::max());
+        gamepad.leftX = NormalizeStick(state.Gamepad.sThumbLX);
+        gamepad.leftY = NormalizeStick(state.Gamepad.sThumbLY);
+        gamepad.rightX = NormalizeStick(state.Gamepad.sThumbRX);
+        gamepad.rightY = NormalizeStick(state.Gamepad.sThumbRY);
+        gamepad.leftTrigger = static_cast<float>(state.Gamepad.bLeftTrigger) * TriggerScale;
+        gamepad.rightTrigger = static_cast<float>(state.Gamepad.bRightTrigger) * TriggerScale;
+        gamepad.buttons = state.Gamepad.wButtons;
+    }
+    state_.SetGamepad(gamepad);
     if (!controllerStateKnown_ || connected != controllerConnected_)
     {
         logger_.Info(
@@ -71,7 +106,7 @@ void InputSystem::UpdateController()
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept
 {
-    return pressed_[static_cast<std::size_t>(action)];
+    return state_.WasPressed(action);
 }
 
 bool InputSystem::IsControllerConnected() const noexcept
@@ -81,16 +116,21 @@ bool InputSystem::IsControllerConnected() const noexcept
 
 bool InputSystem::IsMouseButtonDown(const Platform::MouseButton button) const noexcept
 {
-    return mouseButtons_[static_cast<std::size_t>(button)];
+    return state_.IsMouseButtonDown(static_cast<std::size_t>(button));
 }
 
 int InputSystem::MouseX() const noexcept
 {
-    return mouseX_;
+    return state_.MouseX();
 }
 
 int InputSystem::MouseY() const noexcept
 {
-    return mouseY_;
+    return state_.MouseY();
+}
+
+const InputState& InputSystem::State() const noexcept
+{
+    return state_;
 }
 }

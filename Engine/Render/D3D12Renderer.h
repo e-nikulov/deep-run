@@ -22,8 +22,9 @@ public:
     D3D12Renderer(const D3D12Renderer&) = delete;
     D3D12Renderer& operator=(const D3D12Renderer&) = delete;
 
-    [[nodiscard]] bool Initialize(void* windowHandle, std::uint32_t width, std::uint32_t height);
+    [[nodiscard]] bool Initialize(void* windowHandle, std::uint32_t width, std::uint32_t height, bool vsync);
     void Resize(std::uint32_t width, std::uint32_t height);
+    void WaitForIdle();
     void BeginFrame();
     void EndFrame();
 

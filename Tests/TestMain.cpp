@@ -1,12 +1,24 @@
 #include "Engine/Audio/AudioEngine.h"
+#include "Engine/Assets/AssetManager.h"
 #include "Engine/Core/CoreServices.h"
+#include "Engine/Core/Engine.h"
+#include "Engine/Core/EngineConfig.h"
+#include "Engine/Core/FixedStepAccumulator.h"
 #include "Engine/Core/Random.h"
+#include "Engine/Core/Time.h"
 #include "Engine/Diagnostics/Logger.h"
+#include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
+#include "Engine/Scene/Scene.h"
 
+#include <chrono>
+#include <cmath>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -15,11 +27,265 @@ namespace
 {
 using Test = std::pair<std::string_view, std::function<bool()>>;
 
+class TemporaryDirectory final
+{
+public:
+    TemporaryDirectory()
+    {
+        const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+        path_ = std::filesystem::temp_directory_path() / ("DeepRunM1Tests-" + std::to_string(suffix));
+        std::filesystem::create_directories(path_);
+    }
+
+    ~TemporaryDirectory()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    [[nodiscard]] const std::filesystem::path& Path() const noexcept
+    {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_;
+};
+
+void WriteFile(const std::filesystem::path& path, const std::string_view contents)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary);
+    output << contents;
+}
+
 bool CoreStartupShutdown()
 {
     DeepRun::Core::CoreServices core;
     core.Log().Info(DeepRun::Diagnostics::LogCategory::Core, "Core lifecycle test active");
     return true;
+}
+
+bool FrameLifecycle()
+{
+    DeepRun::Core::FrameTimer timer;
+    timer.Reset();
+    timer.Advance(0.01);
+    timer.Advance(0.50);
+    return timer.FrameIndex() == 2 && std::abs(timer.DeltaSeconds() - 0.25) < 0.0001 &&
+           std::abs(timer.ElapsedSeconds() - 0.26) < 0.0001;
+}
+
+bool FrameRebasePreservesState()
+{
+    DeepRun::Core::FrameTimer timer;
+    timer.Reset();
+    timer.Advance(0.01);
+    timer.Advance(0.02);
+
+    const std::uint64_t frameIndex = timer.FrameIndex();
+    const double elapsedSeconds = timer.ElapsedSeconds();
+    timer.Rebase();
+
+    return timer.FrameIndex() == frameIndex &&
+           std::abs(timer.ElapsedSeconds() - elapsedSeconds) < 0.0001 &&
+           timer.DeltaSeconds() == 0.0;
+}
+
+bool FixedStepScheduling()
+{
+    constexpr double FixedStep = 1.0 / 60.0;
+    DeepRun::Core::FixedStepAccumulator accumulator(FixedStep);
+    if (accumulator.Accumulate(1.0 / 120.0) != 0 || accumulator.Accumulate(1.0 / 120.0) != 1)
+    {
+        return false;
+    }
+
+    accumulator.Reset();
+    return accumulator.Accumulate(1.0 / 30.0) == 2 &&
+           std::abs(accumulator.RemainingSeconds()) < FixedStep * 1.0e-8;
+}
+
+bool EngineHeadlessLifecycle()
+{
+    TemporaryDirectory temporary;
+    const std::filesystem::path configPath = temporary.Path() / "engine.json";
+    WriteFile(
+        configPath,
+        R"({"renderer":{"vsync":true,"width":800,"height":600},"physics":{"fixedHz":60}})");
+    WriteFile(temporary.Path() / "Content" / "lifetime.txt", "manager owned");
+
+    DeepRun::Core::Engine engine({
+        .headless = true,
+        .configPath = configPath,
+        .contentRoot = temporary.Path() / "Content"});
+    if (!engine.Initialize() || engine.Lifecycle() != DeepRun::Core::EngineLifecycle::Running)
+    {
+        return false;
+    }
+    const DeepRun::Scene::Entity entity = engine.ActiveScene().CreateEntity("shutdown-order");
+    const auto assetResult = engine.Assets().LoadText("lifetime.txt");
+    if (!engine.ActiveScene().IsValid(entity) || !assetResult || !assetResult->IsValid())
+    {
+        return false;
+    }
+    const DeepRun::Assets::AssetHandle<DeepRun::Assets::TextAsset> asset = *assetResult;
+    if (engine.Update() || engine.Lifecycle() != DeepRun::Core::EngineLifecycle::ShutdownRequested ||
+        engine.CurrentFrame().frameIndex != 1 || engine.ExitCode() != 0)
+    {
+        return false;
+    }
+    engine.Shutdown();
+    return engine.Lifecycle() == DeepRun::Core::EngineLifecycle::Stopped &&
+           engine.ActiveScene().EntityCount() == 0 && engine.Assets().CachedResourceCount() == 0 &&
+           !asset.IsValid();
+}
+
+bool SceneEntityLifecycle()
+{
+    struct Counter final
+    {
+        int value = 0;
+    };
+
+    DeepRun::Scene::Scene scene;
+    const DeepRun::Scene::Entity first = scene.CreateEntity("first");
+    const DeepRun::Scene::Entity second = scene.CreateEntity();
+    if (!scene.IsValid(first) || !scene.IsValid(second) || scene.EntityCount() != 2 ||
+        !scene.Has<DeepRun::Scene::Transform>(first) || !scene.Has<DeepRun::Scene::Tag>(first))
+    {
+        return false;
+    }
+
+    scene.Get<DeepRun::Scene::Transform>(first).position = {3.0F, 4.0F, 5.0F};
+    scene.Add<Counter>(first, 7);
+    scene.Add<Counter>(second, 11);
+    int total = 0;
+    scene.Each<Counter>([&total](DeepRun::Scene::Entity, Counter& counter) { total += counter.value; });
+    if (total != 18 || scene.Get<DeepRun::Scene::Transform>(first).position != DeepRun::Scene::Float3{3.0F, 4.0F, 5.0F})
+    {
+        return false;
+    }
+
+    scene.DestroyEntity(first);
+    if (scene.IsValid(first) || scene.EntityCount() != 1)
+    {
+        return false;
+    }
+    const DeepRun::Scene::Entity replacement = scene.CreateEntity("replacement");
+    if (!scene.IsValid(replacement) || scene.IsValid(first) || replacement == first)
+    {
+        return false;
+    }
+    scene.DestroyEntity(first);
+    scene.Clear();
+    return !scene.IsValid(second) && !scene.IsValid(replacement) && scene.EntityCount() == 0;
+}
+
+bool ResourceIdentityAndCache()
+{
+    TemporaryDirectory temporary;
+    WriteFile(temporary.Path() / "Definitions" / "example.json", "resource payload");
+
+    DeepRun::Assets::AssetManager assets(temporary.Path());
+    const auto first = assets.LoadText("Definitions/example.json");
+    const auto duplicate = assets.LoadText("Definitions/./example.json");
+    const auto missing = assets.LoadText("missing.json");
+    const auto traversal = assets.LoadText("../outside.json");
+    if (!first || !duplicate || !first->IsValid() || !duplicate->IsValid() || *first != *duplicate ||
+        first->Get() != duplicate->Get() || first->Get()->text != "resource payload" ||
+        assets.CachedResourceCount() != 1 || missing || traversal ||
+        missing.error().code != DeepRun::Assets::AssetErrorCode::NotFound ||
+        traversal.error().code != DeepRun::Assets::AssetErrorCode::InvalidPath)
+    {
+        return false;
+    }
+
+    assets.Clear();
+    if (assets.CachedResourceCount() != 0 || first->IsValid() || first->Get() != nullptr)
+    {
+        return false;
+    }
+
+    DeepRun::Assets::AssetHandle<DeepRun::Assets::TextAsset> managerLifetime;
+    {
+        DeepRun::Assets::AssetManager scopedAssets(temporary.Path());
+        const auto loaded = scopedAssets.LoadText("Definitions/example.json");
+        if (!loaded || !loaded->IsValid())
+        {
+            return false;
+        }
+        managerLifetime = *loaded;
+    }
+    return !managerLifetime.IsValid() && managerLifetime.Get() == nullptr;
+}
+
+bool AssetPathNormalization()
+{
+    const auto normalized = DeepRun::Assets::AssetId::FromPath("Definitions/./MixedCase.JSON");
+    const auto differentCase = DeepRun::Assets::AssetId::FromPath("Definitions/mixedcase.json");
+    const auto escaped = DeepRun::Assets::AssetId::FromPath("Definitions/../../outside.json");
+    return normalized && normalized->Value() == "Definitions/MixedCase.JSON" && differentCase &&
+           normalized->Value() != differentCase->Value() && !escaped;
+}
+
+bool ConfigurationLoading()
+{
+    TemporaryDirectory temporary;
+    const std::filesystem::path validPath = temporary.Path() / "valid.json";
+    const std::filesystem::path malformedPath = temporary.Path() / "malformed.json";
+    const std::filesystem::path invalidPath = temporary.Path() / "invalid.json";
+    const std::filesystem::path wrongTypePath = temporary.Path() / "wrong-type.json";
+    WriteFile(
+        validPath,
+        R"({"renderer":{"vsync":false,"width":1920,"height":1080},"physics":{"fixedHz":120}})");
+    WriteFile(malformedPath, R"({"renderer":)");
+    WriteFile(
+        invalidPath,
+        R"({"renderer":{"vsync":true,"width":0,"height":720},"physics":{"fixedHz":60}})");
+    WriteFile(
+        wrongTypePath,
+        R"({"renderer":{"vsync":"yes","width":1920,"height":1080},"physics":{"fixedHz":60}})");
+
+    const auto valid = DeepRun::Core::LoadEngineConfig(validPath);
+    const auto malformed = DeepRun::Core::LoadEngineConfig(malformedPath);
+    const auto invalid = DeepRun::Core::LoadEngineConfig(invalidPath);
+    const auto wrongType = DeepRun::Core::LoadEngineConfig(wrongTypePath);
+    const auto missing = DeepRun::Core::LoadEngineConfig(temporary.Path() / "missing.json");
+    return valid && valid->renderer.width == 1920 && valid->renderer.height == 1080 &&
+           !valid->renderer.vsync && valid->physics.fixedHz == 120 && !malformed &&
+           malformed.error().code == DeepRun::Core::ConfigErrorCode::InvalidJson && !invalid && !wrongType &&
+           wrongType.error().code == DeepRun::Core::ConfigErrorCode::InvalidValue &&
+           wrongType.error().message.find("renderer.vsync") != std::string::npos && !missing &&
+           missing.error().code == DeepRun::Core::ConfigErrorCode::FileNotFound;
+}
+
+bool InputStateTransitions()
+{
+    DeepRun::Input::InputState input;
+    if (input.Gamepad().connected)
+    {
+        return false;
+    }
+
+    input.SetActionDown(DeepRun::Input::InputAction::Quit, true);
+    input.SetMousePosition(12, 34);
+    input.SetMouseButtonDown(0, true);
+    if (!input.IsDown(DeepRun::Input::InputAction::Quit) ||
+        !input.WasPressed(DeepRun::Input::InputAction::Quit) || input.MouseX() != 12 || input.MouseY() != 34 ||
+        !input.IsMouseButtonDown(0))
+    {
+        return false;
+    }
+
+    input.BeginFrame();
+    if (!input.IsDown(DeepRun::Input::InputAction::Quit) || input.WasPressed(DeepRun::Input::InputAction::Quit))
+    {
+        return false;
+    }
+    input.SetActionDown(DeepRun::Input::InputAction::Quit, false);
+    return !input.IsDown(DeepRun::Input::InputAction::Quit) &&
+           input.WasReleased(DeepRun::Input::InputAction::Quit);
 }
 
 bool DeterministicRandom()
@@ -67,6 +333,15 @@ int main()
 {
     const std::vector<Test> tests{
         {"Core startup/shutdown", CoreStartupShutdown},
+        {"Frame lifecycle", FrameLifecycle},
+        {"Frame rebase preserves state", FrameRebasePreservesState},
+        {"Fixed-step scheduling", FixedStepScheduling},
+        {"Headless engine lifecycle", EngineHeadlessLifecycle},
+        {"Scene entity lifecycle", SceneEntityLifecycle},
+        {"Resource identity and cache", ResourceIdentityAndCache},
+        {"Asset path normalization", AssetPathNormalization},
+        {"Configuration loading", ConfigurationLoading},
+        {"Input state transitions", InputStateTransitions},
         {"Deterministic random", DeterministicRandom},
         {"Jolt initialization", JoltInitialization},
         {"Rigid-body gravity", RigidBodySimulation},

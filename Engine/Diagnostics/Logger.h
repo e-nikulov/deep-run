@@ -13,6 +13,7 @@ enum class LogCategory
     Physics,
     Audio,
     Input,
+    Assets,
 };
 
 enum class LogLevel
