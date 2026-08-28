@@ -2986,3 +2986,131 @@ DeepRun Engine считается удачным не тогда, когда:
 ```
 
 DeepRun Engine должен быть специализированным игровым движком, а не попыткой создать новый Unreal Engine.
+
+<!-- BEGIN: acoustic-detection-engine-contract -->
+
+# 102. Acoustic, Detection and Signature Simulation
+
+## Canonical specifications
+
+Detailed acoustic and sonar behaviour is defined in:
+
+`docs/architecture/acoustics-spec.md`
+
+Persistent signatures, wake simulation, contacts, tracks and perception
+boundaries are defined in:
+
+`docs/architecture/simulation-spec.md`
+
+This section defines only engine-level ownership and integration boundaries.
+
+## Required simulation services
+
+The architecture SHALL support services conceptually equivalent to:
+
+- `AcousticWorld`;
+- `SignatureFieldWorld`;
+- `SensorWorld`;
+- `TrackManager`.
+
+Exact class names and file layout may evolve.
+
+Their responsibilities SHALL remain separated from presentation systems.
+
+## Perception pipeline
+
+The engine architecture SHALL preserve this information flow:
+
+Ground truth
+-> signatures
+-> propagation/environment
+-> sensor observations
+-> contacts
+-> tracks
+-> gameplay consumers.
+
+Normal UI, AI and weapon systems MUST NOT receive perfect hostile entity state
+when only imperfect sensor knowledge is available.
+
+## Jolt boundary
+
+Jolt remains authoritative for:
+
+- rigid-body simulation;
+- physical collisions;
+- collision geometry;
+- ray and shape queries.
+
+Simulation systems MAY query Jolt for coarse environmental information.
+
+Jolt does NOT own:
+
+- acoustic propagation;
+- sonar;
+- acoustic reflections;
+- reverberation;
+- contacts;
+- target tracks;
+- hydrodynamic wake simulation.
+
+Physical events MAY generate acoustic or persistent-signature events.
+
+## miniaudio boundary
+
+miniaudio remains authoritative for runtime audio playback.
+
+It does NOT determine gameplay:
+
+- propagation;
+- detection;
+- contact state;
+- classification;
+- AI knowledge;
+- track state.
+
+Gameplay acoustics MUST remain functional even when audio output is disabled
+or unavailable.
+
+## Deterministic simulation time
+
+Acoustic events, propagation arrivals, wake ageing, sensor observations and
+track updates SHALL use simulation-owned time.
+
+Presentation timing MUST NOT be authoritative.
+
+## Symmetric knowledge
+
+Player and AI vessels SHALL participate in the same signature, observation
+and track architecture.
+
+Differences in capability SHOULD arise through authored:
+
+- sensor quality;
+- platform characteristics;
+- environmental state;
+- crew/AI skill;
+- difficulty tuning.
+
+They SHOULD NOT arise from hidden omniscient access to hostile ground truth.
+
+## Performance boundary
+
+The engine explicitly permits bounded approximations such as:
+
+- spatial partitioning;
+- coarse frequency bands;
+- scheduled acoustic events;
+- bounded propagation/reflection paths;
+- reverberation envelopes;
+- sparse wake trails;
+- fixed-rate sensor integration;
+- distance-based update reduction.
+
+The following are explicitly out of scope:
+
+- full ocean CFD;
+- physical particles representing each sound wave;
+- full numerical wave-equation simulation;
+- per-audio-sample gameplay acoustics.
+
+<!-- END: acoustic-detection-engine-contract -->
