@@ -1683,6 +1683,144 @@ Interact
 
 Не использовать физические кнопки непосредственно в gameplay.
 
+## Input architecture contract
+
+Gameplay и Simulation должны работать только с semantic actions и
+нормализованными analog axes.
+
+Они не должны зависеть от:
+
+```text
+Win32 virtual keys
+mouse button constants
+XInput button masks
+raw XInput stick values
+raw XInput trigger values
+```
+
+Основные поддерживаемые устройства:
+
+```text
+keyboard
+mouse
+Xbox-compatible controller
+```
+
+Xbox-compatible controller является reference control scheme.
+
+Keyboard + mouse должны предоставлять feature-equivalent gameplay control
+на PC.
+
+Canonical semantic gameplay inputs:
+
+```text
+Throttle
+Depth
+AimX
+AimY
+FireWeapon
+PrepareWeapon
+ActiveSonarPing
+SilentRunning
+DeployDecoy
+SelectContact
+Interact
+Cancel
+OpenTacticalView
+Pause
+```
+
+Canonical physical bindings определены в:
+
+```text
+docs/design/controls.md
+```
+
+Input layer отвечает за:
+
+```text
+device polling
+connection state
+disconnect handling
+stick normalization
+trigger normalization
+dead zones
+response curves
+mapping physical inputs to semantic actions
+```
+
+Ожидаемые normalized ranges:
+
+```text
+stick axis: -1.0 .. +1.0
+trigger:     0.0 .. 1.0
+```
+
+Submarine simulation не должна содержать XInput-specific input handling.
+
+Игрок задаёт vessel commands. Input не должен напрямую изменять submarine
+position или velocity.
+
+---
+
+## Haptics
+
+Gameplay генерирует semantic `HapticEvent`.
+
+Gameplay и Simulation не должны напрямую управлять gamepad motors.
+
+Архитектурный поток:
+
+```text
+Gameplay
+    -> HapticEvent
+    -> HapticSystem
+    -> gamepad output backend
+```
+
+Windows desktop backend может использовать XInput.
+
+`XInputGetState()` и `XInputSetState()` разрешены только внутри platform /
+input implementation.
+
+Haptic system должен поддерживать:
+
+```text
+low-frequency motor
+high-frequency motor
+effect duration
+priority
+mixing
+clamping
+master intensity
+global enable / disable
+safe device disconnect
+```
+
+Motor intensity нормализована в диапазон:
+
+```text
+0.0 .. 1.0
+```
+
+Haptics является presentation state и не должен влиять на:
+
+```text
+physics
+AI
+acoustic simulation
+random state
+save state
+simulation determinism
+headless execution
+```
+
+Semantic haptic events и reference vibration patterns определены в:
+
+```text
+docs/design/controls.md
+```
+
 ---
 
 # 53. UI Engine
@@ -1704,6 +1842,33 @@ Engine/UI/
 ```
 
 Обязательно поддержать controller-first navigation.
+
+Shipping UI должен быть полностью доступен без мыши.
+
+Baseline controller navigation:
+
+```text
+Left Stick / D-pad -> navigate
+A                  -> confirm / activate
+B                  -> cancel / back
+LB / RB            -> tabs / stations
+View               -> tactical overview where applicable
+Menu               -> pause
+```
+
+`FocusManager` и `UINavigation` должны обеспечивать предсказуемый focus
+между интерактивными элементами.
+
+Ни один production gameplay screen не должен требовать mouse input.
+
+Mouse является дополнительным PC interaction method, но не отдельной
+обязательной gameplay capability.
+
+Reference bindings:
+
+```text
+docs/design/controls.md
+```
 
 ---
 
@@ -2581,7 +2746,8 @@ buoyancy
 thrust
 depth
 drag
-controller
+controller-driven submarine commands
+basic gamepad haptics
 ```
 
 Игрок уже может плавать.
