@@ -309,6 +309,15 @@ Scope:
 - side-view camera
 - controller-driven submarine commands
 - basic gamepad haptics
+<!-- deeprun-m2-command-boundary:start -->
+
+Design boundary:
+
+- M2 proves physical vessel control only.
+- Do not add compartments, flooding management, power allocation, crew management, tactical pause, command queue, sonar combat, or production system-management UI.
+- M2 control code must remain compatible with the later command layer by using semantic vessel commands rather than direct transform manipulation.
+
+<!-- deeprun-m2-command-boundary:end -->
 
 ## Future milestones
 
@@ -321,11 +330,30 @@ Future work:
 - particles
 - Gerstner ocean
 - floating body wave response
+<!-- deeprun-m3-command-boundary:start -->
+
+Design boundary:
+
+- M3 is an environment/presentation milestone.
+- Do not pull future submarine-management systems forward merely to populate the environment.
+- Environment work may expose debug data needed by later acoustics, but does not introduce the commander command layer.
+
+<!-- deeprun-m3-command-boundary:end -->
 
 ### Milestone 4 - Acoustic Playground
 
 Milestone 4 remains a bounded playground for proving the first acoustic
 perception vertical slice.
+<!-- deeprun-m4-command-note:start -->
+
+Command-layer relevance:
+
+- M4 establishes the player-knowledge boundary: the player sees observations, contacts, tracks, uncertainty, and confidence rather than omniscient target truth.
+- A minimal read-only tactical presentation is allowed when needed to make the acoustic slice playable and debuggable.
+- Do not introduce power management, compartments, crew, tactical pause, or a generic command queue in M4.
+
+<!-- deeprun-m4-command-note:end -->
+
 
 #### Core
 
@@ -397,6 +425,20 @@ Future work:
 - mine
 - explosions
 - basic damage
+<!-- deeprun-m5-command-note:start -->
+
+Commander interaction added in M5:
+
+- weapon readiness / preparation state
+- targeting based on Contact / Track quality rather than omniscient truth
+- minimal combat command sequencing
+- tactical pause if combat playtesting shows it improves decision-making
+- minimal queued gameplay commands only if tactical pause requires them
+- combat UI sufficient to inspect track, weapon readiness, threat, and issued orders
+
+Do not turn M5 into the complete submarine-management milestone.
+
+<!-- deeprun-m5-command-note:end -->
 
 ### Milestone 6 - Submarine Systems
 
@@ -411,12 +453,58 @@ Future work:
 - crew
 - repairs
 - lighting failures
+<!-- deeprun-m6-command-note:start -->
+
+M6 is the main submarine command-layer milestone.
+
+Required systemic goals:
+
+- compartments and meaningful watertight boundaries
+- flooding coupled to vessel state at gameplay-relevant fidelity
+- pumps with power and acoustic consequences
+- reactor / available-power model at gameplay abstraction level
+- power prioritization / allocation
+- local system damage and loss of capability
+- crew represented primarily as teams / roles, not individual room-clicking sprites
+- damage-control assignments and repair
+- system state that is authoritative outside UI
+- controller-first systems / damage-control UI
+- cross-system consequences between power, noise, sonar, propulsion, flooding, weapons, and repair
+
+The goal is not maximum simulation detail. The goal is constrained commander decisions.
+
+<!-- deeprun-m6-command-note:end -->
 
 ### Milestone 7 - Cascading Failure Scenario
 
 Future goal:
 
 Create the first complete systemic emergency sequence involving detection, attack, damage, flooding, power loss, crew reassignment, damage control, and escape.
+<!-- deeprun-m7-command-note:start -->
+
+Acceptance intent:
+
+This milestone must prove that the systems create a decision chain rather than a scripted cutscene.
+
+A representative sequence is:
+
+```text
+uncertain hostile contact
+    -> detection / attack
+    -> torpedo hit
+    -> local breach
+    -> flooding
+    -> loss or shortage of power
+    -> pump / repair decision
+    -> increased acoustic exposure
+    -> crew reassignment
+    -> escape / continued fight decision
+```
+
+If the player can understand why each consequence happened and can choose between
+multiple costly responses, the core systemic gameplay is working.
+
+<!-- deeprun-m7-command-note:end -->
 
 ### Milestone 8 - Roguelite Layer
 
@@ -429,6 +517,23 @@ Future work:
 - rewards
 - upgrades
 - run summary
+<!-- deeprun-m8-command-note:start -->
+
+The roguelite layer must wrap the already-proven tactical/systemic loop.
+
+Route and encounter choices should create commander-level trade-offs such as:
+
+```text
+risk versus reward
+damage versus continuation
+repair versus upgrade
+information versus exposure
+mission objective versus survival
+```
+
+Do not use procedural structure to compensate for an unproven core encounter loop.
+
+<!-- deeprun-m8-command-note:end -->
 
 ### Milestone 9 - Advanced Warfare
 

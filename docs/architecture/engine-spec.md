@@ -292,6 +292,139 @@ Platform
 
 ---
 
+
+<!-- deeprun-command-layer-contract:start -->
+
+## Command-layer architecture contract
+
+DeepRun distinguishes direct vessel control from commander-level system
+commands.
+
+Direct vessel control is the Milestone 2 path:
+
+```text
+semantic input
+    -> vessel command state
+    -> marine simulation
+    -> submarine motion
+```
+
+Future commander-level interactions use discrete gameplay commands:
+
+```text
+Input / UI
+    -> semantic gameplay command
+    -> Game-owned command handling
+    -> authoritative submarine state
+    -> Simulation systems
+    -> presentation
+```
+
+Production UI must not directly mutate:
+
+```text
+submarine transform
+flooding state
+power allocation
+system damage
+crew assignment
+sonar truth
+weapon readiness
+```
+
+Authoritative gameplay state must remain independent of rendering and shipping
+UI and must be testable headlessly where practical.
+
+Examples of future commands include:
+
+```text
+SetPowerPriority
+SetSonarMode
+SelectContact
+PrepareTube
+LaunchWeapon
+SealBoundary
+StartPump
+AssignDamageControlTeam
+```
+
+These are gameplay concepts and must not become generic `Engine` abstractions
+without a concrete current milestone requiring them.
+
+In particular, do not create a generic engine command bus or scripting system
+during M2-M4 merely to prepare for future gameplay.
+
+### Tactical pause
+
+DeepRun may use real-time-with-pause for commander-level decisions.
+
+When tactical pause is introduced:
+
+```text
+gameplay fixed simulation = frozen
+physics / flooding / AI / acoustics / weapons = frozen
+UI navigation = active
+input navigation = active
+allowed gameplay orders may be queued
+```
+
+Queued commands must be applied deterministically when simulation resumes,
+preferably at fixed-step boundaries.
+
+Tactical pause is separate from presentation/settings menus and is not part of
+Milestone 2.
+
+### Player knowledge boundary
+
+The tactical UI must operate on player observations / contacts / tracks rather
+than omniscient world truth.
+
+```text
+world truth
+    -> acoustic / sensor simulation
+    -> observation
+    -> contact / track
+    -> player-facing tactical UI
+```
+
+This boundary is authoritative for sonar and future targeting gameplay.
+
+### Cross-system coupling
+
+The submarine command layer is intentionally systemic.
+
+Examples:
+
+```text
+more speed
+    -> movement benefit
+    -> more self-noise / possible cavitation
+    -> passive sensing penalty / detection risk
+
+pump activation
+    -> flooding benefit
+    -> power cost
+    -> possible acoustic cost
+
+damage
+    -> local equipment loss
+    -> flooding / power consequence
+    -> changed movement / sonar / weapon capability
+```
+
+Exact values are balancing data rather than engine constants.
+
+Detailed gameplay contracts are defined in:
+
+```text
+docs/design/submarine-command.md
+docs/design/game-loop.md
+docs/design/controls.md
+```
+
+<!-- deeprun-command-layer-contract:end -->
+
+---
 # 5. Структура repository
 
 ```text

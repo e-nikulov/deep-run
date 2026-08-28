@@ -163,7 +163,7 @@ View               -> tactical overview where applicable
 Menu               -> pause
 ```
 
-FTL-like crew, compartment, damage-control, sonar and submarine-system
+Crew, compartment, damage-control, sonar and submarine-system
 interfaces must expose predictable controller focus navigation.
 
 Mouse interaction on PC is an additional fast interaction method, not a
@@ -410,3 +410,112 @@ DeepRun is controller-first, not controller-only.
 Xbox-compatible controller defines the reference interaction model.
 
 Keyboard and mouse provide feature-equivalent control on PC.
+<!-- deeprun-command-controls:start -->
+
+---
+
+## 16. Direct control and command layer
+
+DeepRun has two interaction modes:
+
+```text
+direct vessel commands
+commander / systems commands
+```
+
+Direct vessel commands use the existing semantic controls such as:
+
+```text
+Throttle
+Depth
+AimX
+AimY
+```
+
+Future systems commands are discrete actions initiated through controller-first
+shipping UI.
+
+Examples:
+
+```text
+change power priority
+change sonar mode
+prepare weapon
+seal compartment boundary
+activate pump
+assign damage-control team
+```
+
+The UI issues gameplay commands. It does not directly write authoritative
+simulation state.
+
+---
+
+## 17. Tactical pause
+
+Future combat may introduce a semantic `TacticalPause` action.
+
+This must remain distinct from the existing general `Pause` / system-menu
+concept.
+
+`TacticalPause` is not required for Milestone 2 and no M2 binding must be
+changed merely to reserve a button for it.
+
+When implemented, tactical pause must:
+
+```text
+freeze gameplay simulation
+keep UI navigation active
+allow inspection of current known information
+allow only explicitly supported queued commands
+resume deterministically
+```
+
+Exact controller and keyboard bindings should be selected during the Milestone
+5 combat control pass.
+
+---
+
+## 18. Crew interaction
+
+Crew management is team / role oriented by default.
+
+The production control model must not require moving every individual crew
+member as an FTL-style room sprite.
+
+Controller interactions should operate on meaningful orders such as:
+
+```text
+assign damage-control team
+prioritize repair
+restore system
+cancel assignment
+```
+
+---
+
+## 19. Command-layer navigation
+
+Future systems screens must preserve the existing controller-first contract.
+
+Recommended navigation vocabulary:
+
+```text
+D-pad / Left Stick -> focus
+A                  -> confirm / issue
+B                  -> back / cancel
+LB / RB            -> stations / tabs
+View               -> tactical overview where applicable
+```
+
+Do not hard-code a final station layout before the corresponding gameplay
+milestone exists.
+
+Detailed command-layer behavior is defined in:
+
+```text
+docs/design/submarine-command.md
+docs/design/game-loop.md
+```
+
+<!-- deeprun-command-controls:end -->
