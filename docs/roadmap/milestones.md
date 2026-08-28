@@ -325,6 +325,53 @@ Design boundary:
 
 <!-- deeprun-m2-command-boundary:end -->
 
+<!-- deeprun-renderer-evolution-roadmap:start -->
+
+### Rendering evolution guardrail
+
+The modern renderer direction is architectural guidance, not an expansion of Milestone 2.
+
+M2 implements only the rendering work strictly required by `submarine mesh`:
+
+```text
+load the validated prototype GLB
+create engine-owned mesh data
+upload vertex/index buffers
+render the submarine through the classic indexed D3D12 path
+support the side-view camera required by M2
+```
+
+M2 explicitly does not require:
+
+```text
+mesh shaders
+meshlets
+GPU-driven culling
+ExecuteIndirect
+Hi-Z occlusion
+Render Graph
+DirectStorage
+virtual texturing
+ray tracing
+Work Graphs
+neural rendering
+production Asset Cooker
+```
+
+M2 data structures should avoid assumptions that would prevent later LOD/meshlet metadata,
+but unused future subsystems must not be implemented speculatively.
+
+M3 may introduce a small Render Graph when the environment pipeline has enough real passes
+to justify it.
+
+GPU-driven submission, meshlets and mesh shaders are later benchmark-gated renderer work.
+They should be introduced against representative content rather than assigned to an arbitrary
+milestone solely because the APIs exist.
+
+The renderer must preserve a compatibility indexed path while that path materially expands
+the supported PC hardware population at acceptable maintenance cost.
+
+<!-- deeprun-renderer-evolution-roadmap:end -->
 ## Future milestones
 
 ### Milestone 3 - Underwater Environment

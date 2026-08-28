@@ -794,6 +794,305 @@ Shaders/
 
 ---
 
+<!-- deeprun-rendering-2026:start -->
+
+## Modern rendering architecture contract — 2026 direction
+
+DeepRun remains a Direct3D 12-first engine. The renderer must adopt modern GPU-driven
+techniques incrementally, without making experimental APIs or one hardware generation
+a prerequisite for the whole game.
+
+### Stable-first toolchain
+
+Production code must use a pinned retail DirectX 12 Agility SDK and a matching retail DXC.
+
+Current reference as of 2026-08-28:
+
+```text
+DirectX 12 Agility SDK 1.619.x
+Shader Model 6.9 available in retail toolchain
+```
+
+This is a reference for dependency updates, not a requirement that every shader compile
+to Shader Model 6.9.
+
+Rules:
+
+```text
+retail/stable API      -> may become a production dependency
+preview API            -> experiments / prototypes only
+hardware-specific API  -> optional capability path only
+```
+
+Shader Model 6.10, preview Agility SDK branches, experimental neural rendering APIs and
+other preview-only features must not become required by shipping gameplay or content.
+
+Each shader pipeline should target only the minimum Shader Model required by that path.
+
+### Renderer capability model
+
+At D3D12 device initialization, build a `RenderCapabilities` snapshot from actual device,
+OS, Agility SDK and driver support.
+
+It should expose the capabilities needed by DeepRun, conceptually including:
+
+```text
+highest shader model
+mesh shader support / tier
+enhanced barriers support
+variable-rate shading support / tier
+sampler feedback support / tier
+raytracing support / tier
+work graphs support / tier
+```
+
+Feature selection must happen at renderer initialization or pass construction.
+Do not scatter vendor-name checks or per-draw hardware branching through gameplay code.
+
+### Geometry rendering tiers
+
+DeepRun uses one content representation with multiple rendering paths.
+
+```text
+source GLB
+    |
+    v
+validated mesh data
+    |
+    +--------------------------+
+    |                          |
+    v                          v
+classic indexed data      derived meshlet data
+    |                          |
+    v                          v
+CompatibilityPath         GPU-driven / MeshShader paths
+```
+
+#### CompatibilityPath
+
+Required first and retained as a fallback:
+
+```text
+indexed vertex/index buffers
+VS + PS
+instancing
+CPU frustum culling where sufficient
+ordinary indexed draw calls
+```
+
+Milestone 2 starts here.
+
+This path must remain capable of rendering gameplay even when mesh shaders are unavailable.
+
+#### GPUDrivenPath
+
+Introduce only after the basic renderer is proven and profiling shows CPU submission or
+visibility work is material:
+
+```text
+GPU instance visibility
+GPU LOD selection
+compute-generated draw arguments
+ExecuteIndirect
+Hi-Z / hierarchical depth occlusion when justified
+```
+
+This is the preferred bridge from the classic renderer to mesh shaders because it moves
+visibility and submission work to the GPU without requiring a second asset authoring workflow.
+
+#### MeshShaderPath
+
+On supported hardware, the modern geometry path may use:
+
+```text
+meshlets
+per-meshlet bounds
+normal-cone / backface-cone data where useful
+GPU frustum / occlusion / LOD decisions
+amplification shader where it produces measurable value
+mesh shader rasterization
+```
+
+Mesh shaders are an optimization path, not gameplay state and not an artist-authored feature.
+
+The game must never require a different Blender model merely because a different rendering
+path is active.
+
+### Meshlet and geometry processing policy
+
+Blender remains the source authoring tool and GLB remains the canonical interchange/runtime
+mesh input for the current milestones.
+
+Artists do not author meshlets.
+
+When a production Asset Cooker becomes justified, it may derive:
+
+```text
+optimized vertex/index ordering
+explicit LODs
+meshlets
+meshlet bounds / cull data
+material references
+streaming/page metadata
+runtime compression
+```
+
+from the same validated source mesh.
+
+For the first implementation, prefer Microsoft DirectXMesh as the offline geometry-processing
+candidate because it directly supports DirectX 12 meshlet generation and the future Xbox
+toolchain. Keep it out of gameplay and simulation dependencies.
+
+Do not introduce both DirectXMesh and another mesh optimization library unless a benchmark
+demonstrates a concrete missing capability or material size/performance win.
+
+### LOD policy
+
+DeepRun does not implement a Nanite clone.
+
+Use conventional LODs first:
+
+```text
+LOD0
+LOD1
+LOD2
+LOD3 / impostor where useful
+```
+
+Meshlets complement LODs; they do not remove the need for them in the initial renderer.
+
+Hierarchical virtualized geometry, cluster-page streaming and automatic pixel-scale geometry
+selection are deferred until real content demonstrates that ordinary LOD + meshlet culling is
+insufficient.
+
+### Render graph direction
+
+Milestone 2 does not require a Render Graph.
+
+When Milestone 3 introduces multiple dependent passes such as depth, lighting, fog, particles,
+ocean and post-processing, introduce a small DeepRun-specific Render Graph if it reduces
+barrier/resource-lifetime complexity.
+
+Its responsibilities may include:
+
+```text
+pass dependencies
+resource read/write declarations
+resource state transitions
+transient resource lifetimes
+pass culling
+graphics/compute queue synchronization
+debug visualization
+```
+
+It must not become a generic multi-API RHI.
+
+Enhanced Barriers may be used behind this layer when the device reports support. A legacy
+barrier path must remain available until the supported hardware baseline makes it unnecessary.
+
+### Material/resource binding direction
+
+Renderer-visible objects should refer to stable engine-owned material/resource handles rather
+than owning D3D12 descriptors directly.
+
+Large shader-visible descriptor heaps and direct descriptor-heap indexing may be used by paths
+whose Shader Model/device capabilities support them.
+
+Gameplay and Simulation never store raw descriptor indices.
+
+### Lighting path
+
+Milestone 2 uses the smallest forward-lit path needed to display the submarine correctly.
+
+For later underwater scenes, clustered/Forward+ light culling is the preferred first candidate
+if many local lights become necessary. Do not implement both full deferred and full Forward+
+renderers pre-emptively. Choose the shipping path from GPU captures of representative M3/M5
+scenes.
+
+### Texture policy
+
+Production texture preparation should happen offline where practical:
+
+```text
+mip chains generated offline
+DDS runtime textures
+BC7 for high-quality color where appropriate
+BC5 for two-channel normal data where appropriate
+BC4 / compact formats for scalar masks where appropriate
+```
+
+Virtual texturing / reserved-resource residency is not required until measured VRAM pressure
+or content scale justifies it.
+
+### Asset streaming
+
+Milestone 2 does not require DirectStorage.
+
+Once packaged cooked content and loading/streaming become material, DirectStorage may be
+introduced behind the Asset/IO boundary.
+
+Production dependencies must use a retail DirectStorage release. Preview compression or asset
+conditioning features must remain optional until they become retail and prove useful in a
+DeepRun content benchmark.
+
+### Shader and PSO stutter
+
+Known shipping shaders and pipeline state combinations should be prepared and cached
+predictably rather than compiled opportunistically during combat.
+
+Advanced Shader Delivery may be evaluated for Windows distribution once deployment work begins,
+but gameplay correctness must not depend on that service.
+
+### Optional / research-only rendering features
+
+The following are not baseline DeepRun requirements:
+
+```text
+Work Graphs
+Shader Model 6.10 preview features
+DirectX ML / neural rendering
+DXR / path tracing
+Shader Execution Reordering
+Opacity Micromaps
+Variable Rate Shading
+vendor-specific frame generation
+vendor-specific upscalers
+virtualized geometry / Nanite-equivalent system
+```
+
+They may be adopted only when all of the following are true:
+
+```text
+representative DeepRun workload exists
+profiling identifies a relevant bottleneck or visual opportunity
+supported hardware population is acceptable
+fallback behavior is defined
+measured gain is worth implementation and maintenance cost
+```
+
+Work Graphs in particular should be evaluated only after the simpler
+compute + ExecuteIndirect path exists; do not architect the renderer around Work Graphs in M2-M3.
+
+### GPU-driven does not mean simulation-driven by GPU
+
+The authoritative boundary remains:
+
+```text
+Simulation / gameplay state
+          |
+          v
+render snapshot / presentation data
+          |
+          v
+GPU visibility / LOD / rendering
+```
+
+GPU culling, meshlets and render graphs may decide what is drawn.
+They never decide submarine physics, damage, sonar truth, flooding, AI truth or gameplay state.
+
+<!-- deeprun-rendering-2026:end -->
+
+---
 # 12. Material system
 
 Минимальный material model:
@@ -852,6 +1151,10 @@ mesh, texture и audio добавляются вместе с потребляю
 ownership; после `Clear()` handle становится invalid. Logical `AssetId` сохраняет регистр, нормализует
 separators и safe `.` segments, запрещает `..` escape и не содержит absolute machine path.
 
+Runtime-ready asset files live in asset-specific subdirectories under `Engine/Assets/`; editable source
+assets live under `Content/`. C0 uses this split for the generated submarine prototype without adding a
+production cooker.
+
 ---
 
 # 14. Content formats
@@ -865,6 +1168,10 @@ Audio        .wav / .flac
 Shaders      .hlsl
 Definitions  .json
 ```
+
+For generated 3D content, `.blend` files under `Content/` are editable sources and binary `.glb` files
+under `Engine/Assets/` are runtime-ready outputs. The canonical generation and coordinate contract is
+defined in `docs/content/asset-pipeline.md`.
 
 В production позже можно добавить Asset Cooker:
 
@@ -2289,6 +2596,57 @@ rendering < 12 ms
 
 ---
 
+<!-- deeprun-performance-reference-2026:start -->
+
+## Development reference PC and performance gate
+
+In addition to the product baseline above, maintain a concrete development reference machine:
+
+```text
+CPU   Ryzen 5 5600X
+GPU   Radeon RX 6600 8 GB
+RAM   32 GB
+OS    Windows 11
+API   Direct3D 12
+```
+
+Reference quality target:
+
+```text
+2560x1440
+native resolution
+60 FPS
+no upscaler required to reach the target
+```
+
+The purpose of this machine is not to define the minimum customer requirement. It is a
+repeatable optimization gate for development.
+
+Rules:
+
+```text
+normal representative gameplay should retain GPU headroom
+stress scenes must be reproducible
+CPU and GPU timings must be captured separately
+track median, p95 and p99 frame time rather than average FPS only
+track draw/dispatch counts, visible triangles/meshlets and VRAM
+upscaling is an optional scalability feature, not a substitute for meeting the reference target
+```
+
+The existing Xbox Series S future baseline remains important and may become the stricter
+shipping constraint once GDK profiling is available.
+
+Do not publish final PC minimum/recommended specifications until a representative gameplay
+vertical slice and scalability presets exist.
+
+A future automated graphics benchmark should contain representative worst-case combinations
+of submarine geometry, enemies, torpedoes, mines, particles, underwater fog, ocean presentation,
+lighting and UI. It must report enough metrics to compare renderer changes and prevent silent
+performance regressions.
+
+<!-- deeprun-performance-reference-2026:end -->
+
+---
 # 68. Simulation update rates
 
 Начальные значения:
