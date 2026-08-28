@@ -2,6 +2,12 @@
 
 Status: Accepted baseline
 
+Specification: D1 — Controls & Handling
+
+The project-wide M/A/D/C taxonomy and specification registry are defined in
+`docs/README.md`. D1 is a design contract, not a milestone or an
+implementation-sequence position.
+
 This document defines the reference player-facing control scheme and
 controller haptic language for DeepRun.
 

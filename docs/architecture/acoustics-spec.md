@@ -2,6 +2,12 @@
 
 Status: Accepted architecture contract
 
+Specification: A1 — Simulation Boundary (specialized acoustics contract)
+
+The project-wide M/A/D/C taxonomy and specification registry are defined in
+`docs/README.md`. This document specializes A1; it does not introduce another
+sequence or reserve a new A-ID.
+
 This document is the canonical specification for gameplay-relevant underwater
 acoustics, sonar propagation, acoustic signatures and acoustic sensor
 observations.

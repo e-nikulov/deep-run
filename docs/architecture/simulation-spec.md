@@ -2,6 +2,12 @@
 
 Status: Accepted architecture contract
 
+Specification: A1 — Simulation Boundary
+
+The project-wide M/A/D/C taxonomy and specification registry are defined in
+`docs/README.md`. A1 is an architecture contract, not a milestone or an
+implementation-sequence position.
+
 This document is the canonical specification for perceived-world state,
 sensor observations, contacts, tracks, persistent signatures and hydrodynamic
 wake representation.

@@ -2,6 +2,12 @@
 
 Status: Active
 
+Documentation axis: M — Milestones
+
+The project-wide M/A/D/C taxonomy is defined in `docs/README.md`. M is the only
+mandatory sequential axis; A, D, and C specification numbers are independent
+and do not imply milestone order or matching numbers.
+
 ## Completed milestones
 
 ### Milestone 0 - Engine Bootstrap

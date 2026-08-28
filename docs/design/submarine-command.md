@@ -2,6 +2,12 @@
 
 Status: Accepted design direction
 
+Specification: D0 — Core Game Design / Game Loop (command-layer contract)
+
+The project-wide M/A/D/C taxonomy and specification registry are defined in
+`docs/README.md`. This document specializes D0; it does not introduce another
+sequence or reserve a new D-ID.
+
 This document defines the player-facing submarine command model for DeepRun.
 
 It is a gameplay/design contract. It does not expand Milestone 1 or Milestone 2 scope.

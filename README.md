@@ -1,6 +1,6 @@
 # DeepRun
 
-DeepRun is a Windows submarine roguelite built on a purpose-built C++23 engine. The current implementation is Milestone 1: a modular core with explicit lifecycle and frame state, an EnTT-backed Scene, generic transforms, runtime resource caching, validated JSON configuration, input state, diagnostics, tests, and a headless smoke path. It preserves the Milestone 0 Win32, Direct3D 12, Jolt Physics, miniaudio, and Dear ImGui foundation.
+DeepRun is a Windows submarine roguelite built on a purpose-built C++23 engine. Milestone 0 — Engine Bootstrap and Milestone 1 — Core Engine are complete. The current development goal is Milestone 2 — Physical Playground (`READY`). The completed foundation provides explicit lifecycle and frame state, an EnTT-backed Scene, generic transforms, runtime resource caching, validated JSON configuration, input state, diagnostics, tests, and a headless smoke path; it preserves the Milestone 0 Win32, Direct3D 12, Jolt Physics, miniaudio, and Dear ImGui foundation.
 
 ## Prerequisites
 

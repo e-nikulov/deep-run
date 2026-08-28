@@ -2,6 +2,12 @@
 
 Status: Accepted design direction
 
+Specification: D0 — Core Game Design / Game Loop
+
+The project-wide M/A/D/C taxonomy and specification registry are defined in
+`docs/README.md`. D0 is a design contract, not a milestone or an
+implementation-sequence position.
+
 This document defines the intended gameplay rhythm for DeepRun.
 
 It is deliberately higher-level than the technical engine specification.

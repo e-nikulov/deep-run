@@ -1,5 +1,11 @@
 # DeepRun Engine — Technical Specification v0.1
 
+Specification: A0 — Engine Architecture Baseline
+
+The project-wide M/A/D/C taxonomy and specification registry are defined in
+`docs/README.md`. A0 is an architecture contract, not a milestone or an
+implementation-sequence position.
+
 ## 1. Назначение
 
 **DeepRun Engine (DRE)** — специализированный C++ игровой движок для разработки 2.5D/3D подводного roguelite `Deep Run`.
@@ -77,7 +83,7 @@ xbox-release
 Основная среда разработки:
 
 ```text
-Visual Studio 2022
+Visual Studio 2026
 MSVC
 Windows SDK
 DXC
