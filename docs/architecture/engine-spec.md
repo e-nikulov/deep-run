@@ -1021,6 +1021,14 @@ BC5 for two-channel normal data where appropriate
 BC4 / compact formats for scalar masks where appropriate
 ```
 
+Most assets should use 1K or 2K textures. A 4K texture is an exception justified by a
+visible benefit at the asset's actual screen-space size; it is not the default resolution
+for every material. Texture authoring and import validation must account for projected
+screen size, mipmaps and appropriate compression rather than source resolution alone.
+
+The renderer and asset architecture must leave room for future texture streaming and
+residency control, but Milestone 2 does not require those systems.
+
 Virtual texturing / reserved-resource residency is not required until measured VRAM pressure
 or content scale justifies it.
 
@@ -2401,16 +2409,22 @@ Debug overlay:
 
 ```text
 FPS
-frame time
+frame time, median, p95 and p99
+CPU main-thread time
+CPU render-thread / submission time
+GPU frame time
 physics time
 acoustics time
 AI time
 draw calls
-triangles
-GPU memory
-entities
+visible triangles
+visible / rendered objects
+material and state-change counters where practical
+VRAM usage and budget
+RAM working set
 audio voices
 physics bodies
+active and simplified simulation entity counts
 ```
 
 ---
@@ -2559,48 +2573,53 @@ exit successfully
 
 ---
 
-# 67. Performance budgets
+# 67. Performance and world-scale budgets
 
-Цель:
+This section is the canonical A0 contract for frame performance, world scale,
+geometry, memory and simulation budgets. It distinguishes hard contracts from
+initial engineering targets and guidelines. Profiling may refine an engineering
+budget without weakening the architectural boundaries or the measurable 60 FPS
+performance target.
 
-```text
-1920×1080
-60 FPS
-```
+## Frame performance contract
 
-Основной будущий baseline:
-
-```text
-Xbox Series S
-```
-
-CPU target:
+Hard contract:
 
 ```text
-simulation < 8 ms
+primary performance target   60 FPS sustained gameplay
+hard gameplay frame budget   16.67 ms
+reference resolution         native 2560x1440
+reference benchmark          reference PC defined below
+required upscaling           none
 ```
 
-GPU target:
+The secondary baseline is 1920x1080 at 60 FPS. The architecture must not assume
+a high-end GPU. Future console constraints, especially Xbox Series S-class
+hardware, must be considered architecturally, but no unverified console
+performance numbers are part of this contract.
+
+Normal gameplay engineering targets on the reference PC are:
 
 ```text
-rendering < 16 ms
+GPU frame time                     <= 12-13 ms
+CPU main/render critical path      <= 8-10 ms
 ```
 
-Желательно:
+These CPU and GPU values reserve headroom for workload variation, transients and
+future features. They are engineering targets, not promises that every individual
+frame has an absolute maximum below those values. The remaining part of the
+16.67 ms frame budget must remain headroom rather than being consumed continuously.
 
-```text
-rendering < 12 ms
-```
-
-для запаса.
-
----
+Frame pacing must be evaluated using median, p95 and p99 frame times. Recurring
+p99 spikes above approximately 20 ms during normal gameplay are regression
+candidates. Streaming, resource creation, shader/PSO preparation and content
+activation must not regularly create 30-50+ ms stalls during gameplay.
 
 <!-- deeprun-performance-reference-2026:start -->
 
-## Development reference PC and performance gate
+## Reference PC and performance gate
 
-In addition to the product baseline above, maintain a concrete development reference machine:
+The primary development benchmark uses this reference PC:
 
 ```text
 CPU   Ryzen 5 5600X
@@ -2610,41 +2629,189 @@ OS    Windows 11
 API   Direct3D 12
 ```
 
-Reference quality target:
+The benchmark runs at native 2560x1440 and must sustain the 60 FPS performance
+target without requiring temporal or spatial upscaling. Upscaling remains an
+optional scalability feature, not a substitute for meeting the reference target.
 
-```text
-2560x1440
-native resolution
-60 FPS
-no upscaler required to reach the target
-```
+This machine is a repeatable development and optimization gate, not the final
+minimum customer specification. Do not publish final PC minimum/recommended
+specifications until representative gameplay and scalability presets exist.
 
-The purpose of this machine is not to define the minimum customer requirement. It is a
-repeatable optimization gate for development.
-
-Rules:
-
-```text
-normal representative gameplay should retain GPU headroom
-stress scenes must be reproducible
-CPU and GPU timings must be captured separately
-track median, p95 and p99 frame time rather than average FPS only
-track draw/dispatch counts, visible triangles/meshlets and VRAM
-upscaling is an optional scalability feature, not a substitute for meeting the reference target
-```
-
-The existing Xbox Series S future baseline remains important and may become the stricter
-shipping constraint once GDK profiling is available.
-
-Do not publish final PC minimum/recommended specifications until a representative gameplay
-vertical slice and scalability presets exist.
-
-A future automated graphics benchmark should contain representative worst-case combinations
-of submarine geometry, enemies, torpedoes, mines, particles, underwater fog, ocean presentation,
-lighting and UI. It must report enough metrics to compare renderer changes and prevent silent
-performance regressions.
+Xbox Series S-class constraints remain a future architecture consideration and
+may become a stricter shipping gate after representative GDK profiling is
+available. Until then, do not state unverified console performance targets.
 
 <!-- deeprun-performance-reference-2026:end -->
+
+## World scale and representation contract
+
+DeepRun separates three related but different scopes:
+
+```text
+logical world       mission, gameplay, strategic and contact state
+active simulation   entities evaluated at an appropriate simulation tier
+rendered world      GPU-visible representation, including the high-detail zone
+```
+
+Logical operational areas must support scales on the order of 100 x 100 km or
+larger. This does not require one enormous fully loaded render scene or physics
+world. The initial distance engineering budgets are:
+
+```text
+0-2 km       full-detail gameplay, rendering and simulation
+2-8 km       simplified representation, LOD and reduced update frequency
+8 km+        strategic/acoustic/contact representation without a required
+             rendered mesh or rigid body
+```
+
+Profiling and gameplay testing may refine these radii, but the architecture must
+preserve the separation. In particular:
+
+```text
+logical world != simultaneously loaded/rendered world
+logical world != full-rate physics simulation world
+```
+
+A distant ship, submarine or contact may remain in gameplay simulation, mission
+logic and the sonar/acoustic model while having no GPU mesh, full-rate physics
+body, full-rate animation or expensive per-frame update. Acoustic/contact
+representation is separate from visual and physics representation. This is a
+natural fit for DeepRun sonar gameplay: a gameplay-relevant distant entity need
+not be rendered to exist.
+
+Presentation state never becomes authoritative simulation state. Rendering may
+visualize a contact or select a presentation LOD, but it cannot determine whether
+that contact exists, is detected or affects gameplay.
+
+## Large-world precision guardrail
+
+The engine architecture must permit origin rebasing or an equivalent
+local-coordinate/high-precision large-world strategy. It must not permanently
+lock submarine positions, torpedoes, distant contacts or acoustic calculations
+to one global `float3` with no precision-management mechanism.
+
+This is an architecture guardrail, not a selected implementation. Milestone 2
+does not have to implement origin rebasing or operational-area streaming.
+
+## Geometry, draw and object budgets
+
+Initial visible-geometry engineering budgets are:
+
+```text
+normal gameplay             2-3 million visible triangles
+stress scenario             up to 5 million visible triangles
+```
+
+The 5 million stress budget is a profiling workload, not permission to render
+that amount continuously without measurement.
+
+Content geometry guidelines are:
+
+```text
+hero/player submarine LOD0                 50k-150k triangles
+hero/player submarine LOD1                 approximately 50% of LOD0
+hero/player submarine LOD2                 approximately 15-25% of LOD0
+distant representation                    substantially cheaper
+large surface ship / major vessel LOD0    50k-150k when close-view quality
+                                            materially requires it
+small props                                substantially cheaper
+```
+
+The LOD0 range is an upper content guideline, not a target to consume for every
+vessel. Triangle count alone is not a sufficient performance metric. A content
+or renderer review must consider visible triangles, draw calls, renderable count,
+material count, state changes, VRAM, CPU submission cost and GPU frame time
+together. Until representative materials exist, do not invent an unsupported
+universal material-count limit; minimize unique materials and state changes and
+derive their engineering budget from captures of representative content.
+
+Until a proven GPU-driven submission path replaces the current indexed D3D12
+renderer assumptions, use these draw-call engineering budgets:
+
+```text
+normal gameplay             < 1500 draw calls
+stress scenario             < 3000 draw calls
+```
+
+Normal gameplay should be designed around hundreds to low-thousands of
+simultaneously relevant renderables, not tens of thousands of individually
+CPU-submitted objects. These are not permanent limits for a future renderer.
+GPU culling, ExecuteIndirect, meshlets, Mesh Shaders or equivalent batching may
+change the appropriate budget after representative profiling, while the classic
+indexed compatibility path remains governed by measured CPU submission cost.
+
+## Memory and texture budgets
+
+The RX 6600 has 8 GB of VRAM, but the engine/game-owned steady-state target for
+normal gameplay is a 5.5-6 GB VRAM working budget. The remainder is headroom for
+the OS, graphics driver, compositor, transient GPU resources and differences
+introduced by debugging or profiling tools.
+
+Normal gameplay targets an 8-12 GB RAM working set. A machine with 16 GB of
+system RAM must remain a realistic supported configuration; the 32 GB reference
+PC is not permission to design a game that requires 32 GB.
+
+Memory telemetry must measure runtime committed/resident use and working sets.
+Asset file sizes alone are not evidence that RAM or VRAM budgets are satisfied.
+Texture-resolution, mipmap and compression requirements are defined by the
+canonical `Texture policy` in the rendering architecture above.
+
+## Lights, shadows and particles
+
+Expensive real-time shadow-casting lights are a bounded resource. Content must
+not assume hundreds of simultaneously active dynamic shadow-casting lights.
+Lighting limits should be selected from representative GPU captures rather than
+an unsupported universal light-count constant.
+
+Bubbles, cavitation, explosions, debris and underwater effects must have bounded
+counts, distance culling and a LOD/degradation path that can reduce update and
+render cost. Exact particle-count limits require representative profiling data;
+until then, effects must still preserve the 60 FPS performance target and may not
+grow without bounds.
+
+## Physics and simulation tiers
+
+Full-rate authoritative simulation is a bounded resource. Not every logical-world
+entity needs a Jolt rigid body, a 60 Hz update or participation in every collision
+query. Distance- and relevance-based simulation tiers are expected.
+
+A distant contact may use simplified kinematics, low-frequency updates, an
+analytic trajectory and acoustic/contact state instead of full rigid-body
+simulation. The selected simulation tier changes cost and representation, not
+the ownership of truth: authoritative simulation state remains independent of
+presentation state.
+
+## Performance telemetry
+
+The metrics enumerated in `# 60. Diagnostics` are the canonical runtime
+performance telemetry contract. They are also a roadmap guardrail: relevant
+metrics must become available as the corresponding renderer or simulation work
+is implemented, but Milestone 2 does not require every future counter.
+
+## Performance regression rule
+
+A renderer, simulation or content feature is not complete merely because it
+looks correct; its cost must be measurable. Performance regressions must be
+compared against a reproducible reference scenario and the reference PC contract,
+with CPU and GPU timings captured separately.
+
+A future automated benchmark should combine representative submarine geometry,
+enemies, torpedoes, mines, particles, underwater fog, ocean presentation,
+lighting and UI. Stress scenarios must also be reproducible. Reports must include
+enough telemetry to compare changes rather than relying on average FPS or the
+statement that a developer PC currently feels fast.
+
+Optimization is profiling-driven. Avoid premature optimization, but do not make
+architectural decisions that preclude future batching, culling, streaming, LOD or
+simulation tiers.
+
+## Milestone 2 guardrail
+
+These contracts define architecture requirements, profiling targets and future
+content budgets. They do not expand the canonical Milestone 2 scope. M2 is not
+required to implement giant-world streaming, origin rebasing, GPU-driven
+rendering, mesh shaders, meshlets, DirectStorage, advanced texture streaming,
+Hi-Z occlusion or production acoustic simulation.
 
 ---
 # 68. Simulation update rates

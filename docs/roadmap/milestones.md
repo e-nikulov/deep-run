@@ -331,6 +331,11 @@ Design boundary:
 
 The modern renderer direction is architectural guidance, not an expansion of Milestone 2.
 
+All milestones must respect the canonical performance, reference PC, world-scale,
+memory and simulation-tier contract in `docs/architecture/engine-spec.md`. Those
+engineering budgets become acceptance constraints when representative content for
+a milestone exists; they do not add implementation scope to that milestone.
+
 M2 implements only the rendering work strictly required by `submarine mesh`:
 
 ```text
@@ -356,6 +361,10 @@ ray tracing
 Work Graphs
 neural rendering
 production Asset Cooker
+giant-world streaming
+origin rebasing
+advanced texture streaming
+production acoustic simulation
 ```
 
 M2 data structures should avoid assumptions that would prevent later LOD/meshlet metadata,
