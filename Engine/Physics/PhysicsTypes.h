@@ -105,6 +105,55 @@ struct PhysicsBodyState final
     bool active = false;
 };
 
+// DeepRun-owned allowed degrees of freedom for a dynamic rigid body (M2 Slice C2.1).
+// This is the only DOF representation in the public physics API: backends translate it into their own
+// mechanism, and no backend enum or type may leak through this header. Axes are world-space axes of the
+// DeepRun right-handed convention (+X gameplay direction, +Y vertical/depth, +Z toward camera).
+struct PhysicsDegreesOfFreedom final
+{
+    bool translationX = true;
+    bool translationY = true;
+    bool translationZ = true;
+    bool rotationX = true;
+    bool rotationY = true;
+    bool rotationZ = true;
+
+    // The generic default: all six DOFs allowed. This preserves the pre-C2.1 body-creation behaviour, so
+    // callers that never touch this field keep exactly the C1 semantics.
+    [[nodiscard]] static constexpr PhysicsDegreesOfFreedom All() noexcept
+    {
+        return {};
+    }
+
+    // True when every DOF is allowed (the default). Backends may use this to skip any restriction work.
+    [[nodiscard]] bool IsAllAllowed() const noexcept
+    {
+        return translationX && translationY && translationZ && rotationX && rotationY && rotationZ;
+    }
+
+    // A body with no DOFs at all is not a valid dynamic body: use a static body instead (backend contract).
+    [[nodiscard]] bool IsAnyAllowed() const noexcept
+    {
+        return translationX || translationY || translationZ || rotationX || rotationY || rotationZ;
+    }
+
+    // True when the given initial linear velocity has no component on a locked translation axis.
+    [[nodiscard]] bool AllowsLinearVelocity(const PhysicsVector3& velocity) const noexcept
+    {
+        return (translationX || velocity.x == 0.0F) && (translationY || velocity.y == 0.0F) &&
+               (translationZ || velocity.z == 0.0F);
+    }
+
+    // True when the given initial angular velocity has no component on a locked rotation axis.
+    [[nodiscard]] bool AllowsAngularVelocity(const PhysicsVector3& velocity) const noexcept
+    {
+        return (rotationX || velocity.x == 0.0F) && (rotationY || velocity.y == 0.0F) &&
+               (rotationZ || velocity.z == 0.0F);
+    }
+
+    [[nodiscard]] bool operator==(const PhysicsDegreesOfFreedom&) const noexcept = default;
+};
+
 // Creation parameters for a dynamic box rigid body (M2 Slice C1).
 // Box extents are half-extents: the collision box spans [-halfExtents, +halfExtents] around the body position.
 struct DynamicBoxBodyCreateInfo final
@@ -118,5 +167,15 @@ struct DynamicBoxBodyCreateInfo final
     float angularDamping = 0.0F;
     PhysicsVector3 initialLinearVelocity{};
     PhysicsVector3 initialAngularVelocity{};
+
+    // Allowed DOFs for the new body (M2 Slice C2.1). Default: all six allowed, i.e. unchanged C1 behaviour.
+    // The restriction is applied at creation time in the backend's mass/motion configuration; it is not a
+    // per-step clamp and no constraint or joint is introduced.
+    PhysicsDegreesOfFreedom degreesOfFreedom = PhysicsDegreesOfFreedom::All();
+
+    // Locked-DOF input rule (M2 Slice C2.1): initial velocities on locked axes are rejected as recoverable
+    // InvalidInput errors instead of being silently dropped. The backend's own DOF locking would zero those
+    // components anyway, but accepting them would hide caller mistakes; the rejection makes the contract
+    // explicit and testable (see "Planar body rejects initial velocity on locked axes" in Tests/TestMain.cpp).
 };
 }

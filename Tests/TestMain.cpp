@@ -1345,10 +1345,12 @@ PhysicsBodyState IdentityStateAt(const ModelVector3& position)
     return state;
 }
 
-// The exact composition PhysicalPlayground uses: bodyToWorld * modelToBody(T(-boundsCenter)).
+// The exact composition PhysicalPlayground uses (M2 Slice C2.1): bodyToWorld * modelToBody(T(-boundsCenter)).
+// BuildBodyToWorld depends only on the physics pose; the pivot correction is applied explicitly here, exactly
+// as in Game/PhysicalPlayground.cpp Render().
 ModelTransform ComposeRenderTransform(const PhysicsBodyState& state, const ModelVector3& boundsCenter)
 {
-    const auto bodyToWorld = DeepRun::Game::BuildBodyToWorld(state, boundsCenter);
+    const auto bodyToWorld = DeepRun::Game::BuildBodyToWorld(state);
     return Multiply(*bodyToWorld, DeepRun::Game::TranslationTransform({-boundsCenter.x, -boundsCenter.y, -boundsCenter.z}));
 }
 
@@ -1515,7 +1517,7 @@ bool PhysicsRenderSyncTransformedBounds()
     // inside the resulting world AABB by construction (min/max over the corners).
     PhysicsBodyState state = IdentityStateAt(DeepRun::Game::BoundsCenter(bounds));
     state.orientation = QuarterTurnAroundZ;
-    const ModelTransform rotation = *DeepRun::Game::BuildBodyToWorld(state, DeepRun::Game::BoundsCenter(bounds));
+    const ModelTransform rotation = *DeepRun::Game::BuildBodyToWorld(state);
     const auto rotated = DeepRun::Game::TransformBounds(bounds, rotation);
     if (!rotated)
     {
@@ -1562,21 +1564,21 @@ bool PhysicsRenderSyncRejectsNonFiniteInput()
 
     auto nanPosition = IdentityStateAt(center);
     nanPosition.position.y = nan;
-    if (DeepRun::Game::BuildBodyToWorld(nanPosition, center))
+    if (DeepRun::Game::BuildBodyToWorld(nanPosition))
     {
         return false;
     }
 
     auto zeroQuaternion = IdentityStateAt(center);
     zeroQuaternion.orientation = {0.0F, 0.0F, 0.0F, 0.0F};
-    if (DeepRun::Game::BuildBodyToWorld(zeroQuaternion, center))
+    if (DeepRun::Game::BuildBodyToWorld(zeroQuaternion))
     {
         return false;
     }
 
     auto nanQuaternion = IdentityStateAt(center);
     nanQuaternion.orientation.w = nan;
-    if (DeepRun::Game::BuildBodyToWorld(nanQuaternion, center))
+    if (DeepRun::Game::BuildBodyToWorld(nanQuaternion))
     {
         return false;
     }
@@ -1659,6 +1661,321 @@ bool PhysicsIntegrationSubmarineBodyFallsThroughPivot()
         return false;
     }
     return finalState->position.y < center.y && finalState->linearVelocity.y < 0.0F;
+}
+
+// ---------------------------------------------------------------------------
+// M2 Slice C2.1: 2.5D rigid-body DOF contract (generic physics API) and the
+// corrected world-bounds composition (bodyToWorld * modelToBody).
+// ---------------------------------------------------------------------------
+
+bool StateIsFinite(const DeepRun::Physics::PhysicsBodyState& state)
+{
+    return std::isfinite(state.position.x) && std::isfinite(state.position.y) && std::isfinite(state.position.z) &&
+           std::isfinite(state.orientation.x) && std::isfinite(state.orientation.y) && std::isfinite(state.orientation.z) &&
+           std::isfinite(state.orientation.w) && std::isfinite(state.linearVelocity.x) &&
+           std::isfinite(state.linearVelocity.y) && std::isfinite(state.linearVelocity.z) &&
+           std::isfinite(state.angularVelocity.x) && std::isfinite(state.angularVelocity.y) &&
+           std::isfinite(state.angularVelocity.z);
+}
+
+// M2-like planar body: XY translation + Z rotation allowed, everything else locked (the exact Game-layer
+// configuration of the canonical submarine). Gravity on, zero damping, finite initial velocities only.
+DeepRun::Physics::DynamicBoxBodyCreateInfo PlanarM2LikeBodyInfo()
+{
+    DeepRun::Physics::DynamicBoxBodyCreateInfo info = ValidBoxBodyInfo();
+    info.position = {0.0F, 5.0F, 0.0F};
+    info.orientation = {}; // identity
+    info.gravityEnabled = true;
+    info.linearDamping = 0.0F;
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = {3.0F, 0.0F, 0.0F};
+    info.initialAngularVelocity = {0.0F, 0.0F, 1.0F}; // rad/s around +Z only
+
+    DeepRun::Physics::PhysicsDegreesOfFreedom dof;
+    dof.translationX = true;   // M2 gameplay plane: XY translation ...
+    dof.translationY = true;
+    dof.translationZ = false;  // ... locked along Z (toward camera)
+    dof.rotationX = false;     // no roll around X
+    dof.rotationY = false;     // no yaw around Y
+    dof.rotationZ = true;      // pitch nose up/down
+    info.degreesOfFreedom = dof;
+    return info;
+}
+
+bool DefaultBodyKeepsAllSixDOFs()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    // Generic body without an explicit restriction: the default contract must keep all six DOFs available,
+    // exactly as in C1. Every axis gets a distinct initial velocity so any silently locked axis would show up.
+    auto info = ValidBoxBodyInfo();
+    info.position = {0.0F, 5.0F, 0.0F};
+    info.gravityEnabled = true;
+    info.linearDamping = 0.0F;
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = {10.0F, -2.0F, 5.0F};
+    info.initialAngularVelocity = {1.5F, 2.0F, 3.0F};
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr int Steps = 60; // one second at the fixed step
+    for (int step = 0; step < Steps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState || !finalState->active)
+    {
+        return false;
+    }
+
+    // Every DOF must actually be usable: X/Z translation at the supplied speed (no hidden drag), Y falling
+    // under gravity, rotation evolving on all three axes with the angular velocity preserved (zero damping).
+    const bool xMoved = std::abs(finalState->position.x - initial->position.x) > 9.0F; // ~10 m in one second
+    const bool zMoved = std::abs(finalState->position.z - initial->position.z) > 4.0F; // ~5 m in one second
+    const bool yFell = finalState->position.y < initial->position.y - 2.0F;            // gravity over one second
+    const bool rotated = !DeepRun::Physics::PhysicsQuaternion::SameRotation(initial->orientation,
+                                                                            finalState->orientation);
+    const bool angularPreserved = std::abs(finalState->angularVelocity.x - 1.5F) < 0.2F &&
+                                  std::abs(finalState->angularVelocity.y - 2.0F) < 0.2F &&
+                                  std::abs(finalState->angularVelocity.z - 3.0F) < 0.2F;
+    return StateIsFinite(*finalState) && xMoved && zMoved && yFell && rotated && angularPreserved;
+}
+
+bool PlanarBodyStaysInGameplayPlane()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto info = PlanarM2LikeBodyInfo();
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    // The creation state must already show the locked-DOF contract: no Z linear velocity and no X/Y angular
+    // velocity, while the allowed components are exactly what was supplied.
+    constexpr float Tolerance = 1.0e-5F;
+    if (std::abs(initial->linearVelocity.z) > Tolerance || std::abs(initial->angularVelocity.x) > Tolerance ||
+        std::abs(initial->angularVelocity.y) > Tolerance ||
+        std::abs(initial->linearVelocity.x - 3.0F) > Tolerance ||
+        std::abs(initial->angularVelocity.z - 1.0F) > Tolerance)
+    {
+        return false;
+    }
+
+    constexpr int Steps = 60; // one second at the fixed step
+    for (int step = 0; step < Steps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState || !finalState->active)
+    {
+        return false;
+    }
+
+    // Locked DOFs must not develop after simulation: no Z drift, and a pure Z rotation keeps the quaternion in
+    // (0, 0, sin(a/2), cos(a/2)) form with zero X/Y angular velocity.
+    const bool zLocked = std::abs(finalState->position.z - initial->position.z) < 1.0e-3F &&
+                         std::abs(finalState->linearVelocity.z) < 1.0e-4F;
+    const bool rollYawLocked = std::abs(finalState->orientation.x) < 1.0e-5F &&
+                               std::abs(finalState->orientation.y) < 1.0e-5F &&
+                               std::abs(finalState->angularVelocity.x) < 1.0e-4F &&
+                               std::abs(finalState->angularVelocity.y) < 1.0e-4F;
+
+    // The allowed DOFs must NOT be blocked: Y falls under gravity, X moves at the supplied speed...
+    const bool yFell = finalState->position.y < initial->position.y - 2.0F && finalState->linearVelocity.y < 0.0F;
+    const bool xMoved = std::abs(finalState->position.x - (initial->position.x + 3.0F)) < 0.1F;
+    // ... and Z rotation evolves with the supplied angular velocity around Z (~one radian after one second).
+    const bool zRotated = !DeepRun::Physics::PhysicsQuaternion::SameRotation(initial->orientation,
+                                                                             finalState->orientation) &&
+                          std::abs(finalState->angularVelocity.z - 1.0F) < 0.05F;
+
+    return StateIsFinite(*finalState) && zLocked && rollYawLocked && yFell && xMoved && zRotated;
+}
+
+bool PlanarBodyRejectsLockedAxisInitialVelocity()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto info = PlanarM2LikeBodyInfo();
+    DeepRun::Physics::PhysicsError error;
+
+    // Locked translation axis: an initial Z velocity must be rejected as recoverable input.
+    auto zVelocity = info;
+    zVelocity.initialLinearVelocity = {0.0F, 0.0F, 5.0F};
+    if (world.CreateDynamicBoxBody(zVelocity, &error).IsValid() ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+    {
+        return false;
+    }
+
+    // Locked rotation axes: initial X and Y angular velocities must be rejected.
+    auto xAngular = info;
+    xAngular.initialAngularVelocity = {2.0F, 0.0F, 0.0F};
+    if (world.CreateDynamicBoxBody(xAngular, &error).IsValid() ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+    {
+        return false;
+    }
+    auto yAngular = info;
+    yAngular.initialAngularVelocity = {0.0F, 3.0F, 0.0F};
+    if (world.CreateDynamicBoxBody(yAngular, &error).IsValid() ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+    {
+        return false;
+    }
+
+    // Locking every DOF is not a valid dynamic body: that is the static-body case.
+    auto allLocked = info;
+    DeepRun::Physics::PhysicsDegreesOfFreedom noneAllowed;
+    noneAllowed.translationX = noneAllowed.translationY = noneAllowed.translationZ = false;
+    noneAllowed.rotationX = noneAllowed.rotationY = noneAllowed.rotationZ = false;
+    allLocked.degreesOfFreedom = noneAllowed;
+    if (world.CreateDynamicBoxBody(allLocked, &error).IsValid() ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+    {
+        return false;
+    }
+
+    // Control: allowed-axis velocities are still accepted.
+    const auto handle = world.CreateDynamicBoxBody(info);
+    return handle.IsValid() && world.GetBodyState(handle).has_value();
+}
+
+bool WorldBoundsUseModelToWorldComposition()
+{
+    const ModelBounds& bounds = OffCenterTestBounds; // size (100, 14, 10), center (20, 2, 1): off-center on purpose
+    constexpr float Tolerance = 1.0e-3F;
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(bounds);
+
+    // The exact per-frame flow of PhysicalPlayground::Render: body snapshot -> bodyToWorld -> modelToWorld,
+    // and that single matrix feeds BOTH the draw preparation and the rendered world bounds.
+    auto compose = [&center](const PhysicsBodyState& state) -> std::expected<ModelTransform, std::string> {
+        const auto bodyToWorld = DeepRun::Game::BuildBodyToWorld(state);
+        if (!bodyToWorld)
+        {
+            return std::unexpected(bodyToWorld.error());
+        }
+        return Multiply(*bodyToWorld, DeepRun::Game::TranslationTransform({-center.x, -center.y, -center.z}));
+    };
+
+    // Initial body: position = boundsCenter, orientation = identity -> modelToWorld is exactly identity, so the
+    // rendered world bounds must equal the original model bounds. Under the C2 implementation (bounds passed
+    // through bodyToWorld alone) this would be shifted by +center and fail.
+    const PhysicsBodyState initial = IdentityStateAt(center);
+    const auto initialModelToWorld = compose(initial);
+    if (!initialModelToWorld)
+    {
+        return false;
+    }
+    const auto initialWorldBounds = DeepRun::Game::TransformBounds(bounds, *initialModelToWorld);
+    if (!initialWorldBounds)
+    {
+        return false;
+    }
+    const bool identityMatchesOriginal =
+        std::abs(initialWorldBounds->minimum.x - bounds.minimum.x) < Tolerance &&
+        std::abs(initialWorldBounds->minimum.y - bounds.minimum.y) < Tolerance &&
+        std::abs(initialWorldBounds->minimum.z - bounds.minimum.z) < Tolerance &&
+        std::abs(initialWorldBounds->maximum.x - bounds.maximum.x) < Tolerance &&
+        std::abs(initialWorldBounds->maximum.y - bounds.maximum.y) < Tolerance &&
+        std::abs(initialWorldBounds->maximum.z - bounds.maximum.z) < Tolerance;
+
+    // Translation: the rendered world bounds must shift by exactly the same displacement as the rendered model.
+    PhysicsBodyState translated = initial;
+    translated.position.x += 10.0F;
+    translated.position.y -= 20.0F;
+    const auto translatedModelToWorld = compose(translated);
+    if (!translatedModelToWorld)
+    {
+        return false;
+    }
+    const auto translatedWorldBounds = DeepRun::Game::TransformBounds(bounds, *translatedModelToWorld);
+    if (!translatedWorldBounds)
+    {
+        return false;
+    }
+    // The model's pivot point (bounds center in model space) maps to the body position: displacement (+10, -20).
+    const ModelVector3 renderedPivot = TransformPointBy(*translatedModelToWorld, center);
+    const bool pivotMovedExactly = std::abs(renderedPivot.x - (center.x + 10.0F)) < Tolerance &&
+                                   std::abs(renderedPivot.y - (center.y - 20.0F)) < Tolerance &&
+                                   std::abs(renderedPivot.z - center.z) < Tolerance;
+    // The world bounds shift by exactly the same vector: min/max of the original bounds plus (+10, -20, 0).
+    const bool boundsShiftedExactly =
+        std::abs(translatedWorldBounds->minimum.x - (bounds.minimum.x + 10.0F)) < Tolerance &&
+        std::abs(translatedWorldBounds->minimum.y - (bounds.minimum.y - 20.0F)) < Tolerance &&
+        std::abs(translatedWorldBounds->minimum.z - bounds.minimum.z) < Tolerance &&
+        std::abs(translatedWorldBounds->maximum.x - (bounds.maximum.x + 10.0F)) < Tolerance &&
+        std::abs(translatedWorldBounds->maximum.y - (bounds.maximum.y - 20.0F)) < Tolerance &&
+        std::abs(translatedWorldBounds->maximum.z - bounds.maximum.z) < Tolerance;
+
+    // Z rotation: the world AABB must match bodyToWorld * modelToBody and contain every transformed corner of
+    // the SAME matrix used for drawing. A +90 degree turn about Z swaps the X/Y extents (100 x 14 -> 14 x 100)
+    // around the pivot at center, leaving Z untouched: [13, 27] x [-48, 52] x [-4, 6].
+    PhysicsBodyState rotated = initial;
+    rotated.orientation = QuarterTurnAroundZ;
+    const auto rotatedModelToWorld = compose(rotated);
+    if (!rotatedModelToWorld)
+    {
+        return false;
+    }
+    const auto rotatedWorldBounds = DeepRun::Game::TransformBounds(bounds, *rotatedModelToWorld);
+    if (!rotatedWorldBounds)
+    {
+        return false;
+    }
+    const bool extentsSwapped = std::abs(rotatedWorldBounds->minimum.x - 13.0F) < Tolerance &&
+                                std::abs(rotatedWorldBounds->maximum.x - 27.0F) < Tolerance &&
+                                std::abs(rotatedWorldBounds->minimum.y + 48.0F) < Tolerance &&
+                                std::abs(rotatedWorldBounds->maximum.y - 52.0F) < Tolerance &&
+                                std::abs(rotatedWorldBounds->minimum.z - bounds.minimum.z) < Tolerance &&
+                                std::abs(rotatedWorldBounds->maximum.z - bounds.maximum.z) < Tolerance;
+
+    bool cornersContained = true;
+    for (const float x : {bounds.minimum.x, bounds.maximum.x})
+    {
+        for (const float y : {bounds.minimum.y, bounds.maximum.y})
+        {
+            for (const float z : {bounds.minimum.z, bounds.maximum.z})
+            {
+                const ModelVector3 corner = TransformPointBy(*rotatedModelToWorld, {x, y, z});
+                if (corner.x < rotatedWorldBounds->minimum.x - Tolerance ||
+                    corner.x > rotatedWorldBounds->maximum.x + Tolerance ||
+                    corner.y < rotatedWorldBounds->minimum.y - Tolerance ||
+                    corner.y > rotatedWorldBounds->maximum.y + Tolerance ||
+                    corner.z < rotatedWorldBounds->minimum.z - Tolerance ||
+                    corner.z > rotatedWorldBounds->maximum.z + Tolerance)
+                {
+                    cornersContained = false;
+                }
+            }
+        }
+    }
+
+    return identityMatchesOriginal && pivotMovedExactly && boundsShiftedExactly && extentsSwapped &&
+           cornersContained;
 }
 
 // ---------------------------------------------------------------------------
@@ -1787,6 +2104,11 @@ int main(const int argumentCount, const char* const* arguments)
         {"Physics render sync transformed bounds", PhysicsRenderSyncTransformedBounds},
         {"Physics render sync rejects non-finite input", PhysicsRenderSyncRejectsNonFiniteInput},
         {"Physics integration submarine body falls through pivot", PhysicsIntegrationSubmarineBodyFallsThroughPivot},
+        // M2 Slice C2.1: 2.5D rigid-body DOF contract and corrected world-bounds composition.
+        {"Default body keeps all six DOFs", DefaultBodyKeepsAllSixDOFs},
+        {"Planar body stays in gameplay plane", PlanarBodyStaysInGameplayPlane},
+        {"Planar body rejects locked-axis initial velocity", PlanarBodyRejectsLockedAxisInitialVelocity},
+        {"World bounds use model-to-world composition", WorldBoundsUseModelToWorldComposition},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},

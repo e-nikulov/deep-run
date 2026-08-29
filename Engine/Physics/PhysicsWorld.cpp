@@ -8,6 +8,7 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Math/Quat.h>
 #include <Jolt/Math/Vector.h>
+#include <Jolt/Physics/Body/AllowedDOFs.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
@@ -193,8 +194,49 @@ bool ValidateDynamicBoxBodyCreateInfo(const DynamicBoxBodyCreateInfo& info, std:
         return reject("initial velocities must be finite");
     }
 
+    // M2 Slice C2.1: a dynamic body needs at least one allowed DOF; locking all six is the static-body case.
+    if (!info.degreesOfFreedom.IsAnyAllowed())
+    {
+        return reject("degrees of freedom: at least one DOF must be allowed (use a static body to lock all)");
+    }
+
+    // Locked-DOF input rule: initial velocity components on locked axes are rejected as recoverable input.
+    // The Jolt backend would silently zero them through its own DOF locking, but accepting them would hide
+    // caller mistakes; the rejection keeps the creation contract explicit (see PhysicsTypes.h).
+    if (!info.degreesOfFreedom.AllowsLinearVelocity(info.initialLinearVelocity))
+    {
+        return reject("initial linear velocity has a component on a locked translation axis");
+    }
+    if (!info.degreesOfFreedom.AllowsAngularVelocity(info.initialAngularVelocity))
+    {
+        return reject("initial angular velocity has a component on a locked rotation axis");
+    }
+
     message.clear();
     return true;
+}
+
+// Maps the DeepRun-owned DOF representation onto Jolt's EAllowedDOFs bitmask (Jolt v5.5.0, pinned).
+// This translation lives only in the backend: no JPH type is exposed through Engine/Physics public headers.
+// The result is applied at body creation time via BodyCreationSettings::mAllowedDOFs; Jolt then locks the
+// inverse mass/inertia on locked axes and re-locks velocity and position steps every simulation step, so no
+// per-tick clamping or constraint is needed in DeepRun code.
+JPH::EAllowedDOFs ToJoltAllowedDOFs(const PhysicsDegreesOfFreedom& dof) noexcept
+{
+    JPH::EAllowedDOFs result = JPH::EAllowedDOFs::None;
+    if (dof.translationX)
+        result |= JPH::EAllowedDOFs::TranslationX;
+    if (dof.translationY)
+        result |= JPH::EAllowedDOFs::TranslationY;
+    if (dof.translationZ)
+        result |= JPH::EAllowedDOFs::TranslationZ;
+    if (dof.rotationX)
+        result |= JPH::EAllowedDOFs::RotationX;
+    if (dof.rotationY)
+        result |= JPH::EAllowedDOFs::RotationY;
+    if (dof.rotationZ)
+        result |= JPH::EAllowedDOFs::RotationZ;
+    return result;
 }
 }
 
@@ -274,6 +316,12 @@ public:
             info.initialAngularVelocity.x,
             info.initialAngularVelocity.y,
             info.initialAngularVelocity.z);
+
+        // M2 Slice C2.1: apply the DeepRun-owned DOF contract at creation time in Jolt's mass/motion
+        // configuration. The default (all six allowed) maps to EAllowedDOFs::All and is exactly the C1 path;
+        // restricted bodies get their locked axes enforced by Jolt itself for every step, with no per-tick
+        // clamping or constraint in DeepRun code.
+        settings.mAllowedDOFs = ToJoltAllowedDOFs(info.degreesOfFreedom);
 
         const JPH::BodyID bodyId = physicsSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
         if (bodyId.IsInvalid())

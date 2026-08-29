@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (M2 Slice C2)
+Accepted (M2 Slice C2, corrected by M2 Slice C2.1)
 
 ## Decision
 
@@ -11,10 +11,27 @@ The canonical submarine is a dynamic Jolt box body created by `Game::PhysicalPla
 step and before any D3D12 work; that single snapshot feeds all node draws:
 
 ```text
-modelToWorld = BuildBodyToWorld(state) * T(-boundsCenter)
-PrepareModelDraws(model, modelToWorld) -> 4 node instances -> DrawModel
+body snapshot -> bodyToWorld = BuildBodyToWorld(state)
+              -> modelToWorld = bodyToWorld * T(-boundsCenter)
+              -> PrepareModelDraws(model, modelToWorld)   (4 node instances)
+              -> TransformBounds(model.bounds, modelToWorld)  (rendered world bounds)
 ```
 
+- **2.5D DOF contract (C2.1).** The M2 submarine rigid body is constrained to the gameplay plane:
+  translation X/Y + rotation Z only. Translation Z, rotation X, and rotation Y are locked at creation time in
+  the backend's mass/motion configuration — no per-tick clamping, no constraint or joint. The generic
+  `PhysicsWorld` stays free of submarine knowledge: it exposes a DeepRun-owned
+  `PhysicsDegreesOfFreedom` (six independent translation/rotation axis flags) on the dynamic-body creation
+  contract; the default is all six allowed, preserving C1 behaviour for generic callers and tests. The
+  XY+RZ choice itself lives only in `Game::PhysicalPlayground`. Locked-DOF input rule: initial velocity
+  components on locked axes are rejected as recoverable `InvalidInput` errors (the backend would silently
+  zero them; the rejection keeps the contract explicit). A body with all DOFs locked is rejected — that is
+  the static-body case.
+- **World-bounds contract (C2.1).** The rendered world bounds use the same `modelToWorld` as draw
+  preparation: one snapshot -> `bodyToWorld` -> `modelToWorld`, then both `PrepareModelDraws(model,
+  modelToWorld)` and `TransformBounds(model.bounds, modelToWorld)`. Two slightly different transforms are
+  never computed. `BuildBodyToWorld(state)` depends only on the physics pose; the asset pivot correction is
+  applied explicitly by the caller through `modelToBody`.
 - **Pivot contract.** The C1 box shape is centered on the body origin, so the body origin is the `ModelAsset`
   bounds center `(min + max) / 2`, not the asset origin. The model-to-body correction is
   `T(-boundsCenter)`; with the initial identity orientation the first visual frame is exactly B2.1

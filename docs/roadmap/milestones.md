@@ -329,11 +329,17 @@ Accepted slices (in order):
 | C1 | Generic dynamic rigid-body API (`CreateDynamicBoxBody`) | ACCEPTED |
 | C1.1 | Opaque physics-handle contract cleanup (generation, foreign/stale rejection) | ACCEPTED |
 | C2 | Submarine rigid-body integration + physics-to-render synchronization (ADR-0008) | ACCEPTED |
+| C2.1 | 2.5D body DOF constraint + world-bounds synchronization | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps
 the first visual frame identical to B2.1; camera target stays at the initial world center during C2
 verification (camera follow is deferred until a water-plane world reference exists).
+
+C2.1 notes: corrective pass only — no new gameplay scope. The M2 submarine body is constrained to the
+gameplay plane (translation X/Y + rotation Z) through a DeepRun-owned `PhysicsDegreesOfFreedom` on the
+generic dynamic-body creation contract; rendered world bounds now use the same `modelToWorld` as draw
+preparation (ADR-0008).
 
 <!-- deeprun-m2-command-boundary:start -->
 

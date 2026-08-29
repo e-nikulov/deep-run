@@ -26,9 +26,11 @@ namespace DeepRun::Game
 // Quaternion component order is x, y, z, w (ADR-0007); the world convention is right-handed with +X right,
 // +Y up, and +Z toward camera (ADR-0006). The result is column-major like ModelTransform. Malformed input
 // (non-finite position or a zero/non-finite quaternion) is rejected instead of producing NaN.
+//
+// M2 Slice C2.1: the body-to-world matrix depends only on the physics pose, never on asset bounds. The asset
+// pivot correction stays explicitly separate in the caller: modelToWorld = BuildBodyToWorld(state) * modelToBody.
 [[nodiscard]] std::expected<Assets::ModelTransform, std::string> BuildBodyToWorld(
-    const Physics::PhysicsBodyState& state,
-    const Assets::ModelVector3& boundsCenter);
+    const Physics::PhysicsBodyState& state);
 
 // Transforms the 8 corners of a model-space AABB through an affine transform and rebuilds a world-space AABB.
 [[nodiscard]] std::expected<Assets::ModelBounds, std::string> TransformBounds(

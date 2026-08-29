@@ -51,10 +51,9 @@ Assets::ModelTransform TranslationTransform(const Assets::ModelVector3& translat
 }
 
 std::expected<Assets::ModelTransform, std::string> BuildBodyToWorld(
-    const Physics::PhysicsBodyState& state,
-    const Assets::ModelVector3& boundsCenter)
+    const Physics::PhysicsBodyState& state)
 {
-    if (!state.position.IsFinite() || !IsFinite(boundsCenter))
+    if (!state.position.IsFinite())
     {
         return std::unexpected("body position is not finite");
     }

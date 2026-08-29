@@ -91,6 +91,19 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         (bounds.maximum.y - bounds.minimum.y) * 0.5F,
         (bounds.maximum.z - bounds.minimum.z) * 0.5F};
 
+    // M2 Slice C2.1: the canonical submarine is a 2.5D rigid body constrained to the gameplay plane (XY).
+    // This axis choice is Game-owned knowledge and never enters generic PhysicsWorld: translation X/Y plus
+    // rotation Z are allowed; translation Z, rotation X, and rotation Y are locked at creation time in the
+    // backend's mass/motion configuration. The submarine can move forward/back, rise/sink, and pitch nose
+    // up/down, but it cannot leave the plane along Z, roll around X, or yaw around Y (ADR-0008).
+    Physics::PhysicsDegreesOfFreedom m2VesselDof;
+    m2VesselDof.translationX = true;
+    m2VesselDof.translationY = true;
+    m2VesselDof.translationZ = false;
+    m2VesselDof.rotationX = false;
+    m2VesselDof.rotationY = false;
+    m2VesselDof.rotationZ = true;
+
     Physics::DynamicBoxBodyCreateInfo bodyInfo;
     bodyInfo.halfExtents = halfExtents;
     bodyInfo.mass = M2PrototypeMassKg; // gameplay/prototype tuning, see constant comment
@@ -101,6 +114,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     bodyInfo.angularDamping = 0.0F;
     bodyInfo.initialLinearVelocity = {};
     bodyInfo.initialAngularVelocity = {};
+    bodyInfo.degreesOfFreedom = m2VesselDof;
 
     Physics::PhysicsError physicsError;
     const Physics::PhysicsBodyHandle body = physics.CreateDynamicBoxBody(bodyInfo, &physicsError);
@@ -117,7 +131,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground initial body state is unavailable");
     }
 
-    const auto initialBodyToWorld = BuildBodyToWorld(*initialState, boundsCenter);
+    // M2 Slice C2.1: the body-to-world matrix depends only on the physics pose; the asset pivot correction is
+    // applied explicitly by the caller through modelToBody (see Render for the single-source-of-truth flow).
+    const auto initialBodyToWorld = BuildBodyToWorld(*initialState);
     if (!initialBodyToWorld)
     {
         (void)physics.DestroyBody(body, &physicsError);
@@ -173,16 +189,20 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground body state became unavailable");
     }
 
-    const auto bodyToWorld = BuildBodyToWorld(*state, boundsCenter_);
+    // M2 Slice C2.1: one snapshot -> bodyToWorld -> modelToWorld, and that single matrix is the source of
+    // truth for BOTH draw preparation and the rendered world bounds. The physics pose (bodyToWorld) never
+    // mixes with asset pivot correction (modelToBody); two slightly different transforms are never computed.
+    const auto bodyToWorld = BuildBodyToWorld(*state);
     if (!bodyToWorld)
     {
         return std::unexpected(bodyToWorld.error());
     }
+    const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
 
     // The single snapshot feeds every node draw: the body translation is applied exactly once here and each
     // node's local transform (including the propeller at (-49, 0, 0)) is applied exactly once by
     // PrepareModelDraws. Static GPU metadata is untouched; only per-draw transforms are rebuilt.
-    const auto draws = Render::PrepareModelDraws(*modelAsset_, Render::Multiply(*bodyToWorld, modelToBody_));
+    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld);
     if (!draws)
     {
         return std::unexpected(draws.error());
@@ -191,7 +211,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     // Camera policy for C2: the 600 m orthographic side view keeps its target at the INITIAL world/model
     // center so the falling body visibly moves inside a fixed viewport. The transformed world bounds only set
     // the near/far depth range; they must never change the horizontal zoom (covered by tests).
-    const auto worldBounds = TransformBounds(modelAsset_->bounds, *bodyToWorld);
+    const auto worldBounds = TransformBounds(modelAsset_->bounds, modelToWorld);
     if (!worldBounds)
     {
         return std::unexpected(worldBounds.error());
