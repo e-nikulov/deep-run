@@ -2409,6 +2409,84 @@ bool D2ClearRectValidation()
            !ValidateViewportRect({.left = -5.0F, .top = 0.0F, .right = -1.0F, .bottom = 1.0F}); // fully outside -> empty after clamp
 }
 
+bool D2ClearColorValidation()
+{
+    using DeepRun::Render::ValidateRgbaColor;
+
+    // Contract boundaries are accepted unchanged.
+    const auto black = ValidateRgbaColor({0.0F, 0.0F, 0.0F, 0.0F});
+    if (!black || black->r != 0.0F || black->a != 0.0F)
+    {
+        return false;
+    }
+    const auto white = ValidateRgbaColor({1.0F, 1.0F, 1.0F, 1.0F});
+    if (!white || white->b != 1.0F)
+    {
+        return false;
+    }
+
+    // The current D2 presentation colors must pass without modification.
+    const RgbaColor& expectedAbove = DeepRun::Game::M2AboveWaterBackgroundColor;
+    const auto above = ValidateRgbaColor(expectedAbove);
+    if (!above || above->r != expectedAbove.r || above->g != expectedAbove.g ||
+        above->b != expectedAbove.b || above->a != expectedAbove.a)
+    {
+        return false;
+    }
+    const auto below = ValidateRgbaColor(DeepRun::Game::M2UnderwaterBackgroundColor);
+    if (!below)
+    {
+        return false;
+    }
+
+    // Out-of-range and non-finite components are rejected — never silently clamped.
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    return !ValidateRgbaColor({-0.1F, 0.5F, 0.5F, 1.0F}) &&   // negative r
+           !ValidateRgbaColor({0.5F, 1.2F, 0.5F, 1.0F}) &&    // g > 1
+           !ValidateRgbaColor({0.5F, 0.5F, 0.5F, -1.0F}) &&   // negative a
+           !ValidateRgbaColor({nan, 0.5F, 0.5F, 1.0F}) &&     // NaN r
+           !ValidateRgbaColor({0.5F, infinity, 0.5F, 1.0F}) && // Inf g
+           !ValidateRgbaColor({-infinity, 0.5F, 0.5F, 1.0F}); // -Inf r
+}
+
+bool D2PixelRectConversion()
+{
+    using DeepRun::Render::ToPixelRect;
+
+    // Focused conversion case: normalized {0, 0.2, 1, 1} on a 1280x720 target -> approximately
+    // pixel rect {0, 144, 1280, 720} (top-left origin, right/bottom exclusive).
+    const auto quarter = ToPixelRect({.left = 0.0F, .top = 0.2F, .right = 1.0F, .bottom = 1.0F}, 1280U,
+                                     720U);
+    if (!quarter)
+    {
+        return false;
+    }
+    // Signed arithmetic: an unsigned `expected - 1` would wrap around for expected == 0.
+    const auto nearPixel = [](const std::uint32_t value, const std::uint32_t expected) noexcept {
+        return static_cast<std::int64_t>(value) >= static_cast<std::int64_t>(expected) - 1 &&
+               static_cast<std::int64_t>(value) <= static_cast<std::int64_t>(expected) + 1;
+    };
+    if (!nearPixel(quarter->left, 0U) || !nearPixel(quarter->top, 144U) ||
+        !nearPixel(quarter->right, 1280U) || !nearPixel(quarter->bottom, 720U))
+    {
+        return false;
+    }
+
+    // The full viewport maps to the exact target extents.
+    const auto full = ToPixelRect({.left = 0.0F, .top = 0.0F, .right = 1.0F, .bottom = 1.0F}, 1280U,
+                                  720U);
+    if (!full || full->left != 0U || full->top != 0U || full->right != 1280U || full->bottom != 720U)
+    {
+        return false;
+    }
+
+    // Malformed input is rejected: zero-size target and non-finite rect.
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    return !ToPixelRect({.left = 0.0F, .top = 0.0F, .right = 1.0F, .bottom = 1.0F}, 0U, 720U) &&
+           !ToPixelRect({.left = nan, .top = 0.0F, .right = 1.0F, .bottom = 1.0F}, 1280U, 720U);
+}
+
 bool D2PresentationColorsAreDistinct()
 {
     // The two M2 presentation colors must be visibly distinct (obvious above/underwater difference) and
@@ -2597,6 +2675,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"D2 surface projection aspect ratio change", D2SurfaceProjectionAspectRatioChange},
         {"D2 surface projection edge cases", D2SurfaceProjectionEdgeCases},
         {"D2 clear rect validation policy", D2ClearRectValidation},
+        {"D2 clear color validation contract", D2ClearColorValidation},
+        {"D2 pixel rect conversion", D2PixelRectConversion},
         {"D2 presentation colors distinct and opaque", D2PresentationColorsAreDistinct},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},

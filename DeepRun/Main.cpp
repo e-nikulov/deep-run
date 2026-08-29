@@ -317,9 +317,10 @@ int main(const int argumentCount, char** argumentValues)
 
                 // Bounded visual validation capture (M2 Slice D2): one frame near the start and one later
                 // frame, so the gravity-driven fall is visible between them. The smoke run resizes the window
-                // at engine frame 30 (1280x720 -> 1024x640), so the later capture also proves the waterline
-                // stays tied to world Y=0 (not a fixed pixel row) with the 600 m horizontal span unchanged.
-                // Failures never fail the run.
+                // at engine frame 30 from 16:9 to 16:10 (1280x720 -> 1024x640), so the later capture proves
+                // the waterline re-derives from world Y=0 through the new projection (normalized ~0.233 at
+                // 16:10 vs ~0.204 at 16:9) instead of staying on a fixed pixel row, with the 600 m horizontal
+                // span unchanged. Failures never fail the run.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;

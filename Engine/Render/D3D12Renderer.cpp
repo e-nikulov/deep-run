@@ -796,41 +796,35 @@ public:
         {
             return std::unexpected("render target has no size for viewport clear");
         }
-        if (!color.IsFinite())
+        const auto validatedColor = ValidateRgbaColor(color);
+        if (!validatedColor)
         {
-            return std::unexpected("viewport clear color contains non-finite values");
+            return std::unexpected(validatedColor.error());
         }
 
-        const auto validated = ValidateViewportRect(rect);
-        if (!validated)
+        const auto validatedRect = ValidateViewportRect(rect);
+        if (!validatedRect)
         {
-            return std::unexpected(validated.error());
+            return std::unexpected(validatedRect.error());
+        }
+        const auto pixelRect = ToPixelRect(*validatedRect, width, height);
+        if (!pixelRect)
+        {
+            return std::unexpected(pixelRect.error());
         }
 
-        // Normalized viewport coordinates -> integer pixel rectangle. D3D12 scissor rects use a top-left
-        // origin with right/bottom exclusive, so left/top edges floor and right/bottom edges ceil (a tiny
-        // epsilon absorbs floating-point drift at mathematically exact boundaries): a rect touching a
-        // viewport edge covers exactly its pixels without gaps or overruns.
-        constexpr float PixelEpsilon = 1.0e-6F;
-        const auto floorPixel = [](const float value, const std::uint32_t extent) noexcept {
-            return static_cast<std::uint32_t>(std::clamp(std::floor(value + PixelEpsilon), 0.0F,
-                                                         static_cast<float>(extent)));
-        };
-        const auto ceilPixel = [](const float value, const std::uint32_t extent) noexcept {
-            return static_cast<std::uint32_t>(std::clamp(std::ceil(value - PixelEpsilon), 1.0F,
-                                                         static_cast<float>(extent)));
-        };
-        D3D12_RECT pixelRect{
-            .left = static_cast<LONG>(floorPixel(validated->left * static_cast<float>(width), width)),
-            .top = static_cast<LONG>(floorPixel(validated->top * static_cast<float>(height), height)),
-            .right = static_cast<LONG>(ceilPixel(validated->right * static_cast<float>(width), width)),
-            .bottom = static_cast<LONG>(ceilPixel(validated->bottom * static_cast<float>(height), height))};
-
-        const D3D12_RECT previousScissor = currentScissorRect;
-        const FLOAT clearColor[4] = {color.r, color.g, color.b, color.a};
-        commandList->RSSetScissorRects(1, &pixelRect);
-        commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 0, nullptr);
-        commandList->RSSetScissorRects(1, &previousScissor);
+        // D3D12 ClearRenderTargetView is bounded by its OWN rect array — not by the rasterizer scissor.
+        // NumRects=0/pRects=nullptr would clear the ENTIRE render target regardless of any scissor, so the
+        // pixel rect must be passed explicitly (M2 Slice D2 correction). No scissor save/restore is needed:
+        // the model draw path keeps the full-viewport scissor set by BeginFrame.
+        const D3D12_RECT clearRect{
+            .left = static_cast<LONG>(pixelRect->left),
+            .top = static_cast<LONG>(pixelRect->top),
+            .right = static_cast<LONG>(pixelRect->right),
+            .bottom = static_cast<LONG>(pixelRect->bottom)};
+        const FLOAT clearColor[4] = {validatedColor->r, validatedColor->g, validatedColor->b,
+                                     validatedColor->a};
+        commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 1, &clearRect);
         return {};
     }
 
@@ -887,10 +881,14 @@ public:
         viewport.Width = static_cast<float>(width);
         viewport.Height = static_cast<float>(height);
         viewport.MaxDepth = 1.0F;
-        currentScissorRect = D3D12_RECT{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+        // Full-viewport rasterizer scissor for the model draw path. ClearViewportRect does NOT rely on it:
+        // D3D12 RTV clears are bounded by their own rect array, not by the scissor (M2 Slice D2 correction).
+        const D3D12_RECT fullScissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         commandList->RSSetViewports(1, &viewport);
-        commandList->RSSetScissorRects(1, &currentScissorRect);
+        commandList->RSSetScissorRects(1, &fullScissor);
         commandList->OMSetRenderTargets(1, &rtvHandles[frameIndex], FALSE, &dsvHandle);
+        // Generic default background for frames before/without game content. The Game paints its own
+        // presentation colors over this (M2 Slice D2) — this value carries no contract to gameplay.
         constexpr float clearColor[] = {0.015F, 0.055F, 0.075F, 1.0F};
         commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 0, nullptr);
         commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0F, 0, 0, nullptr);
@@ -981,7 +979,6 @@ public:
     std::uint32_t frameIndex = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
-    D3D12_RECT currentScissorRect{};
     UINT rtvIncrement = 0;
     std::vector<GpuModel> gpuModels;
     bool initialized = false;

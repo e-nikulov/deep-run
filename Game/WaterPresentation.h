@@ -13,9 +13,10 @@ namespace DeepRun::Game
 {
 // M2 Slice D2 presentation tuning (Game-owned). These are temporary visual values for the flat-water
 // cross-section, not an art direction and not an architectural contract: M3 may replace the whole
-// presentation path without touching the authoritative WaterBody. The above-water region is the engine's
-// existing background clear; only the underwater fill color is applied by the Game through the generic
-// renderer clear-rect API.
+// presentation path without touching the authoritative WaterBody. BOTH colors are applied by the Game
+// through the generic renderer clear-rect API (full viewport above-water first, then the underwater
+// region): the renderer's BeginFrame default clear is only a generic fallback and carries no contract to
+// these values.
 constexpr Render::RgbaColor M2AboveWaterBackgroundColor{0.015F, 0.055F, 0.075F, 1.0F};
 constexpr Render::RgbaColor M2UnderwaterBackgroundColor{0.04F, 0.22F, 0.38F, 1.0F};
 

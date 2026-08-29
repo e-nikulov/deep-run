@@ -268,12 +268,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
     }
 
-    // D2 flat-water cross-section presentation: project the AUTHORITATIVE surface level through the actual
-    // gameplay camera and fill everything below it with a solid water color via the generic renderer
-    // clear-rect. The renderer receives only a normalized rect + RGBA — no WaterBody, no marine semantics.
+    // D2 flat-water cross-section presentation: BOTH presentation colors belong to the Game. The full
+    // viewport is first painted with the above-water color, then everything below the AUTHORITATIVE surface
+    // level (projected through the actual gameplay camera) is overpainted with the underwater color via the
+    // generic renderer clear-rect API. The renderer receives only normalized rects + RGBA — no WaterBody,
+    // no marine semantics; its BeginFrame default clear is a generic fallback this path fully covers.
     // Camera clipping happens in the Game projection helper; the authoritative water state is never touched
     // by what is visible. This temporary M2 path must run before the submarine draw so the hull renders on
     // top of the water background (ImGui stays above everything via the engine overlay).
+    const auto aboveWaterCleared = renderer.ClearViewportRect(
+        Render::ViewportRect{}, // full viewport: default {0, 0, 1, 1}
+        M2AboveWaterBackgroundColor);
+    if (!aboveWaterCleared)
+    {
+        return std::unexpected(aboveWaterCleared.error());
+    }
+
     const auto underwaterRegion = UnderwaterRegionForSurface(*camera, water_->Config().surfaceLevelY);
     if (!underwaterRegion)
     {
