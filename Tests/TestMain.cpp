@@ -15,6 +15,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
+#include "Game/PhysicsRenderSync.h"
 
 #include <algorithm>
 #include <bit>
@@ -1288,7 +1289,439 @@ bool AudioBoundary()
     }
     return !audio.Status().empty();
 }
+} // namespace
+
+// ---------------------------------------------------------------------------
+// M2 Slice C2: physics-to-render synchronization math (pure helpers, no Jolt/D3D12)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Assets::ModelBounds;
+using DeepRun::Assets::ModelTransform;
+using DeepRun::Assets::ModelVector3;
+using DeepRun::Physics::PhysicsBodyState;
+using DeepRun::Physics::PhysicsQuaternion;
+using DeepRun::Render::Multiply;
+
+// Synthetic bounds deliberately NOT centered at the origin, so a pivot bug cannot hide behind symmetry.
+const ModelBounds OffCenterTestBounds{
+    .minimum = {-30.0F, -5.0F, -4.0F},
+    .maximum = {70.0F, 9.0F, 6.0F}};
+
+bool MatrixIsIdentityWithinTolerance(const ModelTransform& matrix, const float tolerance)
+{
+    for (std::size_t index = 0; index < matrix.values.size(); ++index)
+    {
+        const float expected = (index % 5 == 0) ? 1.0F : 0.0F; // diagonal entries are 1, the rest 0
+        if (std::abs(matrix.values[index] - expected) > tolerance)
+        {
+            return false;
+        }
+    }
+    return true;
 }
+
+ModelVector3 TransformPointBy(const ModelTransform& matrix, const ModelVector3& point)
+{
+    auto element = [](const ModelTransform& m, const std::size_t row, const std::size_t column) noexcept {
+        return m.values[column * 4 + row];
+    };
+    return {
+        element(matrix, 0, 0) * point.x + element(matrix, 0, 1) * point.y + element(matrix, 0, 2) * point.z +
+            element(matrix, 0, 3),
+        element(matrix, 1, 0) * point.x + element(matrix, 1, 1) * point.y + element(matrix, 1, 2) * point.z +
+            element(matrix, 1, 3),
+        element(matrix, 2, 0) * point.x + element(matrix, 2, 1) * point.y + element(matrix, 2, 2) * point.z +
+            element(matrix, 2, 3)};
+}
+
+PhysicsBodyState IdentityStateAt(const ModelVector3& position)
+{
+    PhysicsBodyState state{};
+    state.position = {position.x, position.y, position.z};
+    state.orientation = {0.0F, 0.0F, 0.0F, 1.0F}; // x, y, z, w identity
+    state.active = true;
+    return state;
+}
+
+// The exact composition PhysicalPlayground uses: bodyToWorld * modelToBody(T(-boundsCenter)).
+ModelTransform ComposeRenderTransform(const PhysicsBodyState& state, const ModelVector3& boundsCenter)
+{
+    const auto bodyToWorld = DeepRun::Game::BuildBodyToWorld(state, boundsCenter);
+    return Multiply(*bodyToWorld, DeepRun::Game::TranslationTransform({-boundsCenter.x, -boundsCenter.y, -boundsCenter.z}));
+}
+
+// 90 degrees around +Z in DeepRun x,y,z,w order: (0, 0, sin(45 deg), cos(45 deg)).
+const PhysicsQuaternion QuarterTurnAroundZ{0.0F, 0.0F, std::sqrt(0.5F), std::sqrt(0.5F)};
+
+bool PhysicsRenderSyncPivotContract()
+{
+    const ModelBounds& bounds = OffCenterTestBounds;
+    std::string message;
+    if (!DeepRun::Game::ValidateCollisionBounds(bounds, message))
+    {
+        return false;
+    }
+
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(bounds);
+    // The synthetic bounds are not symmetric: the center must be computed, never assumed to be (0, 0, 0).
+    if (std::abs(center.x - 20.0F) > 1.0e-4F || std::abs(center.y - 2.0F) > 1.0e-4F ||
+        std::abs(center.z - 1.0F) > 1.0e-4F)
+    {
+        return false;
+    }
+
+    // Initial body pose: position = boundsCenter, orientation = identity (exactly what Initialize creates).
+    const PhysicsBodyState initial = IdentityStateAt(center);
+    const ModelTransform modelToWorld = ComposeRenderTransform(initial, center);
+    if (!MatrixIsIdentityWithinTolerance(modelToWorld, 1.0e-4F))
+    {
+        return false; // the first visual frame must be identical to B2.1: T(c) * T(-c) = identity
+    }
+
+    // The same contract must hold for a symmetric bounds too (regression guard in both directions).
+    const ModelBounds symmetric{
+        .minimum = {-50.0F, -8.0F, -10.5F},
+        .maximum = {52.0F, 11.4F, 10.5F}}; // canonical-like but still off-center on X/Y
+    const ModelVector3 symmetricCenter = DeepRun::Game::BoundsCenter(symmetric);
+    return MatrixIsIdentityWithinTolerance(ComposeRenderTransform(IdentityStateAt(symmetricCenter), symmetricCenter),
+                                           1.0e-4F);
+}
+
+bool PhysicsRenderSyncTranslationAppliedOnce()
+{
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(OffCenterTestBounds);
+    // Known body displacement: +10 X, -20 Y (Z untouched).
+    PhysicsBodyState state = IdentityStateAt(center);
+    state.position.x += 10.0F;
+    state.position.y -= 20.0F;
+
+    const ModelTransform modelToWorld = ComposeRenderTransform(state, center);
+    // The model must move exactly +10 X / -20 Y relative to identity: the body translation is applied once,
+    // and the pivot correction cancels it at rest instead of doubling or dropping it.
+    constexpr float Tolerance = 1.0e-3F;
+    return std::abs(modelToWorld.values[12] - 10.0F) < Tolerance &&
+           std::abs(modelToWorld.values[13] + 20.0F) < Tolerance && std::abs(modelToWorld.values[14]) < Tolerance &&
+           MatrixIsIdentityWithinTolerance(
+               ModelTransform{.values = {
+                   modelToWorld.values[0], modelToWorld.values[1], modelToWorld.values[2], 0.0F,
+                   modelToWorld.values[4], modelToWorld.values[5], modelToWorld.values[6], 0.0F,
+                   modelToWorld.values[8], modelToWorld.values[9], modelToWorld.values[10], 0.0F,
+                   0.0F, 0.0F, 0.0F, 1.0F}},
+               1.0e-4F);
+}
+
+bool PhysicsRenderSyncZRotationConvention()
+{
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(OffCenterTestBounds);
+    PhysicsBodyState state = IdentityStateAt(center);
+    state.orientation = QuarterTurnAroundZ; // +90 degrees around Z, right-handed: +X must map to +Y
+
+    const ModelTransform modelToWorld = ComposeRenderTransform(state, center);
+    const ModelVector3 originImage = TransformPointBy(modelToWorld, {0.0F, 0.0F, 0.0F});
+    const ModelVector3 bowImage = TransformPointBy(modelToWorld, {50.0F, 0.0F, 0.0F});
+
+    // The bounds center (model space) must land exactly on the body position: that is the pivot contract.
+    constexpr float Tolerance = 1.0e-3F;
+    const bool centerLandsOnBody = std::abs(TransformPointBy(modelToWorld, center).x - center.x) < Tolerance &&
+                                   std::abs(TransformPointBy(modelToWorld, center).y - center.y) < Tolerance &&
+                                   std::abs(TransformPointBy(modelToWorld, center).z - center.z) < Tolerance;
+
+    // A 50 m offset along +X must become a 50 m offset along +Y (rigid rotation, no scale, no mirror).
+    const ModelVector3 delta{bowImage.x - originImage.x, bowImage.y - originImage.y, bowImage.z - originImage.z};
+    return centerLandsOnBody && std::abs(delta.x) < Tolerance && std::abs(delta.y - 50.0F) < Tolerance &&
+           std::abs(delta.z) < Tolerance;
+}
+
+bool PhysicsRenderSyncQuaternionSignEquivalence()
+{
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(OffCenterTestBounds);
+    PhysicsBodyState state = IdentityStateAt(center);
+    state.orientation = QuarterTurnAroundZ;
+    const ModelTransform positive = ComposeRenderTransform(state, center);
+
+    // q and -q are the same rotation: the transform must be equivalent element-wise.
+    state.orientation = {-QuarterTurnAroundZ.x, -QuarterTurnAroundZ.y, -QuarterTurnAroundZ.z, -QuarterTurnAroundZ.w};
+    const ModelTransform negative = ComposeRenderTransform(state, center);
+
+    for (std::size_t index = 0; index < positive.values.size(); ++index)
+    {
+        if (std::abs(positive.values[index] - negative.values[index]) > 1.0e-4F)
+        {
+            return false;
+        }
+    }
+
+    // A non-unit but valid quaternion must normalize to the same rotation as its unit form.
+    state.orientation = {QuarterTurnAroundZ.x * 2.5F, QuarterTurnAroundZ.y * 2.5F,
+                         QuarterTurnAroundZ.z * 2.5F, QuarterTurnAroundZ.w * 2.5F};
+    const ModelTransform scaled = ComposeRenderTransform(state, center);
+    for (std::size_t index = 0; index < positive.values.size(); ++index)
+    {
+        if (std::abs(positive.values[index] - scaled.values[index]) > 1.0e-3F)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool PhysicsRenderSyncPropellerStaysAttached()
+{
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(OffCenterTestBounds);
+    // Body has translated and rotated: the propeller node at (-49, 0, 0) must remain rigidly attached.
+    PhysicsBodyState state = IdentityStateAt(center);
+    state.position.x += 10.0F;
+    state.position.y -= 20.0F;
+    state.orientation = QuarterTurnAroundZ;
+
+    const ModelTransform modelToWorld = ComposeRenderTransform(state, center);
+    // Exactly what PrepareModelDraws does for the propeller node: body transform * local node transform.
+    const ModelTransform propellerDraw = Multiply(modelToWorld, DeepRun::Game::TranslationTransform({-49.0F, 0.0F, 0.0F}));
+
+    const ModelVector3 hullOrigin = TransformPointBy(modelToWorld, {0.0F, 0.0F, 0.0F});
+    const ModelVector3 propellerHub = TransformPointBy(propellerDraw, {0.0F, 0.0F, 0.0F});
+
+    // The hub offset from the hull origin must equal the authored local offset rotated by the body rotation:
+    // R * (-49, 0, 0) = (0, -49, 0) for a +90 degree Z turn. No drift, no detachment while falling.
+    constexpr float Tolerance = 1.0e-3F;
+    const ModelVector3 offset{propellerHub.x - hullOrigin.x, propellerHub.y - hullOrigin.y, propellerHub.z - hullOrigin.z};
+    return std::abs(offset.x) < Tolerance && std::abs(offset.y + 49.0F) < Tolerance && std::abs(offset.z) < Tolerance;
+}
+
+bool PhysicsRenderSyncTransformedBounds()
+{
+    const ModelBounds& bounds = OffCenterTestBounds; // size (100, 14, 10), center (20, 2, 1)
+    constexpr float Tolerance = 1.0e-3F;
+
+    // Translation: position changes, size must not.
+    const ModelTransform translation = DeepRun::Game::TranslationTransform({10.0F, -20.0F, 5.0F});
+    const auto translated = DeepRun::Game::TransformBounds(bounds, translation);
+    if (!translated)
+    {
+        return false;
+    }
+    const bool sizePreserved = std::abs((translated->maximum.x - translated->minimum.x) - 100.0F) < Tolerance &&
+                               std::abs((translated->maximum.y - translated->minimum.y) - 14.0F) < Tolerance &&
+                               std::abs((translated->maximum.z - translated->minimum.z) - 10.0F) < Tolerance;
+    // New min = (-30+10, -5-20, -4+5) = (-20, -25, 1); new max = (70+10, 9-20, 6+5) = (80, -11, 11).
+    const bool positionMoved = std::abs(translated->minimum.x + 20.0F) < Tolerance &&
+                               std::abs(translated->maximum.x - 80.0F) < Tolerance &&
+                               std::abs(translated->minimum.y + 25.0F) < Tolerance &&
+                               std::abs(translated->maximum.y + 11.0F) < Tolerance;
+
+    // Z rotation by 90 degrees: X and Y extents swap, Z extent is unchanged. All 8 transformed corners must be
+    // inside the resulting world AABB by construction (min/max over the corners).
+    PhysicsBodyState state = IdentityStateAt(DeepRun::Game::BoundsCenter(bounds));
+    state.orientation = QuarterTurnAroundZ;
+    const ModelTransform rotation = *DeepRun::Game::BuildBodyToWorld(state, DeepRun::Game::BoundsCenter(bounds));
+    const auto rotated = DeepRun::Game::TransformBounds(bounds, rotation);
+    if (!rotated)
+    {
+        return false;
+    }
+    const bool extentsSwapped = std::abs((rotated->maximum.x - rotated->minimum.x) - 14.0F) < Tolerance &&
+                                std::abs((rotated->maximum.y - rotated->minimum.y) - 100.0F) < Tolerance &&
+                                std::abs((rotated->maximum.z - rotated->minimum.z) - 10.0F) < Tolerance;
+
+    // Every transformed corner is contained in the world AABB (the defining property of the rebuilt bounds).
+    auto element = [](const ModelTransform& m, const std::size_t row, const std::size_t column) noexcept {
+        return m.values[column * 4 + row];
+    };
+    bool cornersContained = true;
+    for (const float x : {bounds.minimum.x, bounds.maximum.x})
+    {
+        for (const float y : {bounds.minimum.y, bounds.maximum.y})
+        {
+            for (const float z : {bounds.minimum.z, bounds.maximum.z})
+            {
+                const ModelVector3 corner{
+                    element(rotation, 0, 0) * x + element(rotation, 0, 1) * y + element(rotation, 0, 2) * z +
+                        element(rotation, 0, 3),
+                    element(rotation, 1, 0) * x + element(rotation, 1, 1) * y + element(rotation, 1, 2) * z +
+                        element(rotation, 1, 3),
+                    element(rotation, 2, 0) * x + element(rotation, 2, 1) * y + element(rotation, 2, 2) * z +
+                        element(rotation, 2, 3)};
+                if (corner.x < rotated->minimum.x - Tolerance || corner.x > rotated->maximum.x + Tolerance ||
+                    corner.y < rotated->minimum.y - Tolerance || corner.y > rotated->maximum.y + Tolerance ||
+                    corner.z < rotated->minimum.z - Tolerance || corner.z > rotated->maximum.z + Tolerance)
+                {
+                    cornersContained = false;
+                }
+            }
+        }
+    }
+    return sizePreserved && positionMoved && extentsSwapped && cornersContained;
+}
+
+bool PhysicsRenderSyncRejectsNonFiniteInput()
+{
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(OffCenterTestBounds);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+
+    auto nanPosition = IdentityStateAt(center);
+    nanPosition.position.y = nan;
+    if (DeepRun::Game::BuildBodyToWorld(nanPosition, center))
+    {
+        return false;
+    }
+
+    auto zeroQuaternion = IdentityStateAt(center);
+    zeroQuaternion.orientation = {0.0F, 0.0F, 0.0F, 0.0F};
+    if (DeepRun::Game::BuildBodyToWorld(zeroQuaternion, center))
+    {
+        return false;
+    }
+
+    auto nanQuaternion = IdentityStateAt(center);
+    nanQuaternion.orientation.w = nan;
+    if (DeepRun::Game::BuildBodyToWorld(nanQuaternion, center))
+    {
+        return false;
+    }
+
+    // Non-finite bounds or transform must be rejected by TransformBounds as well.
+    ModelBounds nonFiniteBounds = OffCenterTestBounds;
+    nonFiniteBounds.maximum.z = nan;
+    if (DeepRun::Game::TransformBounds(nonFiniteBounds, {}))
+    {
+        return false;
+    }
+
+    ModelTransform nonFiniteTransform{};
+    nonFiniteTransform.values[0] = nan;
+    return !DeepRun::Game::TransformBounds(OffCenterTestBounds, nonFiniteTransform);
+}
+
+bool PhysicsIntegrationSubmarineBodyFallsThroughPivot()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    // Submarine-like box body from synthetic (deliberately off-center) bounds, through the public API only.
+    const ModelBounds& bounds = OffCenterTestBounds;
+    const ModelVector3 center = DeepRun::Game::BoundsCenter(bounds);
+    DeepRun::Physics::DynamicBoxBodyCreateInfo info;
+    info.halfExtents = {50.0F, 7.0F, 5.0F}; // (max - min) * 0.5 of the synthetic bounds
+    info.mass = 12'000'000.0F;              // M2 prototype tuning, same value as the playground
+    info.position = {center.x, center.y, center.z};
+    info.orientation = {};
+    info.gravityEnabled = true;
+    const auto handle = world.CreateDynamicBoxBody(info);
+    if (!handle.IsValid())
+    {
+        return false;
+    }
+
+    // The render-model Y must follow the physics-body Y exactly through the pivot correction at every sample:
+    // modelToWorld translation y == bodyY - centerY, while X/Z stay stable and everything remains finite.
+    constexpr float Tolerance = 1.0e-2F;
+    for (const int steps : {10, 30, 60})
+    {
+        for (int step = 0; step < steps; ++step)
+        {
+            world.Step(1.0F / 60.0F);
+        }
+        const auto state = world.GetBodyState(handle);
+        if (!state || !state->active)
+        {
+            return false;
+        }
+
+        const bool finite = std::isfinite(state->position.x) && std::isfinite(state->position.y) &&
+                            std::isfinite(state->position.z) && std::isfinite(state->linearVelocity.x) &&
+                            std::isfinite(state->linearVelocity.y) && std::isfinite(state->linearVelocity.z);
+        if (!finite || state->orientation.LengthSquared() <= 0.0F)
+        {
+            return false;
+        }
+
+        const ModelTransform modelToWorld = ComposeRenderTransform(*state, center);
+        // Identity rotation is preserved (no torque), so the pivot correction is a pure translation offset.
+        if (std::abs(modelToWorld.values[13] - (state->position.y - center.y)) > Tolerance)
+        {
+            return false;
+        }
+        if (std::abs(state->position.x - center.x) > 0.001F || std::abs(state->position.z - center.z) > 0.001F)
+        {
+            return false; // X/Z must remain stable under pure gravity
+        }
+    }
+
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState)
+    {
+        return false;
+    }
+    return finalState->position.y < center.y && finalState->linearVelocity.y < 0.0F;
+}
+
+// ---------------------------------------------------------------------------
+// M2 Slice C2: architecture boundary scans
+// ---------------------------------------------------------------------------
+
+bool ScanSourceDirectoryForForbiddenPatterns(
+    const std::filesystem::path& root,
+    const std::vector<std::string_view>& forbidden)
+{
+    if (!std::filesystem::exists(root))
+    {
+        return false;
+    }
+    for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(root))
+    {
+        if (!entry.is_regular_file())
+        {
+            continue;
+        }
+        const std::filesystem::path extension = entry.path().extension();
+        if (extension != ".h" && extension != ".cpp")
+        {
+            continue;
+        }
+
+        std::ifstream input(entry.path(), std::ios::binary);
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool GameCodeHasNoJoltDependency()
+{
+    // Gameplay code must not include JPH headers or use JPH types (ADR-0002 / ADR-0007).
+    const std::filesystem::path gameRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game";
+    return ScanSourceDirectoryForForbiddenPatterns(gameRoot, {"<jolt/", "jph::"});
+}
+
+bool EngineRenderHasNoPhysicsOrJoltDependency()
+{
+    // The renderer must not know about Jolt or physics handles (ADR-0007).
+    const std::filesystem::path renderRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Render";
+    return ScanSourceDirectoryForForbiddenPatterns(renderRoot, {"<jolt/", "jph::", "physicsbodyhandle"});
+}
+
+bool PhysicsWorldHasNoGpuModelKnowledge()
+{
+    // PhysicsWorld must not know about GPU models (ADR-0007).
+    const std::filesystem::path physicsRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Physics";
+    return ScanSourceDirectoryForForbiddenPatterns(physicsRoot, {"gpumodel", "d3d12"});
+}
+} // namespace
 
 int main(const int argumentCount, const char* const* arguments)
 {
@@ -1345,6 +1778,19 @@ int main(const int argumentCount, const char* const* arguments)
         {"No hidden linear drag", NoHiddenLinearDrag},
         {"Angular velocity state", AngularVelocityState},
         {"Audio abstraction", AudioBoundary},
+        // M2 Slice C2: physics-to-render synchronization math and integration.
+        {"Physics render sync pivot contract", PhysicsRenderSyncPivotContract},
+        {"Physics render sync translation applied once", PhysicsRenderSyncTranslationAppliedOnce},
+        {"Physics render sync Z rotation convention", PhysicsRenderSyncZRotationConvention},
+        {"Physics render sync quaternion sign equivalence", PhysicsRenderSyncQuaternionSignEquivalence},
+        {"Physics render sync propeller stays attached", PhysicsRenderSyncPropellerStaysAttached},
+        {"Physics render sync transformed bounds", PhysicsRenderSyncTransformedBounds},
+        {"Physics render sync rejects non-finite input", PhysicsRenderSyncRejectsNonFiniteInput},
+        {"Physics integration submarine body falls through pivot", PhysicsIntegrationSubmarineBodyFallsThroughPivot},
+        // M2 Slice C2: architecture boundary scans.
+        {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
+        {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},
+        {"Physics world has no GPU model knowledge", PhysicsWorldHasNoGpuModelKnowledge},
     };
 
     int failed = 0;

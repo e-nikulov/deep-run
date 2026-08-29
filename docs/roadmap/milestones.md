@@ -300,7 +300,7 @@ Do not implement:
 
 ### Milestone 2 - Physical Playground
 
-Status: READY
+Status: IN PROGRESS
 
 Scope:
 
@@ -315,6 +315,26 @@ Scope:
 - side-view camera
 - controller-driven submarine commands
 - basic gamepad haptics
+
+Accepted slices (in order):
+
+| Slice | Content | Status |
+|---|---|---|
+| A | GLB CPU asset loading into `ModelAsset` | ACCEPTED |
+| A.1 | Material transport through the asset pipeline | ACCEPTED |
+| B1 | Indexed GPU geometry layout and upload | ACCEPTED |
+| B1.1 | Composition + GPU identity (distinct handles per upload) | ACCEPTED |
+| B2 | Indexed submarine rendering (4 nodes / 4 draws / 1632 indices) | ACCEPTED |
+| B2.1 | Fixed 600 m gameplay camera, orthographic side view | ACCEPTED |
+| C1 | Generic dynamic rigid-body API (`CreateDynamicBoxBody`) | ACCEPTED |
+| C1.1 | Opaque physics-handle contract cleanup (generation, foreign/stale rejection) | ACCEPTED |
+| C2 | Submarine rigid-body integration + physics-to-render synchronization (ADR-0008) | ACCEPTED |
+
+C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
+`PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps
+the first visual frame identical to B2.1; camera target stays at the initial world center during C2
+verification (camera follow is deferred until a water-plane world reference exists).
+
 <!-- deeprun-m2-command-boundary:start -->
 
 Design boundary:

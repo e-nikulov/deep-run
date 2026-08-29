@@ -11,6 +11,11 @@ namespace DeepRun::Assets
 class AssetManager;
 }
 
+namespace DeepRun::Physics
+{
+class PhysicsWorld;
+}
+
 namespace DeepRun::Scene
 {
 class Scene;
@@ -62,6 +67,12 @@ public:
     [[nodiscard]] Scene::Scene& ActiveScene() noexcept;
     [[nodiscard]] Assets::AssetManager& Assets() noexcept;
     [[nodiscard]] Render::D3D12Renderer* Renderer() noexcept;
+
+    // Generic accessor to the engine-owned physics subsystem. The Engine owns the PhysicsWorld and
+    // outlives every gameplay consumer during Application::Run; callers must not store the pointer
+    // beyond that lifetime or create shared ownership of it.
+    [[nodiscard]] Physics::PhysicsWorld* Physics() noexcept;
+
     [[nodiscard]] int ExitCode() const noexcept;
 
 private:

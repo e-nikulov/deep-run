@@ -99,10 +99,12 @@ target_link_libraries(DeepRunEngine
 add_executable(DeepRun
     DeepRun/Main.cpp
     Game/PhysicalPlayground.cpp
+    Game/PhysicsRenderSync.cpp
 )
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
-target_link_libraries(DeepRun PRIVATE DeepRunEngine)
+# user32/gdi32 are used only by the M2 Slice C2 window frame capture (PrintWindow/BitBlt) in Main.cpp.
+target_link_libraries(DeepRun PRIVATE DeepRunEngine user32 gdi32)
 add_custom_target(DeepRunConfig ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -126,7 +128,10 @@ add_custom_command(TARGET DeepRun POST_BUILD
 
 enable_testing()
 
-add_executable(DeepRunTests Tests/TestMain.cpp)
+add_executable(DeepRunTests
+    Tests/TestMain.cpp
+    Game/PhysicsRenderSync.cpp
+)
 target_compile_features(DeepRunTests PRIVATE cxx_std_23)
 target_compile_definitions(DeepRunTests PRIVATE
     NOMINMAX

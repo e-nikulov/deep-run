@@ -361,6 +361,11 @@ Render::D3D12Renderer* Engine::Renderer() noexcept
     return impl_->renderer.get();
 }
 
+Physics::PhysicsWorld* Engine::Physics() noexcept
+{
+    return impl_->physics.get();
+}
+
 int Engine::ExitCode() const noexcept
 {
     return impl_->exitCode;
