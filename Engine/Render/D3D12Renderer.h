@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/Render/Camera.h"
+#include "Engine/Render/ClearRect.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 
@@ -50,6 +51,16 @@ public:
         GpuModelHandle handle,
         std::span<const ModelDrawInstance> draws,
         const OrthographicCamera& camera);
+
+    // Clears a rectangular region of the current render target with a solid color (M2 Slice D2). Valid only
+    // between BeginFrame and EndFrame. The rectangle is in normalized viewport coordinates (see ViewportRect)
+    // and the color is renderer-neutral RGBA; no D3D12 types leak through this API, and the renderer assigns
+    // it no scene meaning — it simply paints a generic rectangle on the current render target. Malformed
+    // input is rejected as a recoverable error (see ValidateViewportRect).
+    [[nodiscard]] std::expected<void, std::string> ClearViewportRect(
+        const ViewportRect& rect,
+        const RgbaColor& color);
+
     void BeginFrame();
     void EndFrame();
 

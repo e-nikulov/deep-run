@@ -21,6 +21,31 @@ namespace
 // it finds the game window by this class name and never feeds data back into gameplay or rendering.
 constexpr wchar_t GameWindowClassName[] = L"DeepRunEngineWindow";
 
+// EnumWindows callback state for finding THIS process's game window (see WindowFrameCapture::Capture).
+struct FindContext final
+{
+    DWORD processId = 0;
+    HWND window = nullptr;
+};
+
+BOOL CALLBACK FindGameWindowCallback(HWND handle, LPARAM parameter)
+{
+    auto* context = reinterpret_cast<FindContext*>(parameter);
+    wchar_t className[64]{};
+    if (GetClassNameW(handle, className, 63) == 0 || wcscmp(className, GameWindowClassName) != 0)
+    {
+        return TRUE;
+    }
+    DWORD windowProcessId = 0;
+    GetWindowThreadProcessId(handle, &windowProcessId);
+    if (windowProcessId == context->processId)
+    {
+        context->window = handle;
+        return FALSE; // stop enumeration: first match wins
+    }
+    return TRUE;
+}
+
 // Minimal window frame capture for M2 Slice C2 visual validation. It renders the game window into a memory
 // bitmap with PrintWindow(PW_RENDERFULLCONTENT) and falls back to a screen BitBlt of the window's client
 // rectangle when that yields nothing (e.g. a compositor that does not support off-screen D3D12 swap-chain
@@ -28,13 +53,18 @@ constexpr wchar_t GameWindowClassName[] = L"DeepRunEngineWindow";
 class WindowFrameCapture final
 {
 public:
-    // Returns captured 8-bit BGRA pixels plus their dimensions.
+    // Returns captured 8-bit BGRA pixels plus their dimensions. The window is matched by class name AND the
+    // current process ID: FindWindowW alone can return another DeepRun instance's leftover window (e.g. from
+    // a previous session), which would capture foreign content at an unrelated size.
     bool Capture(std::vector<std::byte>& bgraPixels, std::uint32_t& width, std::uint32_t& height)
     {
-        const HWND window = FindWindowW(GameWindowClassName, nullptr);
+        FindContext findContext{.processId = GetCurrentProcessId(), .window = nullptr};
+        const LPARAM contextParameter = reinterpret_cast<LPARAM>(&findContext);
+        EnumWindows(FindGameWindowCallback, contextParameter);
+        const HWND window = findContext.window;
         if (window == nullptr || !IsWindowVisible(window))
         {
-            LogOnce("game window not found");
+            LogOnce("game window not found for this process");
             return false;
         }
 
@@ -198,9 +228,11 @@ bool WriteBmp(
         for (std::uint32_t x = 0; x < width; ++x)
         {
             const std::size_t sourceOffset = (static_cast<std::size_t>(sourceRow) * width + x) * 4;
-            targetRow[x * 3 + 0] = bgraPixels[sourceOffset + 2]; // B
+            // The capture buffer is a top-down 32-bit BGRA DIB section: byte order in memory is B,G,R,A.
+            // A 24-bit BMP row stores B,G,R per pixel, so the channels map straight through (no swap).
+            targetRow[x * 3 + 0] = bgraPixels[sourceOffset + 0]; // B
             targetRow[x * 3 + 1] = bgraPixels[sourceOffset + 1]; // G
-            targetRow[x * 3 + 2] = bgraPixels[sourceOffset + 0]; // R
+            targetRow[x * 3 + 2] = bgraPixels[sourceOffset + 2]; // R
         }
     }
 
@@ -283,8 +315,11 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                // Bounded visual validation capture (M2 Slice C2): one frame near the start and one later
-                // frame, so the gravity-driven fall is visible between them. Failures never fail the run.
+                // Bounded visual validation capture (M2 Slice D2): one frame near the start and one later
+                // frame, so the gravity-driven fall is visible between them. The smoke run resizes the window
+                // at engine frame 30 (1280x720 -> 1024x640), so the later capture also proves the waterline
+                // stays tied to world Y=0 (not a fixed pixel row) with the 600 m horizontal span unchanged.
+                // Failures never fail the run.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;
@@ -292,7 +327,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m2_c2_frame_004.bmp");
+                        const auto path = std::filesystem::path("m2_d2_frame_004.bmp");
                         capturedInitial = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }
@@ -304,7 +339,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m2_c2_frame_091.bmp");
+                        const auto path = std::filesystem::path("m2_d2_frame_091.bmp");
                         capturedLater = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured later visual frame to " << path.string() << '\n';
                     }

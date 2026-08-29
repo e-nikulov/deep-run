@@ -786,6 +786,54 @@ public:
         return stats;
     }
 
+    std::expected<void, std::string> ClearViewportRect(const ViewportRect& rect, const RgbaColor& color)
+    {
+        if (!frameOpen)
+        {
+            return std::unexpected("viewport clear is only valid between BeginFrame and EndFrame");
+        }
+        if (width == 0 || height == 0)
+        {
+            return std::unexpected("render target has no size for viewport clear");
+        }
+        if (!color.IsFinite())
+        {
+            return std::unexpected("viewport clear color contains non-finite values");
+        }
+
+        const auto validated = ValidateViewportRect(rect);
+        if (!validated)
+        {
+            return std::unexpected(validated.error());
+        }
+
+        // Normalized viewport coordinates -> integer pixel rectangle. D3D12 scissor rects use a top-left
+        // origin with right/bottom exclusive, so left/top edges floor and right/bottom edges ceil (a tiny
+        // epsilon absorbs floating-point drift at mathematically exact boundaries): a rect touching a
+        // viewport edge covers exactly its pixels without gaps or overruns.
+        constexpr float PixelEpsilon = 1.0e-6F;
+        const auto floorPixel = [](const float value, const std::uint32_t extent) noexcept {
+            return static_cast<std::uint32_t>(std::clamp(std::floor(value + PixelEpsilon), 0.0F,
+                                                         static_cast<float>(extent)));
+        };
+        const auto ceilPixel = [](const float value, const std::uint32_t extent) noexcept {
+            return static_cast<std::uint32_t>(std::clamp(std::ceil(value - PixelEpsilon), 1.0F,
+                                                         static_cast<float>(extent)));
+        };
+        D3D12_RECT pixelRect{
+            .left = static_cast<LONG>(floorPixel(validated->left * static_cast<float>(width), width)),
+            .top = static_cast<LONG>(floorPixel(validated->top * static_cast<float>(height), height)),
+            .right = static_cast<LONG>(ceilPixel(validated->right * static_cast<float>(width), width)),
+            .bottom = static_cast<LONG>(ceilPixel(validated->bottom * static_cast<float>(height), height))};
+
+        const D3D12_RECT previousScissor = currentScissorRect;
+        const FLOAT clearColor[4] = {color.r, color.g, color.b, color.a};
+        commandList->RSSetScissorRects(1, &pixelRect);
+        commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 0, nullptr);
+        commandList->RSSetScissorRects(1, &previousScissor);
+        return {};
+    }
+
     void Resize(const std::uint32_t newWidth, const std::uint32_t newHeight)
     {
         if (!initialized || newWidth == 0 || newHeight == 0 || (newWidth == width && newHeight == height))
@@ -839,9 +887,9 @@ public:
         viewport.Width = static_cast<float>(width);
         viewport.Height = static_cast<float>(height);
         viewport.MaxDepth = 1.0F;
-        const D3D12_RECT scissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+        currentScissorRect = D3D12_RECT{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         commandList->RSSetViewports(1, &viewport);
-        commandList->RSSetScissorRects(1, &scissor);
+        commandList->RSSetScissorRects(1, &currentScissorRect);
         commandList->OMSetRenderTargets(1, &rtvHandles[frameIndex], FALSE, &dsvHandle);
         constexpr float clearColor[] = {0.015F, 0.055F, 0.075F, 1.0F};
         commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 0, nullptr);
@@ -933,6 +981,7 @@ public:
     std::uint32_t frameIndex = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    D3D12_RECT currentScissorRect{};
     UINT rtvIncrement = 0;
     std::vector<GpuModel> gpuModels;
     bool initialized = false;
@@ -997,6 +1046,13 @@ std::expected<ModelDrawStats, std::string> D3D12Renderer::DrawModel(
         return std::unexpected("invalid or foreign GPU model handle");
     }
     return impl_->DrawModel(handle.modelIndex_, draws, camera);
+}
+
+std::expected<void, std::string> D3D12Renderer::ClearViewportRect(
+    const ViewportRect& rect,
+    const RgbaColor& color)
+{
+    return impl_->ClearViewportRect(rect, color);
 }
 
 void D3D12Renderer::BeginFrame()

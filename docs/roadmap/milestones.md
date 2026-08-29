@@ -331,6 +331,7 @@ Accepted slices (in order):
 | C2 | Submarine rigid-body integration + physics-to-render synchronization (ADR-0008) | ACCEPTED |
 | C2.1 | 2.5D body DOF constraint + world-bounds synchronization | ACCEPTED |
 | D1 | Authoritative flat WaterBody + water-level/depth query | ACCEPTED |
+| D2 | Visible flat-water cross-section + M2 depth placement | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps
@@ -341,6 +342,12 @@ C2.1 notes: corrective pass only — no new gameplay scope. The M2 submarine bod
 gameplay plane (translation X/Y + rotation Z) through a DeepRun-owned `PhysicsDegreesOfFreedom` on the
 generic dynamic-body creation contract; rendered world bounds now use the same `modelToWorld` as draw
 preparation (ADR-0008).
+
+D2 notes: sea level Y=0, initial submarine center depth = 100 m below the authoritative surface. The
+playground owns its scenario `WaterBody` value and derives all presentation from it; the flat-water
+cross-section is a temporary M2 presentation path (generic renderer clear-rect below the projected
+surface) that M3 may replace without changing WaterBody truth. D2 water creates no forces — buoyancy
+remains out of scope, so the body keeps sinking under gravity and its signed depth increases.
 
 <!-- deeprun-m2-command-boundary:start -->
 

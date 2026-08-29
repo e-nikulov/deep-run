@@ -64,6 +64,7 @@ add_library(DeepRunEngine STATIC
     Engine/Platform/Windows/WinPlatform.cpp
     Engine/Platform/Windows/WinWindow.cpp
     Engine/Render/Camera.cpp
+    Engine/Render/ClearRect.cpp
     Engine/Render/D3D12Renderer.cpp
     Engine/Render/IndexedGeometry.cpp
     Engine/Render/ModelDraw.cpp
@@ -101,6 +102,7 @@ add_executable(DeepRun
     DeepRun/Main.cpp
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
+    Game/WaterPresentation.cpp
 )
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
@@ -132,6 +134,7 @@ enable_testing()
 add_executable(DeepRunTests
     Tests/TestMain.cpp
     Game/PhysicsRenderSync.cpp
+    Game/WaterPresentation.cpp
 )
 target_compile_features(DeepRunTests PRIVATE cxx_std_23)
 target_compile_definitions(DeepRunTests PRIVATE

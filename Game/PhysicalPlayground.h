@@ -5,11 +5,12 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Simulation/Marine/WaterBody.h"
 
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <string>
-#include <vector>
 
 namespace DeepRun::Assets
 {
@@ -35,6 +36,11 @@ namespace DeepRun::Game
 // The playground owns a non-owning PhysicsBodyHandle plus a non-owning PhysicsWorld reference.
 // Lifetime assumption: the Engine owns the PhysicsWorld and outlives all playground rendering
 // during Application::Run; no shared ownership is created here (ADR-0008).
+//
+// M2 Slice D2: the scenario also owns its authoritative Marine::WaterBody as a plain value — the single
+// source of truth for sea level and signed depth. The Game reads it (surface level, body-center depth) and
+// derives presentation from those values; the renderer never sees a WaterBody, and the WaterBody never
+// knows about the renderer, camera or submarine. D2 water is environment state only: it creates no forces.
 class PhysicalPlayground final
 {
 public:
@@ -46,7 +52,8 @@ public:
         bool verifyDistinctUploads);
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
-    // fixed-step update for the frame; never steps physics itself.
+    // fixed-step update for the frame; never steps physics itself. Also paints the D2 flat-water
+    // cross-section (generic clear-rect below the projected authoritative surface) before the submarine.
     [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
         Render::D3D12Renderer& renderer) const;
 
@@ -59,10 +66,16 @@ private:
     // Non-owning: the Engine owns the world and outlives this playground (see class comment).
     Physics::PhysicsWorld* physics_ = nullptr;
 
-    // M2 physical tuning, derived once from ModelAsset::bounds at startup.
-    Assets::ModelVector3 boundsCenter_{};
+    // M2 scenario composition (D2): the authoritative water body, owned by value as part of this concrete
+    // scenario. No MarineEnvironment/global/singleton — just a member of the playground that composes it.
+    std::optional<Marine::WaterBody> water_;
+
+    // Asset-space pivot: (bounds.min + bounds.max) * 0.5. Used ONLY for modelToBody = T(-assetBoundsCenter).
+    Assets::ModelVector3 assetBoundsCenter_{};
+    // World-space initial body center: X/Z from the asset bounds center, Y from WaterBody surface level and
+    // M2InitialSubmarineDepthMeters (never from the asset Y center). Also the fixed B2.1 camera target.
+    Physics::PhysicsVector3 initialBodyWorldCenter_{};
     Assets::ModelTransform modelToBody_{};
-    std::vector<Render::ModelDrawInstance> draws_;
 
     // Bounded smoke diagnostics: the first and a later physical render sample.
     mutable std::uint64_t renderSampleCount_ = 0;

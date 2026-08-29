@@ -11,11 +11,13 @@
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
+#include "Engine/Render/ClearRect.h"
 #include "Engine/Render/D3D12Renderer.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/PhysicsRenderSync.h"
+#include "Game/WaterPresentation.h"
 #include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
@@ -2156,6 +2158,273 @@ bool WaterBodyRejectsNonFiniteQueryPosition()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
+// generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Marine::WaterBody;
+using DeepRun::Render::OrthographicCamera;
+using DeepRun::Render::RgbaColor;
+using DeepRun::Render::ViewportRect;
+
+constexpr float D2Tolerance = 1.0e-3F;
+
+// The exact placement rule PhysicalPlayground uses (D2): X/Z from the asset bounds center, Y exclusively
+// from WaterBody surface truth and the desired depth — never from the asset Y center.
+DeepRun::Physics::PhysicsVector3 D2PlaceBody(
+    const float surfaceLevelY,
+    const float desiredDepthMeters,
+    const ModelBounds& bounds)
+{
+    return DeepRun::Game::ComputeInitialBodyWorldCenter(
+        surfaceLevelY, desiredDepthMeters, DeepRun::Game::BoundsCenter(bounds));
+}
+
+// The exact pivot composition PhysicalPlayground uses: bodyToWorld * T(-assetBoundsCenter). With the initial
+// identity orientation this maps the model-space bounds center onto the world placement point.
+ModelTransform D2ComposeBodyToAsset(
+    const DeepRun::Physics::PhysicsVector3& bodyWorldCenter,
+    const ModelBounds& bounds)
+{
+    const auto bodyToWorld =
+        DeepRun::Game::BuildBodyToWorld(IdentityStateAt({bodyWorldCenter.x, bodyWorldCenter.y, bodyWorldCenter.z}));
+    return Multiply(*bodyToWorld, DeepRun::Game::TranslationTransform(
+                                      {-DeepRun::Game::BoundsCenter(bounds).x,
+                                       -DeepRun::Game::BoundsCenter(bounds).y,
+                                       -DeepRun::Game::BoundsCenter(bounds).z}));
+}
+
+// The canonical M2 gameplay camera (B2.1 contract): fixed 600 m horizontal span, orthographic side view,
+// target at the initial body world center. Depth bounds are synthetic but finite; they only set near/far.
+OrthographicCamera D2GameplayCamera(const float aspectRatio)
+{
+    const ModelBounds depthBounds{
+        .minimum = {-50.0F, -10.0F, -4.0F},
+        .maximum = {50.0F, 10.0F, 4.0F}};
+    return *DeepRun::Render::BuildFixedWorldSideViewCamera(
+        {1.0F, -100.0F, 0.0F}, aspectRatio, 600.0F, depthBounds);
+}
+} // namespace
+
+bool D2OffCenterAssetPlacement()
+{
+    // Deliberately off-center asset bounds: center (20, 2, 1). The asset Y center (2) must NOT become the
+    // body's world Y — only X/Z come from the asset space.
+    const ModelBounds bounds = OffCenterTestBounds;
+    constexpr float SurfaceLevelY = 0.0F;
+    constexpr float DesiredDepthMeters = 100.0F;
+
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = SurfaceLevelY, .densityKgPerCubicMeter = 1025.0F});
+    if (!water)
+    {
+        return false;
+    }
+
+    const DeepRun::Physics::PhysicsVector3 bodyCenter = D2PlaceBody(SurfaceLevelY, DesiredDepthMeters, bounds);
+    if (std::abs(bodyCenter.x - 20.0F) > D2Tolerance || std::abs(bodyCenter.y + 100.0F) > D2Tolerance ||
+        std::abs(bodyCenter.z - 1.0F) > D2Tolerance)
+    {
+        return false; // expected world center: (20, -100, 1)
+    }
+
+    // Pivot contract through the real composition: bodyToWorld * T(-asset center) must land the model-space
+    // bounds center exactly on the world placement point.
+    const ModelTransform composed = D2ComposeBodyToAsset(bodyCenter, bounds);
+    const ModelVector3 transformedCenter = TransformPointBy(composed, DeepRun::Game::BoundsCenter(bounds));
+    if (std::abs(transformedCenter.x - 20.0F) > D2Tolerance ||
+        std::abs(transformedCenter.y + 100.0F) > D2Tolerance ||
+        std::abs(transformedCenter.z - 1.0F) > D2Tolerance)
+    {
+        return false;
+    }
+
+    // The authoritative water body must report exactly the desired signed depth at that world center.
+    const auto sample = water->Sample(bodyCenter);
+    return sample && std::abs(sample->signedDepthMeters - DesiredDepthMeters) < D2Tolerance &&
+           sample->surfaceLevelY == SurfaceLevelY;
+}
+
+bool D2ShiftedWaterSurfacePlacement()
+{
+    // The integration helper must not assume sea level at world Y=0: with a surface at +50 and a desired
+    // depth of 100, the body center sits at Y = -50 — placement uses WaterBody truth, not "initialY = -100".
+    const ModelBounds bounds = OffCenterTestBounds;
+    constexpr float SurfaceLevelY = 50.0F;
+    constexpr float DesiredDepthMeters = 100.0F;
+
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = SurfaceLevelY, .densityKgPerCubicMeter = 1025.0F});
+    if (!water)
+    {
+        return false;
+    }
+
+    const DeepRun::Physics::PhysicsVector3 bodyCenter = D2PlaceBody(SurfaceLevelY, DesiredDepthMeters, bounds);
+    if (std::abs(bodyCenter.x - 20.0F) > D2Tolerance || std::abs(bodyCenter.y + 50.0F) > D2Tolerance ||
+        std::abs(bodyCenter.z - 1.0F) > D2Tolerance)
+    {
+        return false; // expected world center: (20, -50, 1)
+    }
+
+    const auto sample = water->Sample(bodyCenter);
+    return sample && std::abs(sample->signedDepthMeters - DesiredDepthMeters) < D2Tolerance &&
+           sample->surfaceLevelY == SurfaceLevelY;
+}
+
+bool D2SurfaceProjectionInsideViewport()
+{
+    // Gameplay camera: target Y = -100, horizontal span 600 m, aspect 16:9 -> vertical span 337.5 m. The
+    // surface at world Y = 0 is 100 m above the camera center, so it must project inside the viewport and
+    // above its middle: normalized Y from top ~= (1 - 100/168.75) * 0.5 ~= 0.2041.
+    const OrthographicCamera camera = D2GameplayCamera(16.0F / 9.0F);
+    if (std::abs(camera.width - 600.0F) > D2Tolerance || std::abs(camera.height - 337.5F) > D2Tolerance)
+    {
+        return false;
+    }
+
+    const auto surfaceY = DeepRun::Game::ProjectWorldSurfaceToViewportY(camera, 0.0F);
+    if (!surfaceY || *surfaceY <= 0.0F || *surfaceY >= 1.0F)
+    {
+        return false; // must lie strictly inside the viewport and above the center (center is 0.5)
+    }
+    if (std::abs(*surfaceY - 0.2041667F) > 0.002F)
+    {
+        return false; // approximate normalized position, not an architectural pixel constant
+    }
+
+    const auto region = DeepRun::Game::UnderwaterRegionForSurface(camera, 0.0F);
+    if (!region || !region->has_value())
+    {
+        return false;
+    }
+    const ViewportRect& rect = **region;
+    return std::abs(rect.top - *surfaceY) < D2Tolerance && rect.left == 0.0F && rect.right == 1.0F &&
+           rect.bottom == 1.0F;
+}
+
+bool D2SurfaceProjectionAspectRatioChange()
+{
+    // After an aspect change to 16:10 the width stays 600 m, the height becomes 375 m, and the surface still
+    // derives from the same world Y=0 — only its normalized screen position changes (further from the top).
+    const OrthographicCamera camera = D2GameplayCamera(16.0F / 10.0F);
+    if (std::abs(camera.width - 600.0F) > D2Tolerance || std::abs(camera.height - 375.0F) > D2Tolerance)
+    {
+        return false;
+    }
+
+    const auto surfaceY = DeepRun::Game::ProjectWorldSurfaceToViewportY(camera, 0.0F);
+    if (!surfaceY || *surfaceY <= 0.0F || *surfaceY >= 1.0F)
+    {
+        return false;
+    }
+    // (1 - 100/187.5) * 0.5 = 0.2333...: the same world Y, a different normalized position than at 16:9.
+    if (std::abs(*surfaceY - 0.2333333F) > 0.002F)
+    {
+        return false;
+    }
+
+    const auto sixteenNine = DeepRun::Game::ProjectWorldSurfaceToViewportY(D2GameplayCamera(16.0F / 9.0F), 0.0F);
+    return sixteenNine && *surfaceY > *sixteenNine; // taller viewport -> waterline lower in normalized terms
+}
+
+bool D2SurfaceProjectionEdgeCases()
+{
+    const OrthographicCamera camera = D2GameplayCamera(16.0F / 9.0F);
+
+    // Surface far above the camera (Y = +500): the whole viewport is underwater.
+    const auto above = DeepRun::Game::UnderwaterRegionForSurface(camera, 500.0F);
+    if (!above || !above->has_value())
+    {
+        return false;
+    }
+    const ViewportRect& fullRect = **above;
+    if (fullRect.left != 0.0F || fullRect.top != 0.0F || fullRect.right != 1.0F || fullRect.bottom != 1.0F)
+    {
+        return false;
+    }
+
+    // Surface inside the viewport (Y = 0): partial underwater region from the waterline to the bottom edge.
+    const auto inside = DeepRun::Game::UnderwaterRegionForSurface(camera, 0.0F);
+    if (!inside || !inside->has_value() || (**inside).top <= 0.0F || (**inside).top >= 1.0F)
+    {
+        return false;
+    }
+
+    // Surface below the viewport bottom (Y = -500): no visible underwater region, and no invalid rectangle.
+    const auto below = DeepRun::Game::UnderwaterRegionForSurface(camera, -500.0F);
+    if (!below || below->has_value())
+    {
+        return false;
+    }
+
+    // Non-finite input is rejected instead of producing a NaN rect.
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    if (DeepRun::Game::ProjectWorldSurfaceToViewportY(camera, nan) ||
+        DeepRun::Game::ProjectWorldSurfaceToViewportY(camera, infinity) ||
+        DeepRun::Game::UnderwaterRegionForSurface(camera, nan) ||
+        DeepRun::Game::UnderwaterRegionForSurface(camera, -infinity))
+    {
+        return false;
+    }
+
+    // A camera with non-finite projection data is rejected as well.
+    OrthographicCamera broken = camera;
+    broken.viewProjection.values[0] = nan;
+    return !DeepRun::Game::ProjectWorldSurfaceToViewportY(broken, 0.0F) &&
+           !DeepRun::Game::UnderwaterRegionForSurface(broken, 0.0F);
+}
+
+bool D2ClearRectValidation()
+{
+    using DeepRun::Render::ValidateViewportRect;
+
+    // Valid normalized rect: accepted and clamped to itself (already inside [0, 1]).
+    const auto valid = ValidateViewportRect({.left = 0.1F, .top = 0.25F, .right = 0.9F, .bottom = 1.0F});
+    if (!valid || valid->left != 0.1F || valid->top != 0.25F || valid->right != 0.9F || valid->bottom != 1.0F)
+    {
+        return false;
+    }
+
+    // Out-of-range coordinates are clamped into the viewport (policy: clamp, then reject if empty).
+    const auto clamped = ValidateViewportRect({.left = -0.5F, .top = -0.2F, .right = 1.4F, .bottom = 1.3F});
+    if (!clamped || clamped->left != 0.0F || clamped->top != 0.0F || clamped->right != 1.0F ||
+        clamped->bottom != 1.0F)
+    {
+        return false;
+    }
+
+    // Empty/inverted rects are rejected — the Game projection helper must clip before calling the renderer,
+    // and a malformed rect must never reach the GPU.
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    return !ValidateViewportRect({.left = 0.5F, .top = 0.0F, .right = 0.5F, .bottom = 1.0F}) && // zero width
+           !ValidateViewportRect({.left = 0.9F, .top = 0.0F, .right = 0.1F, .bottom = 1.0F}) && // inverted X
+           !ValidateViewportRect({.left = 0.0F, .top = 0.8F, .right = 1.0F, .bottom = 0.2F}) && // inverted Y
+           !ValidateViewportRect({.left = nan, .top = 0.0F, .right = 1.0F, .bottom = 1.0F}) && // non-finite
+           !ValidateViewportRect({.left = 0.0F, .top = infinity, .right = 1.0F, .bottom = 2.0F}) &&
+           !ValidateViewportRect({.left = -5.0F, .top = 0.0F, .right = -1.0F, .bottom = 1.0F}); // fully outside -> empty after clamp
+}
+
+bool D2PresentationColorsAreDistinct()
+{
+    // The two M2 presentation colors must be visibly distinct (obvious above/underwater difference) and
+    // opaque — no alpha blending is part of the D2 contract.
+    const RgbaColor& above = DeepRun::Game::M2AboveWaterBackgroundColor;
+    const RgbaColor& below = DeepRun::Game::M2UnderwaterBackgroundColor;
+    if (!above.IsFinite() || !below.IsFinite() || above.a != 1.0F || below.a != 1.0F)
+    {
+        return false;
+    }
+    const float channelDifference = std::abs(above.r - below.r) + std::abs(above.g - below.g) +
+                                    std::abs(above.b - below.b);
+    return channelDifference > 0.25F; // clearly different, without asserting final art direction
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
 
@@ -2233,6 +2502,15 @@ bool EngineHasNoMarineKnowledge()
     // The generic engine must not become aware of marine simulation (M2 Slice D1).
     const std::filesystem::path engineRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine";
     return ScanSourceDirectoryForForbiddenPatterns(engineRoot, {"waterbody", "marine"});
+}
+
+bool EngineRenderHasNoWaterSemantics()
+{
+    // The renderer stays generic (M2 Slice D2): it knows rectangles and colors, never water. Game owns the
+    // presentation semantics; the clear-rect API must not grow marine vocabulary.
+    const std::filesystem::path renderRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Render";
+    return ScanSourceDirectoryForForbiddenPatterns(
+        renderRoot, {"water", "ocean", "sealevel", "submarinedepth"});
 }
 } // namespace
 
@@ -2312,6 +2590,14 @@ int main(const int argumentCount, const char* const* arguments)
         {"Water body X/Z independence", WaterBodyXZIndependence},
         {"Water body invalid config rejected", WaterBodyInvalidConfigRejected},
         {"Water body rejects non-finite query position", WaterBodyRejectsNonFiniteQueryPosition},
+        // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
+        {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
+        {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
+        {"D2 surface projection inside viewport", D2SurfaceProjectionInsideViewport},
+        {"D2 surface projection aspect ratio change", D2SurfaceProjectionAspectRatioChange},
+        {"D2 surface projection edge cases", D2SurfaceProjectionEdgeCases},
+        {"D2 clear rect validation policy", D2ClearRectValidation},
+        {"D2 presentation colors distinct and opaque", D2PresentationColorsAreDistinct},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},
@@ -2320,6 +2606,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"Simulation marine has no physics or render dependency",
          SimulationMarineHasNoPhysicsOrRenderDependency},
         {"Engine has no marine knowledge", EngineHasNoMarineKnowledge},
+        // M2 Slice D2: renderer stays generic — no water semantics in Engine/Render.
+        {"Engine render has no water semantics", EngineRenderHasNoWaterSemantics},
     };
 
     int failed = 0;
