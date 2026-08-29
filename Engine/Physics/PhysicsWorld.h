@@ -53,6 +53,23 @@ public:
     // Returns a copy of the body state. Invalid/foreign/stale handles are recoverable errors, never UB.
     [[nodiscard]] std::optional<PhysicsBodyState> GetBodyState(PhysicsBodyHandle handle) const;
 
+    // Applies a force (unit: Newtons) at world-space position `worldPositionMeters` (unit: meters) to the
+    // body referenced by `handle`, for the upcoming fixed simulation step. This is a force, not an impulse:
+    // do NOT pre-scale by delta time, and do NOT pass force * dt as if it were an impulse. The accumulated
+    // force is integrated by Jolt during the next Step(deltaSeconds) call and does not persist after that
+    // step; continuous forces must be re-applied on every fixed tick (e.g. AddForceAtWorldPosition(...) then
+    // Step(1/60)). A zero force (0, 0, 0) is a valid no-op, not an error. When the application point differs
+    // from the body's center of mass, Jolt derives the resulting torque itself; callers never compute it.
+    // The backend activates a sleeping dynamic body on a successful non-zero call (standard Jolt behaviour).
+    // Returns false with PhysicsErrorCode::NotInitialized when the world is not initialized,
+    // PhysicsErrorCode::InvalidHandle for invalid/foreign/stale handles, and
+    // PhysicsErrorCode::InvalidInput when force or world position contains NaN/Inf.
+    bool AddForceAtWorldPosition(
+        PhysicsBodyHandle handle,
+        PhysicsVector3 forceNewtons,
+        PhysicsVector3 worldPositionMeters,
+        PhysicsError* error = nullptr);
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

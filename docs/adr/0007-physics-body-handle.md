@@ -38,3 +38,6 @@ quaternion component order is x, y, z, w everywhere in DeepRun.
 - Body state queries return copies; callers never hold references into Jolt memory.
 - Invalid, foreign, and stale handles are recoverable errors, never undefined behavior.
 - `PhysicsWorld` stays the only owner of Jolt bodies until world shutdown.
+- `PhysicsWorld` exposes transient force-at-world-position application (`AddForceAtWorldPosition`, M2 Slice E1):
+  forces are Newtons at a world-space meter position, accumulated by Jolt for the upcoming fixed step and reset
+  after that step; off-center application points produce torque through Jolt's own cross product.

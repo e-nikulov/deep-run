@@ -1867,6 +1867,555 @@ bool PlanarBodyRejectsLockedAxisInitialVelocity()
     return handle.IsValid() && world.GetBodyState(handle).has_value();
 }
 
+// ---------------------------------------------------------------------------
+// M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only)
+// ---------------------------------------------------------------------------
+
+// Centered dynamic box for force tests: gravity off, zero damping, known mass, identity orientation at the
+// world origin so cross-product math is clean in world space. Default DOF = all six allowed (full 6-DOF).
+DeepRun::Physics::DynamicBoxBodyCreateInfo ForceTestBodyInfo()
+{
+    DeepRun::Physics::DynamicBoxBodyCreateInfo info;
+    info.halfExtents = {1.0F, 1.0F, 1.0F}; // unit cube: symmetric inertia about every axis
+    info.mass = 2.0F;                       // known mass for deltaV ~= F/m*dt checks
+    info.position = {0.0F, 0.0F, 0.0F};     // center of mass at the world origin
+    info.orientation = {};                  // identity rotation
+    info.gravityEnabled = false;            // isolate force effects from gravity
+    info.linearDamping = 0.0F;              // no hidden drag
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = {0.0F, 0.0F, 0.0F};
+    info.initialAngularVelocity = {0.0F, 0.0F, 0.0F};
+    return info;
+}
+
+// A: centered force -> pure translation, no spin, deltaV ~= F/m*dt (non bit-perfect tolerance).
+bool ForceCenteredProducesTranslation()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr float ForceX = 10.0F; // Newtons along +X
+    constexpr float Mass = 2.0F;    // matches ForceTestBodyInfo
+    constexpr float Dt = 1.0F / 60.0F;
+    const DeepRun::Physics::PhysicsVector3 com{initial->position.x, initial->position.y, initial->position.z};
+
+    if (!world.AddForceAtWorldPosition(handle, {ForceX, 0.0F, 0.0F}, com))
+    {
+        return false;
+    }
+    world.Step(Dt);
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+
+    const bool movedForward = after->linearVelocity.x > 0.0F && after->position.x > initial->position.x;
+    const bool noSpin = std::abs(after->angularVelocity.x) < 1e-3F && std::abs(after->angularVelocity.y) < 1e-3F &&
+                        std::abs(after->angularVelocity.z) < 1e-3F;
+
+    // deltaV ~= F/m*dt with a reasonable (not bit-perfect) tolerance.
+    const float expectedDeltaV = ForceX / Mass * Dt;
+    const bool deltaVMatches = std::abs(after->linearVelocity.x - expectedDeltaV) <= 0.2F * expectedDeltaV + 1e-4F;
+
+    return movedForward && noSpin && deltaVMatches && StateIsFinite(*after);
+}
+
+// B: off-center force -> linear motion plus torque about the cross-product axis (the key E1 correctness test).
+bool ForceOffCenterProducesTorque()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr float ForceY = 10.0F; // Newtons along +Y
+    constexpr float OffsetX = 2.0F; // application point offset from the center of mass along +X (meters)
+    constexpr int Steps = 30;       // half a second at the fixed step
+
+    for (int step = 0; step < Steps; ++step)
+    {
+        const auto state = world.GetBodyState(handle);
+        if (!state)
+        {
+            return false;
+        }
+        // Keep the application point a constant +X offset from the CURRENT center of mass so the lever arm stays
+        // (OffsetX, 0, 0) in world space and the torque is a steady r x F = +Z.
+        const DeepRun::Physics::PhysicsVector3 point{state->position.x + OffsetX, state->position.y, state->position.z};
+        if (!world.AddForceAtWorldPosition(handle, {0.0F, ForceY, 0.0F}, point))
+        {
+            return false;
+        }
+        world.Step(1.0F / 60.0F);
+    }
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+
+    // r=(+X), F=+Y -> torque +Z: linear +Y motion and positive Z spin, with no X/Y spin.
+    const bool linearUp = after->linearVelocity.y > 0.0F && after->position.y > initial->position.y;
+    const bool spinsAroundZ = after->angularVelocity.z > 0.1F;
+    const bool noOtherSpin = std::abs(after->angularVelocity.x) < 1e-3F && std::abs(after->angularVelocity.y) < 1e-3F;
+    const bool orientationRotated = !DeepRun::Physics::PhysicsQuaternion::SameRotation(initial->orientation, after->orientation);
+
+    return linearUp && spinsAroundZ && noOtherSpin && orientationRotated && StateIsFinite(*after);
+}
+
+// C: same force at the opposite application point flips the torque sign (world-position / cross-product convention).
+bool ForceOppositePointFlipsTorqueSign()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr float ForceY = 10.0F;
+    constexpr float OffsetX = -2.0F; // application point offset along -X (opposite of test B)
+    constexpr int Steps = 30;
+
+    for (int step = 0; step < Steps; ++step)
+    {
+        const auto state = world.GetBodyState(handle);
+        if (!state)
+        {
+            return false;
+        }
+        const DeepRun::Physics::PhysicsVector3 point{state->position.x + OffsetX, state->position.y, state->position.z};
+        if (!world.AddForceAtWorldPosition(handle, {0.0F, ForceY, 0.0F}, point))
+        {
+            return false;
+        }
+        world.Step(1.0F / 60.0F);
+    }
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+
+    // r=(-X), F=+Y -> torque -Z: still linear +Y motion, but the Z spin is now negative.
+    const bool linearUp = after->linearVelocity.y > 0.0F && after->position.y > initial->position.y;
+    const bool spinsNegativeZ = after->angularVelocity.z < -0.1F;
+    const bool noOtherSpin = std::abs(after->angularVelocity.x) < 1e-3F && std::abs(after->angularVelocity.y) < 1e-3F;
+
+    return linearUp && spinsNegativeZ && noOtherSpin && StateIsFinite(*after);
+}
+
+// D: two equal opposite-point forces in the SAME step cancel torque but add linear force (multi-call accumulation).
+bool ForceSymmetricPointsCancelTorque()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr float ForceY = 10.0F;
+    constexpr float OffsetX = 2.0F;
+    constexpr int Steps = 30;
+
+    for (int step = 0; step < Steps; ++step)
+    {
+        const auto state = world.GetBodyState(handle);
+        if (!state)
+        {
+            return false;
+        }
+        // Both calls land in the same fixed step: Jolt accumulates them before Step integrates.
+        const DeepRun::Physics::PhysicsVector3 plus{state->position.x + OffsetX, state->position.y, state->position.z};
+        const DeepRun::Physics::PhysicsVector3 minus{state->position.x - OffsetX, state->position.y, state->position.z};
+        if (!world.AddForceAtWorldPosition(handle, {0.0F, ForceY, 0.0F}, plus) ||
+            !world.AddForceAtWorldPosition(handle, {0.0F, ForceY, 0.0F}, minus))
+        {
+            return false;
+        }
+        world.Step(1.0F / 60.0F);
+    }
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+
+    // Equal +Y forces at +/-X: net linear force (0, 2*ForceY, 0), net torque zero -> Y motion, no Z spin.
+    const bool linearUp = after->linearVelocity.y > 0.0F && after->position.y > initial->position.y;
+    const bool torqueCancelled = std::abs(after->angularVelocity.z) < 1e-3F &&
+                                 std::abs(after->angularVelocity.x) < 1e-3F &&
+                                 std::abs(after->angularVelocity.y) < 1e-3F;
+
+    return linearUp && torqueCancelled && StateIsFinite(*after);
+}
+
+// E: two separate AddForce(F) calls before one Step equal a single AddForce(2F) call (accumulation semantics).
+bool ForceMultipleCallsAccumulate()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto infoA = ForceTestBodyInfo(); // at the origin
+    auto infoB = ForceTestBodyInfo();
+    infoB.position = {100.0F, 0.0F, 0.0F}; // far away: the two test bodies never contact each other
+    const auto handleA = world.CreateDynamicBoxBody(infoA);
+    const auto handleB = world.CreateDynamicBoxBody(infoB);
+    const auto stateA = world.GetBodyState(handleA);
+    const auto stateB = world.GetBodyState(handleB);
+    if (!handleA.IsValid() || !handleB.IsValid() || !stateA || !stateB)
+    {
+        return false;
+    }
+
+    constexpr float ForceX = 10.0F; // Newtons along +X
+    constexpr float Mass = 2.0F;
+    constexpr float Dt = 1.0F / 60.0F;
+
+    const DeepRun::Physics::PhysicsVector3 comA{stateA->position.x, stateA->position.y, stateA->position.z};
+    const DeepRun::Physics::PhysicsVector3 comB{stateB->position.x, stateB->position.y, stateB->position.z};
+
+    // Body A: two calls of F at its COM. Body B: one call of 2F at its COM. Both total 2F before the step.
+    if (!world.AddForceAtWorldPosition(handleA, {ForceX, 0.0F, 0.0F}, comA) ||
+        !world.AddForceAtWorldPosition(handleA, {ForceX, 0.0F, 0.0F}, comA) ||
+        !world.AddForceAtWorldPosition(handleB, {2.0F * ForceX, 0.0F, 0.0F}, comB))
+    {
+        return false;
+    }
+    world.Step(Dt); // one shared step integrates both bodies' accumulated forces
+
+    const auto afterA = world.GetBodyState(handleA);
+    const auto afterB = world.GetBodyState(handleB);
+    if (!afterA || !afterB)
+    {
+        return false;
+    }
+
+    const float expectedDeltaV = 2.0F * ForceX / Mass * Dt; // both bodies should reach this X velocity
+    const bool aMatchesExpected = std::abs(afterA->linearVelocity.x - expectedDeltaV) <= 0.2F * expectedDeltaV + 1e-4F;
+    const bool bMatchesExpected = std::abs(afterB->linearVelocity.x - expectedDeltaV) <= 0.2F * expectedDeltaV + 1e-4F;
+    const bool aEqualsB = std::abs(afterA->linearVelocity.x - afterB->linearVelocity.x) < 1e-3F;
+
+    return aMatchesExpected && bMatchesExpected && aEqualsB && StateIsFinite(*afterA) && StateIsFinite(*afterB);
+}
+
+// F: the force is per-step, not persistent — stepping again without re-applying it must NOT add another increment.
+bool ForceIsNotPersistent()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr float ForceX = 10.0F;
+    constexpr float Mass = 2.0F;
+    constexpr float Dt = 1.0F / 60.0F;
+    const DeepRun::Physics::PhysicsVector3 com{initial->position.x, initial->position.y, initial->position.z};
+
+    if (!world.AddForceAtWorldPosition(handle, {ForceX, 0.0F, 0.0F}, com))
+    {
+        return false;
+    }
+    world.Step(Dt); // integrates the one applied force -> V1
+
+    const auto afterFirst = world.GetBodyState(handle);
+    if (!afterFirst)
+    {
+        return false;
+    }
+    const float v1 = afterFirst->linearVelocity.x;
+    const float positionAfterFirst = afterFirst->position.x;
+    if (v1 <= 0.0F)
+    {
+        return false; // sanity: the first step must have produced forward velocity
+    }
+
+    world.Step(Dt); // second step with NO force applied
+
+    const auto afterSecond = world.GetBodyState(handle);
+    if (!afterSecond)
+    {
+        return false;
+    }
+
+    // Velocity stays ~V1 (no second F/m*dt increment), while position keeps advancing from V1.
+    const bool velocityHeld = std::abs(afterSecond->linearVelocity.x - v1) <= 0.1F * v1 + 1e-4F;
+    const bool notReApplied = afterSecond->linearVelocity.x < v1 + 0.5F * (ForceX / Mass * Dt);
+    const bool positionAdvanced = afterSecond->position.x > positionAfterFirst;
+
+    return velocityHeld && notReApplied && positionAdvanced && StateIsFinite(*afterSecond);
+}
+
+// G: C2.1 planar DOFs stay authoritative — a force that would create forbidden motion in full 6-DOF is blocked,
+// while allowed translation/pitch still work. The force is NOT manually projected; Jolt restricts the result.
+bool ForcePlanarDOFPreservation()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto info = ValidBoxBodyInfo();
+    info.position = {0.0F, 0.0F, 0.0F};
+    info.orientation = {}; // identity: clean world-space cross products
+    info.gravityEnabled = false;
+    info.linearDamping = 0.0F;
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = {0.0F, 0.0F, 0.0F};
+    info.initialAngularVelocity = {0.0F, 0.0F, 0.0F};
+
+    DeepRun::Physics::PhysicsDegreesOfFreedom dof; // C2.1 gameplay plane: XY translation + Z rotation only
+    dof.translationX = true;
+    dof.translationY = true;
+    dof.translationZ = false;
+    dof.rotationX = false;
+    dof.rotationY = false;
+    dof.rotationZ = true;
+    info.degreesOfFreedom = dof;
+
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr float ForceY = 10.0F;
+    constexpr float OffsetX = 2.0F; // allowed lever: +X offset -> Z pitch (rotationZ allowed)
+    constexpr float OffsetZ = 2.0F; // forbidden lever: +Z offset -> X roll torque (rotationX locked, must be blocked)
+    constexpr int Steps = 30;
+
+    for (int step = 0; step < Steps; ++step)
+    {
+        const auto state = world.GetBodyState(handle);
+        if (!state)
+        {
+            return false;
+        }
+        // Allowed: +Y force at COM+(+X) -> Y translation + Z pitch.
+        const DeepRun::Physics::PhysicsVector3 allowedPoint{state->position.x + OffsetX, state->position.y, state->position.z};
+        // Forbidden: +Y force at COM+(+Z) -> would create X (roll) torque in a full 6-DOF body; Jolt must block it.
+        const DeepRun::Physics::PhysicsVector3 forbiddenPoint{state->position.x, state->position.y, state->position.z + OffsetZ};
+        if (!world.AddForceAtWorldPosition(handle, {0.0F, ForceY, 0.0F}, allowedPoint) ||
+            !world.AddForceAtWorldPosition(handle, {0.0F, ForceY, 0.0F}, forbiddenPoint))
+        {
+            return false;
+        }
+        world.Step(1.0F / 60.0F);
+    }
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+
+    // Locked DOFs stay locked: no Z translation drift, and the forbidden X roll (and Y yaw) never develops.
+    const bool zLocked = std::abs(after->position.z - initial->position.z) < 1e-3F &&
+                         std::abs(after->linearVelocity.z) < 1e-4F;
+    const bool rollYawBlocked = std::abs(after->angularVelocity.x) < 1e-3F && std::abs(after->angularVelocity.y) < 1e-3F;
+
+    // Allowed DOFs still respond: net +Y force -> Y motion, and the +X lever -> positive Z pitch.
+    const bool yMotion = after->linearVelocity.y > 0.0F && after->position.y > initial->position.y;
+    const bool zPitch = after->angularVelocity.z > 0.1F;
+
+    return zLocked && rollYawBlocked && yMotion && zPitch && StateIsFinite(*after);
+}
+
+// H: invalid inputs are recoverable errors (no crash, no state mutation); zero force is a valid no-op.
+bool ForceInvalidInputAndZeroNoOp()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    const DeepRun::Physics::PhysicsVector3 force{10.0F, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 point{0.0F, 0.0F, 0.0F};
+
+    // A second PhysicsWorld cannot initialize in the same process (Jolt is a single global instance), so the
+    // foreign-handle case is covered by the existing "Physics handle semantics" test; here we cover the
+    // invalid and stale cases against this world's own resolution path.
+    DeepRun::Physics::PhysicsError error;
+    const DeepRun::Physics::PhysicsBodyHandle defaultHandle; // never created: invalid by construction
+
+    if (world.AddForceAtWorldPosition(defaultHandle, force, point, &error) ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+
+    // Stale handle: created and destroyed in this world.
+    const auto stale = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    if (!stale.IsValid() || !world.DestroyBody(stale))
+    {
+        return false;
+    }
+    if (world.AddForceAtWorldPosition(stale, force, point, &error) ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+
+    // Non-finite force / position on a VALID live handle: rejected as InvalidInput.
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    if (!handle.IsValid())
+    {
+        return false;
+    }
+    const DeepRun::Physics::PhysicsVector3 nanForce{nan, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 infForce{infinity, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 negInfForce{-infinity, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 nanPoint{nan, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 infPoint{infinity, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 negInfPoint{-infinity, 0.0F, 0.0F};
+
+    for (const auto& badForce : {nanForce, infForce, negInfForce})
+    {
+        if (world.AddForceAtWorldPosition(handle, badForce, point, &error) ||
+            error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+        {
+            return false;
+        }
+    }
+    for (const auto& badPoint : {nanPoint, infPoint, negInfPoint})
+    {
+        if (world.AddForceAtWorldPosition(handle, force, badPoint, &error) ||
+            error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+        {
+            return false;
+        }
+    }
+
+    // No state mutation from all the rejections above: the body is still exactly at rest.
+    const auto beforeZero = world.GetBodyState(handle);
+    if (!beforeZero || !StateIsFinite(*beforeZero) ||
+        std::abs(beforeZero->linearVelocity.x) > 1e-6F || std::abs(beforeZero->position.x) > 1e-6F)
+    {
+        return false;
+    }
+
+    // Zero force is a valid no-op: accepted, and a subsequent force-free step leaves the body at rest.
+    const DeepRun::Physics::PhysicsVector3 zero{0.0F, 0.0F, 0.0F};
+    if (!world.AddForceAtWorldPosition(handle, zero, point))
+    {
+        return false; // zero force must succeed (not be rejected as malformed)
+    }
+    world.Step(1.0F / 60.0F);
+    const auto afterZero = world.GetBodyState(handle);
+    if (!afterZero || !StateIsFinite(*afterZero))
+    {
+        return false;
+    }
+    return std::abs(afterZero->linearVelocity.x) < 1e-6F && std::abs(afterZero->position.x) < 1e-6F;
+}
+
+// I: a sleeping dynamic body is activated by a non-zero force (standard Jolt behaviour, observed via public API).
+bool ForceActivatesSleepingBody()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    if (!handle.IsValid())
+    {
+        return false;
+    }
+
+    // Let the stationary, force-free body settle and sleep (Jolt default TimeBeforeSleep is 0.5 s).
+    constexpr int SettleSteps = 120; // two seconds at the fixed step
+    for (int step = 0; step < SettleSteps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto sleeping = world.GetBodyState(handle);
+    if (!sleeping || sleeping->active)
+    {
+        return false; // the body must have gone to sleep before we test activation
+    }
+
+    constexpr float ForceX = 10.0F;
+    const DeepRun::Physics::PhysicsVector3 com{sleeping->position.x, sleeping->position.y, sleeping->position.z};
+    if (!world.AddForceAtWorldPosition(handle, {ForceX, 0.0F, 0.0F}, com))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+
+    // The non-zero force woke the body and produced motion in one step.
+    return after->active && after->linearVelocity.x > 0.0F && after->position.x > sleeping->position.x &&
+           StateIsFinite(*after);
+}
+
 bool WorldBoundsUseModelToWorldComposition()
 {
     const ModelBounds& bounds = OffCenterTestBounds; // size (100, 14, 10), center (20, 2, 1): off-center on purpose
@@ -2678,6 +3227,16 @@ int main(const int argumentCount, const char* const* arguments)
         {"D2 clear color validation contract", D2ClearColorValidation},
         {"D2 pixel rect conversion", D2PixelRectConversion},
         {"D2 presentation colors distinct and opaque", D2PresentationColorsAreDistinct},
+        // M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only).
+        {"E1 centered force produces translation", ForceCenteredProducesTranslation},
+        {"E1 off-center force produces torque", ForceOffCenterProducesTorque},
+        {"E1 opposite point flips torque sign", ForceOppositePointFlipsTorqueSign},
+        {"E1 symmetric points cancel torque", ForceSymmetricPointsCancelTorque},
+        {"E1 multiple calls accumulate", ForceMultipleCallsAccumulate},
+        {"E1 force is not persistent", ForceIsNotPersistent},
+        {"E1 planar DOF preservation under force", ForcePlanarDOFPreservation},
+        {"E1 invalid input and zero-force no-op", ForceInvalidInputAndZeroNoOp},
+        {"E1 non-zero force activates sleeping body", ForceActivatesSleepingBody},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},

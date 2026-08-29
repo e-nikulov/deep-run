@@ -396,6 +396,50 @@ public:
             .active = bodyInterface.IsActive(slot.bodyId)};
     }
 
+    bool AddForceAtWorldPosition(PhysicsBodyHandle handle, PhysicsVector3 forceNewtons, PhysicsVector3 worldPositionMeters, PhysicsError* error)
+    {
+        const auto fail = [this, error](const PhysicsErrorCode code, const std::string& message) -> bool {
+            if (error != nullptr)
+            {
+                *error = PhysicsError{code, message};
+            }
+            logger.Warning(Diagnostics::LogCategory::Physics, "Force application rejected: " + message);
+            return false;
+        };
+
+        if (!initialized)
+        {
+            return fail(PhysicsErrorCode::NotInitialized, "physics world is not initialized");
+        }
+
+        BodySlot* slot = Resolve(handle);
+        if (slot == nullptr)
+        {
+            return fail(PhysicsErrorCode::InvalidHandle, "handle is invalid, foreign, or stale");
+        }
+
+        // Finite-only validation: a zero force is a legitimate no-op (simulation systems can naturally
+        // compute zero), and finite magnitudes are never clamped — there is no arbitrary Newtons cap.
+        if (!forceNewtons.IsFinite())
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "force must be finite");
+        }
+        if (!worldPositionMeters.IsFinite())
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "world position must be finite");
+        }
+
+        // Pinned Jolt v5.5.0: BodyInterface::AddForce(bodyID, force, RVec3Arg inPoint) accumulates the linear
+        // force plus torque (inPosition - centerOfMass) x force for the next PhysicsSystem::Update and resets it
+        // after that step — exactly the transient per-step contract this API documents. The default
+        // EActivation::Activate wakes a sleeping dynamic body, so no Engine-side sleep management is needed.
+        physicsSystem->GetBodyInterface().AddForce(
+            slot->bodyId,
+            JPH::Vec3(forceNewtons.x, forceNewtons.y, forceNewtons.z),
+            JPH::RVec3(worldPositionMeters.x, worldPositionMeters.y, worldPositionMeters.z));
+        return true;
+    }
+
     Diagnostics::Logger& logger;
     BroadPhaseLayerInterface broadPhaseLayerInterface;
     ObjectVsBroadPhaseLayerFilter objectVsBroadPhaseLayerFilter;
@@ -577,5 +621,15 @@ std::optional<PhysicsBodyState> PhysicsWorld::GetBodyState(PhysicsBodyHandle han
 {
     assert(impl_ != nullptr);
     return impl_->GetBodyState(handle);
+}
+
+bool PhysicsWorld::AddForceAtWorldPosition(
+    PhysicsBodyHandle handle,
+    PhysicsVector3 forceNewtons,
+    PhysicsVector3 worldPositionMeters,
+    PhysicsError* error)
+{
+    assert(impl_ != nullptr);
+    return impl_->AddForceAtWorldPosition(handle, forceNewtons, worldPositionMeters, error);
 }
 }
