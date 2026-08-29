@@ -935,6 +935,348 @@ bool RigidBodySimulation()
     return physics.Initialize() && physics.RunGravitySmokeTest();
 }
 
+DeepRun::Physics::DynamicBoxBodyCreateInfo ValidBoxBodyInfo()
+{
+    DeepRun::Physics::DynamicBoxBodyCreateInfo info;
+    info.halfExtents = {0.5F, 0.25F, 1.0F};
+    info.mass = 4.0F;
+    info.position = {1.5F, -2.25F, 0.75F};
+    // 90 degrees around +Y in DeepRun x,y,z,w order: (0, sin(45 deg), 0, cos(45 deg)).
+    info.orientation = {0.0F, std::sqrt(0.5F), 0.0F, std::sqrt(0.5F)};
+    return info;
+}
+
+bool PhysicsHandleSemantics()
+{
+    const DeepRun::Physics::PhysicsBodyHandle firstDefault;
+    const DeepRun::Physics::PhysicsBodyHandle secondDefault;
+    if (firstDefault.IsValid() || firstDefault != secondDefault)
+    {
+        return false;
+    }
+
+    // A world that never initializes rejects creation as a recoverable error.
+    {
+        DeepRun::Diagnostics::Logger logger;
+        DeepRun::Physics::PhysicsWorld uninitialized(logger);
+        DeepRun::Physics::PhysicsError error;
+        const auto rejected = uninitialized.CreateDynamicBoxBody(ValidBoxBodyInfo(), &error);
+        if (rejected.IsValid() || error.code != DeepRun::Physics::PhysicsErrorCode::NotInitialized)
+        {
+            return false;
+        }
+    }
+
+    // World A creates a body: the handle is valid in A and foreign everywhere else.
+    DeepRun::Physics::PhysicsBodyHandle foreignHandle;
+    {
+        DeepRun::Diagnostics::Logger loggerA;
+        DeepRun::Physics::PhysicsWorld worldA(loggerA);
+        if (!worldA.Initialize())
+        {
+            return false;
+        }
+        const auto handle = worldA.CreateDynamicBoxBody(ValidBoxBodyInfo());
+        if (!handle.IsValid() || !worldA.GetBodyState(handle))
+        {
+            return false;
+        }
+        foreignHandle = handle;
+    }
+
+    DeepRun::Diagnostics::Logger loggerB;
+    DeepRun::Physics::PhysicsWorld worldB(loggerB);
+    if (!worldB.Initialize())
+    {
+        return false;
+    }
+    if (worldB.GetBodyState(foreignHandle))
+    {
+        return false; // foreign-world handle must be rejected
+    }
+
+    DeepRun::Physics::PhysicsError error;
+    if (worldB.DestroyBody(foreignHandle, &error) || error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+
+    // Destruction: the old handle is invalid immediately and stays invalid.
+    const auto first = worldB.CreateDynamicBoxBody(ValidBoxBodyInfo());
+    if (!first.IsValid() || !worldB.DestroyBody(first))
+    {
+        return false;
+    }
+    if (worldB.GetBodyState(first) || worldB.DestroyBody(first, &error) ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+
+    // A new body in the same world must not resurrect the stale handle.
+    const auto second = worldB.CreateDynamicBoxBody(ValidBoxBodyInfo());
+    return second.IsValid() && first != second && !worldB.GetBodyState(first) &&
+           worldB.GetBodyState(second).has_value();
+}
+
+bool DynamicBoxInputValidation()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    auto valid = ValidBoxBodyInfo();
+
+    auto zeroExtent = valid;
+    zeroExtent.halfExtents.x = 0.0F;
+    auto negativeExtent = valid;
+    negativeExtent.halfExtents.y = -1.0F;
+    auto infiniteExtent = valid;
+    infiniteExtent.halfExtents.z = infinity;
+    auto nanExtent = valid;
+    nanExtent.halfExtents.x = nan;
+    auto zeroMass = valid;
+    zeroMass.mass = 0.0F;
+    auto negativeMass = valid;
+    negativeMass.mass = -2.0F;
+    auto nanMass = valid;
+    nanMass.mass = nan;
+    auto infiniteMass = valid;
+    infiniteMass.mass = infinity;
+    auto nonFinitePosition = valid;
+    nonFinitePosition.position.y = nan;
+    auto zeroQuaternion = valid;
+    zeroQuaternion.orientation = {0.0F, 0.0F, 0.0F, 0.0F};
+    auto nanQuaternion = valid;
+    nanQuaternion.orientation.w = nan;
+    auto negativeLinearDamping = valid;
+    negativeLinearDamping.linearDamping = -0.1F;
+    auto negativeAngularDamping = valid;
+    negativeAngularDamping.angularDamping = -0.1F;
+    auto nanDamping = valid;
+    nanDamping.linearDamping = nan;
+
+    for (const auto& info : {zeroExtent, negativeExtent, infiniteExtent, nanExtent, zeroMass, negativeMass,
+                             nanMass, infiniteMass, nonFinitePosition, zeroQuaternion, nanQuaternion,
+                             negativeLinearDamping, negativeAngularDamping, nanDamping})
+    {
+        DeepRun::Physics::PhysicsError error;
+        const auto handle = world.CreateDynamicBoxBody(info, &error);
+        if (handle.IsValid() || error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput ||
+            error.message.empty())
+        {
+            return false;
+        }
+    }
+
+    // Control: the valid input is still accepted after all rejections.
+    const auto handle = world.CreateDynamicBoxBody(valid);
+    return handle.IsValid() && world.GetBodyState(handle).has_value();
+}
+
+bool PhysicsPoseRoundTrip()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto info = ValidBoxBodyInfo();
+    const auto handle = world.CreateDynamicBoxBody(info);
+    if (!handle.IsValid())
+    {
+        return false;
+    }
+    const auto state = world.GetBodyState(handle);
+    if (!state || !state->active)
+    {
+        return false;
+    }
+
+    constexpr float PositionTolerance = 0.0001F;
+    const bool positionMatches = std::abs(state->position.x - info.position.x) < PositionTolerance &&
+                                 std::abs(state->position.y - info.position.y) < PositionTolerance &&
+                                 std::abs(state->position.z - info.position.z) < PositionTolerance;
+
+    // q and -q are the same rotation, so compare through |dot|, never component equality.
+    if (!DeepRun::Physics::PhysicsQuaternion::SameRotation(state->orientation, info.orientation))
+    {
+        return false;
+    }
+
+    // A non-unit but valid input quaternion must normalize to the same rotation.
+    auto scaled = info;
+    scaled.orientation.x *= 1.5F;
+    scaled.orientation.y *= 1.5F;
+    scaled.orientation.z *= 1.5F;
+    scaled.orientation.w *= 1.5F;
+    const auto scaledHandle = world.CreateDynamicBoxBody(scaled);
+    const auto scaledState = world.GetBodyState(scaledHandle);
+    return positionMatches && scaledState.has_value() &&
+           DeepRun::Physics::PhysicsQuaternion::SameRotation(scaledState->orientation, info.orientation);
+}
+
+bool PhysicsGravityFalls()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto info = ValidBoxBodyInfo();
+    info.position = {0.0F, 5.0F, 0.0F};
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr int Steps = 60; // exactly one second at the existing 60 Hz fixed step
+    for (int step = 0; step < Steps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState)
+    {
+        return false;
+    }
+
+    const bool finite = std::isfinite(finalState->position.x) && std::isfinite(finalState->position.y) &&
+                        std::isfinite(finalState->position.z) && std::isfinite(finalState->linearVelocity.x) &&
+                        std::isfinite(finalState->linearVelocity.y) && std::isfinite(finalState->linearVelocity.z) &&
+                        std::isfinite(finalState->angularVelocity.x) && std::isfinite(finalState->angularVelocity.y) &&
+                        std::isfinite(finalState->angularVelocity.z);
+    return finalState->position.y < initial->position.y && finalState->linearVelocity.y < 0.0F &&
+           std::abs(finalState->position.x) < 0.001F && std::abs(finalState->position.z) < 0.001F && finite;
+}
+
+bool PhysicsGravityDisabledStaysStill()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto info = ValidBoxBodyInfo();
+    info.position = {0.0F, 5.0F, 0.0F};
+    info.gravityEnabled = false;
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr int Steps = 60;
+    for (int step = 0; step < Steps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState)
+    {
+        return false;
+    }
+
+    constexpr float Tolerance = 0.0001F;
+    return std::abs(finalState->position.x - initial->position.x) < Tolerance &&
+           std::abs(finalState->position.y - initial->position.y) < Tolerance &&
+           std::abs(finalState->position.z - initial->position.z) < Tolerance &&
+           std::abs(finalState->linearVelocity.x) < Tolerance && std::abs(finalState->linearVelocity.y) < Tolerance &&
+           std::abs(finalState->linearVelocity.z) < Tolerance;
+}
+
+bool NoHiddenLinearDrag()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto info = ValidBoxBodyInfo();
+    info.position = {0.0F, 5.0F, 0.0F};
+    info.gravityEnabled = false;
+    info.linearDamping = 0.0F; // explicit: no hidden water-like resistance in the generic API
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = {10.0F, 0.0F, 0.0F};
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr int Steps = 60; // one second of simulation
+    for (int step = 0; step < Steps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState)
+    {
+        return false;
+    }
+
+    // Guardrail for the future HydroDragSystem: with zero damping the speed must not decay on its own.
+    return std::abs(finalState->linearVelocity.x - 10.0F) < 0.05F &&
+           std::abs(finalState->linearVelocity.y) < 0.001F && std::abs(finalState->linearVelocity.z) < 0.001F &&
+           std::abs(finalState->position.x - (initial->position.x + 10.0F)) < 0.1F;
+}
+
+bool AngularVelocityState()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto info = ValidBoxBodyInfo();
+    info.position = {0.0F, 5.0F, 0.0F};
+    info.gravityEnabled = false;
+    info.initialAngularVelocity = {0.0F, 2.0F, 0.0F}; // rad/s around +Y
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    constexpr int Steps = 30; // half a second: about one radian of rotation
+    for (int step = 0; step < Steps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto finalState = world.GetBodyState(handle);
+    if (!finalState)
+    {
+        return false;
+    }
+
+    const bool finite = std::isfinite(finalState->orientation.x) && std::isfinite(finalState->orientation.y) &&
+                        std::isfinite(finalState->orientation.z) && std::isfinite(finalState->orientation.w) &&
+                        std::isfinite(finalState->angularVelocity.x) && std::isfinite(finalState->angularVelocity.y) &&
+                        std::isfinite(finalState->angularVelocity.z);
+    return !DeepRun::Physics::PhysicsQuaternion::SameRotation(initial->orientation, finalState->orientation) &&
+           std::abs(finalState->angularVelocity.y - 2.0F) < 0.1F && finite;
+}
+
 bool AudioBoundary()
 {
     DeepRun::Diagnostics::Logger logger;
@@ -995,6 +1337,13 @@ int main(const int argumentCount, const char* const* arguments)
         {"Deterministic random", DeterministicRandom},
         {"Jolt initialization", JoltInitialization},
         {"Rigid-body gravity", RigidBodySimulation},
+        {"Physics handle semantics", PhysicsHandleSemantics},
+        {"Dynamic box input validation", DynamicBoxInputValidation},
+        {"Physics pose round-trip", PhysicsPoseRoundTrip},
+        {"Physics gravity fall", PhysicsGravityFalls},
+        {"Physics gravity disabled stays still", PhysicsGravityDisabledStaysStill},
+        {"No hidden linear drag", NoHiddenLinearDrag},
+        {"Angular velocity state", AngularVelocityState},
         {"Audio abstraction", AudioBoundary},
     };
 

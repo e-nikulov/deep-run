@@ -6,6 +6,8 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Math/Quat.h>
+#include <Jolt/Math/Vector.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
@@ -14,10 +16,15 @@
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cassert>
 #include <cstdarg>
+#include <cmath>
 #include <cstdio>
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace DeepRun::Physics
 {
@@ -114,13 +121,87 @@ void JoltTrace(const char* format, ...)
     std::fputc('\n', stderr);
     va_end(arguments);
 }
+
+std::uint64_t NextWorldIdentity() noexcept
+{
+    static std::atomic_uint64_t nextIdentity{1};
+    return nextIdentity.fetch_add(1, std::memory_order_relaxed);
+}
+
+// Backend bookkeeping for one Jolt body. The slot index is stable while the world lives;
+// generation makes a destroyed handle stay invalid even if the slot is reused by a new body.
+struct BodySlot final
+{
+    JPH::BodyID bodyId{};
+    std::uint32_t generation = 0;
+    bool active = false;
+};
+
+bool ValidateDynamicBoxBodyCreateInfo(const DynamicBoxBodyCreateInfo& info, std::string& message)
+{
+    const auto reject = [&message](const char* field) {
+        message = std::string("invalid dynamic box body input: ") + field;
+        return false;
+    };
+
+    for (const float extent : {info.halfExtents.x, info.halfExtents.y, info.halfExtents.z})
+    {
+        if (!std::isfinite(extent))
+        {
+            return reject("halfExtents must be finite");
+        }
+        if (extent <= 0.0F)
+        {
+            return reject("halfExtents must be positive on every axis");
+        }
+    }
+
+    if (!std::isfinite(info.mass))
+    {
+        return reject("mass must be finite");
+    }
+    if (info.mass <= 0.0F)
+    {
+        return reject("mass must be greater than zero");
+    }
+
+    if (!info.position.IsFinite())
+    {
+        return reject("position must be finite");
+    }
+
+    if (!info.orientation.IsFinite() || info.orientation.LengthSquared() <= 0.0F)
+    {
+        return reject("orientation must be a finite quaternion with non-zero length");
+    }
+
+    for (const float damping : {info.linearDamping, info.angularDamping})
+    {
+        if (!std::isfinite(damping))
+        {
+            return reject("damping must be finite");
+        }
+        if (damping < 0.0F)
+        {
+            return reject("damping must not be negative");
+        }
+    }
+
+    if (!info.initialLinearVelocity.IsFinite() || !info.initialAngularVelocity.IsFinite())
+    {
+        return reject("initial velocities must be finite");
+    }
+
+    message.clear();
+    return true;
+}
 }
 
 class PhysicsWorld::Impl final
 {
 public:
     explicit Impl(Diagnostics::Logger& logger)
-        : logger(logger)
+        : logger(logger), worldIdentity(NextWorldIdentity())
     {
     }
 
@@ -138,7 +219,132 @@ public:
         delete JPH::Factory::sInstance;
         JPH::Factory::sInstance = nullptr;
         initialized = false;
-        logger.Info(Diagnostics::LogCategory::Physics, "Jolt shut down");
+        logger.Info(
+            Diagnostics::LogCategory::Physics,
+            "Jolt shut down (" + std::to_string(bodyCount) + " dynamic bodies created this session)");
+    }
+
+    PhysicsBodyHandle CreateDynamicBoxBody(const DynamicBoxBodyCreateInfo& info, PhysicsError* error)
+    {
+        const auto fail = [this, error](const PhysicsErrorCode code, const std::string& message) -> PhysicsBodyHandle {
+            if (error != nullptr)
+            {
+                *error = PhysicsError{code, message};
+            }
+            logger.Warning(Diagnostics::LogCategory::Physics, "Dynamic body creation rejected: " + message);
+            return {};
+        };
+
+        if (!initialized)
+        {
+            return fail(PhysicsErrorCode::NotInitialized, "physics world is not initialized");
+        }
+
+        std::string validationMessage;
+        if (!ValidateDynamicBoxBodyCreateInfo(info, validationMessage))
+        {
+            return fail(PhysicsErrorCode::InvalidInput, validationMessage);
+        }
+
+        // Normalize before handing the rotation to Jolt and verify the result.
+        const float length = std::sqrt(info.orientation.LengthSquared());
+        const PhysicsQuaternion normalized{
+            .x = info.orientation.x / length,
+            .y = info.orientation.y / length,
+            .z = info.orientation.z / length,
+            .w = info.orientation.w / length};
+
+        JPH::BodyCreationSettings settings(
+            new JPH::BoxShape(JPH::Vec3(info.halfExtents.x, info.halfExtents.y, info.halfExtents.z)),
+            JPH::RVec3(info.position.x, info.position.y, info.position.z),
+            JPH::Quat(normalized.x, normalized.y, normalized.z, normalized.w),
+            JPH::EMotionType::Dynamic,
+            ObjectLayers::Moving);
+        settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+        settings.mMassPropertiesOverride.mMass = info.mass;
+        settings.mLinearDamping = info.linearDamping;
+        settings.mAngularDamping = info.angularDamping;
+        settings.mGravityFactor = info.gravityEnabled ? 1.0F : 0.0F;
+        settings.mLinearVelocity = JPH::Vec3(
+            info.initialLinearVelocity.x,
+            info.initialLinearVelocity.y,
+            info.initialLinearVelocity.z);
+        settings.mAngularVelocity = JPH::Vec3(
+            info.initialAngularVelocity.x,
+            info.initialAngularVelocity.y,
+            info.initialAngularVelocity.z);
+
+        const JPH::BodyID bodyId = physicsSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::Activate);
+        if (bodyId.IsInvalid())
+        {
+            // The shape is owned by `settings` and released with it on this path.
+            return fail(PhysicsErrorCode::InvalidInput, "Jolt could not allocate a body");
+        }
+
+        bodies.emplace_back(BodySlot{});
+        BodySlot& slot = bodies.back();
+        slot.bodyId = bodyId;
+        slot.active = true;
+        ++bodyCount;
+        logger.Info(Diagnostics::LogCategory::Physics, "Dynamic box body created (slot " + std::to_string(bodies.size() - 1) + ")");
+        return PhysicsBodyHandle(worldIdentity, bodies.size() - 1, slot.generation);
+    }
+
+    bool DestroyBody(PhysicsBodyHandle handle, PhysicsError* error)
+    {
+        const auto fail = [this, error](const PhysicsErrorCode code, const std::string& message) -> bool {
+            if (error != nullptr)
+            {
+                *error = PhysicsError{code, message};
+            }
+            logger.Warning(Diagnostics::LogCategory::Physics, "Body destruction rejected: " + message);
+            return false;
+        };
+
+        BodySlot* slot = Resolve(handle);
+        if (slot == nullptr)
+        {
+            return fail(PhysicsErrorCode::InvalidHandle, "handle is invalid, foreign, or stale");
+        }
+
+        JPH::BodyInterface& bodyInterface = physicsSystem->GetBodyInterface();
+        bodyInterface.RemoveBody(slot->bodyId);
+        bodyInterface.DestroyBody(slot->bodyId);
+        slot->active = false;
+        ++slot->generation; // a reused slot must never validate the old handle again
+        logger.Info(Diagnostics::LogCategory::Physics, "Dynamic body destroyed (slot " + std::to_string(handle.Slot()) + ")");
+        return true;
+    }
+
+    std::optional<PhysicsBodyState> GetBodyState(PhysicsBodyHandle handle) const
+    {
+        if (!initialized || !handle.IsValid() || handle.WorldIdentity() != worldIdentity)
+        {
+            return std::nullopt;
+        }
+        if (handle.Slot() >= bodies.size())
+        {
+            return std::nullopt;
+        }
+
+        const BodySlot& slot = bodies[handle.Slot()];
+        if (!slot.active || handle.Generation() != slot.generation)
+        {
+            return std::nullopt;
+        }
+
+        JPH::BodyInterface& bodyInterface = physicsSystem->GetBodyInterface();
+        const JPH::RVec3 position = bodyInterface.GetPosition(slot.bodyId);
+        const JPH::Quat rotation = bodyInterface.GetRotation(slot.bodyId);
+        const JPH::Vec3 linearVelocity = bodyInterface.GetLinearVelocity(slot.bodyId);
+        const JPH::Vec3 angularVelocity = bodyInterface.GetAngularVelocity(slot.bodyId);
+
+        return PhysicsBodyState{
+            .position = {static_cast<float>(position.GetX()), static_cast<float>(position.GetY()), static_cast<float>(position.GetZ())},
+            .orientation = {rotation.GetX(), rotation.GetY(), rotation.GetZ(), rotation.GetW()},
+            .linearVelocity = {linearVelocity.GetX(), linearVelocity.GetY(), linearVelocity.GetZ()},
+            .angularVelocity = {angularVelocity.GetX(), angularVelocity.GetY(), angularVelocity.GetZ()},
+            .active = bodyInterface.IsActive(slot.bodyId)};
     }
 
     Diagnostics::Logger& logger;
@@ -149,6 +355,31 @@ public:
     std::unique_ptr<JPH::JobSystemThreadPool> jobSystem;
     std::unique_ptr<JPH::PhysicsSystem> physicsSystem;
     bool initialized = false;
+
+private:
+    // Returns the live slot for a handle, or nullptr when the handle is invalid/foreign/stale.
+    BodySlot* Resolve(PhysicsBodyHandle handle)
+    {
+        if (!initialized || !handle.IsValid() || handle.WorldIdentity() != worldIdentity)
+        {
+            return nullptr;
+        }
+        if (handle.Slot() >= bodies.size())
+        {
+            return nullptr;
+        }
+
+        BodySlot* slot = &bodies[handle.Slot()];
+        if (!slot->active || handle.Generation() != slot->generation)
+        {
+            return nullptr;
+        }
+        return slot;
+    }
+
+    std::uint64_t worldIdentity;
+    std::vector<BodySlot> bodies;
+    std::size_t bodyCount = 0;
 };
 
 PhysicsWorld::PhysicsWorld(Diagnostics::Logger& logger)
@@ -214,8 +445,8 @@ bool PhysicsWorld::RunGravitySmokeTest()
         return false;
     }
 
-    JPH::BodyInterface& bodies = impl_->physicsSystem->GetBodyInterface();
-    const JPH::BodyID floor = bodies.CreateAndAddBody(
+    JPH::BodyInterface& joltBodies = impl_->physicsSystem->GetBodyInterface();
+    const JPH::BodyID floor = joltBodies.CreateAndAddBody(
         JPH::BodyCreationSettings(
             new JPH::BoxShape(JPH::Vec3(10.0F, 0.5F, 10.0F)),
             JPH::RVec3(0.0F, -0.5F, 0.0F),
@@ -223,45 +454,52 @@ bool PhysicsWorld::RunGravitySmokeTest()
             JPH::EMotionType::Static,
             ObjectLayers::NonMoving),
         JPH::EActivation::DontActivate);
-    const JPH::BodyID dynamicBody = bodies.CreateAndAddBody(
-        JPH::BodyCreationSettings(
-            new JPH::BoxShape(JPH::Vec3(0.5F, 0.5F, 0.5F)),
-            JPH::RVec3(0.0F, 5.0F, 0.0F),
-            JPH::Quat::sIdentity(),
-            JPH::EMotionType::Dynamic,
-            ObjectLayers::Moving),
-        JPH::EActivation::Activate);
 
-    if (floor.IsInvalid() || dynamicBody.IsInvalid())
+    DynamicBoxBodyCreateInfo bodyInfo;
+    bodyInfo.halfExtents = {0.5F, 0.5F, 0.5F};
+    bodyInfo.mass = 1.0F;
+    bodyInfo.position = {0.0F, 5.0F, 0.0F};
+    PhysicsError error;
+    const PhysicsBodyHandle dynamicBody = CreateDynamicBoxBody(bodyInfo, &error);
+
+    if (floor.IsInvalid() || !dynamicBody.IsValid())
     {
-        if (!dynamicBody.IsInvalid())
+        if (!dynamicBody.IsValid())
         {
-            bodies.RemoveBody(dynamicBody);
-            bodies.DestroyBody(dynamicBody);
+            impl_->logger.Error(Diagnostics::LogCategory::Physics, "Jolt smoke body could not be created: " + error.message);
+        }
+        else
+        {
+            DestroyBody(dynamicBody);
         }
         if (!floor.IsInvalid())
         {
-            bodies.RemoveBody(floor);
-            bodies.DestroyBody(floor);
+            joltBodies.RemoveBody(floor);
+            joltBodies.DestroyBody(floor);
         }
         impl_->logger.Error(Diagnostics::LogCategory::Physics, "Jolt smoke bodies could not be created");
         return false;
     }
 
     impl_->physicsSystem->OptimizeBroadPhase();
-    const float initialHeight = static_cast<float>(bodies.GetPosition(dynamicBody).GetY());
+    const auto initialState = GetBodyState(dynamicBody);
     for (int step = 0; step < 60; ++step)
     {
         Step(1.0F / 60.0F);
     }
-    const float finalHeight = static_cast<float>(bodies.GetPosition(dynamicBody).GetY());
+    const auto finalState = GetBodyState(dynamicBody);
 
-    bodies.RemoveBody(dynamicBody);
-    bodies.DestroyBody(dynamicBody);
-    bodies.RemoveBody(floor);
-    bodies.DestroyBody(floor);
+    DestroyBody(dynamicBody);
+    joltBodies.RemoveBody(floor);
+    joltBodies.DestroyBody(floor);
 
-    const bool passed = finalHeight < initialHeight - 0.5F;
+    if (!initialState || !finalState)
+    {
+        impl_->logger.Error(Diagnostics::LogCategory::Physics, "Jolt smoke body state became unavailable");
+        return false;
+    }
+
+    const bool passed = finalState->position.y < initialState->position.y - 0.5F;
     impl_->logger.Log(
         Diagnostics::LogCategory::Physics,
         passed ? Diagnostics::LogLevel::Info : Diagnostics::LogLevel::Error,
@@ -272,5 +510,23 @@ bool PhysicsWorld::RunGravitySmokeTest()
 bool PhysicsWorld::IsInitialized() const noexcept
 {
     return impl_->initialized;
+}
+
+PhysicsBodyHandle PhysicsWorld::CreateDynamicBoxBody(const DynamicBoxBodyCreateInfo& info, PhysicsError* error)
+{
+    assert(impl_ != nullptr);
+    return impl_->CreateDynamicBoxBody(info, error);
+}
+
+bool PhysicsWorld::DestroyBody(PhysicsBodyHandle handle, PhysicsError* error)
+{
+    assert(impl_ != nullptr);
+    return impl_->DestroyBody(handle, error);
+}
+
+std::optional<PhysicsBodyState> PhysicsWorld::GetBodyState(PhysicsBodyHandle handle) const
+{
+    assert(impl_ != nullptr);
+    return impl_->GetBodyState(handle);
 }
 }
