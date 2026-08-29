@@ -1276,6 +1276,22 @@ Simulation/Marine/
 └── MarineEnvironment.h
 ```
 
+`WaterBody` (M2 Slice D1) — authoritative flat infinite horizontal water body and the source of truth for
+buoyancy, depth, pressure and hydrodynamic systems. Rendering is never the source of this state; `WaterBody`
+has no knowledge of renderers, physics bodies or submarines. The D1 surface is exactly flat (no time, waves
+or currents), so a future M3 ocean presentation must evolve without changing how authoritative depth is
+sampled.
+
+Canonical signed-depth contract:
+
+```text
+signedDepthMeters = surfaceLevelY - worldPosition.y
+    > 0 -> below the surface (underwater)
+    = 0 -> on the surface
+    < 0 -> above the water
+surface normal = (0, +1, 0); water occupies y < surfaceLevelY
+```
+
 ---
 
 # 18. Buoyancy

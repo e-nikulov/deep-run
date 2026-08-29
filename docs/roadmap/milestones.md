@@ -330,6 +330,7 @@ Accepted slices (in order):
 | C1.1 | Opaque physics-handle contract cleanup (generation, foreign/stale rejection) | ACCEPTED |
 | C2 | Submarine rigid-body integration + physics-to-render synchronization (ADR-0008) | ACCEPTED |
 | C2.1 | 2.5D body DOF constraint + world-bounds synchronization | ACCEPTED |
+| D1 | Authoritative flat WaterBody + water-level/depth query | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps

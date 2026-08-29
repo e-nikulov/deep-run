@@ -68,6 +68,7 @@ add_library(DeepRunEngine STATIC
     Engine/Render/IndexedGeometry.cpp
     Engine/Render/ModelDraw.cpp
     Engine/Scene/Scene.cpp
+    Simulation/Marine/WaterBody.cpp
 )
 
 target_compile_features(DeepRunEngine PUBLIC cxx_std_23)

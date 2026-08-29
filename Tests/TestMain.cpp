@@ -16,6 +16,7 @@
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/PhysicsRenderSync.h"
+#include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
 #include <bit>
@@ -1979,6 +1980,182 @@ bool WorldBoundsUseModelToWorldComposition()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice D1: authoritative flat WaterBody (Simulation/Marine)
+// ---------------------------------------------------------------------------
+
+bool WaterBodyValidConstruction()
+{
+    // Canonical M2-like configuration: sea level at world Y=0, seawater density.
+    const auto atZero = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1025.0F});
+    if (!atZero)
+    {
+        return false;
+    }
+    // The exact configuration must be retained without any correction.
+    if (atZero->Config().surfaceLevelY != 0.0F || atZero->Config().densityKgPerCubicMeter != 1025.0F)
+    {
+        return false;
+    }
+
+    // An arbitrary shifted surface: the generic WaterBody must not assume sea level is world Y=0.
+    const auto shifted = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = -37.5F, .densityKgPerCubicMeter = 998.2F});
+    if (!shifted)
+    {
+        return false;
+    }
+    return shifted->Config().surfaceLevelY == -37.5F && shifted->Config().densityKgPerCubicMeter == 998.2F;
+}
+
+bool WaterBodySurfaceQueryAtZeroLevel()
+{
+    const auto created = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1025.0F});
+    if (!created)
+    {
+        return false;
+    }
+    const DeepRun::Marine::WaterBody& water = *created;
+
+    // y = 0: exactly on the surface.
+    const auto onSurface = water.Sample({12.0F, 0.0F, -7.0F});
+    if (!onSurface || onSurface->signedDepthMeters != 0.0F)
+    {
+        return false;
+    }
+
+    // y = -100: one hundred meters below the surface -> positive signed depth.
+    const auto below = water.Sample({0.0F, -100.0F, 0.0F});
+    if (!below || below->signedDepthMeters != 100.0F)
+    {
+        return false;
+    }
+
+    // y = +25: above the water -> negative signed depth.
+    const auto above = water.Sample({0.0F, 25.0F, 0.0F});
+    if (!above || above->signedDepthMeters != -25.0F)
+    {
+        return false;
+    }
+
+    // The normal is always +Y and every sample echoes the configured surface level.
+    const DeepRun::Physics::PhysicsVector3 up{0.0F, 1.0F, 0.0F};
+    return onSurface->surfaceNormal == up && below->surfaceNormal == up && above->surfaceNormal == up &&
+           onSurface->surfaceLevelY == 0.0F && below->surfaceLevelY == 0.0F && above->surfaceLevelY == 0.0F;
+}
+
+bool WaterBodyShiftedSurface()
+{
+    const auto created = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 50.0F, .densityKgPerCubicMeter = 1025.0F});
+    if (!created)
+    {
+        return false;
+    }
+
+    // Depth must be measured from the configured surface, not from world Y=0: y=-50 is 100 m below a
+    // surface at +50. This guards against hard-coding sea level into the generic WaterBody.
+    const auto sample = created->Sample({0.0F, -50.0F, 0.0F});
+    return sample && sample->signedDepthMeters == 100.0F && sample->surfaceLevelY == 50.0F;
+}
+
+bool WaterBodyXZIndependence()
+{
+    const auto created = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 3.0F, .densityKgPerCubicMeter = 1025.0F});
+    if (!created)
+    {
+        return false;
+    }
+    const DeepRun::Marine::WaterBody& water = *created;
+
+    const auto reference = water.Sample({0.0F, -40.0F, 0.0F});
+    if (!reference || reference->signedDepthMeters != 43.0F)
+    {
+        return false;
+    }
+
+    // X/Z must never affect the flat surface: same Y -> identical level, signed depth and normal.
+    for (const auto position : {DeepRun::Physics::PhysicsVector3{1000.0F, -40.0F, 0.0F},
+                                DeepRun::Physics::PhysicsVector3{-250.0F, -40.0F, 75.0F},
+                                DeepRun::Physics::PhysicsVector3{0.0F, -40.0F, -9999.0F}})
+    {
+        const auto sample = water.Sample(position);
+        if (!sample || sample->surfaceLevelY != reference->surfaceLevelY ||
+            sample->signedDepthMeters != reference->signedDepthMeters ||
+            sample->surfaceNormal != reference->surfaceNormal)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool WaterBodyInvalidConfigRejected()
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+
+    const DeepRun::Marine::WaterBodyConfig invalidConfigs[] = {
+        {.surfaceLevelY = nan, .densityKgPerCubicMeter = 1025.0F},
+        {.surfaceLevelY = infinity, .densityKgPerCubicMeter = 1025.0F},
+        {.surfaceLevelY = -infinity, .densityKgPerCubicMeter = 1025.0F},
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 0.0F},
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = -1025.0F},
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = nan},
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = infinity}};
+
+    for (const auto& config : invalidConfigs)
+    {
+        const auto result = DeepRun::Marine::WaterBody::Create(config);
+        if (result.has_value() ||
+            result.error().code != DeepRun::Marine::WaterBodyErrorCode::InvalidConfiguration ||
+            result.error().message.empty())
+        {
+            return false;
+        }
+    }
+
+    // Control: a valid configuration is still accepted after all rejections.
+    const auto valid = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1025.0F});
+    return valid.has_value();
+}
+
+bool WaterBodyRejectsNonFiniteQueryPosition()
+{
+    const auto created = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1025.0F});
+    if (!created)
+    {
+        return false;
+    }
+    const DeepRun::Marine::WaterBody& water = *created;
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const auto position : {DeepRun::Physics::PhysicsVector3{nan, 0.0F, 0.0F},
+                                DeepRun::Physics::PhysicsVector3{0.0F, nan, 0.0F},
+                                DeepRun::Physics::PhysicsVector3{0.0F, 0.0F, nan},
+                                DeepRun::Physics::PhysicsVector3{infinity, -10.0F, infinity},
+                                DeepRun::Physics::PhysicsVector3{-infinity, 25.0F, 0.0F}})
+    {
+        // Non-finite positions are recoverable errors instead of propagating NaN into gameplay state.
+        const auto sample = water.Sample(position);
+        if (sample.has_value() ||
+            sample.error().code != DeepRun::Marine::WaterBodyErrorCode::InvalidQueryPosition)
+        {
+            return false;
+        }
+    }
+
+    // Control: a finite position still samples successfully with the canonical sign convention.
+    const auto ok = water.Sample({0.0F, -10.0F, 0.0F});
+    return ok.has_value() && ok->signedDepthMeters == 10.0F;
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
 
@@ -2037,6 +2214,25 @@ bool PhysicsWorldHasNoGpuModelKnowledge()
     // PhysicsWorld must not know about GPU models (ADR-0007).
     const std::filesystem::path physicsRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Physics";
     return ScanSourceDirectoryForForbiddenPatterns(physicsRoot, {"gpumodel", "d3d12"});
+}
+
+bool SimulationMarineHasNoPhysicsOrRenderDependency()
+{
+    // Marine simulation must stay free of Jolt, D3D12 and renderer knowledge (M2 Slice D1): WaterBody is an
+    // authoritative environment primitive, not a collision body or a render feature.
+    const std::filesystem::path marineRoot =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation" / "Marine";
+    return ScanSourceDirectoryForForbiddenPatterns(
+        marineRoot,
+        {"<jolt/", "jph::", "d3d12", "directxmath", "modelvector3", "physicsbodyhandle",
+         "gpumodelhandle", "render/"});
+}
+
+bool EngineHasNoMarineKnowledge()
+{
+    // The generic engine must not become aware of marine simulation (M2 Slice D1).
+    const std::filesystem::path engineRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine";
+    return ScanSourceDirectoryForForbiddenPatterns(engineRoot, {"waterbody", "marine"});
 }
 } // namespace
 
@@ -2109,10 +2305,21 @@ int main(const int argumentCount, const char* const* arguments)
         {"Planar body stays in gameplay plane", PlanarBodyStaysInGameplayPlane},
         {"Planar body rejects locked-axis initial velocity", PlanarBodyRejectsLockedAxisInitialVelocity},
         {"World bounds use model-to-world composition", WorldBoundsUseModelToWorldComposition},
+        // M2 Slice D1: authoritative flat WaterBody (Simulation/Marine).
+        {"Water body valid construction", WaterBodyValidConstruction},
+        {"Water body surface query at zero level", WaterBodySurfaceQueryAtZeroLevel},
+        {"Water body shifted surface", WaterBodyShiftedSurface},
+        {"Water body X/Z independence", WaterBodyXZIndependence},
+        {"Water body invalid config rejected", WaterBodyInvalidConfigRejected},
+        {"Water body rejects non-finite query position", WaterBodyRejectsNonFiniteQueryPosition},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},
         {"Physics world has no GPU model knowledge", PhysicsWorldHasNoGpuModelKnowledge},
+        // M2 Slice D1: architecture boundary scans.
+        {"Simulation marine has no physics or render dependency",
+         SimulationMarineHasNoPhysicsOrRenderDependency},
+        {"Engine has no marine knowledge", EngineHasNoMarineKnowledge},
     };
 
     int failed = 0;
