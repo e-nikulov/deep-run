@@ -429,14 +429,24 @@ public:
             return fail(PhysicsErrorCode::InvalidInput, "world position must be finite");
         }
 
-        // Pinned Jolt v5.5.0: BodyInterface::AddForce(bodyID, force, RVec3Arg inPoint) accumulates the linear
-        // force plus torque (inPosition - centerOfMass) x force for the next PhysicsSystem::Update and resets it
-        // after that step — exactly the transient per-step contract this API documents. The default
-        // EActivation::Activate wakes a sleeping dynamic body, so no Engine-side sleep management is needed.
+        // True zero-force no-op: only after full validation (including the world position) does a zero force
+        // return success without touching Jolt at all. The BodyInterface force path would otherwise activate a
+        // sleeping body even for a zero force, which would break the documented no-op semantics.
+        if (forceNewtons.x == 0.0F && forceNewtons.y == 0.0F && forceNewtons.z == 0.0F)
+        {
+            return true;
+        }
+
+        // Pinned Jolt v5.5.0: BodyInterface::AddForce(bodyID, force, RVec3Arg inPoint, EActivation) accumulates
+        // the linear force plus torque (inPosition - centerOfMass) x force for the next PhysicsSystem::Update and
+        // resets it after that step — exactly the transient per-step contract this API documents. The activation
+        // policy is passed explicitly rather than relying on the default argument: a non-zero force wakes a
+        // sleeping dynamic body, so no Engine-side sleep management is needed.
         physicsSystem->GetBodyInterface().AddForce(
             slot->bodyId,
             JPH::Vec3(forceNewtons.x, forceNewtons.y, forceNewtons.z),
-            JPH::RVec3(worldPositionMeters.x, worldPositionMeters.y, worldPositionMeters.z));
+            JPH::RVec3(worldPositionMeters.x, worldPositionMeters.y, worldPositionMeters.z),
+            JPH::EActivation::Activate);
         return true;
     }
 

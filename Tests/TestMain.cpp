@@ -2416,6 +2416,62 @@ bool ForceActivatesSleepingBody()
            StateIsFinite(*after);
 }
 
+// J: zero force is a true no-op — it must NOT wake a sleeping body (symmetric to the non-zero activation test).
+bool ForceZeroDoesNotWakeSleepingBody()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    if (!handle.IsValid())
+    {
+        return false;
+    }
+
+    // Let the stationary, force-free body settle and sleep (Jolt default TimeBeforeSleep is 0.5 s).
+    constexpr int SettleSteps = 120; // two seconds at the fixed step
+    for (int step = 0; step < SettleSteps; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto sleeping = world.GetBodyState(handle);
+    if (!sleeping || sleeping->active)
+    {
+        return false; // the body must have gone to sleep before we test the no-op branch
+    }
+
+    // Zero force at a finite position: accepted, but it must not touch Jolt's activation path.
+    const DeepRun::Physics::PhysicsVector3 zero{0.0F, 0.0F, 0.0F};
+    const DeepRun::Physics::PhysicsVector3 com{sleeping->position.x, sleeping->position.y, sleeping->position.z};
+    if (!world.AddForceAtWorldPosition(handle, zero, com))
+    {
+        return false; // zero force must succeed (not be rejected as malformed)
+    }
+
+    const auto immediatelyAfter = world.GetBodyState(handle);
+    if (!immediatelyAfter || immediatelyAfter->active)
+    {
+        return false; // the no-op call must not wake the sleeping body
+    }
+    if (immediatelyAfter->linearVelocity.x != 0.0F || immediatelyAfter->position.x != com.x)
+    {
+        return false; // velocity and position must be unchanged by the zero-force call
+    }
+
+    world.Step(1.0F / 60.0F); // one more force-free step: the body must stay asleep and still
+
+    const auto after = world.GetBodyState(handle);
+    if (!after || after->active)
+    {
+        return false;
+    }
+    return after->linearVelocity.x == 0.0F && after->position.x == com.x && StateIsFinite(*after);
+}
+
 bool WorldBoundsUseModelToWorldComposition()
 {
     const ModelBounds& bounds = OffCenterTestBounds; // size (100, 14, 10), center (20, 2, 1): off-center on purpose
@@ -3237,6 +3293,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"E1 planar DOF preservation under force", ForcePlanarDOFPreservation},
         {"E1 invalid input and zero-force no-op", ForceInvalidInputAndZeroNoOp},
         {"E1 non-zero force activates sleeping body", ForceActivatesSleepingBody},
+        {"E1 zero force does not wake sleeping body", ForceZeroDoesNotWakeSleepingBody},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},
