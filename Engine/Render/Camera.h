@@ -38,10 +38,15 @@ struct OrthographicCamera final
     const RenderMatrix4& matrix,
     const Assets::ModelVector3& point) noexcept;
 [[nodiscard]] bool IsFinite(const RenderMatrix4& matrix) noexcept;
-[[nodiscard]] std::expected<OrthographicCamera, std::string> BuildSideViewCamera(
+[[nodiscard]] std::expected<OrthographicCamera, std::string> BuildAutoFitSideViewCamera(
     const Assets::ModelBounds& bounds,
     float aspectRatio,
     float margin = 1.12F);
+[[nodiscard]] std::expected<OrthographicCamera, std::string> BuildFixedWorldSideViewCamera(
+    const Assets::ModelVector3& target,
+    float aspectRatio,
+    float horizontalSpan,
+    const Assets::ModelBounds& depthBounds);
 [[nodiscard]] bool BoundsFitInCamera(
     const Assets::ModelBounds& bounds,
     const OrthographicCamera& camera,

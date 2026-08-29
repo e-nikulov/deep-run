@@ -10,6 +10,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -727,9 +728,10 @@ public:
         {
             return std::unexpected("model pipeline or depth buffer is not ready");
         }
-        if (!IsFinite(camera.viewProjection))
+        if (!IsFinite(camera.viewProjection) || !std::isfinite(camera.width) ||
+            !std::isfinite(camera.height) || camera.width <= 0.0F || camera.height <= 0.0F)
         {
-            return std::unexpected("model draw received an invalid camera matrix");
+            return std::unexpected("model draw received invalid camera projection data");
         }
 
         GpuModel& gpuModel = gpuModels[modelIndex];
@@ -774,7 +776,10 @@ public:
             std::ostringstream message;
             message << "Indexed model draw: draw calls=" << stats.drawCalls
                     << ", submitted primitives=" << stats.submittedPrimitives
-                    << ", submitted indices=" << stats.submittedIndices;
+                    << ", submitted indices=" << stats.submittedIndices
+                    << ", camera horizontal span=" << camera.width
+                    << ", vertical span=" << camera.height
+                    << ", aspect=" << camera.width / camera.height;
             logger.Info(Diagnostics::LogCategory::Render, message.str());
             logNextDraw = false;
         }

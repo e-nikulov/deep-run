@@ -373,7 +373,7 @@ bool GenericEngineCoreHasNoSubmarineDependency()
     return true;
 }
 
-bool SideViewCameraContract()
+bool AutoFitSideViewCameraContract()
 {
     DeepRun::Assets::AssetManager assets(testAssetRoot);
     const auto loaded = assets.LoadModel(CanonicalModelPath);
@@ -382,8 +382,8 @@ bool SideViewCameraContract()
         return false;
     }
 
-    const auto wide = DeepRun::Render::BuildSideViewCamera((*loaded)->bounds, 16.0F / 9.0F);
-    const auto narrow = DeepRun::Render::BuildSideViewCamera((*loaded)->bounds, 4.0F / 3.0F);
+    const auto wide = DeepRun::Render::BuildAutoFitSideViewCamera((*loaded)->bounds, 16.0F / 9.0F);
+    const auto narrow = DeepRun::Render::BuildAutoFitSideViewCamera((*loaded)->bounds, 4.0F / 3.0F);
     return wide && narrow && wide->viewDirection.x == 0.0F && wide->viewDirection.y == 0.0F &&
            wide->viewDirection.z == -1.0F && wide->up.x == 0.0F && wide->up.y == 1.0F &&
            wide->up.z == 0.0F &&
@@ -394,6 +394,121 @@ bool SideViewCameraContract()
            DeepRun::Render::BoundsFitInCamera((*loaded)->bounds, *narrow) &&
            std::abs(wide->width / wide->height - 16.0F / 9.0F) < 0.0001F &&
            std::abs(narrow->width / narrow->height - 4.0F / 3.0F) < 0.0001F;
+}
+
+bool FixedWorldCameraSpanContract()
+{
+    constexpr float HorizontalSpan = 600.0F;
+    const DeepRun::Assets::ModelBounds depthBounds{
+        .minimum = {-50.0F, -10.0F, -4.0F},
+        .maximum = {50.0F, 10.0F, 4.0F}};
+    const DeepRun::Assets::ModelVector3 target{};
+    const auto sixteenNine = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        target, 16.0F / 9.0F, HorizontalSpan, depthBounds);
+    const auto sixteenTen = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        target, 16.0F / 10.0F, HorizontalSpan, depthBounds);
+
+    return sixteenNine && sixteenTen && std::abs(sixteenNine->width - HorizontalSpan) < 0.0001F &&
+           std::abs(sixteenNine->height - 337.5F) < 0.0001F &&
+           std::abs(sixteenTen->width - HorizontalSpan) < 0.0001F &&
+           std::abs(sixteenTen->height - 375.0F) < 0.0001F &&
+           sixteenNine->viewDirection.x == 0.0F && sixteenNine->viewDirection.y == 0.0F &&
+           sixteenNine->viewDirection.z == -1.0F && sixteenNine->up.x == 0.0F &&
+           sixteenNine->up.y == 1.0F && sixteenNine->up.z == 0.0F &&
+           DeepRun::Render::BoundsFitInCamera(depthBounds, *sixteenNine) &&
+           DeepRun::Render::IsFinite(sixteenNine->viewProjection);
+}
+
+bool FixedWorldCameraIgnoresModelSize()
+{
+    constexpr float Aspect = 16.0F / 9.0F;
+    constexpr float HorizontalSpan = 600.0F;
+    const DeepRun::Assets::ModelVector3 smallTarget{5.0F, 7.0F, 0.0F};
+    const DeepRun::Assets::ModelBounds smallBounds{
+        .minimum = {4.0F, 6.0F, -0.5F},
+        .maximum = {6.0F, 8.0F, 0.5F}};
+    const DeepRun::Assets::ModelVector3 largeTarget{-200.0F, 400.0F, 30.0F};
+    const DeepRun::Assets::ModelBounds largeBounds{
+        .minimum = {-700.0F, -100.0F, -70.0F},
+        .maximum = {300.0F, 900.0F, 130.0F}};
+
+    const auto smallCamera = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        smallTarget, Aspect, HorizontalSpan, smallBounds);
+    const auto largeCamera = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        largeTarget, Aspect, HorizontalSpan, largeBounds);
+    return smallCamera && largeCamera && smallCamera->width == largeCamera->width &&
+           smallCamera->height == largeCamera->height && smallCamera->width == HorizontalSpan &&
+           smallCamera->target.x == smallTarget.x && largeCamera->target.x == largeTarget.x &&
+           largeCamera->nearPlane > 0.0F && largeCamera->farPlane > largeCamera->nearPlane;
+}
+
+bool FixedWorldCameraScreenScale()
+{
+    constexpr float HorizontalSpan = 600.0F;
+    const DeepRun::Assets::ModelBounds bounds{
+        .minimum = {-50.0F, -10.0F, -2.0F},
+        .maximum = {50.0F, 10.0F, 2.0F}};
+    const auto camera = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        {}, 16.0F / 9.0F, HorizontalSpan, bounds);
+    if (!camera)
+    {
+        return false;
+    }
+
+    const std::array<float, 4> left =
+        DeepRun::Render::TransformPoint(camera->viewProjection, bounds.minimum);
+    const std::array<float, 4> right =
+        DeepRun::Render::TransformPoint(camera->viewProjection, bounds.maximum);
+    const float viewportFraction = std::abs(right[0] - left[0]) * 0.5F;
+    return std::abs(viewportFraction - 100.0F / HorizontalSpan) < 0.0001F;
+}
+
+bool FixedWorldCameraTranslationContract()
+{
+    constexpr float Aspect = 16.0F / 9.0F;
+    constexpr float HorizontalSpan = 600.0F;
+    const DeepRun::Assets::ModelBounds originBounds{
+        .minimum = {-50.0F, -10.0F, -3.0F},
+        .maximum = {50.0F, 10.0F, 3.0F}};
+    const DeepRun::Assets::ModelVector3 translation{120.0F, -45.0F, 17.0F};
+    const DeepRun::Assets::ModelBounds translatedBounds{
+        .minimum = {70.0F, -55.0F, 14.0F},
+        .maximum = {170.0F, -35.0F, 20.0F}};
+
+    const auto origin = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        {}, Aspect, HorizontalSpan, originBounds);
+    const auto translated = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        translation, Aspect, HorizontalSpan, translatedBounds);
+    return origin && translated && translated->target.x == translation.x &&
+           translated->target.y == translation.y && translated->target.z == translation.z &&
+           std::abs(translated->position.x - origin->position.x - translation.x) < 0.0001F &&
+           std::abs(translated->position.y - origin->position.y - translation.y) < 0.0001F &&
+           std::abs(translated->position.z - origin->position.z - translation.z) < 0.0001F &&
+           translated->width == origin->width && translated->height == origin->height;
+}
+
+bool FixedWorldCameraRejectsInvalidInput()
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    const DeepRun::Assets::ModelBounds validBounds{
+        .minimum = {-1.0F, -1.0F, -1.0F},
+        .maximum = {1.0F, 1.0F, 1.0F}};
+    DeepRun::Assets::ModelBounds invalidDepth = validBounds;
+    invalidDepth.maximum.z = infinity;
+    DeepRun::Assets::ModelBounds invertedDepth = validBounds;
+    invertedDepth.minimum.z = 2.0F;
+
+    return !DeepRun::Render::BuildFixedWorldSideViewCamera({}, 0.0F, 600.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, -1.0F, 600.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, 1.0F, 0.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, 1.0F, -600.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({nan, 0.0F, 0.0F}, 1.0F, 600.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, nan, 600.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, infinity, 600.0F, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, 1.0F, infinity, validBounds) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, 1.0F, 600.0F, invalidDepth) &&
+           !DeepRun::Render::BuildFixedWorldSideViewCamera({}, 1.0F, 600.0F, invertedDepth);
 }
 
 bool ModelAndNormalTransformContract()
@@ -862,7 +977,12 @@ int main(const int argumentCount, const char* const* arguments)
         {"Invalid indexed GPU layout", InvalidIndexedGpuLayoutIsRejected},
         {"Default GPU model handle", DefaultGpuModelHandleIsInvalid},
         {"Generic Engine Core dependency boundary", GenericEngineCoreHasNoSubmarineDependency},
-        {"Side-view camera contract", SideViewCameraContract},
+        {"Auto-fit side-view camera contract", AutoFitSideViewCameraContract},
+        {"Fixed-world camera span contract", FixedWorldCameraSpanContract},
+        {"Fixed-world camera model-size independence", FixedWorldCameraIgnoresModelSize},
+        {"Fixed-world camera screen scale", FixedWorldCameraScreenScale},
+        {"Fixed-world camera translation", FixedWorldCameraTranslationContract},
+        {"Fixed-world camera input validation", FixedWorldCameraRejectsInvalidInput},
         {"Model and normal transform contract", ModelAndNormalTransformContract},
         {"Model draw preparation contract", ModelDrawPreparationContract},
         {"Invalid GPU model draw", InvalidGpuModelDrawIsRejected},

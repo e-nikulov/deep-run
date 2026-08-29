@@ -25,6 +25,58 @@ bool IsFinite(const Assets::ModelVector3& value) noexcept
 {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
+
+std::expected<OrthographicCamera, std::string> BuildOrthographicSideViewCamera(
+    const Assets::ModelVector3& target,
+    const float width,
+    const float height,
+    const Assets::ModelBounds& depthBounds,
+    const float cameraDistance)
+{
+    if (!IsFinite(target) || !IsFinite(depthBounds.minimum) || !IsFinite(depthBounds.maximum) ||
+        !std::isfinite(width) || !std::isfinite(height) || width <= 0.0F || height <= 0.0F ||
+        depthBounds.maximum.z < depthBounds.minimum.z || !std::isfinite(cameraDistance) ||
+        cameraDistance <= 0.0F)
+    {
+        return std::unexpected("side-view camera requires finite target, spans, and depth bounds");
+    }
+
+    OrthographicCamera camera;
+    camera.target = target;
+    camera.width = width;
+    camera.height = height;
+
+    camera.position = {target.x, target.y, target.z + cameraDistance};
+    const float nearestGeometry = camera.position.z - depthBounds.maximum.z;
+    const float farthestGeometry = camera.position.z - depthBounds.minimum.z;
+    camera.nearPlane = std::max(0.1F, nearestGeometry * 0.5F);
+    camera.farPlane = farthestGeometry + nearestGeometry * 0.5F;
+
+    SetElement(camera.view, 0, 3, -camera.position.x);
+    SetElement(camera.view, 1, 3, -camera.position.y);
+    SetElement(camera.view, 2, 3, -camera.position.z);
+
+    camera.projection.values.fill(0.0F);
+    SetElement(camera.projection, 0, 0, 2.0F / camera.width);
+    SetElement(camera.projection, 1, 1, 2.0F / camera.height);
+    SetElement(camera.projection, 2, 2, 1.0F / (camera.nearPlane - camera.farPlane));
+    SetElement(
+        camera.projection,
+        2,
+        3,
+        camera.nearPlane / (camera.nearPlane - camera.farPlane));
+    SetElement(camera.projection, 3, 3, 1.0F);
+    camera.viewProjection = Multiply(camera.projection, camera.view);
+
+    if (!IsFinite(camera.position) || !std::isfinite(camera.nearPlane) ||
+        !std::isfinite(camera.farPlane) || camera.nearPlane <= 0.0F ||
+        camera.farPlane <= camera.nearPlane || !IsFinite(camera.view) ||
+        !IsFinite(camera.projection) || !IsFinite(camera.viewProjection))
+    {
+        return std::unexpected("side-view camera produced invalid projection data");
+    }
+    return camera;
+}
 }
 
 RenderMatrix4 Multiply(const RenderMatrix4& left, const RenderMatrix4& right) noexcept
@@ -67,7 +119,7 @@ bool IsFinite(const RenderMatrix4& matrix) noexcept
     return std::ranges::all_of(matrix.values, [](const float value) { return std::isfinite(value); });
 }
 
-std::expected<OrthographicCamera, std::string> BuildSideViewCamera(
+std::expected<OrthographicCamera, std::string> BuildAutoFitSideViewCamera(
     const Assets::ModelBounds& bounds,
     const float aspectRatio,
     const float margin)
@@ -80,46 +132,42 @@ std::expected<OrthographicCamera, std::string> BuildSideViewCamera(
         return std::unexpected("side-view camera requires finite non-empty bounds and a positive aspect ratio");
     }
 
-    OrthographicCamera camera;
-    camera.target = {
+    const Assets::ModelVector3 target{
         (bounds.minimum.x + bounds.maximum.x) * 0.5F,
         (bounds.minimum.y + bounds.maximum.y) * 0.5F,
         (bounds.minimum.z + bounds.maximum.z) * 0.5F};
 
     const float contentWidth = (bounds.maximum.x - bounds.minimum.x) * margin;
     const float contentHeight = (bounds.maximum.y - bounds.minimum.y) * margin;
-    camera.height = std::max(contentHeight, contentWidth / aspectRatio);
-    camera.width = camera.height * aspectRatio;
-
+    const float height = std::max(contentHeight, contentWidth / aspectRatio);
+    const float width = height * aspectRatio;
     const float depth = std::max(bounds.maximum.z - bounds.minimum.z, 1.0F);
-    const float cameraDistance = std::max(contentWidth, contentHeight) * 0.75F + depth;
-    camera.position = {camera.target.x, camera.target.y, bounds.maximum.z + cameraDistance};
-    const float nearestGeometry = camera.position.z - bounds.maximum.z;
-    const float farthestGeometry = camera.position.z - bounds.minimum.z;
-    camera.nearPlane = std::max(0.1F, nearestGeometry * 0.5F);
-    camera.farPlane = farthestGeometry + nearestGeometry * 0.5F;
+    const float cameraDistance =
+        (bounds.maximum.z - target.z) + std::max(contentWidth, contentHeight) * 0.75F + depth;
+    return BuildOrthographicSideViewCamera(target, width, height, bounds, cameraDistance);
+}
 
-    SetElement(camera.view, 0, 3, -camera.position.x);
-    SetElement(camera.view, 1, 3, -camera.position.y);
-    SetElement(camera.view, 2, 3, -camera.position.z);
-
-    camera.projection.values.fill(0.0F);
-    SetElement(camera.projection, 0, 0, 2.0F / camera.width);
-    SetElement(camera.projection, 1, 1, 2.0F / camera.height);
-    SetElement(camera.projection, 2, 2, 1.0F / (camera.nearPlane - camera.farPlane));
-    SetElement(
-        camera.projection,
-        2,
-        3,
-        camera.nearPlane / (camera.nearPlane - camera.farPlane));
-    SetElement(camera.projection, 3, 3, 1.0F);
-    camera.viewProjection = Multiply(camera.projection, camera.view);
-
-    if (!IsFinite(camera.view) || !IsFinite(camera.projection) || !IsFinite(camera.viewProjection))
+std::expected<OrthographicCamera, std::string> BuildFixedWorldSideViewCamera(
+    const Assets::ModelVector3& target,
+    const float aspectRatio,
+    const float horizontalSpan,
+    const Assets::ModelBounds& depthBounds)
+{
+    if (!std::isfinite(aspectRatio) || !std::isfinite(horizontalSpan) || aspectRatio <= 0.0F ||
+        horizontalSpan <= 0.0F)
     {
-        return std::unexpected("side-view camera produced a non-finite matrix");
+        return std::unexpected("fixed-world side-view camera requires positive finite aspect and span");
     }
-    return camera;
+
+    const float verticalSpan = horizontalSpan / aspectRatio;
+    const float depth = std::max(depthBounds.maximum.z - depthBounds.minimum.z, 1.0F);
+    const float frontOffset = std::max(depthBounds.maximum.z - target.z, 0.0F);
+    return BuildOrthographicSideViewCamera(
+        target,
+        horizontalSpan,
+        verticalSpan,
+        depthBounds,
+        frontOffset + depth * 2.0F);
 }
 
 bool BoundsFitInCamera(

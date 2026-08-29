@@ -12,6 +12,7 @@ namespace DeepRun::Game
 namespace
 {
 constexpr std::string_view SubmarineModelPath = "submarines/prototype/submarine_prototype.glb";
+constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 }
 
 std::expected<void, std::string> PhysicalPlayground::Initialize(
@@ -77,7 +78,16 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground model assets are no longer valid");
     }
 
-    const auto camera = Render::BuildSideViewCamera(modelAsset_->bounds, renderer.AspectRatio());
+    const Assets::ModelBounds& bounds = modelAsset_->bounds;
+    const Assets::ModelVector3 target{
+        (bounds.minimum.x + bounds.maximum.x) * 0.5F,
+        (bounds.minimum.y + bounds.maximum.y) * 0.5F,
+        (bounds.minimum.z + bounds.maximum.z) * 0.5F};
+    const auto camera = Render::BuildFixedWorldSideViewCamera(
+        target,
+        renderer.AspectRatio(),
+        M2GameplayCameraHorizontalSpanMeters,
+        bounds);
     if (!camera || !Render::BoundsFitInCamera(modelAsset_->bounds, *camera))
     {
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
