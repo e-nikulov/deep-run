@@ -15,8 +15,13 @@ PhysicsWorld::DestroyBody(handle)  -> handle invalid forever
 ```
 
 `PhysicsBodyHandle` is an opaque non-owning value: world identity + slot index + generation.
-A handle is valid only in the creating `PhysicsWorld`; destroying a body bumps the slot's
-generation, so a reused slot can never validate a stale handle.
+Callers see only `IsValid()` and `operator==`; resolving the internal identity is a backend-only
+capability of the owning `PhysicsWorld`.
+
+A handle is valid only in the creating `PhysicsWorld`. In M2 C1 the body slot table is append-only:
+destroyed slots become inactive and are not recycled. Destroying a body increments the slot's
+generation as a safety invariant, so if slot recycling is introduced later, a stale handle can
+never alias a new body without changing public handle semantics.
 
 Public physics types (`PhysicsVector3`, `PhysicsQuaternion`) are separate from asset types;
 quaternion component order is x, y, z, w everywhere in DeepRun.
@@ -24,8 +29,9 @@ quaternion component order is x, y, z, w everywhere in DeepRun.
 ## Reasons
 
 - Jolt remains a backend detail (ADR-0002); no `JPH::*` type crosses the boundary.
-- Slot reuse without generation would silently alias old handles to new bodies.
-- A bounded slot table with generation is sufficient for C1; a generic handle allocator is not needed yet.
+- Slot recycling without generation would silently alias old handles to new bodies; keeping
+  generation now makes that future change safe and invisible to callers.
+- An append-only slot table with generation is sufficient for C1; a generic handle allocator is not needed yet.
 
 ## Consequences
 

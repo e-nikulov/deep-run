@@ -46,7 +46,8 @@ public:
     PhysicsBodyHandle CreateDynamicBoxBody(const DynamicBoxBodyCreateInfo& info, PhysicsError* error = nullptr);
 
     // Removes and destroys the body referenced by a handle from this world.
-    // After a successful destroy the handle is invalid forever: slot reuse bumps the generation.
+    // After a successful destroy the handle is invalid forever; destroying increments the slot's
+    // generation so a stale handle can never alias a future body in the same slot if recycling is introduced later.
     bool DestroyBody(PhysicsBodyHandle handle, PhysicsError* error = nullptr);
 
     // Returns a copy of the body state. Invalid/foreign/stale handles are recoverable errors, never UB.

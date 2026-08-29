@@ -61,6 +61,12 @@ public:
         return slot_ != InvalidSlot;
     }
 
+    [[nodiscard]] bool operator==(const PhysicsBodyHandle&) const noexcept = default;
+
+private:
+    static constexpr std::size_t InvalidSlot = static_cast<std::size_t>(-1);
+
+    // Backend-only identity. Public callers must not inspect it; only the owning PhysicsWorld resolves handles.
     [[nodiscard]] std::uint64_t WorldIdentity() const noexcept
     {
         return worldIdentity_;
@@ -71,15 +77,11 @@ public:
         return slot_;
     }
 
+    // Prevents stale-handle aliasing if slot recycling is introduced later.
     [[nodiscard]] std::uint32_t Generation() const noexcept
     {
         return generation_;
     }
-
-    [[nodiscard]] bool operator==(const PhysicsBodyHandle&) const noexcept = default;
-
-private:
-    static constexpr std::size_t InvalidSlot = static_cast<std::size_t>(-1);
 
     PhysicsBodyHandle(const std::uint64_t worldIdentity, const std::size_t slot, const std::uint32_t generation) noexcept
         : worldIdentity_(worldIdentity), slot_(slot), generation_(generation)

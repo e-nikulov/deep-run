@@ -128,8 +128,9 @@ std::uint64_t NextWorldIdentity() noexcept
     return nextIdentity.fetch_add(1, std::memory_order_relaxed);
 }
 
-// Backend bookkeeping for one Jolt body. The slot index is stable while the world lives;
-// generation makes a destroyed handle stay invalid even if the slot is reused by a new body.
+// Backend bookkeeping for one Jolt body. Slots are append-only in M2 C1 (no recycling);
+// generation increments on destroy as a safety invariant so stale handles can never alias
+// a future body if slot recycling is introduced later.
 struct BodySlot final
 {
     JPH::BodyID bodyId{};
@@ -311,7 +312,7 @@ public:
         bodyInterface.RemoveBody(slot->bodyId);
         bodyInterface.DestroyBody(slot->bodyId);
         slot->active = false;
-        ++slot->generation; // a reused slot must never validate the old handle again
+        ++slot->generation; // safety invariant: stale handles must never validate against this slot again
         logger.Info(Diagnostics::LogCategory::Physics, "Dynamic body destroyed (slot " + std::to_string(handle.Slot()) + ")");
         return true;
     }
