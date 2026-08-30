@@ -18,6 +18,7 @@
 #include "Engine/Scene/Scene.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/WaterPresentation.h"
+#include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
@@ -2763,6 +2764,401 @@ bool WaterBodyRejectsNonFiniteQueryPosition()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice E2: pure multi-point buoyancy model and force calculation. These tests construct no Jolt world
+// and exercise only WaterBody + marine data + a body pose + an explicit gravity magnitude.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Marine::BuoyancyComponent;
+using DeepRun::Marine::BuoyancyErrorCode;
+using DeepRun::Marine::BuoyancyPoint;
+using DeepRun::Marine::BuoyancyPose;
+using DeepRun::Marine::BuoyancyResult;
+using DeepRun::Marine::BuoyancySystem;
+using DeepRun::Physics::PhysicsQuaternion;
+using DeepRun::Physics::PhysicsVector3;
+
+bool E2Near(const float actual, const float expected, const float tolerance = 1.0e-5F)
+{
+    const float scale = std::max(1.0F, std::abs(expected));
+    return std::abs(actual - expected) <= tolerance * scale;
+}
+
+bool E2VectorNear(
+    const PhysicsVector3& actual,
+    const PhysicsVector3& expected,
+    const float tolerance = 1.0e-5F)
+{
+    return E2Near(actual.x, expected.x, tolerance) && E2Near(actual.y, expected.y, tolerance) &&
+           E2Near(actual.z, expected.z, tolerance);
+}
+
+bool E2HasError(
+    const std::expected<BuoyancyResult, DeepRun::Marine::BuoyancyError>& result,
+    const BuoyancyErrorCode code)
+{
+    return !result && result.error().code == code && !result.error().message.empty();
+}
+
+BuoyancyPoint E2Point(
+    const PhysicsVector3 bodyLocalPositionMeters,
+    const float displacedVolumeCubicMeters = 1.0F,
+    const float submersionHalfHeightMeters = 1.0F)
+{
+    return BuoyancyPoint{
+        .bodyLocalPositionMeters = bodyLocalPositionMeters,
+        .displacedVolumeCubicMeters = displacedVolumeCubicMeters,
+        .submersionHalfHeightMeters = submersionHalfHeightMeters};
+}
+} // namespace
+
+bool BuoyancyRejectsInvalidConfiguration()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    if (!water)
+    {
+        return false;
+    }
+    const BuoyancyPose pose{};
+    if (!E2HasError(BuoyancySystem::Calculate(*water, {}, pose, 10.0F),
+                    BuoyancyErrorCode::InvalidConfiguration))
+    {
+        return false;
+    }
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    const PhysicsVector3 invalidPositions[] = {
+        {nan, 0.0F, 0.0F}, {0.0F, nan, 0.0F}, {0.0F, 0.0F, nan},
+        {infinity, 0.0F, 0.0F}, {0.0F, -infinity, 0.0F}, {0.0F, 0.0F, infinity}};
+    for (const PhysicsVector3 position : invalidPositions)
+    {
+        const BuoyancyComponent component{.points = {E2Point(position)}};
+        if (!E2HasError(BuoyancySystem::Calculate(*water, component, pose, 10.0F),
+                        BuoyancyErrorCode::InvalidConfiguration))
+        {
+            return false;
+        }
+    }
+
+    for (const float volume : {0.0F, -1.0F, nan, infinity})
+    {
+        const BuoyancyComponent component{.points = {E2Point({}, volume, 1.0F)}};
+        if (!E2HasError(BuoyancySystem::Calculate(*water, component, pose, 10.0F),
+                        BuoyancyErrorCode::InvalidConfiguration))
+        {
+            return false;
+        }
+    }
+    for (const float halfHeight : {0.0F, -1.0F, nan, infinity})
+    {
+        const BuoyancyComponent component{.points = {E2Point({}, 1.0F, halfHeight)}};
+        if (!E2HasError(BuoyancySystem::Calculate(*water, component, pose, 10.0F),
+                        BuoyancyErrorCode::InvalidConfiguration))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BuoyancyRejectsInvalidPoseAndGravity()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    if (!water)
+    {
+        return false;
+    }
+    const BuoyancyComponent component{.points = {E2Point({})}};
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+
+    const PhysicsVector3 invalidPositions[] = {
+        {nan, 0.0F, 0.0F}, {0.0F, nan, 0.0F}, {0.0F, 0.0F, nan},
+        {infinity, 0.0F, 0.0F}, {0.0F, -infinity, 0.0F}, {0.0F, 0.0F, infinity}};
+    for (const PhysicsVector3 position : invalidPositions)
+    {
+        const BuoyancyPose pose{.worldPositionMeters = position};
+        if (!E2HasError(BuoyancySystem::Calculate(*water, component, pose, 10.0F),
+                        BuoyancyErrorCode::InvalidPose))
+        {
+            return false;
+        }
+    }
+
+    const PhysicsQuaternion invalidOrientations[] = {
+        {0.0F, 0.0F, 0.0F, 0.0F}, {nan, 0.0F, 0.0F, 1.0F},
+        {0.0F, infinity, 0.0F, 1.0F}, {0.0F, 0.0F, -infinity, 1.0F}};
+    for (const PhysicsQuaternion orientation : invalidOrientations)
+    {
+        const BuoyancyPose pose{.worldPositionMeters = {}, .worldOrientation = orientation};
+        if (!E2HasError(BuoyancySystem::Calculate(*water, component, pose, 10.0F),
+                        BuoyancyErrorCode::InvalidPose))
+        {
+            return false;
+        }
+    }
+
+    const BuoyancyPose pose{};
+    for (const float gravity : {0.0F, -1.0F, nan, infinity})
+    {
+        if (!E2HasError(BuoyancySystem::Calculate(*water, component, pose, gravity),
+                        BuoyancyErrorCode::InvalidGravity))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool BuoyancyFullyDryKeepsPointOrder()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({-3.0F, 0.0F, 0.0F}, 1.0F, 1.0F),
+                   E2Point({2.0F, 1.0F, 4.0F}, 2.0F, 1.0F)}};
+    const BuoyancyPose pose{.worldPositionMeters = {10.0F, 5.0F, -2.0F}};
+    const auto result = BuoyancySystem::Calculate(*water, component, pose, 10.0F);
+    if (!result || result->points.size() != component.points.size())
+    {
+        return false;
+    }
+    return E2VectorNear(result->points[0].worldPositionMeters, {7.0F, 5.0F, -2.0F}) &&
+           E2VectorNear(result->points[1].worldPositionMeters, {12.0F, 6.0F, 2.0F}) &&
+           result->points[0].submergedFraction == 0.0F && result->points[1].submergedFraction == 0.0F &&
+           result->points[0].submergedVolumeCubicMeters == 0.0F &&
+           result->points[1].submergedVolumeCubicMeters == 0.0F &&
+           result->points[0].forceNewtons == PhysicsVector3{} &&
+           result->points[1].forceNewtons == PhysicsVector3{} &&
+           result->totalForceNewtons == PhysicsVector3{} && result->totalSubmergedVolumeCubicMeters == 0.0F;
+}
+
+bool BuoyancyFullySubmergedSymmetricPoints()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({2.0F, 0.0F, 0.0F}, 1.5F, 1.0F),
+                   E2Point({-2.0F, 0.0F, 0.0F}, 1.5F, 1.0F)}};
+    const BuoyancyPose pose{.worldPositionMeters = {0.0F, -3.0F, 0.0F}};
+    const auto result = BuoyancySystem::Calculate(*water, component, pose, 10.0F);
+    if (!result || result->points.size() != 2)
+    {
+        return false;
+    }
+    return E2VectorNear(result->points[0].worldPositionMeters, {2.0F, -3.0F, 0.0F}) &&
+           E2VectorNear(result->points[1].worldPositionMeters, {-2.0F, -3.0F, 0.0F}) &&
+           result->points[0].submergedFraction == 1.0F && result->points[1].submergedFraction == 1.0F &&
+           E2Near(result->points[0].submergedVolumeCubicMeters, 1.5F) &&
+           E2Near(result->points[1].submergedVolumeCubicMeters, 1.5F) &&
+           E2VectorNear(result->points[0].forceNewtons, {0.0F, 15000.0F, 0.0F}) &&
+           E2VectorNear(result->points[1].forceNewtons, {0.0F, 15000.0F, 0.0F}) &&
+           E2VectorNear(result->totalForceNewtons, {0.0F, 30000.0F, 0.0F}) &&
+           E2Near(result->totalSubmergedVolumeCubicMeters, 3.0F);
+}
+
+bool BuoyancyExactSurfaceIsHalfSubmerged()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{.points = {E2Point({}, 2.0F, 3.0F)}};
+    const auto result = BuoyancySystem::Calculate(*water, component, {}, 10.0F);
+    return result && result->points.size() == 1 && result->points[0].signedDepthMeters == 0.0F &&
+           result->points[0].submergedFraction == 0.5F &&
+           result->points[0].submergedVolumeCubicMeters == 1.0F &&
+           E2VectorNear(result->points[0].forceNewtons, {0.0F, 10000.0F, 0.0F}) &&
+           E2VectorNear(result->totalForceNewtons, result->points[0].forceNewtons);
+}
+
+bool BuoyancyQuarterAndThreeQuarterSubmersion()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({0.0F, 1.0F, 0.0F}, 4.0F, 2.0F),
+                   E2Point({0.0F, -1.0F, 0.0F}, 4.0F, 2.0F)}};
+    const auto result = BuoyancySystem::Calculate(*water, component, {}, 10.0F);
+    if (!result || result->points.size() != 2)
+    {
+        return false;
+    }
+    return result->points[0].signedDepthMeters == -1.0F && result->points[0].submergedFraction == 0.25F &&
+           result->points[0].submergedVolumeCubicMeters == 1.0F &&
+           E2VectorNear(result->points[0].forceNewtons, {0.0F, 10000.0F, 0.0F}) &&
+           result->points[1].signedDepthMeters == 1.0F && result->points[1].submergedFraction == 0.75F &&
+           result->points[1].submergedVolumeCubicMeters == 3.0F &&
+           E2VectorNear(result->points[1].forceNewtons, {0.0F, 30000.0F, 0.0F}) &&
+           E2Near(result->totalSubmergedVolumeCubicMeters, 4.0F) &&
+           E2VectorNear(result->totalForceNewtons, {0.0F, 40000.0F, 0.0F});
+}
+
+bool BuoyancyShiftedSurfaceRegression()
+{
+    const auto zeroWater = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const auto shiftedWater = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 50.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({0.0F, 1.0F, 0.0F}, 2.0F, 2.0F),
+                   E2Point({0.0F, -1.0F, 0.0F}, 2.0F, 2.0F)}};
+    const auto atZero = BuoyancySystem::Calculate(*zeroWater, component, {}, 10.0F);
+    const auto shifted = BuoyancySystem::Calculate(
+        *shiftedWater, component, {.worldPositionMeters = {0.0F, 50.0F, 0.0F}}, 10.0F);
+    if (!atZero || !shifted || atZero->points.size() != shifted->points.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < atZero->points.size(); ++index)
+    {
+        if (!E2Near(shifted->points[index].worldPositionMeters.y,
+                    atZero->points[index].worldPositionMeters.y + 50.0F) ||
+            shifted->points[index].signedDepthMeters != atZero->points[index].signedDepthMeters ||
+            shifted->points[index].submergedFraction != atZero->points[index].submergedFraction ||
+            !E2VectorNear(shifted->points[index].forceNewtons, atZero->points[index].forceNewtons))
+        {
+            return false;
+        }
+    }
+    return E2VectorNear(shifted->totalForceNewtons, atZero->totalForceNewtons) &&
+           E2Near(shifted->totalSubmergedVolumeCubicMeters, atZero->totalSubmergedVolumeCubicMeters);
+}
+
+bool BuoyancyBodyLocalOrientationConvention()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 100.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({2.0F, 0.0F, 0.0F}), E2Point({-2.0F, 0.0F, 0.0F})}};
+    const BuoyancyPose identity{.worldPositionMeters = {10.0F, 20.0F, 30.0F}};
+    const auto level = BuoyancySystem::Calculate(*water, component, identity, 10.0F);
+    const float halfSqrtTwo = std::sqrt(0.5F);
+    const BuoyancyPose rotated{
+        .worldPositionMeters = {10.0F, 20.0F, 30.0F},
+        .worldOrientation = {0.0F, 0.0F, halfSqrtTwo, halfSqrtTwo}};
+    const auto quarterTurn = BuoyancySystem::Calculate(*water, component, rotated, 10.0F);
+    return level && quarterTurn &&
+           E2VectorNear(level->points[0].worldPositionMeters, {12.0F, 20.0F, 30.0F}) &&
+           E2VectorNear(level->points[1].worldPositionMeters, {8.0F, 20.0F, 30.0F}) &&
+           E2VectorNear(quarterTurn->points[0].worldPositionMeters, {10.0F, 22.0F, 30.0F}) &&
+           E2VectorNear(quarterTurn->points[1].worldPositionMeters, {10.0F, 18.0F, 30.0F});
+}
+
+bool BuoyancyQuaternionSignEquivalence()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({3.0F, 1.0F, -2.0F}, 2.0F, 4.0F),
+                   E2Point({-1.0F, -2.0F, 5.0F}, 3.0F, 4.0F)}};
+    const BuoyancyPose positive{
+        .worldPositionMeters = {7.0F, -1.0F, 9.0F}, .worldOrientation = {0.0F, 0.0F, 2.0F, 2.0F}};
+    const BuoyancyPose negative{
+        .worldPositionMeters = positive.worldPositionMeters, .worldOrientation = {0.0F, 0.0F, -2.0F, -2.0F}};
+    const auto first = BuoyancySystem::Calculate(*water, component, positive, 10.0F);
+    const auto second = BuoyancySystem::Calculate(*water, component, negative, 10.0F);
+    if (!first || !second || first->points.size() != second->points.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < first->points.size(); ++index)
+    {
+        const auto& a = first->points[index];
+        const auto& b = second->points[index];
+        if (!E2VectorNear(a.worldPositionMeters, b.worldPositionMeters) ||
+            !E2Near(a.signedDepthMeters, b.signedDepthMeters) ||
+            !E2Near(a.submergedFraction, b.submergedFraction) ||
+            !E2Near(a.submergedVolumeCubicMeters, b.submergedVolumeCubicMeters) ||
+            !E2VectorNear(a.forceNewtons, b.forceNewtons))
+        {
+            return false;
+        }
+    }
+    return E2VectorNear(first->totalForceNewtons, second->totalForceNewtons) &&
+           E2Near(first->totalSubmergedVolumeCubicMeters, second->totalSubmergedVolumeCubicMeters);
+}
+
+bool BuoyancyPitchSensitiveBowAndStern()
+{
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyComponent component{
+        .points = {E2Point({2.0F, 0.0F, 0.0F}, 1.0F, 2.0F),
+                   E2Point({-2.0F, 0.0F, 0.0F}, 1.0F, 2.0F)}};
+    const auto level = BuoyancySystem::Calculate(*water, component, {}, 10.0F);
+    const BuoyancyPose pitched{
+        .worldPositionMeters = {}, .worldOrientation = {0.0F, 0.0F, 0.2588190451F, 0.9659258263F}};
+    const auto rotated = BuoyancySystem::Calculate(*water, component, pitched, 10.0F);
+    if (!level || !rotated)
+    {
+        return false;
+    }
+    return E2Near(level->points[0].submergedFraction, 0.5F) &&
+           E2Near(level->points[1].submergedFraction, 0.5F) &&
+           E2Near(rotated->points[0].worldPositionMeters.y, 1.0F) &&
+           E2Near(rotated->points[1].worldPositionMeters.y, -1.0F) &&
+           E2Near(rotated->points[0].signedDepthMeters, -1.0F) &&
+           E2Near(rotated->points[1].signedDepthMeters, 1.0F) &&
+           E2Near(rotated->points[0].submergedFraction, 0.25F) &&
+           E2Near(rotated->points[1].submergedFraction, 0.75F) &&
+           rotated->points[0].forceNewtons.y < rotated->points[1].forceNewtons.y;
+}
+
+bool BuoyancyNeutralDisplacementIdentity()
+{
+    constexpr float Density = 1000.0F;
+    constexpr float Mass = 2000.0F;
+    constexpr float Gravity = 10.0F;
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    const BuoyancyComponent component{
+        .points = {E2Point({2.0F, 0.0F, 0.0F}, 0.75F, 1.0F),
+                   E2Point({-2.0F, 0.0F, 0.0F}, Mass / Density - 0.75F, 1.0F)}};
+    const BuoyancyPose pose{.worldPositionMeters = {0.0F, -3.0F, 0.0F}};
+    const auto result = BuoyancySystem::Calculate(*water, component, pose, Gravity);
+    return result && E2Near(result->totalSubmergedVolumeCubicMeters, Mass / Density) &&
+           E2Near(result->totalForceNewtons.x, 0.0F) && E2Near(result->totalForceNewtons.y, Mass * Gravity) &&
+           E2Near(result->totalForceNewtons.z, 0.0F);
+}
+
+bool BuoyancyRejectsDerivedOverflow()
+{
+    const float maximum = std::numeric_limits<float>::max();
+    const BuoyancyComponent onePoint{.points = {E2Point({}, 1.0F, 1.0F)}};
+    const BuoyancyPose submerged{.worldPositionMeters = {0.0F, -2.0F, 0.0F}};
+
+    const auto perPointWater = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = maximum});
+    const auto perPoint = BuoyancySystem::Calculate(*perPointWater, onePoint, submerged, 2.0F);
+    if (!E2HasError(perPoint, BuoyancyErrorCode::NonFiniteResult))
+    {
+        return false;
+    }
+
+    const auto totalWater = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = maximum / 4.0F});
+    const BuoyancyComponent threePoints{
+        .points = {E2Point({-1.0F, 0.0F, 0.0F}), E2Point({0.0F, 0.0F, 0.0F}),
+                   E2Point({1.0F, 0.0F, 0.0F})}};
+    const auto total = BuoyancySystem::Calculate(*totalWater, threePoints, submerged, 2.0F);
+    if (!E2HasError(total, BuoyancyErrorCode::NonFiniteResult))
+    {
+        return false;
+    }
+
+    // WaterBody permits any finite surface and point position, so their float subtraction can overflow.
+    // E2 must reject the resulting signed-depth output instead of returning it as infinity.
+    const auto depthWater = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = maximum, .densityKgPerCubicMeter = 1000.0F});
+    const BuoyancyPose extremePose{.worldPositionMeters = {0.0F, -maximum, 0.0F}};
+    return E2HasError(BuoyancySystem::Calculate(*depthWater, onePoint, extremePose, 10.0F),
+                      BuoyancyErrorCode::NonFiniteResult);
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -3170,14 +3566,15 @@ bool PhysicsWorldHasNoGpuModelKnowledge()
 
 bool SimulationMarineHasNoPhysicsOrRenderDependency()
 {
-    // Marine simulation must stay free of Jolt, D3D12 and renderer knowledge (M2 Slice D1): WaterBody is an
-    // authoritative environment primitive, not a collision body or a render feature.
+    // Marine simulation must stay free of rigid-body lifecycle/application APIs and presentation/assets
+    // (M2 D1/E2). DeepRun-owned PhysicsTypes are allowed only as generic pose/vector value types.
     const std::filesystem::path marineRoot =
         std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation" / "Marine";
     return ScanSourceDirectoryForForbiddenPatterns(
         marineRoot,
-        {"<jolt/", "jph::", "d3d12", "directxmath", "modelvector3", "physicsbodyhandle",
-         "gpumodelhandle", "render/"});
+        {"<jolt/", "jph::", "physicsbodyhandle", "physicsbodystate", "physicsworld", "addforceatworldposition",
+         "modelasset", "modelvector3", "gpumodelhandle", "engine/render", "render/", "d3d12",
+         "directxmath", "game/"});
 }
 
 bool EngineHasNoMarineKnowledge()
@@ -3273,6 +3670,19 @@ int main(const int argumentCount, const char* const* arguments)
         {"Water body X/Z independence", WaterBodyXZIndependence},
         {"Water body invalid config rejected", WaterBodyInvalidConfigRejected},
         {"Water body rejects non-finite query position", WaterBodyRejectsNonFiniteQueryPosition},
+        // M2 Slice E2: deterministic/headless multi-point buoyancy math (no rigid-body world).
+        {"E2 invalid buoyancy configuration rejected", BuoyancyRejectsInvalidConfiguration},
+        {"E2 invalid pose and gravity rejected", BuoyancyRejectsInvalidPoseAndGravity},
+        {"E2 fully dry points preserved in order", BuoyancyFullyDryKeepsPointOrder},
+        {"E2 fully submerged symmetric points", BuoyancyFullySubmergedSymmetricPoints},
+        {"E2 exact surface is half submerged", BuoyancyExactSurfaceIsHalfSubmerged},
+        {"E2 quarter and three-quarter submersion", BuoyancyQuarterAndThreeQuarterSubmersion},
+        {"E2 shifted water surface regression", BuoyancyShiftedSurfaceRegression},
+        {"E2 body-local orientation convention", BuoyancyBodyLocalOrientationConvention},
+        {"E2 quaternion sign equivalence", BuoyancyQuaternionSignEquivalence},
+        {"E2 pitch-sensitive bow and stern", BuoyancyPitchSensitiveBowAndStern},
+        {"E2 neutral-displacement identity", BuoyancyNeutralDisplacementIdentity},
+        {"E2 derived overflow rejected", BuoyancyRejectsDerivedOverflow},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},

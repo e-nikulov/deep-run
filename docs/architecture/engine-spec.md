@@ -1296,7 +1296,9 @@ surface normal = (0, +1, 0); water occupies y < surfaceLevelY
 
 # 18. Buoyancy
 
-Объект может иметь несколько buoyancy points:
+Объект может иметь несколько buoyancy points в body-local space относительно rigid-body origin. Каждая
+точка явно хранит свою долю displaced volume и submersion half-height; сумма point volumes задаёт полный
+потенциальный displaced-water volume без отдельного дублирующего total.
 
 ```text
 bow
@@ -1306,15 +1308,17 @@ starboard
 center
 ```
 
-Для каждой точки:
+Для каждой world-space точки signed depth берётся только из `WaterBody::Sample`. M2 использует линейную
+аппроксимацию частичного погружения:
 
 ```text
-water level
-submersion
-buoyant force
+submergedFraction = clamp((signedDepth + halfHeight) / (2 * halfHeight), 0, 1)
+submergedVolume = pointDisplacedVolume * submergedFraction
+force = surfaceNormal * waterDensity * gravityMagnitude * submergedVolume
 ```
 
-Получаем:
+Collision proxy volume и displaced-water volume являются независимыми моделями и не выводятся друг из
+друга. Приложение рассчитанных point forces к rigid body и получаемые pitch/roll/heave выполняются отдельно.
 
 ```text
 pitch

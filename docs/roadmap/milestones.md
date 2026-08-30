@@ -333,6 +333,7 @@ Accepted slices (in order):
 | D1 | Authoritative flat WaterBody + water-level/depth query | ACCEPTED |
 | D2 | Visible flat-water cross-section + M2 depth placement | ACCEPTED |
 | E1 | Generic force-at-world-position PhysicsWorld API | ACCEPTED |
+| E2 | Pure multi-point buoyancy model + force calculation | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps
