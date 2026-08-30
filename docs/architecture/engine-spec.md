@@ -629,6 +629,16 @@ Render()
 Milestone 1 хранит accumulator policy в testable `FixedStepAccumulator`; `Engine` использует этот же
 utility и передаёт в `PhysicsWorld` только fixed step, а не variable frame delta.
 
+Начиная с M2 Slice E3, каждый реально исполняемый fixed tick имеет единый порядок:
+
+```text
+gameplay/simulation fixed update (force production and application)
+    -> PhysicsWorld::Step(fixedDeltaSeconds)
+```
+
+Ошибка fixed update отменяет этот physics step. Hook остаётся generic точкой композиции: `Game` владеет
+marine-specific расчётами, а `Engine` и `PhysicsWorld` о buoyancy не знают.
+
 Используется для:
 
 * rigid body physics;

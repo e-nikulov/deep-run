@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (M2 Slice C2, corrected by M2 Slice C2.1)
+Accepted (M2 Slice C2, corrected by M2 Slice C2.1, extended by M2 Slice E3)
 
 ## Decision
 
@@ -43,15 +43,17 @@ body snapshot -> bodyToWorld = BuildBodyToWorld(state)
   mass-independent; the mass / displaced-water relationship is calibrated in the buoyancy slice. The constant
   never moves into generic `PhysicsWorld`.
 - **Body configuration.** gravity enabled, zero linear/angular damping, zero initial velocities, identity
-  orientation. No water resistance or upward force: falling freely under gravity is the expected C2 state.
+  orientation. Falling freely under gravity is the expected C2/D2 baseline. E3 adds only Game-composed
+  multi-point buoyancy; no water resistance, drag, spring force, or hidden stabilization is introduced.
 - **Camera.** The B2.1 fixed 600 m orthographic side view keeps its target at the INITIAL world center during
   C2 verification so the fall is visible; transformed world bounds (8 corners of the model AABB) set near/far
   only and never change the horizontal zoom. Camera follow/smoothing is deferred until a water-plane reference
   exists.
 - **Engine access.** `Engine::Physics()` is a minimal generic accessor to the already-existing subsystem. The
   Engine owns the `PhysicsWorld` and outlives all playground rendering during `Application::Run`; the
-  playground stores a non-owning pointer plus a non-owning `PhysicsBodyHandle`. No shared ownership, no new
-  game framework, no fixed-step callback: the single simulation path stays `Engine -> PhysicsWorld::Step(1/60)`.
+  playground stores a non-owning pointer plus a non-owning `PhysicsBodyHandle`. E3 adds one generic fixed-update
+  hook before each `PhysicsWorld::Step(1/60)`: `Game` uses it to apply forces, while `Engine` remains unaware of
+  submarine and buoyancy concepts. No shared ownership, scheduler, or new game framework is introduced.
 
 ## Reasons
 
@@ -66,6 +68,8 @@ body snapshot -> bodyToWorld = BuildBodyToWorld(state)
 
 - `Game` owns all Physics <-> Render composition; `Engine/Core`, `Engine/Render`, and `PhysicsWorld` stay free
   of submarine knowledge (enforced by architecture tests).
+- Marine forces are calculated and applied by `Game` before the corresponding fixed physics step; a failed
+  Game fixed update prevents that step from running.
 - The body is owned until `PhysicsWorld` shutdown; the current Application does not require runtime playground
   unload, so no shutdown callback framework is introduced.
 - Pure conversion helpers (`BuildBodyToWorld`, `TransformBounds`, bounds center/validation) live in

@@ -41,6 +41,10 @@ public:
     [[nodiscard]] bool RunGravitySmokeTest();
     [[nodiscard]] bool IsInitialized() const noexcept;
 
+    // Returns the backend's authoritative world-space gravity as a DeepRun-owned value. An uninitialized
+    // world has no gravity value; no backend/Jolt type crosses this public boundary.
+    [[nodiscard]] std::optional<PhysicsVector3> Gravity() const;
+
     // Creates a dynamic box rigid body. Returns an opaque handle valid only in this world.
     // Recoverable failures (invalid input, capacity) are reported through the error out-parameter.
     PhysicsBodyHandle CreateDynamicBoxBody(const DynamicBoxBodyCreateInfo& info, PhysicsError* error = nullptr);

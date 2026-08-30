@@ -305,6 +305,16 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return playground.SubmarineModel().IsValid();
             },
+            [&playground](const float fixedDeltaSeconds)
+            {
+                const auto updated = playground.FixedUpdate(fixedDeltaSeconds);
+                if (!updated)
+                {
+                    std::cerr << "[Game][ERROR] " << updated.error() << '\n';
+                    return false;
+                }
+                return true;
+            },
             [&playground, &frameCapture, &captureEnabled, &options, &renderFrames, &capturedInitial,
              &capturedLater](DeepRun::Render::D3D12Renderer& renderer)
             {
@@ -315,8 +325,8 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                // Bounded visual validation capture (M2 Slice D2): one frame near the start and one later
-                // frame, so the gravity-driven fall is visible between them. The smoke run resizes the window
+                // Bounded visual validation capture (M2 Slice E3): one frame near the start and one later
+                // frame, so neutral-depth behavior is visible between them. The smoke run resizes the window
                 // at engine frame 30 from 16:9 to 16:10 (1280x720 -> 1024x640), so the later capture proves
                 // the waterline re-derives from world Y=0 through the new projection (normalized ~0.233 at
                 // 16:10 vs ~0.204 at 16:9) instead of staying on a fixed pixel row, with the 600 m horizontal
@@ -328,7 +338,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m2_d2_frame_004.bmp");
+                        const auto path = std::filesystem::path("m2_e3_frame_004.bmp");
                         capturedInitial = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }
@@ -340,7 +350,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m2_d2_frame_091.bmp");
+                        const auto path = std::filesystem::path("m2_e3_frame_091.bmp");
                         capturedLater = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured later visual frame to " << path.string() << '\n';
                     }

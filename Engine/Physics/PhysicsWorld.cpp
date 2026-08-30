@@ -615,6 +615,17 @@ bool PhysicsWorld::IsInitialized() const noexcept
     return impl_->initialized;
 }
 
+std::optional<PhysicsVector3> PhysicsWorld::Gravity() const
+{
+    if (!impl_->initialized)
+    {
+        return std::nullopt;
+    }
+
+    const JPH::Vec3 gravity = impl_->physicsSystem->GetGravity();
+    return PhysicsVector3{gravity.GetX(), gravity.GetY(), gravity.GetZ()};
+}
+
 PhysicsBodyHandle PhysicsWorld::CreateDynamicBoxBody(const DynamicBoxBodyCreateInfo& info, PhysicsError* error)
 {
     assert(impl_ != nullptr);

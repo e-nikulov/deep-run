@@ -27,8 +27,10 @@ ApplicationOptions ApplicationOptions::Parse(const std::span<const std::string_v
 Application::Application(
     const ApplicationOptions options,
     StartupHook startupHook,
+    FixedUpdateHook fixedUpdateHook,
     RenderHook renderHook)
-    : options_(options), startupHook_(std::move(startupHook)), renderHook_(std::move(renderHook))
+    : options_(options), startupHook_(std::move(startupHook)), fixedUpdateHook_(std::move(fixedUpdateHook)),
+      renderHook_(std::move(renderHook))
 {
 }
 
@@ -51,9 +53,13 @@ int Application::Run()
         return 9;
     }
 
+    const Engine::FixedUpdateHook activeFixedUpdateHook = options_.headless ? Engine::FixedUpdateHook{} : fixedUpdateHook_;
     while (engine.Lifecycle() == EngineLifecycle::Running)
     {
-        if (engine.Update())
+        // Ordinary --headless keeps its established self-contained physics smoke path. A composition fixed
+        // hook is a windowed gameplay concern in the executable; direct headless integration tests use
+        // lower-level simulation APIs without constructing the playground or renderer.
+        if (engine.Update(activeFixedUpdateHook))
         {
             static_cast<void>(engine.Render(renderHook_));
         }

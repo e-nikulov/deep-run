@@ -48,6 +48,7 @@ enum class EngineLifecycle
 class Engine final
 {
 public:
+    using FixedUpdateHook = std::function<bool(float)>;
     using RenderHook = std::function<bool(Render::D3D12Renderer&)>;
 
     explicit Engine(EngineOptions options);
@@ -57,7 +58,7 @@ public:
     Engine& operator=(const Engine&) = delete;
 
     [[nodiscard]] bool Initialize();
-    [[nodiscard]] bool Update();
+    [[nodiscard]] bool Update(const FixedUpdateHook& fixedUpdateHook = {});
     [[nodiscard]] bool Render(const RenderHook& renderHook = {});
     void RequestShutdown() noexcept;
     void Shutdown() noexcept;

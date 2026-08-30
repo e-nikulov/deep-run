@@ -119,7 +119,7 @@ public:
         }
     }
 
-    bool Update()
+    bool Update(const Engine::FixedUpdateHook& fixedUpdateHook)
     {
         if (lifecycle != EngineLifecycle::Running)
         {
@@ -129,6 +129,15 @@ public:
         if (options.headless)
         {
             timer.Advance(fixedStepAccumulator.StepSeconds());
+            // An explicitly supplied hook gives headless behavioral tests one real fixed tick through the
+            // same hook-before-physics ordering as the windowed loop. Application deliberately suppresses
+            // its gameplay hook in ordinary --headless mode, preserving the established M0 gravity smoke.
+            if (fixedUpdateHook)
+            {
+                static_cast<void>(RunFixedStep(fixedUpdateHook));
+                RequestShutdown();
+                return false;
+            }
             if (!physics->RunGravitySmokeTest())
             {
                 core.Log().Error(Diagnostics::LogCategory::Core, "Headless physics smoke test failed");
@@ -180,9 +189,13 @@ public:
 
         timer.Tick();
         const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(timer.DeltaSeconds());
+        const float fixedDeltaSeconds = static_cast<float>(fixedStepAccumulator.StepSeconds());
         for (std::uint32_t step = 0; step < fixedSteps; ++step)
         {
-            physics->Step(static_cast<float>(fixedStepAccumulator.StepSeconds()));
+            if (!RunFixedStep(fixedUpdateHook, fixedDeltaSeconds))
+            {
+                return false;
+            }
         }
 
         if (options.smokeTest && timer.FrameIndex() == 30)
@@ -194,6 +207,27 @@ public:
             RequestShutdown();
             return false;
         }
+        return true;
+    }
+
+    bool RunFixedStep(
+        const Engine::FixedUpdateHook& fixedUpdateHook,
+        const float fixedDeltaSeconds = 0.0F)
+    {
+        const float stepSeconds = fixedDeltaSeconds > 0.0F
+                                      ? fixedDeltaSeconds
+                                      : static_cast<float>(fixedStepAccumulator.StepSeconds());
+        if (fixedUpdateHook && !fixedUpdateHook(stepSeconds))
+        {
+            core.Log().Error(Diagnostics::LogCategory::Core, "Game fixed-update hook failed");
+            exitCode = 11;
+            RequestShutdown();
+            return false;
+        }
+
+        // Force producers run immediately before the exact physics step that consumes their transient
+        // forces. A failed hook returns above, so that fixed tick is never integrated.
+        physics->Step(stepSeconds);
         return true;
     }
 
@@ -316,9 +350,9 @@ bool Engine::Initialize()
     return impl_->Initialize();
 }
 
-bool Engine::Update()
+bool Engine::Update(const FixedUpdateHook& fixedUpdateHook)
 {
-    return impl_->Update();
+    return impl_->Update(fixedUpdateHook);
 }
 
 bool Engine::Render(const RenderHook& renderHook)

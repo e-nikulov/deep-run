@@ -3208,6 +3208,332 @@ bool BuoyancyRejectsDerivedOverflow()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice E3: generic fixed-phase ordering, authoritative gravity, and headless point-force integration.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Marine::WaterBody;
+
+constexpr float E3FixedDeltaSeconds = 1.0F / 60.0F;
+
+BuoyancyComponent E3NeutralBuoyancy(
+    const float massKg,
+    const float densityKgPerCubicMeter,
+    const float localYMeters = 0.0F)
+{
+    const float pointVolume = (massKg / densityKgPerCubicMeter) / 4.0F;
+    return BuoyancyComponent{
+        .points = {E2Point({3.0F, localYMeters, 0.0F}, pointVolume, 1.0F),
+                   E2Point({1.0F, localYMeters, 0.0F}, pointVolume, 1.0F),
+                   E2Point({-1.0F, localYMeters, 0.0F}, pointVolume, 1.0F),
+                   E2Point({-3.0F, localYMeters, 0.0F}, pointVolume, 1.0F)}};
+}
+
+DeepRun::Physics::DynamicBoxBodyCreateInfo E3BodyInfo(
+    const float massKg,
+    const PhysicsVector3 initialVelocity = {},
+    const PhysicsQuaternion orientation = {})
+{
+    DeepRun::Physics::DynamicBoxBodyCreateInfo info;
+    info.halfExtents = {2.0F, 1.0F, 1.0F};
+    info.mass = massKg;
+    info.position = {0.0F, -20.0F, 0.0F};
+    info.orientation = orientation;
+    info.gravityEnabled = true;
+    info.linearDamping = 0.0F;
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = initialVelocity;
+    info.initialAngularVelocity = {};
+    return info;
+}
+
+bool E3ApplyBuoyancyAndStep(
+    DeepRun::Physics::PhysicsWorld& world,
+    const DeepRun::Physics::PhysicsBodyHandle handle,
+    const WaterBody& water,
+    const BuoyancyComponent& buoyancy,
+    const float fixedDeltaSeconds = E3FixedDeltaSeconds)
+{
+    const auto state = world.GetBodyState(handle);
+    const auto gravity = world.Gravity();
+    if (!state || !gravity || !gravity->IsFinite())
+    {
+        return false;
+    }
+    const double gravityMagnitude = std::sqrt(
+        static_cast<double>(gravity->x) * gravity->x + static_cast<double>(gravity->y) * gravity->y +
+        static_cast<double>(gravity->z) * gravity->z);
+    if (!std::isfinite(gravityMagnitude) || gravityMagnitude <= 0.0 ||
+        gravityMagnitude > (std::numeric_limits<float>::max)())
+    {
+        return false;
+    }
+
+    const auto result = BuoyancySystem::Calculate(
+        water,
+        buoyancy,
+        BuoyancyPose{
+            .worldPositionMeters = state->position,
+            .worldOrientation = state->orientation},
+        static_cast<float>(gravityMagnitude));
+    if (!result)
+    {
+        return false;
+    }
+
+    for (const auto& point : result->points)
+    {
+        if (!world.AddForceAtWorldPosition(handle, point.forceNewtons, point.worldPositionMeters))
+        {
+            return false;
+        }
+    }
+    world.Step(fixedDeltaSeconds);
+    return true;
+}
+
+bool E3WriteHeadlessEngineConfig(const std::filesystem::path& path)
+{
+    WriteFile(
+        path,
+        R"({"renderer":{"vsync":true,"width":800,"height":600},"physics":{"fixedHz":60}})");
+    return std::filesystem::exists(path);
+}
+} // namespace
+
+bool PhysicsGravityQueryContract()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (world.Gravity().has_value() || !world.Initialize())
+    {
+        return false;
+    }
+    const auto gravity = world.Gravity();
+    return gravity && gravity->IsFinite() && std::abs(gravity->x) < 1.0e-6F &&
+           std::abs(gravity->y + 9.81F) < 1.0e-4F && std::abs(gravity->z) < 1.0e-6F;
+}
+
+bool FixedUpdateHookRunsBeforePhysicsStep()
+{
+    TemporaryDirectory temporary;
+    const std::filesystem::path configPath = temporary.Path() / "engine.json";
+    if (!E3WriteHeadlessEngineConfig(configPath))
+    {
+        return false;
+    }
+
+    DeepRun::Core::Engine engine({
+        .headless = true,
+        .configPath = configPath,
+        .contentRoot = temporary.Path() / "Content"});
+    if (!engine.Initialize() || engine.Physics() == nullptr)
+    {
+        return false;
+    }
+
+    auto info = E3BodyInfo(1.0F);
+    info.position = {};
+    info.gravityEnabled = false;
+    const auto handle = engine.Physics()->CreateDynamicBoxBody(info);
+    const auto initial = engine.Physics()->GetBodyState(handle);
+    int invocationCount = 0;
+    float observedFixedDelta = 0.0F;
+    const bool updateReturned = engine.Update([&](const float fixedDeltaSeconds) {
+        ++invocationCount;
+        observedFixedDelta = fixedDeltaSeconds;
+        const auto beforeStep = engine.Physics()->GetBodyState(handle);
+        return beforeStep && beforeStep->linearVelocity.x == 0.0F &&
+               engine.Physics()->AddForceAtWorldPosition(
+                   handle, {60.0F, 0.0F, 0.0F}, beforeStep->position);
+    });
+    const auto after = engine.Physics()->GetBodyState(handle);
+    const bool passed = initial && after && !updateReturned && invocationCount == 1 &&
+                        std::abs(observedFixedDelta - E3FixedDeltaSeconds) < 1.0e-6F &&
+                        after->linearVelocity.x > 0.5F && after->position.x > initial->position.x &&
+                        engine.ExitCode() == 0 &&
+                        engine.Lifecycle() == DeepRun::Core::EngineLifecycle::ShutdownRequested;
+    engine.Shutdown();
+    return passed;
+}
+
+bool FixedUpdateHookFailurePreventsPhysicsStep()
+{
+    TemporaryDirectory temporary;
+    const std::filesystem::path configPath = temporary.Path() / "engine.json";
+    if (!E3WriteHeadlessEngineConfig(configPath))
+    {
+        return false;
+    }
+
+    DeepRun::Core::Engine engine({
+        .headless = true,
+        .configPath = configPath,
+        .contentRoot = temporary.Path() / "Content"});
+    if (!engine.Initialize() || engine.Physics() == nullptr)
+    {
+        return false;
+    }
+
+    const auto handle = engine.Physics()->CreateDynamicBoxBody(E3BodyInfo(10.0F));
+    const auto initial = engine.Physics()->GetBodyState(handle);
+    int invocationCount = 0;
+    const bool updateReturned = engine.Update([&](const float) {
+        ++invocationCount;
+        return false;
+    });
+    const auto after = engine.Physics()->GetBodyState(handle);
+    const bool unchanged = initial && after && after->position == initial->position &&
+                           after->linearVelocity == initial->linearVelocity &&
+                           after->orientation == initial->orientation &&
+                           after->angularVelocity == initial->angularVelocity;
+    const bool passed = !updateReturned && invocationCount == 1 && unchanged && engine.ExitCode() == 11 &&
+                        engine.Lifecycle() == DeepRun::Core::EngineLifecycle::ShutdownRequested;
+    engine.Shutdown();
+    return passed;
+}
+
+bool BuoyancyIntegrationNeutralRest()
+{
+    constexpr float Mass = 2000.0F;
+    constexpr float Density = 1000.0F;
+    constexpr int Steps = 300; // five seconds
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(E3BodyInfo(Mass));
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    for (int step = 0; step < Steps; ++step)
+    {
+        if (!E3ApplyBuoyancyAndStep(world, handle, *water, buoyancy))
+        {
+            return false;
+        }
+    }
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+    std::cout << "[E3 evidence] neutral rest: Y " << initial->position.y << " -> " << after->position.y
+              << ", Vy " << after->linearVelocity.y << ", omegaZ " << after->angularVelocity.z << '\n';
+    return StateIsFinite(*after) && std::abs(after->position.y - initial->position.y) < 0.5F &&
+           std::abs(after->linearVelocity.y) < 0.1F &&
+           std::abs(after->position.x - initial->position.x) < 1.0e-3F &&
+           std::abs(after->position.z - initial->position.z) < 1.0e-3F &&
+           std::abs(after->angularVelocity.x) < 1.0e-3F &&
+           std::abs(after->angularVelocity.y) < 1.0e-3F &&
+           std::abs(after->angularVelocity.z) < 1.0e-3F &&
+           DeepRun::Physics::PhysicsQuaternion::SameRotation(after->orientation, initial->orientation);
+}
+
+bool BuoyancyIntegrationPreservesVerticalVelocity()
+{
+    constexpr float Mass = 2000.0F;
+    constexpr float Density = 1000.0F;
+    constexpr float InitialVelocityY = -3.0F;
+    constexpr int Steps = 120; // two seconds
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(
+        E3BodyInfo(Mass, {0.0F, InitialVelocityY, 0.0F}));
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial)
+    {
+        return false;
+    }
+
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    for (int step = 0; step < Steps; ++step)
+    {
+        if (!E3ApplyBuoyancyAndStep(world, handle, *water, buoyancy))
+        {
+            return false;
+        }
+    }
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+    const float expectedY = initial->position.y + InitialVelocityY * (Steps * E3FixedDeltaSeconds);
+    std::cout << "[E3 evidence] no drag: Y " << initial->position.y << " -> " << after->position.y
+              << ", expected " << expectedY << ", Vy " << initial->linearVelocity.y << " -> "
+              << after->linearVelocity.y << '\n';
+    return StateIsFinite(*after) && std::abs(after->linearVelocity.y - InitialVelocityY) < 0.1F &&
+           std::abs(after->position.y - expectedY) < 0.1F &&
+           std::abs(after->position.x - initial->position.x) < 1.0e-3F &&
+           std::abs(after->position.z - initial->position.z) < 1.0e-3F;
+}
+
+bool BuoyancyPointForcesCreateRestoringPitch()
+{
+    constexpr float Mass = 2000.0F;
+    constexpr float Density = 1000.0F;
+    constexpr float HalfAngleRadians = 2.5F * (3.14159265358979323846F / 180.0F);
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+
+    auto info = E3BodyInfo(
+        Mass,
+        {},
+        {0.0F, 0.0F, std::sin(HalfAngleRadians), std::cos(HalfAngleRadians)});
+    DeepRun::Physics::PhysicsDegreesOfFreedom planar;
+    planar.translationX = true;
+    planar.translationY = true;
+    planar.translationZ = false;
+    planar.rotationX = false;
+    planar.rotationY = false;
+    planar.rotationZ = true;
+    info.degreesOfFreedom = planar;
+
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!handle.IsValid() || !initial ||
+        !E3ApplyBuoyancyAndStep(world, handle, *water, E3NeutralBuoyancy(Mass, Density, 1.0F)))
+    {
+        return false;
+    }
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+    std::cout << "[E3 evidence] restoring pitch: omegaZ " << initial->angularVelocity.z << " -> "
+              << after->angularVelocity.z << ", locked omegaX/Y " << after->angularVelocity.x << "/"
+              << after->angularVelocity.y << '\n';
+    return StateIsFinite(*after) && after->angularVelocity.z < -1.0e-5F &&
+           std::abs(after->position.z - initial->position.z) < 1.0e-5F &&
+           std::abs(after->linearVelocity.z) < 1.0e-5F &&
+           std::abs(after->angularVelocity.x) < 1.0e-5F &&
+           std::abs(after->angularVelocity.y) < 1.0e-5F;
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -3608,9 +3934,32 @@ bool EngineRenderHasNoPhysicsOrJoltDependency()
 
 bool PhysicsWorldHasNoGpuModelKnowledge()
 {
-    // PhysicsWorld must not know about GPU models (ADR-0007).
+    // Engine/Physics must not know about GPU models or domain-specific marine systems (ADR-0007 / E3).
     const std::filesystem::path physicsRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Physics";
-    return ScanSourceDirectoryForForbiddenPatterns(physicsRoot, {"gpumodel", "d3d12"});
+    return ScanSourceDirectoryForForbiddenPatterns(
+        physicsRoot, {"gpumodel", "d3d12", "waterbody", "buoyancy", "simulation/marine"});
+}
+
+bool PhysicsPublicHeadersHaveNoJoltDependency()
+{
+    const std::filesystem::path physicsRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Physics";
+    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(physicsRoot))
+    {
+        if (!entry.is_regular_file() || entry.path().extension() != ".h")
+        {
+            continue;
+        }
+        std::ifstream input(entry.path(), std::ios::binary);
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        if (contents.find("<jolt/") != std::string::npos || contents.find("jph::") != std::string::npos)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool SimulationMarineHasNoPhysicsOrRenderDependency()
@@ -3623,14 +3972,15 @@ bool SimulationMarineHasNoPhysicsOrRenderDependency()
         marineRoot,
         {"<jolt/", "jph::", "physicsbodyhandle", "physicsbodystate", "physicsworld", "addforceatworldposition",
          "modelasset", "modelvector3", "gpumodelhandle", "engine/render", "render/", "d3d12",
-         "directxmath", "game/"});
+         "directxmath", "game/", "12'000'000", "m2prototypemass", "submarinemodelpath",
+         "collision bounds"});
 }
 
 bool EngineHasNoMarineKnowledge()
 {
     // The generic engine must not become aware of marine simulation (M2 Slice D1).
     const std::filesystem::path engineRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine";
-    return ScanSourceDirectoryForForbiddenPatterns(engineRoot, {"waterbody", "marine"});
+    return ScanSourceDirectoryForForbiddenPatterns(engineRoot, {"waterbody", "marine", "buoyancy", "submarine"});
 }
 
 bool EngineRenderHasNoWaterSemantics()
@@ -3639,7 +3989,8 @@ bool EngineRenderHasNoWaterSemantics()
     // presentation semantics; the clear-rect API must not grow marine vocabulary.
     const std::filesystem::path renderRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Render";
     return ScanSourceDirectoryForForbiddenPatterns(
-        renderRoot, {"water", "ocean", "sealevel", "submarinedepth"});
+        renderRoot, {"water", "ocean", "sealevel", "submarinedepth", "buoyancy", "physicsworld",
+                     "engine/physics"});
 }
 } // namespace
 
@@ -3659,6 +4010,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"Frame lifecycle", FrameLifecycle},
         {"Frame rebase preserves state", FrameRebasePreservesState},
         {"Fixed-step scheduling", FixedStepScheduling},
+        {"E3 fixed-update hook runs before physics step", FixedUpdateHookRunsBeforePhysicsStep},
+        {"E3 fixed-update hook failure prevents physics step", FixedUpdateHookFailurePreventsPhysicsStep},
         {"Headless engine lifecycle", EngineHeadlessLifecycle},
         {"Scene entity lifecycle", SceneEntityLifecycle},
         {"Resource identity and cache", ResourceIdentityAndCache},
@@ -3690,6 +4043,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"Deterministic random", DeterministicRandom},
         {"Jolt initialization", JoltInitialization},
         {"Rigid-body gravity", RigidBodySimulation},
+        {"Physics gravity query contract", PhysicsGravityQueryContract},
         {"Physics handle semantics", PhysicsHandleSemantics},
         {"Dynamic box input validation", DynamicBoxInputValidation},
         {"Physics pose round-trip", PhysicsPoseRoundTrip},
@@ -3733,6 +4087,10 @@ int main(const int argumentCount, const char* const* arguments)
         {"E2 neutral-displacement identity", BuoyancyNeutralDisplacementIdentity},
         {"E2 totals sum published point results", BuoyancyTotalsSumPublishedPointResults},
         {"E2 derived overflow rejected", BuoyancyRejectsDerivedOverflow},
+        // M2 Slice E3: headless force production/application through public Marine + Physics APIs.
+        {"E3 neutral buoyancy remains at rest", BuoyancyIntegrationNeutralRest},
+        {"E3 neutral buoyancy preserves vertical velocity", BuoyancyIntegrationPreservesVerticalVelocity},
+        {"E3 point forces create restoring pitch", BuoyancyPointForcesCreateRestoringPitch},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -3758,6 +4116,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},
         {"Physics world has no GPU model knowledge", PhysicsWorldHasNoGpuModelKnowledge},
+        {"Physics public headers have no Jolt dependency", PhysicsPublicHeadersHaveNoJoltDependency},
         // M2 Slice D1: architecture boundary scans.
         {"Simulation marine has no physics or render dependency",
          SimulationMarineHasNoPhysicsOrRenderDependency},

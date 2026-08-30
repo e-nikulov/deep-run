@@ -25,17 +25,20 @@ class Application final
 {
 public:
     using StartupHook = std::function<bool(Engine&)>;
+    using FixedUpdateHook = std::function<bool(float)>;
     using RenderHook = std::function<bool(Render::D3D12Renderer&)>;
 
     explicit Application(
         ApplicationOptions options,
         StartupHook startupHook = {},
+        FixedUpdateHook fixedUpdateHook = {},
         RenderHook renderHook = {});
     [[nodiscard]] int Run();
 
 private:
     ApplicationOptions options_;
     StartupHook startupHook_;
+    FixedUpdateHook fixedUpdateHook_;
     RenderHook renderHook_;
 };
 }

@@ -8,8 +8,12 @@
 #include "Engine/Render/D3D12Renderer.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/WaterPresentation.h"
+#include "Simulation/Marine/BuoyancySystem.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <sstream>
 #include <string_view>
 
@@ -20,18 +24,27 @@ namespace
 constexpr std::string_view SubmarineModelPath = "submarines/prototype/submarine_prototype.glb";
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 
-// Game-owned M2 prototype tuning (ADR-0008). This is gameplay/prototype tuning only: it is not yet a
-// neutral-buoyancy calibration and is not derived from classified or precise real vessel data. While the body
-// falls freely, mass does not change its motion under constant gravity; the real mass / displaced-water volume
-// relationship is calibrated in the buoyancy slice. It must never move into generic PhysicsWorld.
+// Game-owned M2 prototype tuning (ADR-0008). This is gameplay/prototype tuning only, not classified or
+// precise real-vessel hydrostatic data. Collision bounds configure only the collision proxy; displaced-water
+// volume is derived independently from mass / water density below. These values never move into Marine or
+// generic PhysicsWorld.
 constexpr float M2PrototypeMassKg = 12'000'000.0F;
 
 // Game-owned M2 environment tuning (Slice D2). These are scenario values for this concrete playground, not
-// properties of the generic WaterBody: they stay here and never move into Simulation/Marine. The density is
-// environmental prototype tuning only — D2 performs no force calculation with it (buoyancy is a later slice).
+// properties of the generic WaterBody: they stay here and never move into Simulation/Marine.
 constexpr float M2SeaSurfaceLevelMeters = 0.0F;
 constexpr float M2SeaWaterDensityKgPerCubicMeter = 1025.0F;
 constexpr float M2InitialSubmarineDepthMeters = 100.0F;
+
+// E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
+// points distribute force along the prototype length without deriving hydrostatics from mesh/collision
+// geometry or claiming CFD fidelity. The +2 m vertical offset creates a small restoring pitch moment.
+constexpr std::array<float, 4> M2BuoyancyPointXMeters = {36.0F, 12.0F, -12.0F, -36.0F};
+constexpr float M2BuoyancyPointYMeters = 2.0F;
+constexpr float M2BuoyancySubmersionHalfHeightMeters = 6.0F;
+constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
+constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
+constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
 
 // Diagnostics-only logger for the playground; the Engine's logger is not reachable through the generic API.
 Diagnostics::Logger& PlaygroundLog() noexcept
@@ -45,6 +58,69 @@ std::string FormatVector(const Physics::PhysicsVector3& value)
     std::ostringstream stream;
     stream << '(' << value.x << ", " << value.y << ", " << value.z << ')';
     return stream.str();
+}
+
+bool NearlyEqualRelative(const double actual, const double expected, const double relativeTolerance)
+{
+    return std::isfinite(actual) && std::isfinite(expected) &&
+           std::abs(actual - expected) <= relativeTolerance * (std::max)(1.0, std::abs(expected));
+}
+
+std::expected<float, std::string> GravityMagnitudeForWater(
+    const Physics::PhysicsWorld& physics,
+    const Marine::WaterBody& water,
+    const Physics::PhysicsVector3& samplePosition)
+{
+    const auto gravity = physics.Gravity();
+    if (!gravity || !gravity->IsFinite())
+    {
+        return std::unexpected("authoritative physics gravity is unavailable or non-finite");
+    }
+
+    const double gx = static_cast<double>(gravity->x);
+    const double gy = static_cast<double>(gravity->y);
+    const double gz = static_cast<double>(gravity->z);
+    const double magnitude = std::sqrt(gx * gx + gy * gy + gz * gz);
+    if (!std::isfinite(magnitude) || magnitude <= 0.0 ||
+        magnitude > static_cast<double>((std::numeric_limits<float>::max)()))
+    {
+        return std::unexpected("authoritative physics gravity magnitude must be finite and positive");
+    }
+
+    const auto waterSample = water.Sample(samplePosition);
+    if (!waterSample || !waterSample->surfaceNormal.IsFinite())
+    {
+        return std::unexpected("authoritative water surface normal is unavailable or non-finite");
+    }
+
+    const Physics::PhysicsVector3& normal = waterSample->surfaceNormal;
+    const double alongOutwardNormal = gx * normal.x + gy * normal.y + gz * normal.z;
+    const double lateralSquared =
+        (std::max)(0.0, magnitude * magnitude - alongOutwardNormal * alongOutwardNormal);
+    const double lateralMagnitude = std::sqrt(lateralSquared);
+    if (alongOutwardNormal >= 0.0 ||
+        lateralMagnitude > magnitude * static_cast<double>(M2GravityAlignmentRelativeTolerance))
+    {
+        return std::unexpected("M2 gravity must point opposite the WaterBody surface normal");
+    }
+    return static_cast<float>(magnitude);
+}
+
+Marine::BuoyancyComponent BuildM2Buoyancy(const Marine::WaterBody& water)
+{
+    const float totalDisplacedVolume = M2PrototypeMassKg / water.Config().densityKgPerCubicMeter;
+    const float pointVolume = totalDisplacedVolume / static_cast<float>(M2BuoyancyPointXMeters.size());
+
+    Marine::BuoyancyComponent component;
+    component.points.reserve(M2BuoyancyPointXMeters.size());
+    for (const float x : M2BuoyancyPointXMeters)
+    {
+        component.points.push_back(Marine::BuoyancyPoint{
+            .bodyLocalPositionMeters = {x, M2BuoyancyPointYMeters, 0.0F},
+            .displacedVolumeCubicMeters = pointVolume,
+            .submersionHalfHeightMeters = M2BuoyancySubmersionHalfHeightMeters});
+    }
+    return component;
 }
 } // namespace
 
@@ -90,7 +166,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground model pipeline or depth buffer is not ready");
     }
 
-    // D2 scenario composition: this playground owns its authoritative water body as a plain value, created
+    // D2/E3 scenario composition: this playground owns its authoritative water body as a plain value, created
     // through the D1 validated factory with Game-owned M2 tuning. No MarineEnvironment/global/singleton —
     // Engine/Core stays unaware of water (architecture scan). The WaterBody knows nothing about the renderer,
     // camera or submarine; it only answers surface/depth queries.
@@ -167,6 +243,50 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground initial body state is unavailable");
     }
 
+    // E3 displaced-water model: total potential displacement is derived from Game-owned prototype mass and
+    // authoritative water density, then split equally across four explicit body-local points. It is never
+    // derived from the render mesh, asset bounds, or the collision box dimensions.
+    Marine::BuoyancyComponent buoyancy = BuildM2Buoyancy(*water);
+    const auto gravityMagnitude = GravityMagnitudeForWater(physics, *water, initialState->position);
+    if (!gravityMagnitude)
+    {
+        (void)physics.DestroyBody(body, &physicsError);
+        return std::unexpected("physical playground gravity validation failed: " + gravityMagnitude.error());
+    }
+
+    const auto initialBuoyancy = Marine::BuoyancySystem::Calculate(
+        *water,
+        buoyancy,
+        Marine::BuoyancyPose{
+            .worldPositionMeters = initialState->position,
+            .worldOrientation = initialState->orientation},
+        *gravityMagnitude);
+    if (!initialBuoyancy)
+    {
+        (void)physics.DestroyBody(body, &physicsError);
+        return std::unexpected("physical playground initial buoyancy calculation failed: " +
+                               initialBuoyancy.error().message);
+    }
+
+    const double expectedVolume = static_cast<double>(M2PrototypeMassKg) /
+                                  static_cast<double>(water->Config().densityKgPerCubicMeter);
+    const double expectedWeight = static_cast<double>(M2PrototypeMassKg) * *gravityMagnitude;
+    const Physics::PhysicsVector3& initialForce = initialBuoyancy->totalForceNewtons;
+    const bool allFullySubmerged = std::ranges::all_of(initialBuoyancy->points, [](const auto& point) {
+        return std::abs(point.submergedFraction - 1.0F) <= M2InitialBalanceRelativeTolerance;
+    });
+    if (initialBuoyancy->points.size() != M2BuoyancyPointXMeters.size() || !allFullySubmerged ||
+        !NearlyEqualRelative(initialBuoyancy->totalSubmergedVolumeCubicMeters,
+                             expectedVolume,
+                             M2InitialBalanceRelativeTolerance) ||
+        !NearlyEqualRelative(initialForce.y, expectedWeight, M2InitialBalanceRelativeTolerance) ||
+        std::abs(initialForce.x) > expectedWeight * M2InitialBalanceRelativeTolerance ||
+        std::abs(initialForce.z) > expectedWeight * M2InitialBalanceRelativeTolerance || initialForce.y <= 0.0F)
+    {
+        (void)physics.DestroyBody(body, &physicsError);
+        return std::unexpected("physical playground initial hydrostatic balance validation failed");
+    }
+
     // M2 Slice C2.1: the body-to-world matrix depends only on the physics pose; the asset pivot correction is
     // applied explicitly by the caller through modelToBody (see Render for the single-source-of-truth flow).
     const auto initialBodyToWorld = BuildBodyToWorld(*initialState);
@@ -182,6 +302,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     physicsBody_ = body;
     physics_ = &physics;
     water_ = *water;
+    buoyancy_ = std::move(buoyancy);
     assetBoundsCenter_ = assetBoundsCenter;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
     modelToBody_ = TranslationTransform(
@@ -206,7 +327,113 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         Diagnostics::LogCategory::Physics,
         "Physical playground body ready: box half extents (" + FormatVector(halfExtents) +
             "), prototype mass " + std::to_string(M2PrototypeMassKg) + " kg, initial position " +
-            FormatVector(initialState->position));
+            FormatVector(initialState->position) + ", displaced volume " +
+            std::to_string(initialBuoyancy->totalSubmergedVolumeCubicMeters) + " m^3, gravity " +
+            std::to_string(*gravityMagnitude) + " m/s^2, buoyancy " +
+            std::to_string(initialForce.y) + " N, weight " + std::to_string(expectedWeight) + " N");
+    return {};
+}
+
+std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fixedDeltaSeconds)
+{
+    if (!std::isfinite(fixedDeltaSeconds) || fixedDeltaSeconds <= 0.0F)
+    {
+        return std::unexpected("physical playground fixed delta must be finite and positive");
+    }
+    if (physics_ == nullptr)
+    {
+        return std::unexpected("physical playground physics world is unavailable");
+    }
+    if (!physicsBody_.IsValid())
+    {
+        return std::unexpected("physical playground physics body handle is invalid");
+    }
+    if (!water_.has_value())
+    {
+        return std::unexpected("physical playground water body is unavailable");
+    }
+    if (buoyancy_.points.empty())
+    {
+        return std::unexpected("physical playground buoyancy configuration is unavailable");
+    }
+
+    // Exactly one authoritative body snapshot per fixed tick. E2 transforms all four body-local points from
+    // this copy; no point performs another body query and no render state participates.
+    const auto state = physics_->GetBodyState(physicsBody_);
+    if (!state)
+    {
+        return std::unexpected("physical playground body state is unavailable during fixed update");
+    }
+    const auto gravityMagnitude = GravityMagnitudeForWater(*physics_, *water_, state->position);
+    if (!gravityMagnitude)
+    {
+        return std::unexpected("physical playground fixed gravity validation failed: " + gravityMagnitude.error());
+    }
+
+    const auto result = Marine::BuoyancySystem::Calculate(
+        *water_,
+        buoyancy_,
+        Marine::BuoyancyPose{
+            .worldPositionMeters = state->position,
+            .worldOrientation = state->orientation},
+        *gravityMagnitude);
+    if (!result)
+    {
+        return std::unexpected("physical playground buoyancy calculation failed: " + result.error().message);
+    }
+
+    // E2 published output is E1 input, point for point and in order. Do not recompute force, aggregate at
+    // COM, derive torque, special-case dry points, or multiply by fixedDeltaSeconds.
+    for (std::size_t index = 0; index < result->points.size(); ++index)
+    {
+        const Marine::BuoyancyPointResult& point = result->points[index];
+        Physics::PhysicsError error;
+        if (!physics_->AddForceAtWorldPosition(
+                physicsBody_, point.forceNewtons, point.worldPositionMeters, &error))
+        {
+            return std::unexpected("physical playground buoyancy force application failed at point " +
+                                   std::to_string(index) + ": " + error.message);
+        }
+    }
+
+    ++fixedTickCount_;
+    if (!loggedFirstFixedSample_ ||
+        (!loggedLaterFixedSample_ && fixedTickCount_ >= M2LaterDiagnosticFixedTick))
+    {
+        const auto bodyDepth = water_->Sample(state->position);
+        if (!bodyDepth)
+        {
+            return std::unexpected("physical playground body-center water sample failed: " + bodyDepth.error().message);
+        }
+
+        float minimumFraction = 1.0F;
+        float maximumFraction = 0.0F;
+        for (const auto& point : result->points)
+        {
+            minimumFraction = (std::min)(minimumFraction, point.submergedFraction);
+            maximumFraction = (std::max)(maximumFraction, point.submergedFraction);
+        }
+        const double weightMagnitude = static_cast<double>(M2PrototypeMassKg) * *gravityMagnitude;
+        const float pitchDegrees = 2.0F * std::atan2(state->orientation.z, state->orientation.w) *
+                                   (180.0F / 3.14159265358979323846F);
+        const bool first = !loggedFirstFixedSample_;
+        loggedFirstFixedSample_ = true;
+        loggedLaterFixedSample_ = loggedLaterFixedSample_ || fixedTickCount_ >= M2LaterDiagnosticFixedTick;
+        PlaygroundLog().Info(
+            Diagnostics::LogCategory::Physics,
+            std::string(first ? "Physical playground first E3 fixed sample: "
+                              : "Physical playground later E3 fixed sample: ") +
+                "tick " + std::to_string(fixedTickCount_) + ", position " + FormatVector(state->position) +
+                ", velocity " + FormatVector(state->linearVelocity) + ", pitch Z " +
+                std::to_string(pitchDegrees) + " deg, angular velocity " +
+                FormatVector(state->angularVelocity) + ", signed depth " +
+                std::to_string(bodyDepth->signedDepthMeters) + " m, submerged volume " +
+                std::to_string(result->totalSubmergedVolumeCubicMeters) + " m^3, buoyancy force " +
+                FormatVector(result->totalForceNewtons) + ", gravity magnitude " +
+                std::to_string(*gravityMagnitude) + " m/s^2, weight " +
+                std::to_string(weightMagnitude) + " N, point fraction range [" +
+                std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');
+    }
     return {};
 }
 
@@ -246,9 +473,9 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(draws.error());
     }
 
-    // Camera policy (B2.1 fixed-world contract, D2 target): the 600 m orthographic side view keeps its
+    // Camera policy (B2.1 fixed-world contract, D2/E3 target): the 600 m orthographic side view keeps its
     // target at the INITIAL body world center — a world-space point derived from WaterBody truth, not an
-    // asset-space value — so the falling body visibly moves inside a fixed viewport and the surface stays a
+    // asset-space value — so any physical drift remains visible and the surface stays a
     // constant ~100 m above camera center. The transformed world bounds only set the near/far depth range;
     // they must never change the horizontal zoom (covered by tests). No follow/smoothing in D2.
     const auto worldBounds = TransformBounds(modelAsset_->bounds, modelToWorld);
@@ -304,41 +531,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return stats;
     }
 
-    // Bounded smoke diagnostics: log the first physical render sample and one later sample only. The body
-    // center is sampled against the authoritative water body exactly once per logged sample (never per node):
-    // D2 has no buoyancy, so gravity keeps sinking the body and the signed depth must keep increasing —
-    // that is the required behaviour, not a bug. The first sample also reports the fixed camera contract and
-    // the projected normalized waterline so the smoke log carries the full D2 evidence set (body Y / Vy /
-    // signed depth, surface Y, camera target + spans, presentation waterline) without per-frame logging.
-    ++renderSampleCount_;
-    if (!loggedFirstSample_ || (!loggedLaterSample_ && renderSampleCount_ >= 60))
+    // Physics diagnostics live in FixedUpdate. Render logs only the bounded presentation contract once, so
+    // camera/waterline evidence is not duplicated with authoritative physical samples.
+    if (!loggedRenderPresentation_)
     {
-        const auto depthSample = water_->Sample(state->position);
-        if (depthSample)
+        const auto waterline = ProjectWorldSurfaceToViewportY(*camera, water_->Config().surfaceLevelY);
+        if (waterline)
         {
-            const bool first = !loggedFirstSample_;
-            loggedFirstSample_ = true;
-            loggedLaterSample_ = loggedLaterSample_ || renderSampleCount_ >= 60;
-            std::string message =
-                std::string(first ? "Physical playground first render sample: "
-                                  : "Physical playground later render sample: ") +
-                "position " + FormatVector(state->position) + ", velocity " +
-                FormatVector(state->linearVelocity) + ", signed depth " +
-                std::to_string(depthSample->signedDepthMeters) + " m, surface Y " +
-                std::to_string(water_->Config().surfaceLevelY);
-            if (first)
-            {
-                const auto waterline = ProjectWorldSurfaceToViewportY(
-                    *camera, water_->Config().surfaceLevelY);
-                message += ", camera target Y " + std::to_string(camera->target.y) +
-                           ", horizontal span " + std::to_string(camera->width) +
-                           ", vertical span " + std::to_string(camera->height);
-                if (waterline)
-                {
-                    message += ", normalized waterline from top " + std::to_string(*waterline);
-                }
-            }
-            PlaygroundLog().Info(Diagnostics::LogCategory::Physics, message);
+            loggedRenderPresentation_ = true;
+            PlaygroundLog().Info(
+                Diagnostics::LogCategory::Render,
+                "Physical playground E3 presentation: surface Y " +
+                    std::to_string(water_->Config().surfaceLevelY) + ", camera target Y " +
+                    std::to_string(camera->target.y) + ", horizontal span " +
+                    std::to_string(camera->width) + ", vertical span " +
+                    std::to_string(camera->height) + ", normalized waterline from top " +
+                    std::to_string(*waterline));
         }
     }
     return stats;
