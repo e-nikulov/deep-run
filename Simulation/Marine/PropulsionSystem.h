@@ -14,7 +14,7 @@ struct PropulsionState final
     float shaftRpm = 0.0F;
 };
 
-// Generic simulation input, not a player Throttle mapping. Requested drive is [-1, +1]; externally supplied
+// Generic simulation input, not a player-control mapping. Requested drive is [-1, +1]; externally supplied
 // available power is [0, 1]. G1 does not calculate a reactor/electrical power budget.
 struct PropulsionCommand final
 {

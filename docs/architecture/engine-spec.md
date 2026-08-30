@@ -1379,16 +1379,34 @@ fixed tick, затем применяет опубликованные point for
 
 # 20. Propulsion
 
-```cpp
-struct PropulsionComponent
-{
-    float requestedPower;
-    float availablePower;
-    float rpm;
-    float thrust;
-    float efficiency;
-};
+M2 Slice G1 задаёт pure deterministic модель одного независимо симулируемого shaft/propulsor. Один
+`PropulsionComponent` содержит положительные ahead/astern RPM и thrust limits, а также RPM/s rates для
+spin-up и spin-down; один `PropulsionState` хранит authoritative signed `shaftRpm`. Два винта позднее могут
+быть представлены двумя независимыми component/state instances без отдельного manager framework.
+
+```text
+requestedDriveFraction:  -1 .. +1
+availablePowerFraction:   0 .. 1
+effectiveDrive = requestedDriveFraction * availablePowerFraction
+
+ahead targetRpm  = effectiveDrive * maxForwardRpm
+astern targetRpm = effectiveDrive * maxReverseRpm
 ```
+
+RPM меняется за `fixedDeltaSeconds` с конечными spin-up/spin-down rates и без overshoot. При смене знака вал
+сначала движется к точному 0 RPM по spin-down rate; обратное вращение может начаться только в следующем
+update. Потеря available power задаёт target 0, поэтому существующие RPM и thrust затухают постепенно.
+
+Signed scalar thrust в Newtons вычисляется из нового authoritative RPM по M2 quadratic approximation:
+
+```text
+n = shaftRpm / direction-specific maxRpm
+thrustNewtons = direction-specific maxThrustNewtons * n * abs(n)
+```
+
+`fixedDeltaSeconds` управляет только RPM evolution и не умножает thrust. G1 не выбирает world direction и
+не применяет force. `shaftRpm`, а не visual propeller angle, является simulation truth для будущих thrust
+integration, cavitation, acoustics и presentation; эти consumers в G1 не реализуются.
 
 ---
 

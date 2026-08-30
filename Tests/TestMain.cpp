@@ -20,6 +20,7 @@
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/HydroDragSystem.h"
+#include "Simulation/Marine/PropulsionSystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
@@ -4262,6 +4263,344 @@ bool HydroDragIntegrationDampsAngularVelocity()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice G1: pure deterministic one-shaft RPM evolution and scalar thrust output.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Marine::PropulsionCommand;
+using DeepRun::Marine::PropulsionComponent;
+using DeepRun::Marine::PropulsionError;
+using DeepRun::Marine::PropulsionErrorCode;
+using DeepRun::Marine::PropulsionResult;
+using DeepRun::Marine::PropulsionState;
+using DeepRun::Marine::PropulsionSystem;
+
+PropulsionComponent G1Component()
+{
+    return PropulsionComponent{
+        .maxForwardRpm = 120.0F,
+        .maxReverseRpm = 80.0F,
+        .maxForwardThrustNewtons = 12'000.0F,
+        .maxReverseThrustNewtons = 6'000.0F,
+        .spinUpRateRpmPerSecond = 60.0F,
+        .spinDownRateRpmPerSecond = 30.0F};
+}
+
+bool G1HasError(
+    const std::expected<PropulsionResult, PropulsionError>& result,
+    const PropulsionErrorCode code)
+{
+    return !result && result.error().code == code && !result.error().message.empty();
+}
+} // namespace
+
+bool PropulsionIdleIsExactZero()
+{
+    const auto result = PropulsionSystem::Advance(
+        G1Component(), {}, {.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F}, 1.0F / 60.0F);
+    return result && result->nextState.shaftRpm == 0.0F && result->effectiveDriveFraction == 0.0F &&
+           result->targetRpm == 0.0F && result->thrustNewtons == 0.0F;
+}
+
+bool PropulsionZeroPowerAtRestIsExactZero()
+{
+    const auto result = PropulsionSystem::Advance(
+        G1Component(), {}, {.requestedDriveFraction = -1.0F, .availablePowerFraction = 0.0F}, 0.25F);
+    return result && result->nextState.shaftRpm == 0.0F && result->effectiveDriveFraction == 0.0F &&
+           result->targetRpm == 0.0F && result->thrustNewtons == 0.0F;
+}
+
+bool PropulsionHasFiniteSpinUp()
+{
+    const PropulsionComponent component = G1Component();
+    const auto result = PropulsionSystem::Advance(
+        component, {}, {.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F}, 1.0F / 60.0F);
+    return result && result->targetRpm == component.maxForwardRpm && result->nextState.shaftRpm > 0.0F &&
+           result->nextState.shaftRpm < component.maxForwardRpm && result->thrustNewtons > 0.0F &&
+           result->thrustNewtons < component.maxForwardThrustNewtons;
+}
+
+bool PropulsionUsesConfiguredRpmRate()
+{
+    const auto result = PropulsionSystem::Advance(
+        G1Component(), {}, {.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F}, 0.5F);
+    return result && std::abs(result->nextState.shaftRpm - 30.0F) < 1.0e-5F &&
+           std::abs(result->thrustNewtons - 750.0F) < 1.0e-3F;
+}
+
+bool PropulsionReachesTargetWithoutOvershoot()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand command{.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F};
+    PropulsionState state{};
+    for (int step = 0; step < 4; ++step)
+    {
+        const auto result = PropulsionSystem::Advance(component, state, command, 0.5F);
+        if (!result || result->nextState.shaftRpm > component.maxForwardRpm)
+        {
+            return false;
+        }
+        state = result->nextState;
+    }
+    const auto stable = PropulsionSystem::Advance(component, state, command, 0.5F);
+    return state.shaftRpm == component.maxForwardRpm && stable &&
+           stable->nextState.shaftRpm == component.maxForwardRpm &&
+           stable->thrustNewtons == component.maxForwardThrustNewtons;
+}
+
+bool PropulsionIsStepSizeConsistent()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand command{.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F};
+    const auto simulate = [&component, &command](const int steps, const float delta) -> std::optional<float> {
+        PropulsionState state{};
+        for (int step = 0; step < steps; ++step)
+        {
+            const auto result = PropulsionSystem::Advance(component, state, command, delta);
+            if (!result)
+            {
+                return std::nullopt;
+            }
+            state = result->nextState;
+        }
+        return state.shaftRpm;
+    };
+    const auto sixtyHz = simulate(60, 1.0F / 60.0F);
+    const auto oneTwentyHz = simulate(120, 1.0F / 120.0F);
+    return sixtyHz && oneTwentyHz && std::abs(*sixtyHz - 60.0F) < 1.0e-3F &&
+           std::abs(*sixtyHz - *oneTwentyHz) < 1.0e-3F;
+}
+
+bool PropulsionDriveReductionSpinsDown()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand neutral{.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F};
+    const auto first = PropulsionSystem::Advance(component, {.shaftRpm = 90.0F}, neutral, 1.0F);
+    if (!first || first->nextState.shaftRpm != 60.0F || first->targetRpm != 0.0F ||
+        first->thrustNewtons <= 0.0F || first->thrustNewtons >= 6'750.0F)
+    {
+        return false;
+    }
+    const auto second = PropulsionSystem::Advance(component, first->nextState, neutral, 1.0F);
+    const auto stopped = second ? PropulsionSystem::Advance(component, second->nextState, neutral, 1.0F)
+                                : std::expected<PropulsionResult, PropulsionError>{
+                                      std::unexpected(PropulsionError{})};
+    return second && stopped && stopped->nextState.shaftRpm == 0.0F && stopped->thrustNewtons == 0.0F;
+}
+
+bool PropulsionPowerLossCoastsDown()
+{
+    const PropulsionComponent component = G1Component();
+    const auto result = PropulsionSystem::Advance(
+        component,
+        {.shaftRpm = 80.0F},
+        {.requestedDriveFraction = 1.0F, .availablePowerFraction = 0.0F},
+        1.0F);
+    return result && result->effectiveDriveFraction == 0.0F && result->targetRpm == 0.0F &&
+           result->nextState.shaftRpm == 50.0F && result->thrustNewtons > 0.0F &&
+           result->thrustNewtons < component.maxForwardThrustNewtons;
+}
+
+bool PropulsionLimitedPowerSetsReducedTarget()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand limited{.requestedDriveFraction = 1.0F, .availablePowerFraction = 0.5F};
+    const auto reached = PropulsionSystem::Advance(component, {}, limited, 1.0F);
+    const auto stable = reached ? PropulsionSystem::Advance(component, reached->nextState, limited, 1.0F)
+                                : std::expected<PropulsionResult, PropulsionError>{
+                                      std::unexpected(PropulsionError{})};
+    return reached && stable && reached->effectiveDriveFraction == 0.5F && reached->targetRpm == 60.0F &&
+           stable->nextState.shaftRpm == 60.0F &&
+           std::abs(stable->thrustNewtons - 0.25F * component.maxForwardThrustNewtons) < 1.0e-3F;
+}
+
+bool PropulsionSupportsReverse()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand reverse{.requestedDriveFraction = -1.0F, .availablePowerFraction = 1.0F};
+    PropulsionState state{};
+    for (int step = 0; step < 3; ++step)
+    {
+        const auto result = PropulsionSystem::Advance(component, state, reverse, 0.5F);
+        if (!result || result->nextState.shaftRpm >= 0.0F || result->thrustNewtons >= 0.0F)
+        {
+            return false;
+        }
+        state = result->nextState;
+    }
+    const auto stable = PropulsionSystem::Advance(component, state, reverse, 0.5F);
+    return stable && state.shaftRpm == -component.maxReverseRpm &&
+           stable->thrustNewtons == -component.maxReverseThrustNewtons;
+}
+
+bool PropulsionDirectionChangePassesThroughZero()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand reverse{.requestedDriveFraction = -1.0F, .availablePowerFraction = 1.0F};
+    const auto towardZero = PropulsionSystem::Advance(component, {.shaftRpm = 30.0F}, reverse, 0.5F);
+    const auto atZero = towardZero ? PropulsionSystem::Advance(component, towardZero->nextState, reverse, 1.0F)
+                                   : std::expected<PropulsionResult, PropulsionError>{
+                                         std::unexpected(PropulsionError{})};
+    const auto reversing = atZero ? PropulsionSystem::Advance(component, atZero->nextState, reverse, 0.5F)
+                                  : std::expected<PropulsionResult, PropulsionError>{
+                                        std::unexpected(PropulsionError{})};
+    return towardZero && atZero && reversing && towardZero->nextState.shaftRpm == 15.0F &&
+           towardZero->thrustNewtons > 0.0F && atZero->nextState.shaftRpm == 0.0F &&
+           atZero->thrustNewtons == 0.0F && reversing->nextState.shaftRpm == -30.0F &&
+           reversing->thrustNewtons < 0.0F;
+}
+
+bool PropulsionThrustIsQuadraticInRpm()
+{
+    const PropulsionComponent component = G1Component();
+    const auto forwardHalf = PropulsionSystem::Advance(
+        component,
+        {.shaftRpm = 60.0F},
+        {.requestedDriveFraction = 0.5F, .availablePowerFraction = 1.0F},
+        0.1F);
+    const auto forwardFull = PropulsionSystem::Advance(
+        component,
+        {.shaftRpm = 120.0F},
+        {.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F},
+        0.1F);
+    const auto reverseHalf = PropulsionSystem::Advance(
+        component,
+        {.shaftRpm = -40.0F},
+        {.requestedDriveFraction = -0.5F, .availablePowerFraction = 1.0F},
+        0.1F);
+    return forwardHalf && forwardFull && reverseHalf &&
+           std::abs(4.0F * forwardHalf->thrustNewtons - forwardFull->thrustNewtons) < 1.0e-3F &&
+           std::abs(reverseHalf->thrustNewtons + 0.25F * component.maxReverseThrustNewtons) < 1.0e-3F;
+}
+
+bool PropulsionUsesAsymmetricAheadAsternLimits()
+{
+    PropulsionComponent component = G1Component();
+    component.maxForwardRpm = 150.0F;
+    component.maxReverseRpm = 60.0F;
+    component.maxForwardThrustNewtons = 8'000.0F;
+    component.maxReverseThrustNewtons = 3'000.0F;
+    const auto ahead = PropulsionSystem::Advance(
+        component,
+        {.shaftRpm = 150.0F},
+        {.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F},
+        0.1F);
+    const auto astern = PropulsionSystem::Advance(
+        component,
+        {.shaftRpm = -60.0F},
+        {.requestedDriveFraction = -1.0F, .availablePowerFraction = 1.0F},
+        0.1F);
+    return ahead && astern && ahead->targetRpm == 150.0F && ahead->thrustNewtons == 8'000.0F &&
+           astern->targetRpm == -60.0F && astern->thrustNewtons == -3'000.0F;
+}
+
+bool PropulsionRejectsInvalidConfiguration()
+{
+    using Field = float PropulsionComponent::*;
+    constexpr Field Fields[] = {
+        &PropulsionComponent::maxForwardRpm,
+        &PropulsionComponent::maxReverseRpm,
+        &PropulsionComponent::maxForwardThrustNewtons,
+        &PropulsionComponent::maxReverseThrustNewtons,
+        &PropulsionComponent::spinUpRateRpmPerSecond,
+        &PropulsionComponent::spinDownRateRpmPerSecond};
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const Field field : Fields)
+    {
+        for (const float invalid : {0.0F, -1.0F, nan, infinity})
+        {
+            PropulsionComponent component = G1Component();
+            component.*field = invalid;
+            if (!G1HasError(
+                    PropulsionSystem::Advance(
+                        component, {}, {.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F}, 0.1F),
+                    PropulsionErrorCode::InvalidConfiguration))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool PropulsionRejectsInvalidCommand()
+{
+    const PropulsionComponent component = G1Component();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const float invalidDrive : {-1.01F, 1.01F, nan, infinity})
+    {
+        if (!G1HasError(
+                PropulsionSystem::Advance(
+                    component,
+                    {},
+                    {.requestedDriveFraction = invalidDrive, .availablePowerFraction = 1.0F},
+                    0.1F),
+                PropulsionErrorCode::InvalidCommand))
+        {
+            return false;
+        }
+    }
+    for (const float invalidPower : {-0.01F, 1.01F, nan, infinity})
+    {
+        if (!G1HasError(
+                PropulsionSystem::Advance(
+                    component,
+                    {},
+                    {.requestedDriveFraction = 0.0F, .availablePowerFraction = invalidPower},
+                    0.1F),
+                PropulsionErrorCode::InvalidCommand))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool PropulsionRejectsInvalidStateAndDeltaTime()
+{
+    const PropulsionComponent component = G1Component();
+    const PropulsionCommand command{.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F};
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const float invalidRpm : {nan, infinity, -infinity, 120.01F, -80.01F})
+    {
+        if (!G1HasError(
+                PropulsionSystem::Advance(component, {.shaftRpm = invalidRpm}, command, 0.1F),
+                PropulsionErrorCode::InvalidState))
+        {
+            return false;
+        }
+    }
+    for (const float invalidDelta : {0.0F, -0.1F, nan, infinity})
+    {
+        if (!G1HasError(
+                PropulsionSystem::Advance(component, {}, command, invalidDelta),
+                PropulsionErrorCode::InvalidDeltaTime))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool PropulsionRejectsDerivedOverflow()
+{
+    const float maximum = (std::numeric_limits<float>::max)();
+    PropulsionComponent component = G1Component();
+    component.maxForwardRpm = maximum;
+    component.spinUpRateRpmPerSecond = maximum;
+    const auto result = PropulsionSystem::Advance(
+        component,
+        {},
+        {.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F},
+        maximum);
+    return G1HasError(result, PropulsionErrorCode::NonFiniteResult);
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -4738,6 +5077,41 @@ bool HydroDragFilesHaveOnlyPureMarineDependencies()
     return true;
 }
 
+bool PropulsionFilesHaveOnlyPureMarineDependencies()
+{
+    const std::filesystem::path marineRoot =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation" / "Marine";
+    const std::filesystem::path files[] = {
+        marineRoot / "PropulsionComponent.h",
+        marineRoot / "PropulsionSystem.h",
+        marineRoot / "PropulsionSystem.cpp"};
+    const std::string_view forbidden[] = {
+        "<jolt/", "jph::", "physicsworld", "physicsbodyhandle", "addforceatworldposition", "addtorque",
+        "game/", "engine/render", "d3d12", "modelasset", "inputaction", "xinput", "hydrodragresult",
+        "buoyancyresult"};
+
+    for (const std::filesystem::path& path : files)
+    {
+        std::ifstream input(path, std::ios::binary);
+        if (!input)
+        {
+            return false;
+        }
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool EngineHasNoMarineKnowledge()
 {
     // The generic engine must not become aware of marine simulation (M2 Slice D1).
@@ -4875,6 +5249,24 @@ int main(const int argumentCount, const char* const* arguments)
         {"F2 integrated linear anisotropy", HydroDragIntegrationPreservesLinearAnisotropy},
         {"F2 integrated body-local axes", HydroDragIntegrationUsesBodyLocalAxes},
         {"F2 integrated angular damping", HydroDragIntegrationDampsAngularVelocity},
+        // M2 Slice G1: pure one-shaft RPM state evolution and signed scalar thrust.
+        {"G1 idle is exact zero", PropulsionIdleIsExactZero},
+        {"G1 zero power at rest is exact zero", PropulsionZeroPowerAtRestIsExactZero},
+        {"G1 finite spin-up", PropulsionHasFiniteSpinUp},
+        {"G1 configured RPM rate", PropulsionUsesConfiguredRpmRate},
+        {"G1 reaches target without overshoot", PropulsionReachesTargetWithoutOvershoot},
+        {"G1 step-size consistency", PropulsionIsStepSizeConsistent},
+        {"G1 drive reduction spins down", PropulsionDriveReductionSpinsDown},
+        {"G1 power loss coasts down", PropulsionPowerLossCoastsDown},
+        {"G1 limited power sets reduced target", PropulsionLimitedPowerSetsReducedTarget},
+        {"G1 reverse operation", PropulsionSupportsReverse},
+        {"G1 direction change passes through zero", PropulsionDirectionChangePassesThroughZero},
+        {"G1 quadratic RPM-to-thrust mapping", PropulsionThrustIsQuadraticInRpm},
+        {"G1 asymmetric ahead/astern limits", PropulsionUsesAsymmetricAheadAsternLimits},
+        {"G1 invalid configuration rejected", PropulsionRejectsInvalidConfiguration},
+        {"G1 invalid command rejected", PropulsionRejectsInvalidCommand},
+        {"G1 invalid state and delta rejected", PropulsionRejectsInvalidStateAndDeltaTime},
+        {"G1 derived overflow rejected", PropulsionRejectsDerivedOverflow},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -4913,6 +5305,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"Simulation marine has no physics or render dependency",
          SimulationMarineHasNoPhysicsOrRenderDependency},
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
+        {"G1 Propulsion files have only pure Marine dependencies",
+         PropulsionFilesHaveOnlyPureMarineDependencies},
         {"Engine has no marine knowledge", EngineHasNoMarineKnowledge},
         // M2 Slice D2: renderer stays generic — no water semantics in Engine/Render.
         {"Engine render has no water semantics", EngineRenderHasNoWaterSemantics},

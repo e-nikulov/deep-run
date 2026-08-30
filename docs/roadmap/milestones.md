@@ -337,6 +337,7 @@ Accepted slices (in order):
 | E3 | Submarine buoyancy configuration + fixed-step force integration | ACCEPTED |
 | F1 | Pure directional hydrodynamic drag force/torque model | ACCEPTED |
 | F2 | Submarine hydrodynamic drag integration + generic torque physics API | ACCEPTED |
+| G1 | Pure shaft/RPM/thrust propulsion model | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps
