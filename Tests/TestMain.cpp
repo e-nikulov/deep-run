@@ -20,6 +20,7 @@
 #include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
+#include "Simulation/Marine/ControlSurfaceSystem.h"
 #include "Simulation/Marine/HydroDragSystem.h"
 #include "Simulation/Marine/PropulsionSystem.h"
 #include "Simulation/Marine/WaterBody.h"
@@ -4029,6 +4030,276 @@ bool HydroDragRejectsDerivedOverflow()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice H1: pure fully-immersed diving-plane force and application-point calculation. No rigid body,
+// force application, time step, actuator, player command, propulsion, or presentation participates.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Marine::ControlSurfaceComponent;
+using DeepRun::Marine::ControlSurfaceError;
+using DeepRun::Marine::ControlSurfaceErrorCode;
+using DeepRun::Marine::ControlSurfaceKinematics;
+using DeepRun::Marine::ControlSurfaceResult;
+using DeepRun::Marine::ControlSurfaceSystem;
+
+ControlSurfaceComponent H1Component(
+    const PhysicsVector3 position = {-30.0F, 0.0F, 0.0F},
+    const float effectiveArea = 10.0F)
+{
+    return {
+        .bodyLocalPositionMeters = position,
+        .maxEffectiveLiftAreaSquareMeters = effectiveArea};
+}
+
+ControlSurfaceKinematics H1Kinematics(
+    const PhysicsVector3 velocity = {},
+    const PhysicsQuaternion orientation = {},
+    const PhysicsVector3 bodyPosition = {10.0F, 20.0F, 0.0F})
+{
+    return {
+        .bodyWorldPositionMeters = bodyPosition,
+        .worldOrientation = orientation,
+        .worldLinearVelocityMetersPerSecond = velocity};
+}
+
+bool H1HasError(
+    const std::expected<ControlSurfaceResult, ControlSurfaceError>& result,
+    const ControlSurfaceErrorCode code)
+{
+    return !result && result.error().code == code && !result.error().message.empty();
+}
+} // namespace
+
+bool ControlSurfaceZeroDeflection()
+{
+    const auto water = F1Water(1000.0F);
+    const auto result = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({5.0F, 0.0F, 0.0F}), 0.0F);
+    return result && result->worldPositionMeters == PhysicsVector3{-20.0F, 20.0F, 0.0F} &&
+           result->bodyForwardSpeedMetersPerSecond == 5.0F && result->deflectionFraction == 0.0F &&
+           result->forceNewtons == PhysicsVector3{};
+}
+
+bool ControlSurfaceZeroSpeedHasNoAuthority()
+{
+    const auto water = F1Water(1000.0F);
+    const auto result = ControlSurfaceSystem::Calculate(*water, H1Component(), H1Kinematics(), 1.0F);
+    return result && result->bodyForwardSpeedMetersPerSecond == 0.0F &&
+           result->forceNewtons == PhysicsVector3{};
+}
+
+bool ControlSurfaceAheadPositiveForce()
+{
+    const auto water = F1Water(1000.0F);
+    const auto result = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({2.0F, 0.0F, 0.0F}), 0.5F);
+    return result && E2Near(result->bodyForwardSpeedMetersPerSecond, 2.0F) &&
+           E2VectorNear(result->forceNewtons, {0.0F, 10'000.0F, 0.0F});
+}
+
+bool ControlSurfaceDeflectionSign()
+{
+    const auto water = F1Water(1000.0F);
+    const ControlSurfaceKinematics kinematics = H1Kinematics({2.0F, 0.0F, 0.0F});
+    const auto positive = ControlSurfaceSystem::Calculate(*water, H1Component(), kinematics, 0.5F);
+    const auto negative = ControlSurfaceSystem::Calculate(*water, H1Component(), kinematics, -0.5F);
+    return positive && negative && positive->forceNewtons.y > 0.0F && negative->forceNewtons.y < 0.0F &&
+           E2Near(positive->forceNewtons.y, -negative->forceNewtons.y);
+}
+
+bool ControlSurfaceReverseFlowReversesForce()
+{
+    const auto water = F1Water(1000.0F);
+    const auto ahead = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({2.0F, 0.0F, 0.0F}), 0.5F);
+    const auto astern = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({-2.0F, 0.0F, 0.0F}), 0.5F);
+    return ahead && astern && ahead->bodyForwardSpeedMetersPerSecond == 2.0F &&
+           astern->bodyForwardSpeedMetersPerSecond == -2.0F && ahead->forceNewtons.y > 0.0F &&
+           astern->forceNewtons.y < 0.0F && E2Near(ahead->forceNewtons.y, -astern->forceNewtons.y);
+}
+
+bool ControlSurfaceQuadraticSpeedScaling()
+{
+    const auto water = F1Water(1000.0F);
+    const auto speedTwo = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({2.0F, 0.0F, 0.0F}), 1.0F);
+    const auto speedFour = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({4.0F, 0.0F, 0.0F}), 1.0F);
+    return speedTwo && speedFour && E2Near(speedFour->forceNewtons.y / speedTwo->forceNewtons.y, 4.0F);
+}
+
+bool ControlSurfaceLinearDeflectionScaling()
+{
+    const auto water = F1Water(1000.0F);
+    const ControlSurfaceKinematics kinematics = H1Kinematics({3.0F, 0.0F, 0.0F});
+    const auto quarter = ControlSurfaceSystem::Calculate(*water, H1Component(), kinematics, 0.25F);
+    const auto full = ControlSurfaceSystem::Calculate(*water, H1Component(), kinematics, 1.0F);
+    return quarter && full && E2Near(full->forceNewtons.y / quarter->forceNewtons.y, 4.0F);
+}
+
+bool ControlSurfaceUsesWaterDensity()
+{
+    const auto water = F1Water(500.0F);
+    const auto denseWater = F1Water(1000.0F);
+    const ControlSurfaceKinematics kinematics = H1Kinematics({3.0F, 0.0F, 0.0F});
+    const auto first = ControlSurfaceSystem::Calculate(*water, H1Component(), kinematics, 0.75F);
+    const auto second = ControlSurfaceSystem::Calculate(*denseWater, H1Component(), kinematics, 0.75F);
+    return first && second && E2Near(second->forceNewtons.y / first->forceNewtons.y, 2.0F);
+}
+
+bool ControlSurfaceBodyOrientation()
+{
+    constexpr float HalfSqrtTwo = 0.7071067811865475F;
+    const auto water = F1Water(1000.0F);
+    const auto result = ControlSurfaceSystem::Calculate(
+        *water,
+        H1Component(),
+        H1Kinematics({0.0F, 2.0F, 0.0F}, {0.0F, 0.0F, HalfSqrtTwo, HalfSqrtTwo}),
+        0.5F);
+    return result && E2Near(result->bodyForwardSpeedMetersPerSecond, 2.0F) &&
+           E2VectorNear(result->forceNewtons, {-10'000.0F, 0.0F, 0.0F});
+}
+
+bool ControlSurfaceApplicationPointRotation()
+{
+    constexpr float HalfSqrtTwo = 0.7071067811865475F;
+    const auto water = F1Water(1000.0F);
+    const auto identity = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({2.0F, 0.0F, 0.0F}), 0.5F);
+    const auto rotated = ControlSurfaceSystem::Calculate(
+        *water,
+        H1Component(),
+        H1Kinematics({0.0F, 2.0F, 0.0F}, {0.0F, 0.0F, HalfSqrtTwo, HalfSqrtTwo}),
+        0.5F);
+    return identity && rotated && E2VectorNear(identity->worldPositionMeters, {-20.0F, 20.0F, 0.0F}) &&
+           E2VectorNear(rotated->worldPositionMeters, {10.0F, -10.0F, 0.0F});
+}
+
+bool ControlSurfaceQuaternionSignEquivalence()
+{
+    const auto water = F1Water(1025.0F);
+    const PhysicsQuaternion q{0.2F, -0.3F, 0.4F, 0.5F};
+    const PhysicsQuaternion negativeQ{-q.x, -q.y, -q.z, -q.w};
+    const auto first = ControlSurfaceSystem::Calculate(
+        *water, H1Component({-30.0F, 2.0F, 1.0F}), H1Kinematics({4.0F, -2.0F, 1.0F}, q), 0.6F);
+    const auto second = ControlSurfaceSystem::Calculate(
+        *water, H1Component({-30.0F, 2.0F, 1.0F}), H1Kinematics({4.0F, -2.0F, 1.0F}, negativeQ), 0.6F);
+    return first && second && E2Near(
+               first->bodyForwardSpeedMetersPerSecond, second->bodyForwardSpeedMetersPerSecond) &&
+           E2VectorNear(first->worldPositionMeters, second->worldPositionMeters) &&
+           E2VectorNear(first->forceNewtons, second->forceNewtons);
+}
+
+bool ControlSurfaceNormalizesNonUnitQuaternion()
+{
+    constexpr float HalfSqrtTwo = 0.7071067811865475F;
+    const auto water = F1Water(1000.0F);
+    const PhysicsQuaternion unit{0.0F, 0.0F, HalfSqrtTwo, HalfSqrtTwo};
+    const PhysicsQuaternion scaled{0.0F, 0.0F, 3.0F * HalfSqrtTwo, 3.0F * HalfSqrtTwo};
+    const auto first = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({0.0F, 2.0F, 0.0F}, unit), 0.5F);
+    const auto second = ControlSurfaceSystem::Calculate(
+        *water, H1Component(), H1Kinematics({0.0F, 2.0F, 0.0F}, scaled), 0.5F);
+    return first && second && E2Near(
+               first->bodyForwardSpeedMetersPerSecond, second->bodyForwardSpeedMetersPerSecond) &&
+           E2VectorNear(first->worldPositionMeters, second->worldPositionMeters) &&
+           E2VectorNear(first->forceNewtons, second->forceNewtons);
+}
+
+bool ControlSurfaceZeroAreaIsValid()
+{
+    const auto water = F1Water(1000.0F);
+    const auto result = ControlSurfaceSystem::Calculate(
+        *water, H1Component({-30.0F, 0.0F, 0.0F}, 0.0F), H1Kinematics({5.0F, 0.0F, 0.0F}), 1.0F);
+    return result && result->bodyForwardSpeedMetersPerSecond == 5.0F &&
+           result->forceNewtons == PhysicsVector3{};
+}
+
+bool ControlSurfaceRejectsInvalidConfiguration()
+{
+    const auto water = F1Water(1000.0F);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const ControlSurfaceComponent& invalid : {
+             H1Component({nan, 0.0F, 0.0F}),
+             H1Component({0.0F, infinity, 0.0F}),
+             H1Component({}, -1.0F),
+             H1Component({}, nan),
+             H1Component({}, infinity)})
+    {
+        if (!H1HasError(
+                ControlSurfaceSystem::Calculate(*water, invalid, H1Kinematics(), 0.0F),
+                ControlSurfaceErrorCode::InvalidConfiguration))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ControlSurfaceRejectsInvalidDeflection()
+{
+    const auto water = F1Water(1000.0F);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const float invalid : {-1.01F, 1.01F, nan, infinity})
+    {
+        if (!H1HasError(
+                ControlSurfaceSystem::Calculate(*water, H1Component(), H1Kinematics(), invalid),
+                ControlSurfaceErrorCode::InvalidDeflection))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ControlSurfaceRejectsInvalidKinematics()
+{
+    const auto water = F1Water(1000.0F);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    const ControlSurfaceKinematics invalid[] = {
+        H1Kinematics({}, {}, {nan, 0.0F, 0.0F}),
+        H1Kinematics({}, {}, {0.0F, infinity, 0.0F}),
+        H1Kinematics({nan, 0.0F, 0.0F}),
+        H1Kinematics({0.0F, -infinity, 0.0F}),
+        H1Kinematics({}, {0.0F, 0.0F, 0.0F, 0.0F}),
+        H1Kinematics({}, {nan, 0.0F, 0.0F, 1.0F}),
+        H1Kinematics({}, {0.0F, infinity, 0.0F, 1.0F})};
+    for (const ControlSurfaceKinematics& kinematics : invalid)
+    {
+        if (!H1HasError(
+                ControlSurfaceSystem::Calculate(*water, H1Component(), kinematics, 0.5F),
+                ControlSurfaceErrorCode::InvalidKinematics))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ControlSurfaceRejectsDerivedOverflow()
+{
+    const float maximum = (std::numeric_limits<float>::max)();
+    const auto extremeWater = F1Water(maximum);
+    const auto forceOverflow = ControlSurfaceSystem::Calculate(
+        *extremeWater,
+        H1Component({}, maximum),
+        H1Kinematics({2.0F, 0.0F, 0.0F}, {}, {}),
+        1.0F);
+    const auto pointOverflow = ControlSurfaceSystem::Calculate(
+        *F1Water(1000.0F),
+        H1Component({maximum, 0.0F, 0.0F}, 0.0F),
+        H1Kinematics({}, {}, {maximum, 0.0F, 0.0F}),
+        0.0F);
+    return H1HasError(forceOverflow, ControlSurfaceErrorCode::NonFiniteResult) &&
+           H1HasError(pointOverflow, ControlSurfaceErrorCode::NonFiniteResult);
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice F2: fixed-step integration of F1 outputs through generic PhysicsWorld force/torque APIs.
 // ---------------------------------------------------------------------------
 
@@ -5541,6 +5812,41 @@ bool PropulsionFilesHaveOnlyPureMarineDependencies()
     return true;
 }
 
+bool ControlSurfaceFilesHaveOnlyPureMarineDependencies()
+{
+    const std::filesystem::path marineRoot =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation" / "Marine";
+    const std::filesystem::path files[] = {
+        marineRoot / "ControlSurfaceComponent.h",
+        marineRoot / "ControlSurfaceSystem.h",
+        marineRoot / "ControlSurfaceSystem.cpp"};
+    const std::string_view forbidden[] = {
+        "<jolt/", "jph::", "physicsworld", "physicsbodyhandle", "addforceatworldposition", "addtorque",
+        "game/", "engine/render", "d3d12", "modelasset", "propulsionresult", "hydrodragresult",
+        "buoyancyresult", "inputaction", "xinput"};
+
+    for (const std::filesystem::path& path : files)
+    {
+        std::ifstream input(path, std::ios::binary);
+        if (!input)
+        {
+            return false;
+        }
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool EngineHasNoMarineKnowledge()
 {
     // The generic engine must not become aware of marine simulation (M2 Slice D1).
@@ -5687,6 +5993,24 @@ int main(const int argumentCount, const char* const* arguments)
         {"F1 invalid configuration rejected", HydroDragRejectsInvalidConfiguration},
         {"F1 invalid state rejected", HydroDragRejectsInvalidState},
         {"F1 derived overflow rejected", HydroDragRejectsDerivedOverflow},
+        // M2 Slice H1: pure fully-immersed control-surface lift calculation.
+        {"H1 zero deflection returns zero force", ControlSurfaceZeroDeflection},
+        {"H1 zero speed has no authority", ControlSurfaceZeroSpeedHasNoAuthority},
+        {"H1 ahead positive force formula", ControlSurfaceAheadPositiveForce},
+        {"H1 deflection sign", ControlSurfaceDeflectionSign},
+        {"H1 reverse flow reverses force", ControlSurfaceReverseFlowReversesForce},
+        {"H1 quadratic speed scaling", ControlSurfaceQuadraticSpeedScaling},
+        {"H1 linear deflection scaling", ControlSurfaceLinearDeflectionScaling},
+        {"H1 WaterBody density scaling", ControlSurfaceUsesWaterDensity},
+        {"H1 body orientation", ControlSurfaceBodyOrientation},
+        {"H1 application point rotation", ControlSurfaceApplicationPointRotation},
+        {"H1 quaternion sign equivalence", ControlSurfaceQuaternionSignEquivalence},
+        {"H1 non-unit quaternion normalization", ControlSurfaceNormalizesNonUnitQuaternion},
+        {"H1 zero effective area is valid", ControlSurfaceZeroAreaIsValid},
+        {"H1 invalid configuration rejected", ControlSurfaceRejectsInvalidConfiguration},
+        {"H1 invalid deflection rejected", ControlSurfaceRejectsInvalidDeflection},
+        {"H1 invalid kinematics rejected", ControlSurfaceRejectsInvalidKinematics},
+        {"H1 derived overflow rejected", ControlSurfaceRejectsDerivedOverflow},
         // M2 Slice F2: drag integration and generic transient torque application.
         {"F2 vertical drag damps descent without spring", HydroDragIntegrationDampsVerticalDescentWithoutSpring},
         {"F2 integrated linear anisotropy", HydroDragIntegrationPreservesLinearAnisotropy},
@@ -5761,6 +6085,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"G1 Propulsion files have only pure Marine dependencies",
          PropulsionFilesHaveOnlyPureMarineDependencies},
+        {"H1 ControlSurface files have only pure Marine dependencies",
+         ControlSurfaceFilesHaveOnlyPureMarineDependencies},
         {"Engine has no marine knowledge", EngineHasNoMarineKnowledge},
         // M2 Slice D2: renderer stays generic — no water semantics in Engine/Render.
         {"Engine render has no water semantics", EngineRenderHasNoWaterSemantics},

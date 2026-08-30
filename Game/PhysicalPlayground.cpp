@@ -694,7 +694,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
             loggedRenderPresentation_ = true;
             PlaygroundLog().Info(
                 Diagnostics::LogCategory::Render,
-                "Physical playground F2 presentation: surface Y " +
+                "Physical playground G2 presentation: surface Y " +
                     std::to_string(water_->Config().surfaceLevelY) + ", camera target Y " +
                     std::to_string(camera->target.y) + ", horizontal span " +
                     std::to_string(camera->width) + ", vertical span " +

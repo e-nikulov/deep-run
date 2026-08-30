@@ -1305,6 +1305,20 @@ signedDepthMeters = surfaceLevelY - worldPosition.y
 surface normal = (0, +1, 0); water occupies y < surfaceLevelY
 ```
 
+M2 Slice H1 задаёт pure fully-immersed control-surface calculation в неподвижной воде. Один
+`ControlSurfaceComponent` представляет одну независимо рассчитываемую поверхность или гидродинамически
+объединённую группу и хранит body-local application point и максимальную effective lift area
+`Cl_max * referenceArea` в m². Для M2 flow axis — body-local +X, lift axis — body-local +Y:
+
+```text
+F_local_y = 0.5 * waterDensity * maxEffectiveLiftArea
+            * deflectionFraction * bodyForwardSpeed * abs(bodyForwardSpeed)
+```
+
+Density берётся из `WaterBody`; world velocity переводится в body space нормализованной orientation.
+Результат содержит world force и world application point. H1 не вычисляет torque, не применяет force и не
+моделирует partial immersion, current, angular local flow или propeller wash.
+
 ---
 
 # 18. Buoyancy
