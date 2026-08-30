@@ -335,6 +335,7 @@ Accepted slices (in order):
 | E1 | Generic force-at-world-position PhysicsWorld API | ACCEPTED |
 | E2 | Pure multi-point buoyancy model + force calculation | ACCEPTED |
 | E3 | Submarine buoyancy configuration + fixed-step force integration | ACCEPTED |
+| F1 | Pure directional hydrodynamic drag force/torque model | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps

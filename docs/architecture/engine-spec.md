@@ -1342,18 +1342,28 @@ heave
 
 # 19. Hydrodynamic Drag
 
-Drag должен учитывать направление.
+M2 F1 задаёт pure directional model для полностью погруженного тела в неподвижной воде. Air drag,
+частичное пересечение поверхности, waves и currents в этот contract не входят. `WaterBody` является
+единственным источником density.
 
-Например:
+Linear и angular velocity переводятся из world space в body-local space обратным поворотом нормализованной
+orientation. На каждой локальной оси используются независимые coefficients:
 
 ```text
-longitudinal drag
-lateral drag
-vertical drag
-angular drag
+linear effective area A = Cd * referenceArea, m^2
+angular effective moment K, m^5
+
+F_i = -0.5 * rho * A_i * v_i * abs(v_i)
+T_i = -0.5 * rho * K_i * omega_i * abs(omega_i)
 ```
 
-Это позволит лодке ощущаться:
+Body-local force и torque затем поворачиваются обратно в world space. X/Y/Z coefficients разделяют
+longitudinal, vertical и lateral/axis-specific response. Расчёт возвращает instantaneous Newton и
+Newton-meter values: mass и delta time в формулы не входят, а integration повторно вычисляет drag перед
+каждым применением силы. Collision geometry, displaced-water model и drag coefficients остаются
+независимыми моделями.
+
+Это позволяет лодке ощущаться:
 
 * тяжёлой;
 * инерционной;

@@ -19,6 +19,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
+#include "Simulation/Marine/HydroDragSystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
@@ -3534,6 +3535,241 @@ bool BuoyancyPointForcesCreateRestoringPitch()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice F1: pure fully-immersed directional hydrodynamic drag. No body, world, time step, or runtime
+// integration participates in these tests.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using DeepRun::Marine::HydroDragComponent;
+using DeepRun::Marine::HydroDragError;
+using DeepRun::Marine::HydroDragErrorCode;
+using DeepRun::Marine::HydroDragResult;
+using DeepRun::Marine::HydroDragState;
+using DeepRun::Marine::HydroDragSystem;
+
+HydroDragComponent F1Component(
+    const PhysicsVector3 linear = {},
+    const PhysicsVector3 angular = {})
+{
+    return HydroDragComponent{
+        .linearEffectiveAreaSquareMeters = linear,
+        .angularEffectiveMomentMeters5 = angular};
+}
+
+HydroDragState F1State(
+    const PhysicsVector3 linearVelocity = {},
+    const PhysicsVector3 angularVelocity = {},
+    const PhysicsQuaternion orientation = {})
+{
+    return HydroDragState{
+        .worldOrientation = orientation,
+        .worldLinearVelocityMetersPerSecond = linearVelocity,
+        .worldAngularVelocityRadiansPerSecond = angularVelocity};
+}
+
+bool F1HasError(
+    const std::expected<HydroDragResult, HydroDragError>& result,
+    const HydroDragErrorCode code)
+{
+    return !result && result.error().code == code && !result.error().message.empty();
+}
+
+std::expected<DeepRun::Marine::WaterBody, DeepRun::Marine::WaterBodyError> F1Water(const float density)
+{
+    return DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 100.0F, .densityKgPerCubicMeter = density});
+}
+} // namespace
+
+bool HydroDragZeroVelocityIsExactZero()
+{
+    const auto water = F1Water(997.0F);
+    const auto result = HydroDragSystem::Calculate(
+        *water, F1Component({2.0F, 3.0F, 4.0F}, {5.0F, 6.0F, 7.0F}), F1State());
+    return result && result->forceNewtons == PhysicsVector3{} &&
+           result->torqueNewtonMeters == PhysicsVector3{};
+}
+
+bool HydroDragLinearSignReversal()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({2.0F, 0.0F, 0.0F});
+    const auto positive = HydroDragSystem::Calculate(*water, component, F1State({2.0F, 0.0F, 0.0F}));
+    const auto negative = HydroDragSystem::Calculate(*water, component, F1State({-2.0F, 0.0F, 0.0F}));
+    return positive && negative && E2VectorNear(positive->forceNewtons, {-4000.0F, 0.0F, 0.0F}) &&
+           E2VectorNear(negative->forceNewtons, {4000.0F, 0.0F, 0.0F}) &&
+           E2Near(std::abs(positive->forceNewtons.x), std::abs(negative->forceNewtons.x)) &&
+           positive->torqueNewtonMeters == PhysicsVector3{} && negative->torqueNewtonMeters == PhysicsVector3{};
+}
+
+bool HydroDragLinearQuadraticSpeedScaling()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({1.25F, 0.0F, 0.0F});
+    const auto speedTwo = HydroDragSystem::Calculate(*water, component, F1State({2.0F, 0.0F, 0.0F}));
+    const auto speedFour = HydroDragSystem::Calculate(*water, component, F1State({4.0F, 0.0F, 0.0F}));
+    return speedTwo && speedFour && speedTwo->forceNewtons.x < 0.0F &&
+           E2Near(std::abs(speedFour->forceNewtons.x) / std::abs(speedTwo->forceNewtons.x), 4.0F);
+}
+
+bool HydroDragUsesWaterDensityScaling()
+{
+    const auto water = F1Water(500.0F);
+    const auto denseWater = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({2.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 3.0F});
+    const HydroDragState state = F1State({3.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 2.0F});
+    const auto first = HydroDragSystem::Calculate(*water, component, state);
+    const auto second = HydroDragSystem::Calculate(*denseWater, component, state);
+    return first && second &&
+           E2Near(std::abs(second->forceNewtons.x) / std::abs(first->forceNewtons.x), 2.0F) &&
+           E2Near(std::abs(second->torqueNewtonMeters.z) / std::abs(first->torqueNewtonMeters.z), 2.0F);
+}
+
+bool HydroDragDirectionalAnisotropy()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({2.0F, 8.0F, 0.0F});
+    const auto alongX = HydroDragSystem::Calculate(*water, component, F1State({3.0F, 0.0F, 0.0F}));
+    const auto alongY = HydroDragSystem::Calculate(*water, component, F1State({0.0F, 3.0F, 0.0F}));
+    return alongX && alongY &&
+           E2Near(std::abs(alongY->forceNewtons.y) / std::abs(alongX->forceNewtons.x), 4.0F) &&
+           E2Near(alongX->forceNewtons.y, 0.0F) && E2Near(alongY->forceNewtons.x, 0.0F);
+}
+
+bool HydroDragLinearBodyOrientation()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({2.0F, 0.0F, 0.0F});
+    // Scaled +90 degree Z quaternion also proves finite non-unit inputs are normalized internally.
+    const auto result = HydroDragSystem::Calculate(
+        *water, component, F1State({0.0F, 3.0F, 0.0F}, {}, {0.0F, 0.0F, 2.0F, 2.0F}));
+    return result && E2VectorNear(result->forceNewtons, {0.0F, -9000.0F, 0.0F}) &&
+           result->torqueNewtonMeters == PhysicsVector3{};
+}
+
+bool HydroDragQuaternionSignEquivalence()
+{
+    const auto water = F1Water(1025.0F);
+    const HydroDragComponent component = F1Component({1.0F, 2.0F, 3.0F}, {4.0F, 5.0F, 6.0F});
+    const PhysicsQuaternion q{0.2F, -0.3F, 0.4F, 0.5F};
+    const PhysicsQuaternion negativeQ{-q.x, -q.y, -q.z, -q.w};
+    const auto first = HydroDragSystem::Calculate(
+        *water, component, F1State({3.0F, -2.0F, 1.0F}, {-0.5F, 0.75F, 1.25F}, q));
+    const auto second = HydroDragSystem::Calculate(
+        *water, component, F1State({3.0F, -2.0F, 1.0F}, {-0.5F, 0.75F, 1.25F}, negativeQ));
+    return first && second && E2VectorNear(first->forceNewtons, second->forceNewtons) &&
+           E2VectorNear(first->torqueNewtonMeters, second->torqueNewtonMeters);
+}
+
+bool HydroDragAngularSignReversal()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({}, {0.0F, 0.0F, 3.0F});
+    const auto positive = HydroDragSystem::Calculate(*water, component, F1State({}, {0.0F, 0.0F, 1.0F}));
+    const auto negative = HydroDragSystem::Calculate(*water, component, F1State({}, {0.0F, 0.0F, -1.0F}));
+    return positive && negative && E2VectorNear(positive->torqueNewtonMeters, {0.0F, 0.0F, -1500.0F}) &&
+           E2VectorNear(negative->torqueNewtonMeters, {0.0F, 0.0F, 1500.0F}) &&
+           positive->forceNewtons == PhysicsVector3{} && negative->forceNewtons == PhysicsVector3{};
+}
+
+bool HydroDragAngularQuadraticSpeedScaling()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({}, {0.0F, 0.0F, 2.0F});
+    const auto speedOne = HydroDragSystem::Calculate(*water, component, F1State({}, {0.0F, 0.0F, 1.0F}));
+    const auto speedTwo = HydroDragSystem::Calculate(*water, component, F1State({}, {0.0F, 0.0F, 2.0F}));
+    return speedOne && speedTwo && speedOne->torqueNewtonMeters.z < 0.0F &&
+           E2Near(std::abs(speedTwo->torqueNewtonMeters.z) / std::abs(speedOne->torqueNewtonMeters.z), 4.0F);
+}
+
+bool HydroDragAngularBodyOrientation()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({}, {4.0F, 0.0F, 0.0F});
+    const auto result = HydroDragSystem::Calculate(
+        *water, component, F1State({}, {0.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 2.0F, 2.0F}));
+    return result && E2VectorNear(result->torqueNewtonMeters, {0.0F, -8000.0F, 0.0F}) &&
+           result->forceNewtons == PhysicsVector3{};
+}
+
+bool HydroDragLinearAngularIndependence()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({2.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 3.0F});
+    const auto linearOnly = HydroDragSystem::Calculate(*water, component, F1State({2.0F, 0.0F, 0.0F}));
+    const auto angularOnly = HydroDragSystem::Calculate(*water, component, F1State({}, {0.0F, 0.0F, 2.0F}));
+    return linearOnly && angularOnly && linearOnly->forceNewtons.x != 0.0F &&
+           linearOnly->torqueNewtonMeters == PhysicsVector3{} &&
+           angularOnly->forceNewtons == PhysicsVector3{} && angularOnly->torqueNewtonMeters.z != 0.0F;
+}
+
+bool HydroDragZeroCoefficientsAreValid()
+{
+    const auto water = F1Water(1000.0F);
+    const auto result = HydroDragSystem::Calculate(
+        *water, F1Component(), F1State({10.0F, -20.0F, 30.0F}, {-1.0F, 2.0F, -3.0F}));
+    return result && result->forceNewtons == PhysicsVector3{} &&
+           result->torqueNewtonMeters == PhysicsVector3{};
+}
+
+bool HydroDragRejectsInvalidConfiguration()
+{
+    const auto water = F1Water(1000.0F);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const float invalid : {-1.0F, nan, infinity})
+    {
+        if (!F1HasError(
+                HydroDragSystem::Calculate(*water, F1Component({invalid, 1.0F, 1.0F}), F1State()),
+                HydroDragErrorCode::InvalidConfiguration) ||
+            !F1HasError(
+                HydroDragSystem::Calculate(*water, F1Component({}, {1.0F, invalid, 1.0F}), F1State()),
+                HydroDragErrorCode::InvalidConfiguration))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool HydroDragRejectsInvalidState()
+{
+    const auto water = F1Water(1000.0F);
+    const HydroDragComponent component = F1Component({1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F});
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    const HydroDragState invalidStates[] = {
+        F1State({nan, 0.0F, 0.0F}),
+        F1State({0.0F, infinity, 0.0F}),
+        F1State({}, {0.0F, nan, 0.0F}),
+        F1State({}, {0.0F, 0.0F, -infinity}),
+        F1State({}, {}, {0.0F, 0.0F, 0.0F, 0.0F}),
+        F1State({}, {}, {nan, 0.0F, 0.0F, 1.0F}),
+        F1State({}, {}, {0.0F, infinity, 0.0F, 1.0F})};
+    for (const HydroDragState& state : invalidStates)
+    {
+        if (!F1HasError(HydroDragSystem::Calculate(*water, component, state), HydroDragErrorCode::InvalidState))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool HydroDragRejectsDerivedOverflow()
+{
+    const float maximum = (std::numeric_limits<float>::max)();
+    const auto water = F1Water(maximum);
+    const auto forceOverflow = HydroDragSystem::Calculate(
+        *water, F1Component({maximum, 0.0F, 0.0F}), F1State({2.0F, 0.0F, 0.0F}));
+    const auto torqueOverflow = HydroDragSystem::Calculate(
+        *water, F1Component({}, {0.0F, 0.0F, maximum}), F1State({}, {0.0F, 0.0F, 2.0F}));
+    return F1HasError(forceOverflow, HydroDragErrorCode::NonFiniteResult) &&
+           F1HasError(torqueOverflow, HydroDragErrorCode::NonFiniteResult);
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -3976,6 +4212,40 @@ bool SimulationMarineHasNoPhysicsOrRenderDependency()
          "collision bounds"});
 }
 
+bool HydroDragFilesHaveOnlyPureMarineDependencies()
+{
+    const std::filesystem::path marineRoot =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation" / "Marine";
+    const std::filesystem::path files[] = {
+        marineRoot / "HydroDragComponent.h",
+        marineRoot / "HydroDragSystem.h",
+        marineRoot / "HydroDragSystem.cpp"};
+    const std::string_view forbidden[] = {
+        "<jolt/", "jph::", "physicsworld", "physicsbodyhandle", "addforceatworldposition", "game/",
+        "engine/render", "d3d12", "modelasset", "buoyancyresult"};
+
+    for (const std::filesystem::path& path : files)
+    {
+        std::ifstream input(path, std::ios::binary);
+        if (!input)
+        {
+            return false;
+        }
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool EngineHasNoMarineKnowledge()
 {
     // The generic engine must not become aware of marine simulation (M2 Slice D1).
@@ -4091,6 +4361,22 @@ int main(const int argumentCount, const char* const* arguments)
         {"E3 neutral buoyancy remains at rest", BuoyancyIntegrationNeutralRest},
         {"E3 neutral buoyancy preserves vertical velocity", BuoyancyIntegrationPreservesVerticalVelocity},
         {"E3 point forces create restoring pitch", BuoyancyPointForcesCreateRestoringPitch},
+        // M2 Slice F1: pure fully-immersed directional drag force/torque calculation.
+        {"F1 zero velocity returns exact zero", HydroDragZeroVelocityIsExactZero},
+        {"F1 linear drag reverses sign", HydroDragLinearSignReversal},
+        {"F1 linear drag scales quadratically", HydroDragLinearQuadraticSpeedScaling},
+        {"F1 drag uses WaterBody density", HydroDragUsesWaterDensityScaling},
+        {"F1 directional linear anisotropy", HydroDragDirectionalAnisotropy},
+        {"F1 body-local linear orientation", HydroDragLinearBodyOrientation},
+        {"F1 quaternion sign equivalence", HydroDragQuaternionSignEquivalence},
+        {"F1 angular drag reverses sign", HydroDragAngularSignReversal},
+        {"F1 angular drag scales quadratically", HydroDragAngularQuadraticSpeedScaling},
+        {"F1 body-local angular orientation", HydroDragAngularBodyOrientation},
+        {"F1 linear and angular independence", HydroDragLinearAngularIndependence},
+        {"F1 zero coefficients are valid", HydroDragZeroCoefficientsAreValid},
+        {"F1 invalid configuration rejected", HydroDragRejectsInvalidConfiguration},
+        {"F1 invalid state rejected", HydroDragRejectsInvalidState},
+        {"F1 derived overflow rejected", HydroDragRejectsDerivedOverflow},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -4120,6 +4406,7 @@ int main(const int argumentCount, const char* const* arguments)
         // M2 Slice D1: architecture boundary scans.
         {"Simulation marine has no physics or render dependency",
          SimulationMarineHasNoPhysicsOrRenderDependency},
+        {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"Engine has no marine knowledge", EngineHasNoMarineKnowledge},
         // M2 Slice D2: renderer stays generic — no water semantics in Engine/Render.
         {"Engine render has no water semantics", EngineRenderHasNoWaterSemantics},
