@@ -17,6 +17,7 @@
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/PhysicsRenderSync.h"
+#include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/HydroDragSystem.h"
@@ -4601,6 +4602,434 @@ bool PropulsionRejectsDerivedOverflow()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice G2: public-API marine/physics integration and RPM-driven per-node presentation.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+constexpr PropulsionComponent G2Component{
+    .maxForwardRpm = 180.0F,
+    .maxReverseRpm = 120.0F,
+    .maxForwardThrustNewtons = 12'000'000.0F,
+    .maxReverseThrustNewtons = 4'800'000.0F,
+    .spinUpRateRpmPerSecond = 30.0F,
+    .spinDownRateRpmPerSecond = 45.0F};
+constexpr HydroDragComponent G2Drag{
+    .linearEffectiveAreaSquareMeters = {150.0F, 1800.0F, 2200.0F},
+    .angularEffectiveMomentMeters5 = {0.0F, 0.0F, 50'000'000.0F}};
+constexpr PhysicsVector3 G2PropulsorBodyLocal{-50.0F, 0.0F, 0.0F};
+constexpr float G2PropulsorAlignmentToleranceMeters = 2.0F;
+
+struct G2TickSample final
+{
+    PhysicsBodyState before{};
+    PhysicsBodyState after{};
+    float shaftRpm = 0.0F;
+    float targetRpm = 0.0F;
+    float thrustNewtons = 0.0F;
+    float dragXNewtons = 0.0F;
+};
+
+bool G2ApplyMarineTick(
+    DeepRun::Physics::PhysicsWorld& world,
+    const DeepRun::Physics::PhysicsBodyHandle handle,
+    const WaterBody& water,
+    const BuoyancyComponent& buoyancy,
+    const PropulsionCommand& command,
+    PropulsionState* propulsionState,
+    G2TickSample* sample = nullptr)
+{
+    const auto state = world.GetBodyState(handle); // exactly one authoritative beginning-of-tick snapshot
+    const auto gravity = world.Gravity();
+    if (!state || !gravity || !gravity->IsFinite())
+    {
+        return false;
+    }
+    const double gravityMagnitude = std::sqrt(
+        static_cast<double>(gravity->x) * gravity->x + static_cast<double>(gravity->y) * gravity->y +
+        static_cast<double>(gravity->z) * gravity->z);
+    const auto buoyancyResult = BuoyancySystem::Calculate(
+        water,
+        buoyancy,
+        {.worldPositionMeters = state->position, .worldOrientation = state->orientation},
+        static_cast<float>(gravityMagnitude));
+    const auto dragResult = HydroDragSystem::Calculate(
+        water,
+        G2Drag,
+        {.worldOrientation = state->orientation,
+         .worldLinearVelocityMetersPerSecond = state->linearVelocity,
+         .worldAngularVelocityRadiansPerSecond = state->angularVelocity});
+    const auto propulsionResult = PropulsionSystem::Advance(
+        G2Component, *propulsionState, command, E3FixedDeltaSeconds);
+    if (!buoyancyResult || !dragResult || !propulsionResult)
+    {
+        return false;
+    }
+    const auto force = DeepRun::Game::RotateBodyLocalVectorToWorld(
+        state->orientation, {propulsionResult->thrustNewtons, 0.0F, 0.0F});
+    const auto point = DeepRun::Game::TransformBodyLocalPointToWorld(
+        state->position, state->orientation, G2PropulsorBodyLocal);
+    if (!force || !point)
+    {
+        return false;
+    }
+
+    for (const auto& buoyancyPoint : buoyancyResult->points)
+    {
+        if (!world.AddForceAtWorldPosition(handle, buoyancyPoint.forceNewtons, buoyancyPoint.worldPositionMeters))
+        {
+            return false;
+        }
+    }
+    if (!world.AddForceAtWorldPosition(handle, dragResult->forceNewtons, state->position) ||
+        !world.AddTorque(handle, dragResult->torqueNewtonMeters) ||
+        !world.AddForceAtWorldPosition(handle, *force, *point))
+    {
+        return false;
+    }
+
+    *propulsionState = propulsionResult->nextState; // transactional commit after every application succeeds
+    world.Step(E3FixedDeltaSeconds);
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+    if (sample != nullptr)
+    {
+        *sample = {
+            .before = *state,
+            .after = *after,
+            .shaftRpm = propulsionResult->nextState.shaftRpm,
+            .targetRpm = propulsionResult->targetRpm,
+            .thrustNewtons = propulsionResult->thrustNewtons,
+            .dragXNewtons = dragResult->forceNewtons.x};
+    }
+    return true;
+}
+
+DeepRun::Assets::ModelAsset G2SyntheticThreeNodeModel()
+{
+    const auto id = DeepRun::Assets::AssetId::FromPath("Tests/G2Synthetic.gltf");
+    std::vector<DeepRun::Assets::MeshPrimitiveData> primitives(3);
+    primitives[0].indices.resize(3);
+    primitives[1].indices.resize(6);
+    primitives[2].indices.resize(9);
+    std::vector<DeepRun::Assets::MeshNodeData> nodes{
+        {.name = "Hull", .localToModel = {}, .primitiveIndices = {0}},
+        {.name = "PresentationNode",
+         .localToModel = DeepRun::Game::TranslationTransform({-49.0F, 0.0F, 0.0F}),
+         .primitiveIndices = {1}},
+        {.name = "Sail", .localToModel = {}, .primitiveIndices = {2}}};
+    return {.id = *id, .primitives = std::move(primitives), .nodes = std::move(nodes)};
+}
+} // namespace
+
+bool G2BodyLocalThrustAndPointTransform()
+{
+    constexpr float HalfSqrtTwo = 0.7071067811865475F;
+    const PhysicsQuaternion quarterTurn{0.0F, 0.0F, HalfSqrtTwo, HalfSqrtTwo};
+    const auto force = DeepRun::Game::RotateBodyLocalVectorToWorld(quarterTurn, {10.0F, 0.0F, 0.0F});
+    const auto point = DeepRun::Game::TransformBodyLocalPointToWorld(
+        {10.0F, 20.0F, 0.0F}, quarterTurn, G2PropulsorBodyLocal);
+    const PhysicsQuaternion zero{};
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    return force && point && std::abs(force->x) < 1.0e-4F && std::abs(force->y - 10.0F) < 1.0e-4F &&
+           std::abs(point->x - 10.0F) < 1.0e-4F && std::abs(point->y + 30.0F) < 1.0e-4F &&
+           !DeepRun::Game::RotateBodyLocalVectorToWorld({0.0F, 0.0F, 0.0F, 0.0F}, {}) &&
+           !DeepRun::Game::TransformBodyLocalPointToWorld({nan, 0.0F, 0.0F}, zero, {});
+}
+
+bool G2PropellerPresentationFollowsRpm()
+{
+    constexpr float Pi = 3.14159265358979323846F;
+    const auto positive = DeepRun::Game::AdvancePropellerPresentationAngle(1.0F, 0.0F, 30.0F, 0.5F);
+    const auto negative = DeepRun::Game::AdvancePropellerPresentationAngle(1.0F, 0.0F, -30.0F, 0.5F);
+    const auto zero = DeepRun::Game::AdvancePropellerPresentationAngle(1.0F, 0.0F, 0.0F, 0.5F);
+    const auto wrapped = DeepRun::Game::AdvancePropellerPresentationAngle(6.0F, 60.0F, 60.0F, 1.0F);
+    const auto identity = DeepRun::Game::RotationXTransform(0.0F);
+    const auto quarterTurn = DeepRun::Game::RotationXTransform(0.5F * Pi);
+    if (!positive || !negative || !zero || !wrapped || !identity || !quarterTurn)
+    {
+        return false;
+    }
+    const ModelVector3 y = TransformPointBy(*quarterTurn, {0.0F, 1.0F, 0.0F});
+    const ModelVector3 z = TransformPointBy(*quarterTurn, {0.0F, 0.0F, 1.0F});
+    return *positive > 1.0F && *negative < 1.0F && *zero == 1.0F && *wrapped >= 0.0F &&
+           *wrapped < 2.0F * Pi && identity->values == ModelTransform{}.values &&
+           std::abs(y.y) < 1.0e-4F && std::abs(y.z - 1.0F) < 1.0e-4F &&
+           std::abs(z.y + 1.0F) < 1.0e-4F && std::abs(z.z) < 1.0e-4F &&
+           !DeepRun::Game::RotationXTransform(std::numeric_limits<float>::infinity());
+}
+
+bool G2PropellerNodeContractValidation()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+    const ModelVector3 center = DeepRun::Game::BoundsCenter((*loaded)->bounds);
+    const auto propeller = std::ranges::find_if((*loaded)->nodes, [](const DeepRun::Assets::MeshNodeData& node) {
+        return node.name == DeepRun::Game::M2PrototypePropellerNodeName;
+    });
+    if (propeller == (*loaded)->nodes.end())
+    {
+        return false;
+    }
+    std::cout << "[G2 evidence] asset center (" << center.x << ',' << center.y << ',' << center.z
+              << "), authored hub (" << propeller->localToModel.values[12] << ','
+              << propeller->localToModel.values[13] << ',' << propeller->localToModel.values[14] << ")\n";
+    const auto canonical = DeepRun::Game::ResolveM2PrototypePropellerNode(
+        **loaded, center, G2PropulsorBodyLocal, G2PropulsorAlignmentToleranceMeters);
+    if (!canonical || (*loaded)->nodes[*canonical].name != DeepRun::Game::M2PrototypePropellerNodeName)
+    {
+        return false;
+    }
+
+    DeepRun::Assets::ModelAsset missing = **loaded;
+    missing.nodes[*canonical].name = "Missing";
+    DeepRun::Assets::ModelAsset duplicate = **loaded;
+    duplicate.nodes.push_back(duplicate.nodes[*canonical]);
+    DeepRun::Assets::ModelAsset nonFinite = **loaded;
+    nonFinite.nodes[*canonical].localToModel.values[12] = std::numeric_limits<float>::quiet_NaN();
+    std::cout << "[G2 evidence] canonical propeller node index " << *canonical << ", body-local hub (-50,0,0)\n";
+    return !DeepRun::Game::ResolveM2PrototypePropellerNode(
+               missing, center, G2PropulsorBodyLocal, G2PropulsorAlignmentToleranceMeters) &&
+           !DeepRun::Game::ResolveM2PrototypePropellerNode(
+               duplicate, center, G2PropulsorBodyLocal, G2PropulsorAlignmentToleranceMeters) &&
+           !DeepRun::Game::ResolveM2PrototypePropellerNode(
+               nonFinite, center, G2PropulsorBodyLocal, G2PropulsorAlignmentToleranceMeters) &&
+           !DeepRun::Game::ResolveM2PrototypePropellerNode(
+               **loaded, center, {-40.0F, 0.0F, 0.0F}, G2PropulsorAlignmentToleranceMeters);
+}
+
+bool G2NodeOverrideValidation()
+{
+    const DeepRun::Assets::ModelAsset model = G2SyntheticThreeNodeModel();
+    const auto empty = DeepRun::Render::PrepareModelDraws(model);
+    const auto baseline = DeepRun::Render::PrepareModelDraws(model, {}, {});
+    DeepRun::Render::ModelNodeTransformOverride outOfRange{.nodeIndex = 3};
+    const DeepRun::Render::ModelNodeTransformOverride duplicate[] = {{.nodeIndex = 1}, {.nodeIndex = 1}};
+    DeepRun::Render::ModelNodeTransformOverride nonFinite{.nodeIndex = 1};
+    nonFinite.nodeLocalPostTransform.values[0] = std::numeric_limits<float>::quiet_NaN();
+    DeepRun::Render::ModelNodeTransformOverride nonAffine{.nodeIndex = 1};
+    nonAffine.nodeLocalPostTransform.values[15] = 2.0F;
+    return empty && baseline && empty->size() == baseline->size() &&
+           (*empty)[1].modelToWorld.values == (*baseline)[1].modelToWorld.values &&
+           !DeepRun::Render::PrepareModelDraws(model, {}, std::span{&outOfRange, 1}) &&
+           !DeepRun::Render::PrepareModelDraws(model, {}, duplicate) &&
+           !DeepRun::Render::PrepareModelDraws(model, {}, std::span{&nonFinite, 1}) &&
+           !DeepRun::Render::PrepareModelDraws(model, {}, std::span{&nonAffine, 1});
+}
+
+bool G2NodePostTransformKeepsHubAndOtherNodes()
+{
+    constexpr float Pi = 3.14159265358979323846F;
+    const DeepRun::Assets::ModelAsset model = G2SyntheticThreeNodeModel();
+    const auto rotation = DeepRun::Game::RotationXTransform(0.5F * Pi);
+    if (!rotation)
+    {
+        return false;
+    }
+    const DeepRun::Render::ModelNodeTransformOverride overrideValue{
+        .nodeIndex = 1, .nodeLocalPostTransform = *rotation};
+    const auto baseline = DeepRun::Render::PrepareModelDraws(model);
+    const auto animated = DeepRun::Render::PrepareModelDraws(model, {}, std::span{&overrideValue, 1});
+    if (!baseline || !animated || baseline->size() != 3 || animated->size() != 3)
+    {
+        return false;
+    }
+    const ModelTransform& hub = (*animated)[1].modelToWorld;
+    const std::size_t submittedIndices = model.primitives[0].indices.size() +
+                                         model.primitives[1].indices.size() +
+                                         model.primitives[2].indices.size();
+    return hub.values[12] == -49.0F && hub.values[13] == 0.0F && hub.values[14] == 0.0F &&
+           (*animated)[0].modelToWorld.values == (*baseline)[0].modelToWorld.values &&
+           (*animated)[2].modelToWorld.values == (*baseline)[2].modelToWorld.values &&
+           (*animated)[1].modelToWorld.values != (*baseline)[1].modelToWorld.values &&
+           submittedIndices == 18;
+}
+
+bool G2CanonicalDrawAndBoundsGate()
+{
+    constexpr float Pi = 3.14159265358979323846F;
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto loaded = assets.LoadModel(CanonicalModelPath);
+    if (!loaded)
+    {
+        return false;
+    }
+    const ModelVector3 center = DeepRun::Game::BoundsCenter((*loaded)->bounds);
+    const auto nodeIndex = DeepRun::Game::ResolveM2PrototypePropellerNode(
+        **loaded, center, G2PropulsorBodyLocal, G2PropulsorAlignmentToleranceMeters);
+    const auto rotation = DeepRun::Game::RotationXTransform(0.5F * Pi);
+    if (!nodeIndex || !rotation)
+    {
+        return false;
+    }
+    const DeepRun::Render::ModelNodeTransformOverride overrideValue{
+        .nodeIndex = *nodeIndex, .nodeLocalPostTransform = *rotation};
+    const auto baseline = DeepRun::Render::PrepareModelDraws(**loaded);
+    const auto animated = DeepRun::Render::PrepareModelDraws(**loaded, {}, std::span{&overrideValue, 1});
+    if (!baseline || !animated || baseline->size() != 4 || animated->size() != 4)
+    {
+        return false;
+    }
+    std::size_t changed = 0;
+    std::uint64_t submittedIndices = 0;
+    for (std::size_t index = 0; index < animated->size(); ++index)
+    {
+        submittedIndices += (*loaded)->primitives[(*animated)[index].primitiveIndex].indices.size();
+        changed += (*animated)[index].modelToWorld.values != (*baseline)[index].modelToWorld.values ? 1U : 0U;
+    }
+
+    const auto& node = (*loaded)->nodes[*nodeIndex];
+    const auto& primitive = (*loaded)->primitives[node.primitiveIndices.front()];
+    for (const float angle : {0.0F, 0.5F * Pi, Pi, 1.5F * Pi})
+    {
+        const auto spin = DeepRun::Game::RotationXTransform(angle);
+        const ModelTransform combined = DeepRun::Render::Multiply(node.localToModel, *spin);
+        for (const auto& vertex : primitive.vertices)
+        {
+            const ModelVector3 point = TransformPointBy(combined, vertex.position);
+            if (point.x < (*loaded)->bounds.minimum.x - 1.0e-3F ||
+                point.x > (*loaded)->bounds.maximum.x + 1.0e-3F ||
+                point.y < (*loaded)->bounds.minimum.y - 1.0e-3F ||
+                point.y > (*loaded)->bounds.maximum.y + 1.0e-3F ||
+                point.z < (*loaded)->bounds.minimum.z - 1.0e-3F ||
+                point.z > (*loaded)->bounds.maximum.z + 1.0e-3F)
+            {
+                return false;
+            }
+        }
+    }
+    return changed == 1 && submittedIndices == 1632;
+}
+
+bool G2AheadAccelerationAndRpmRamp()
+{
+    constexpr float Mass = 1'200'000.0F;
+    constexpr float Density = 1025.0F;
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(E3BodyInfo(Mass));
+    const auto initial = world.GetBodyState(handle);
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    const PropulsionCommand ahead{.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    G2TickSample oneSecond;
+    G2TickSample twoSeconds;
+    for (int step = 0; step < 120; ++step)
+    {
+        G2TickSample sample;
+        if (!G2ApplyMarineTick(world, handle, *water, buoyancy, ahead, &propulsion, &sample))
+        {
+            return false;
+        }
+        if (step == 59) oneSecond = sample;
+        if (step == 119) twoSeconds = sample;
+    }
+    const auto after = world.GetBodyState(handle);
+    return initial && after && StateIsFinite(*after) && std::abs(oneSecond.shaftRpm - 30.0F) < 0.01F &&
+           std::abs(twoSeconds.shaftRpm - 60.0F) < 0.01F && twoSeconds.thrustNewtons > oneSecond.thrustNewtons &&
+           std::abs(twoSeconds.dragXNewtons) > std::abs(oneSecond.dragXNewtons) &&
+           after->linearVelocity.x > 0.0F && after->position.x > initial->position.x;
+}
+
+bool G2NaturalTerminalSpeedAndHydrostaticStability()
+{
+    constexpr float Mass = 1'200'000.0F;
+    constexpr float Density = 1025.0F;
+    constexpr int Steps = 1800; // 30 seconds: six-second spin-up plus ample settling time
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(E3BodyInfo(Mass));
+    const auto initial = world.GetBodyState(handle);
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    const PropulsionCommand ahead{.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    G2TickSample finalSample;
+    float speedOneSecondBeforeEnd = 0.0F;
+    for (int step = 0; step < Steps; ++step)
+    {
+        if (!G2ApplyMarineTick(world, handle, *water, buoyancy, ahead, &propulsion, &finalSample))
+        {
+            return false;
+        }
+        if (step == Steps - 61)
+        {
+            speedOneSecondBeforeEnd = finalSample.after.linearVelocity.x;
+        }
+    }
+    const auto after = world.GetBodyState(handle);
+    if (!initial || !after)
+    {
+        return false;
+    }
+    const float analytic = std::sqrt(
+        G2Component.maxForwardThrustNewtons / (0.5F * Density * G2Drag.linearEffectiveAreaSquareMeters.x));
+    std::cout << "[G2 evidence] terminal: RPM " << finalSample.shaftRpm << ", thrust "
+              << finalSample.thrustNewtons << " N, Vx " << after->linearVelocity.x << " m/s, dragX "
+              << finalSample.dragXNewtons << " N, analytic " << analytic << " m/s, Y "
+              << after->position.y << ", Vy " << after->linearVelocity.y << ", omegaZ "
+              << after->angularVelocity.z << '\n';
+    return StateIsFinite(*after) && finalSample.shaftRpm == G2Component.maxForwardRpm &&
+           std::abs(finalSample.thrustNewtons - G2Component.maxForwardThrustNewtons) < 1.0F &&
+           std::abs(std::abs(finalSample.dragXNewtons) - finalSample.thrustNewtons) <
+               0.03F * finalSample.thrustNewtons &&
+           std::abs(after->linearVelocity.x - analytic) < 0.05F * analytic &&
+           std::abs(after->linearVelocity.x - speedOneSecondBeforeEnd) < 0.05F &&
+           std::abs(after->position.y - initial->position.y) < 0.25F &&
+           std::abs(after->linearVelocity.y) < 0.05F && std::abs(after->angularVelocity.z) < 1.0e-3F &&
+           DeepRun::Physics::PhysicsQuaternion::SameRotation(after->orientation, initial->orientation);
+}
+
+bool G2AsternProducesNegativeResponse()
+{
+    constexpr float Mass = 1'200'000.0F;
+    constexpr float Density = 1025.0F;
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(E3BodyInfo(Mass));
+    const auto initial = world.GetBodyState(handle);
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    const PropulsionCommand astern{.requestedDriveFraction = -1.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    G2TickSample sample;
+    for (int step = 0; step < 360; ++step)
+    {
+        if (!G2ApplyMarineTick(world, handle, *water, buoyancy, astern, &propulsion, &sample))
+        {
+            return false;
+        }
+    }
+    const auto after = world.GetBodyState(handle);
+    std::cout << "[G2 evidence] astern: RPM " << sample.shaftRpm << ", thrust " << sample.thrustNewtons
+              << " N, Vx " << (after ? after->linearVelocity.x : 0.0F) << '\n';
+    return initial && after && sample.shaftRpm == -G2Component.maxReverseRpm &&
+           sample.thrustNewtons == -G2Component.maxReverseThrustNewtons &&
+           after->linearVelocity.x < 0.0F && after->position.x < initial->position.x &&
+           std::abs(after->position.y - initial->position.y) < 0.25F;
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -5129,6 +5558,20 @@ bool EngineRenderHasNoWaterSemantics()
         renderRoot, {"water", "ocean", "sealevel", "submarinedepth", "buoyancy", "physicsworld",
                      "engine/physics"});
 }
+
+bool G2IntegrationAndPresentationArchitectureBoundaries()
+{
+    // G2 orchestration and presentation stay in Game. The generic renderer only accepts a node-local
+    // transform override, while Engine/Physics remains unaware of propulsion and presentation concepts.
+    const std::filesystem::path sourceRoot = DEEPRUN_SOURCE_ROOT;
+    const std::filesystem::path renderRoot = sourceRoot / "Engine" / "Render";
+    const std::filesystem::path physicsRoot = sourceRoot / "Engine" / "Physics";
+    return PropulsionFilesHaveOnlyPureMarineDependencies() && GameCodeHasNoJoltDependency() &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               renderRoot, {"propulsion", "shaft", "rpm", "propeller", "submarine"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               physicsRoot, {"propulsion", "shaft", "rpm", "propeller", "submarine"});
+}
 } // namespace
 
 int main(const int argumentCount, const char* const* arguments)
@@ -5267,6 +5710,17 @@ int main(const int argumentCount, const char* const* arguments)
         {"G1 invalid command rejected", PropulsionRejectsInvalidCommand},
         {"G1 invalid state and delta rejected", PropulsionRejectsInvalidStateAndDeltaTime},
         {"G1 derived overflow rejected", PropulsionRejectsDerivedOverflow},
+        // M2 Slice G2: public-API marine/physics integration and authoritative-RPM presentation.
+        {"G2 body-local thrust and point transform", G2BodyLocalThrustAndPointTransform},
+        {"G2 propeller presentation follows RPM", G2PropellerPresentationFollowsRpm},
+        {"G2 propeller node contract validation", G2PropellerNodeContractValidation},
+        {"G2 generic node override validation", G2NodeOverrideValidation},
+        {"G2 node post-transform keeps hub and other nodes", G2NodePostTransformKeepsHubAndOtherNodes},
+        {"G2 canonical draw and bounds gate", G2CanonicalDrawAndBoundsGate},
+        {"G2 ahead acceleration and RPM ramp", G2AheadAccelerationAndRpmRamp},
+        {"G2 natural terminal speed and hydrostatic stability",
+         G2NaturalTerminalSpeedAndHydrostaticStability},
+        {"G2 astern produces negative response", G2AsternProducesNegativeResponse},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -5310,6 +5764,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"Engine has no marine knowledge", EngineHasNoMarineKnowledge},
         // M2 Slice D2: renderer stays generic — no water semantics in Engine/Render.
         {"Engine render has no water semantics", EngineRenderHasNoWaterSemantics},
+        {"G2 integration and presentation architecture boundaries",
+         G2IntegrationAndPresentationArchitectureBoundaries},
     };
 
     int failed = 0;

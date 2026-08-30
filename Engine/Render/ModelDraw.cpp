@@ -3,6 +3,7 @@
 #include <cmath>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 namespace DeepRun::Render
 {
@@ -20,6 +21,19 @@ void SetElement(
     const float value) noexcept
 {
     matrix.values[column * 4 + row] = value;
+}
+
+bool IsFiniteAffineTransform(const Assets::ModelTransform& transform) noexcept
+{
+    for (const float value : transform.values)
+    {
+        if (!std::isfinite(value))
+        {
+            return false;
+        }
+    }
+    return transform.values[3] == 0.0F && transform.values[7] == 0.0F &&
+           transform.values[11] == 0.0F && transform.values[15] == 1.0F;
 }
 }
 
@@ -113,13 +127,37 @@ std::array<float, 3> TransformNormal(
 
 std::expected<std::vector<ModelDrawInstance>, std::string> PrepareModelDraws(
     const Assets::ModelAsset& model,
-    const Assets::ModelTransform& modelToWorld)
+    const Assets::ModelTransform& modelToWorld,
+    const std::span<const ModelNodeTransformOverride> nodeTransformOverrides)
 {
+    std::vector<const Assets::ModelTransform*> overridesByNode(model.nodes.size(), nullptr);
+    for (const ModelNodeTransformOverride& overrideValue : nodeTransformOverrides)
+    {
+        if (overrideValue.nodeIndex >= model.nodes.size())
+        {
+            return std::unexpected("model node transform override index is out of range");
+        }
+        if (overridesByNode[overrideValue.nodeIndex] != nullptr)
+        {
+            return std::unexpected("model node transform overrides contain a duplicate node index");
+        }
+        if (!IsFiniteAffineTransform(overrideValue.nodeLocalPostTransform))
+        {
+            return std::unexpected("model node transform override must be finite and affine");
+        }
+        overridesByNode[overrideValue.nodeIndex] = &overrideValue.nodeLocalPostTransform;
+    }
+
     std::vector<ModelDrawInstance> draws;
     for (std::size_t nodeIndex = 0; nodeIndex < model.nodes.size(); ++nodeIndex)
     {
         const Assets::MeshNodeData& node = model.nodes[nodeIndex];
-        const Assets::ModelTransform combined = Multiply(modelToWorld, node.localToModel);
+        Assets::ModelTransform combined = Multiply(modelToWorld, node.localToModel);
+        if (overridesByNode[nodeIndex] != nullptr)
+        {
+            // POST-transform is intentional: modelToWorld * authored node transform * presentation transform.
+            combined = Multiply(combined, *overridesByNode[nodeIndex]);
+        }
         const auto normal = BuildNormalTransform(combined);
         if (!normal)
         {

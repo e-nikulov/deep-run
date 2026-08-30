@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,14 @@ struct ModelDrawStats final
     std::uint64_t submittedIndices = 0;
 };
 
+// Optional presentation-only transform for one model node. The post-transform is composed after the
+// immutable authored node transform; ModelAsset data is never mutated.
+struct ModelNodeTransformOverride final
+{
+    std::size_t nodeIndex = 0;
+    Assets::ModelTransform nodeLocalPostTransform{};
+};
+
 [[nodiscard]] Assets::ModelMaterialData DefaultModelMaterial();
 [[nodiscard]] Assets::ModelTransform Multiply(
     const Assets::ModelTransform& left,
@@ -48,5 +57,6 @@ struct ModelDrawStats final
     const std::array<float, 3>& normal) noexcept;
 [[nodiscard]] std::expected<std::vector<ModelDrawInstance>, std::string> PrepareModelDraws(
     const Assets::ModelAsset& model,
-    const Assets::ModelTransform& modelToWorld = {});
+    const Assets::ModelTransform& modelToWorld = {},
+    std::span<const ModelNodeTransformOverride> nodeTransformOverrides = {});
 }

@@ -105,6 +105,7 @@ add_executable(DeepRun
     DeepRun/Main.cpp
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
+    Game/PropulsionPresentation.cpp
     Game/WaterPresentation.cpp
 )
 target_compile_features(DeepRun PRIVATE cxx_std_23)
@@ -137,6 +138,7 @@ enable_testing()
 add_executable(DeepRunTests
     Tests/TestMain.cpp
     Game/PhysicsRenderSync.cpp
+    Game/PropulsionPresentation.cpp
     Game/WaterPresentation.cpp
 )
 target_compile_features(DeepRunTests PRIVATE cxx_std_23)

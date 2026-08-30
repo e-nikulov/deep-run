@@ -338,6 +338,7 @@ Accepted slices (in order):
 | F1 | Pure directional hydrodynamic drag force/torque model | ACCEPTED |
 | F2 | Submarine hydrodynamic drag integration + generic torque physics API | ACCEPTED |
 | G1 | Pure shaft/RPM/thrust propulsion model | ACCEPTED |
+| G2 | Submarine propulsion integration + RPM-driven propeller presentation | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps

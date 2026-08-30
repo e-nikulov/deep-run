@@ -740,6 +740,9 @@ Engine/Render/
 └── DebugRenderer.h
 ```
 
+M2 indexed-model draw preparation may accept optional per-node local post-transforms. They are
+presentation-only, compose after the immutable node-local transform, and never mutate `ModelAsset`.
+
 ---
 
 # 10. Rendering features
@@ -1407,6 +1410,11 @@ thrustNewtons = direction-specific maxThrustNewtons * n * abs(n)
 `fixedDeltaSeconds` управляет только RPM evolution и не умножает thrust. G1 не выбирает world direction и
 не применяет force. `shaftRpm`, а не visual propeller angle, является simulation truth для будущих thrust
 integration, cavitation, acoustics и presentation; эти consumers в G1 не реализуются.
+
+Начиная с M2 Slice G2, Game отображает signed shaft thrust на body-local propulsion axis и применяет его в
+явной world-space позиции propulsor до `PhysicsWorld::Step`. `shaftRpm` остаётся authoritative simulation
+state. Визуальное вращение propeller выводится только из RPM и никогда не передаёт состояние обратно в
+simulation.
 
 ---
 

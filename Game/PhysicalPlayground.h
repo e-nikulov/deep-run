@@ -7,8 +7,11 @@
 #include "Engine/Render/ModelDraw.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/HydroDragComponent.h"
+#include "Simulation/Marine/PropulsionComponent.h"
+#include "Simulation/Marine/PropulsionSystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -39,11 +42,12 @@ namespace DeepRun::Game
 // Lifetime assumption: the Engine owns the PhysicsWorld and outlives all playground rendering
 // during Application::Run; no shared ownership is created here (ADR-0008).
 //
-// M2 Slice D2/E3/F2: the scenario owns its authoritative Marine::WaterBody as a plain value — the single
+// M2 Slice D2/E3/F2/G2: the scenario owns its authoritative Marine::WaterBody as a plain value — the single
 // source of truth for sea level and signed depth. The Game reads it (surface level, body-center depth) and
 // derives presentation from those values; the renderer never sees a WaterBody, and the WaterBody never
 // knows about the renderer, camera or submarine. Game composes that water with Game-owned buoyancy/drag
-// tuning and generic PhysicsWorld force/torque operations during the fixed phase.
+// tuning and generic PhysicsWorld force/torque operations during the fixed phase. G2 adds one authoritative
+// shaft state; propeller angle is presentation-only and can never feed the simulation.
 class PhysicalPlayground final
 {
 public:
@@ -80,6 +84,8 @@ private:
     // Explicit Game-owned M2 prototype tuning. Marine owns only the generic point/component data types.
     Marine::BuoyancyComponent buoyancy_;
     Marine::HydroDragComponent hydroDrag_;
+    Marine::PropulsionComponent propulsion_;
+    Marine::PropulsionState propulsionState_{};
 
     // Asset-space pivot: (bounds.min + bounds.max) * 0.5. Used ONLY for modelToBody = T(-assetBoundsCenter).
     Assets::ModelVector3 assetBoundsCenter_{};
@@ -88,10 +94,14 @@ private:
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     Assets::ModelTransform modelToBody_{};
 
-    // Bounded F2 diagnostics: physics in FixedUpdate; camera/water presentation in Render.
+    // Bounded G2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.
     std::uint64_t fixedTickCount_ = 0;
     bool loggedFirstFixedSample_ = false;
     bool loggedLaterFixedSample_ = false;
     mutable bool loggedRenderPresentation_ = false;
+
+    // Presentation state derived only from authoritative shaft RPM. It is not Marine/save/physics authority.
+    float propellerPresentationAngleRadians_ = 0.0F;
+    std::optional<std::size_t> propellerNodeIndex_;
 };
 }

@@ -103,6 +103,74 @@ std::expected<Assets::ModelTransform, std::string> BuildBodyToWorld(
     return result;
 }
 
+std::expected<Physics::PhysicsVector3, std::string> RotateBodyLocalVectorToWorld(
+    const Physics::PhysicsQuaternion& orientation,
+    const Physics::PhysicsVector3& bodyLocalVector)
+{
+    if (!orientation.IsFinite() || !bodyLocalVector.IsFinite())
+    {
+        return std::unexpected("body-local rotation inputs must be finite");
+    }
+    const double lengthSquared = static_cast<double>(orientation.x) * orientation.x +
+                                 static_cast<double>(orientation.y) * orientation.y +
+                                 static_cast<double>(orientation.z) * orientation.z +
+                                 static_cast<double>(orientation.w) * orientation.w;
+    if (!std::isfinite(lengthSquared) || lengthSquared <= 1.0e-12)
+    {
+        return std::unexpected("body orientation must be a finite non-zero quaternion");
+    }
+
+    const double inverseLength = 1.0 / std::sqrt(lengthSquared);
+    const double qx = orientation.x * inverseLength;
+    const double qy = orientation.y * inverseLength;
+    const double qz = orientation.z * inverseLength;
+    const double qw = orientation.w * inverseLength;
+    const double vx = bodyLocalVector.x;
+    const double vy = bodyLocalVector.y;
+    const double vz = bodyLocalVector.z;
+    const double tx = 2.0 * (qy * vz - qz * vy);
+    const double ty = 2.0 * (qz * vx - qx * vz);
+    const double tz = 2.0 * (qx * vy - qy * vx);
+    const double rx = vx + qw * tx + (qy * tz - qz * ty);
+    const double ry = vy + qw * ty + (qz * tx - qx * tz);
+    const double rz = vz + qw * tz + (qx * ty - qy * tx);
+    const double floatMaximum = static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::isfinite(rx) || !std::isfinite(ry) || !std::isfinite(rz) ||
+        std::abs(rx) > floatMaximum || std::abs(ry) > floatMaximum || std::abs(rz) > floatMaximum)
+    {
+        return std::unexpected("rotated body-local vector is outside finite float range");
+    }
+    return Physics::PhysicsVector3{
+        static_cast<float>(rx), static_cast<float>(ry), static_cast<float>(rz)};
+}
+
+std::expected<Physics::PhysicsVector3, std::string> TransformBodyLocalPointToWorld(
+    const Physics::PhysicsVector3& bodyWorldPosition,
+    const Physics::PhysicsQuaternion& bodyWorldOrientation,
+    const Physics::PhysicsVector3& bodyLocalPoint)
+{
+    if (!bodyWorldPosition.IsFinite())
+    {
+        return std::unexpected("body world position must be finite");
+    }
+    const auto rotated = RotateBodyLocalVectorToWorld(bodyWorldOrientation, bodyLocalPoint);
+    if (!rotated)
+    {
+        return std::unexpected(rotated.error());
+    }
+    const double x = static_cast<double>(bodyWorldPosition.x) + rotated->x;
+    const double y = static_cast<double>(bodyWorldPosition.y) + rotated->y;
+    const double z = static_cast<double>(bodyWorldPosition.z) + rotated->z;
+    const double floatMaximum = static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        std::abs(x) > floatMaximum || std::abs(y) > floatMaximum || std::abs(z) > floatMaximum)
+    {
+        return std::unexpected("world point is outside finite float range");
+    }
+    return Physics::PhysicsVector3{
+        static_cast<float>(x), static_cast<float>(y), static_cast<float>(z)};
+}
+
 std::expected<Assets::ModelBounds, std::string> TransformBounds(
     const Assets::ModelBounds& bounds,
     const Assets::ModelTransform& transform)

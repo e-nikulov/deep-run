@@ -32,6 +32,17 @@ namespace DeepRun::Game
 [[nodiscard]] std::expected<Assets::ModelTransform, std::string> BuildBodyToWorld(
     const Physics::PhysicsBodyState& state);
 
+// Rotates a body-local vector through the same normalized quaternion convention used by BuildBodyToWorld.
+[[nodiscard]] std::expected<Physics::PhysicsVector3, std::string> RotateBodyLocalVectorToWorld(
+    const Physics::PhysicsQuaternion& orientation,
+    const Physics::PhysicsVector3& bodyLocalVector);
+
+// Maps a body-local point through one authoritative body pose, rejecting non-finite/overflowed output.
+[[nodiscard]] std::expected<Physics::PhysicsVector3, std::string> TransformBodyLocalPointToWorld(
+    const Physics::PhysicsVector3& bodyWorldPosition,
+    const Physics::PhysicsQuaternion& bodyWorldOrientation,
+    const Physics::PhysicsVector3& bodyLocalPoint);
+
 // Transforms the 8 corners of a model-space AABB through an affine transform and rebuilds a world-space AABB.
 [[nodiscard]] std::expected<Assets::ModelBounds, std::string> TransformBounds(
     const Assets::ModelBounds& bounds,

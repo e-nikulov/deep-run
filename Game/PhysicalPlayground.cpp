@@ -7,9 +7,11 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/D3D12Renderer.h"
 #include "Game/PhysicsRenderSync.h"
+#include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/HydroDragSystem.h"
+#include "Simulation/Marine/PropulsionSystem.h"
 
 #include <algorithm>
 #include <array>
@@ -53,6 +55,28 @@ constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
 // so only Z pitch damping needs a non-zero angular coefficient in this playground.
 constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{150.0F, 1800.0F, 2200.0F};
 constexpr Physics::PhysicsVector3 M2AngularEffectiveMomentMeters5{0.0F, 0.0F, 50'000'000.0F};
+
+// G2 Game-owned one-shaft prototype tuning. These are gameplay values, not measured or classified vessel
+// data, not mesh/collision-derived, and not universal submarine constants.
+constexpr Marine::PropulsionComponent M2Propulsion{
+    .maxForwardRpm = 180.0F,
+    .maxReverseRpm = 120.0F,
+    .maxForwardThrustNewtons = 12'000'000.0F,
+    .maxReverseThrustNewtons = 4'800'000.0F,
+    .spinUpRateRpmPerSecond = 30.0F,
+    .spinDownRateRpmPerSecond = 45.0F};
+
+// Temporary M2 scripted propulsion request. This is deliberately not player input or the final command layer.
+constexpr Marine::PropulsionCommand M2ScriptedPropulsionRequest{
+    .requestedDriveFraction = 1.0F,
+    .availablePowerFraction = 1.0F};
+
+// Authoritative physics tuning relative to the rigid-body origin/COM. The asset only validates alignment.
+constexpr Physics::PhysicsVector3 M2PropulsorBodyLocalPositionMeters{-50.0F, 0.0F, 0.0F};
+// The AABB-center body origin is 1.7 m above the authored hub because the sail raises the model bounds.
+// Two meters is still a narrow content-alignment gate for this approximately 100 m prototype, while the
+// simulation point remains the explicit centerline tuning above rather than being mesh-derived.
+constexpr float M2PropulsorAlignmentToleranceMeters = 2.0F;
 
 // Diagnostics-only logger for the playground; the Engine's logger is not reachable through the generic API.
 Diagnostics::Logger& PlaygroundLog() noexcept
@@ -161,6 +185,18 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground collision proxy rejected: " + validationMessage);
     }
 
+    const Assets::ModelVector3 assetBoundsCenter = BoundsCenter(bounds);
+    const auto propellerNodeIndex = ResolveM2PrototypePropellerNode(
+        **model,
+        assetBoundsCenter,
+        M2PropulsorBodyLocalPositionMeters,
+        M2PropulsorAlignmentToleranceMeters);
+    if (!propellerNodeIndex)
+    {
+        return std::unexpected("physical playground propeller node validation failed: " +
+                               propellerNodeIndex.error());
+    }
+
     const auto upload = renderer.UploadModel(**model);
     if (!upload)
     {
@@ -196,7 +232,6 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     // Asset-space pivot (ADR-0008): the C1 box shape is centered on the body origin, so modelToBody =
     // T(-assetBoundsCenter). The asset bounds center is used ONLY for this pivot correction — it must never
     // double as a world position or camera target.
-    const Assets::ModelVector3 assetBoundsCenter = BoundsCenter(bounds);
     const Physics::PhysicsVector3 halfExtents{
         (bounds.maximum.x - bounds.minimum.x) * 0.5F,
         (bounds.maximum.y - bounds.minimum.y) * 0.5F,
@@ -319,6 +354,10 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     water_ = *water;
     buoyancy_ = std::move(buoyancy);
     hydroDrag_ = BuildM2HydroDrag();
+    propulsion_ = M2Propulsion;
+    propulsionState_ = {};
+    propellerPresentationAngleRadians_ = 0.0F;
+    propellerNodeIndex_ = *propellerNodeIndex;
     assetBoundsCenter_ = assetBoundsCenter;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
     modelToBody_ = TranslationTransform(
@@ -413,6 +452,42 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
                                dragResult.error().message);
     }
 
+    const auto propulsionResult = Marine::PropulsionSystem::Advance(
+        propulsion_, propulsionState_, M2ScriptedPropulsionRequest, fixedDeltaSeconds);
+    if (!propulsionResult)
+    {
+        return std::unexpected("physical playground propulsion calculation failed: " +
+                               propulsionResult.error().message);
+    }
+
+    // Validate every derived G2 output before applying any tick output. Both force and application point use
+    // the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
+    const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(
+        state->orientation,
+        {propulsionResult->thrustNewtons, 0.0F, 0.0F});
+    if (!propulsionForceWorld)
+    {
+        return std::unexpected("physical playground propulsion force transform failed: " +
+                               propulsionForceWorld.error());
+    }
+    const auto propulsorWorldPosition = TransformBodyLocalPointToWorld(
+        state->position, state->orientation, M2PropulsorBodyLocalPositionMeters);
+    if (!propulsorWorldPosition)
+    {
+        return std::unexpected("physical playground propulsor position transform failed: " +
+                               propulsorWorldPosition.error());
+    }
+    const auto nextPresentationAngle = AdvancePropellerPresentationAngle(
+        propellerPresentationAngleRadians_,
+        propulsionState_.shaftRpm,
+        propulsionResult->nextState.shaftRpm,
+        fixedDeltaSeconds);
+    if (!nextPresentationAngle)
+    {
+        return std::unexpected("physical playground propeller presentation advance failed: " +
+                               nextPresentationAngle.error());
+    }
+
     // E2 published output is E1 input, point for point and in order. Do not recompute force, aggregate at
     // COM, derive torque, special-case dry points, or multiply by fixedDeltaSeconds.
     for (std::size_t index = 0; index < buoyancyResult->points.size(); ++index)
@@ -444,6 +519,18 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
                                dragTorqueError.message);
     }
 
+    Physics::PhysicsError propulsionForceError;
+    if (!physics_->AddForceAtWorldPosition(
+            physicsBody_, *propulsionForceWorld, *propulsorWorldPosition, &propulsionForceError))
+    {
+        return std::unexpected("physical playground propulsion force application failed: " +
+                               propulsionForceError.message);
+    }
+
+    // Transaction boundary: state advances only after every calculation and force/torque application succeeds.
+    propulsionState_ = propulsionResult->nextState;
+    propellerPresentationAngleRadians_ = *nextPresentationAngle;
+
     ++fixedTickCount_;
     if (!loggedFirstFixedSample_ ||
         (!loggedLaterFixedSample_ && fixedTickCount_ >= M2LaterDiagnosticFixedTick))
@@ -469,8 +556,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
         loggedLaterFixedSample_ = loggedLaterFixedSample_ || fixedTickCount_ >= M2LaterDiagnosticFixedTick;
         PlaygroundLog().Info(
             Diagnostics::LogCategory::Physics,
-            std::string(first ? "Physical playground first F2 fixed sample: "
-                              : "Physical playground later F2 fixed sample: ") +
+            std::string(first ? "Physical playground first G2 fixed sample: "
+                              : "Physical playground later G2 fixed sample: ") +
                 "tick " + std::to_string(fixedTickCount_) + ", position " + FormatVector(state->position) +
                 ", velocity " + FormatVector(state->linearVelocity) + ", pitch Z " +
                 std::to_string(pitchDegrees) + " deg, angular velocity " +
@@ -479,7 +566,13 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
                 std::to_string(buoyancyResult->totalSubmergedVolumeCubicMeters) + " m^3, buoyancy force " +
                 FormatVector(buoyancyResult->totalForceNewtons) + ", drag force " +
                 FormatVector(dragResult->forceNewtons) + ", drag torque " +
-                FormatVector(dragResult->torqueNewtonMeters) + ", gravity magnitude " +
+                FormatVector(dragResult->torqueNewtonMeters) + ", requested drive " +
+                std::to_string(M2ScriptedPropulsionRequest.requestedDriveFraction) +
+                ", available power " +
+                std::to_string(M2ScriptedPropulsionRequest.availablePowerFraction) + ", shaft RPM " +
+                std::to_string(propulsionState_.shaftRpm) + ", target RPM " +
+                std::to_string(propulsionResult->targetRpm) + ", thrust " +
+                std::to_string(propulsionResult->thrustNewtons) + " N, gravity magnitude " +
                 std::to_string(*gravityMagnitude) + " m/s^2, weight " +
                 std::to_string(weightMagnitude) + " N, point fraction range [" +
                 std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');
@@ -514,10 +607,20 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
 
-    // The single snapshot feeds every node draw: the body translation is applied exactly once here and each
-    // node's local transform (including the propeller at (-49, 0, 0)) is applied exactly once by
-    // PrepareModelDraws. Static GPU metadata is untouched; only per-draw transforms are rebuilt.
-    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld);
+    if (!propellerNodeIndex_.has_value())
+    {
+        return std::unexpected("physical playground propeller node index is unavailable");
+    }
+    const auto propellerRotation = RotationXTransform(propellerPresentationAngleRadians_);
+    if (!propellerRotation)
+    {
+        return std::unexpected("physical playground propeller rotation failed: " + propellerRotation.error());
+    }
+    const std::array<Render::ModelNodeTransformOverride, 1> nodeOverrides{{
+        {.nodeIndex = *propellerNodeIndex_, .nodeLocalPostTransform = *propellerRotation}}};
+
+    // The generic post-transform preserves the authored hub translation and mutates no ModelAsset/GPU data.
+    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, nodeOverrides);
     if (!draws)
     {
         return std::unexpected(draws.error());
