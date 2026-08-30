@@ -450,6 +450,51 @@ public:
         return true;
     }
 
+    bool AddTorque(PhysicsBodyHandle handle, PhysicsVector3 torqueNewtonMeters, PhysicsError* error)
+    {
+        const auto fail = [this, error](const PhysicsErrorCode code, const std::string& message) -> bool {
+            if (error != nullptr)
+            {
+                *error = PhysicsError{code, message};
+            }
+            logger.Warning(Diagnostics::LogCategory::Physics, "Torque application rejected: " + message);
+            return false;
+        };
+
+        if (!initialized)
+        {
+            return fail(PhysicsErrorCode::NotInitialized, "physics world is not initialized");
+        }
+
+        BodySlot* slot = Resolve(handle);
+        if (slot == nullptr)
+        {
+            return fail(PhysicsErrorCode::InvalidHandle, "handle is invalid, foreign, or stale");
+        }
+
+        if (!torqueNewtonMeters.IsFinite())
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "torque must be finite");
+        }
+
+        // Validate first, then preserve true zero as a backend-free no-op. BodyInterface::AddTorque with
+        // Activate would otherwise wake a sleeping body even when no torque was produced.
+        if (torqueNewtonMeters.x == 0.0F && torqueNewtonMeters.y == 0.0F && torqueNewtonMeters.z == 0.0F)
+        {
+            return true;
+        }
+
+        // Pinned Jolt v5.5.0 exact signature:
+        //   BodyInterface::AddTorque(const BodyID&, Vec3Arg, EActivation)
+        // It accumulates N*m for the next PhysicsSystem::Update and resets after that update. Pass activation
+        // explicitly so every accepted non-zero torque wakes a sleeping dynamic body.
+        physicsSystem->GetBodyInterface().AddTorque(
+            slot->bodyId,
+            JPH::Vec3(torqueNewtonMeters.x, torqueNewtonMeters.y, torqueNewtonMeters.z),
+            JPH::EActivation::Activate);
+        return true;
+    }
+
     Diagnostics::Logger& logger;
     BroadPhaseLayerInterface broadPhaseLayerInterface;
     ObjectVsBroadPhaseLayerFilter objectVsBroadPhaseLayerFilter;
@@ -652,5 +697,14 @@ bool PhysicsWorld::AddForceAtWorldPosition(
 {
     assert(impl_ != nullptr);
     return impl_->AddForceAtWorldPosition(handle, forceNewtons, worldPositionMeters, error);
+}
+
+bool PhysicsWorld::AddTorque(
+    PhysicsBodyHandle handle,
+    PhysicsVector3 torqueNewtonMeters,
+    PhysicsError* error)
+{
+    assert(impl_ != nullptr);
+    return impl_->AddTorque(handle, torqueNewtonMeters, error);
 }
 }

@@ -1363,6 +1363,11 @@ Newton-meter values: mass и delta time в формулы не входят, а 
 каждым применением силы. Collision geometry, displaced-water model и drag coefficients остаются
 независимыми моделями.
 
+Начиная с M2 Slice F2, Game вычисляет buoyancy и drag из одного authoritative body snapshot в начале
+fixed tick, затем применяет опубликованные point forces, net drag force в center of mass и drag torque до
+единственного `PhysicsWorld::Step`. Force/torque являются transient inputs и повторно применяются без
+умножения на fixed delta time.
+
 Это позволяет лодке ощущаться:
 
 * тяжёлой;

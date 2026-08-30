@@ -2474,6 +2474,263 @@ bool ForceZeroDoesNotWakeSleepingBody()
     return after->linearVelocity.x == 0.0F && after->position.x == com.x && StateIsFinite(*after);
 }
 
+// ---------------------------------------------------------------------------
+// M2 Slice F2: generic transient torque PhysicsWorld API (headless, public API only).
+// ---------------------------------------------------------------------------
+
+bool TorqueSignAndOrientation()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto positiveInfo = ForceTestBodyInfo();
+    auto negativeInfo = ForceTestBodyInfo();
+    positiveInfo.position = {-100.0F, 0.0F, 0.0F};
+    negativeInfo.position = {100.0F, 0.0F, 0.0F};
+    const auto positive = world.CreateDynamicBoxBody(positiveInfo);
+    const auto negative = world.CreateDynamicBoxBody(negativeInfo);
+    const auto initialPositive = world.GetBodyState(positive);
+    const auto initialNegative = world.GetBodyState(negative);
+    if (!initialPositive || !initialNegative ||
+        !world.AddTorque(positive, {0.0F, 0.0F, 16.0F}) ||
+        !world.AddTorque(negative, {0.0F, 0.0F, -16.0F}))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+
+    const auto afterPositive = world.GetBodyState(positive);
+    const auto afterNegative = world.GetBodyState(negative);
+    return afterPositive && afterNegative && StateIsFinite(*afterPositive) && StateIsFinite(*afterNegative) &&
+           afterPositive->angularVelocity.z > 0.0F && afterNegative->angularVelocity.z < 0.0F &&
+           afterPositive->orientation.z > initialPositive->orientation.z &&
+           afterNegative->orientation.z < initialNegative->orientation.z &&
+           afterPositive->linearVelocity == DeepRun::Physics::PhysicsVector3{} &&
+           afterNegative->linearVelocity == DeepRun::Physics::PhysicsVector3{};
+}
+
+bool TorqueMultipleCallsAccumulate()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    auto infoA = ForceTestBodyInfo();
+    auto infoB = ForceTestBodyInfo();
+    infoA.position = {-100.0F, 0.0F, 0.0F};
+    infoB.position = {100.0F, 0.0F, 0.0F};
+    const auto handleA = world.CreateDynamicBoxBody(infoA);
+    const auto handleB = world.CreateDynamicBoxBody(infoB);
+    if (!handleA.IsValid() || !handleB.IsValid() ||
+        !world.AddTorque(handleA, {0.0F, 0.0F, 8.0F}) ||
+        !world.AddTorque(handleA, {0.0F, 0.0F, 8.0F}) ||
+        !world.AddTorque(handleB, {0.0F, 0.0F, 16.0F}))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+
+    const auto afterA = world.GetBodyState(handleA);
+    const auto afterB = world.GetBodyState(handleB);
+    return afterA && afterB && afterA->angularVelocity.z > 0.0F &&
+           std::abs(afterA->angularVelocity.z - afterB->angularVelocity.z) < 1.0e-4F &&
+           std::abs(afterA->orientation.z - afterB->orientation.z) < 1.0e-4F &&
+           StateIsFinite(*afterA) && StateIsFinite(*afterB);
+}
+
+bool TorqueIsNotPersistent()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    if (!handle.IsValid() || !world.AddTorque(handle, {0.0F, 0.0F, 16.0F}))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+    const auto afterFirst = world.GetBodyState(handle);
+    if (!afterFirst || afterFirst->angularVelocity.z <= 0.0F)
+    {
+        return false;
+    }
+
+    world.Step(1.0F / 60.0F); // no re-application: no second angular-velocity increment
+    const auto afterSecond = world.GetBodyState(handle);
+    return afterSecond && StateIsFinite(*afterSecond) &&
+           std::abs(afterSecond->angularVelocity.z - afterFirst->angularVelocity.z) < 1.0e-4F &&
+           afterSecond->orientation.z > afterFirst->orientation.z;
+}
+
+bool TorqueInvalidInputAndZeroNoOp()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsError error;
+    const DeepRun::Physics::PhysicsVector3 torque{0.0F, 0.0F, 10.0F};
+
+    // Validation order: an uninitialized world reports NotInitialized before examining the handle.
+    {
+        DeepRun::Physics::PhysicsWorld uninitialized(logger);
+        if (uninitialized.AddTorque({}, torque, &error) ||
+            error.code != DeepRun::Physics::PhysicsErrorCode::NotInitialized)
+        {
+            return false;
+        }
+    }
+
+    // Capture a live handle from a different world identity, then let that world release Jolt's global instance.
+    DeepRun::Physics::PhysicsBodyHandle foreign;
+    {
+        DeepRun::Physics::PhysicsWorld owner(logger);
+        if (!owner.Initialize())
+        {
+            return false;
+        }
+        foreign = owner.CreateDynamicBoxBody(ForceTestBodyInfo());
+        if (!foreign.IsValid())
+        {
+            return false;
+        }
+    }
+
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize() || world.AddTorque(foreign, torque, &error) ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+    if (world.AddTorque({}, torque, &error) || error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+
+    const auto stale = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    if (!stale.IsValid() || !world.DestroyBody(stale) || world.AddTorque(stale, torque, &error) ||
+        error.code != DeepRun::Physics::PhysicsErrorCode::InvalidHandle)
+    {
+        return false;
+    }
+
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    for (const DeepRun::Physics::PhysicsVector3 invalid :
+         {DeepRun::Physics::PhysicsVector3{nan, 0.0F, 0.0F},
+          DeepRun::Physics::PhysicsVector3{0.0F, infinity, 0.0F},
+          DeepRun::Physics::PhysicsVector3{0.0F, 0.0F, -infinity}})
+    {
+        if (world.AddTorque(handle, invalid, &error) ||
+            error.code != DeepRun::Physics::PhysicsErrorCode::InvalidInput)
+        {
+            return false;
+        }
+    }
+
+    const auto before = world.GetBodyState(handle);
+    if (!before || !world.AddTorque(handle, {}))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+    const auto after = world.GetBodyState(handle);
+    return after && StateIsFinite(*after) && after->position == before->position &&
+           after->orientation == before->orientation && after->linearVelocity == before->linearVelocity &&
+           after->angularVelocity == before->angularVelocity;
+}
+
+bool TorqueActivatesSleepingBody()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    for (int step = 0; step < 120; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto sleeping = world.GetBodyState(handle);
+    if (!sleeping || sleeping->active || !world.AddTorque(handle, {0.0F, 0.0F, 16.0F}))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+    const auto after = world.GetBodyState(handle);
+    return after && after->active && after->angularVelocity.z > 0.0F && StateIsFinite(*after);
+}
+
+bool TorqueZeroDoesNotWakeSleepingBody()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(ForceTestBodyInfo());
+    for (int step = 0; step < 120; ++step)
+    {
+        world.Step(1.0F / 60.0F);
+    }
+    const auto sleeping = world.GetBodyState(handle);
+    if (!sleeping || sleeping->active || !world.AddTorque(handle, {}))
+    {
+        return false;
+    }
+    const auto immediate = world.GetBodyState(handle);
+    if (!immediate || immediate->active ||
+        immediate->angularVelocity != DeepRun::Physics::PhysicsVector3{})
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+    const auto after = world.GetBodyState(handle);
+    return after && !after->active && after->position == sleeping->position &&
+           after->orientation == sleeping->orientation &&
+           after->angularVelocity == DeepRun::Physics::PhysicsVector3{};
+}
+
+bool TorquePlanarDOFPreservation()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+    auto info = ForceTestBodyInfo();
+    DeepRun::Physics::PhysicsDegreesOfFreedom planar;
+    planar.translationZ = false;
+    planar.rotationX = false;
+    planar.rotationY = false;
+    info.degreesOfFreedom = planar;
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    if (!initial || !world.AddTorque(handle, {16.0F, 16.0F, 16.0F}))
+    {
+        return false;
+    }
+    world.Step(1.0F / 60.0F);
+    const auto after = world.GetBodyState(handle);
+    return after && StateIsFinite(*after) && std::abs(after->angularVelocity.x) < 1.0e-5F &&
+           std::abs(after->angularVelocity.y) < 1.0e-5F && after->angularVelocity.z > 0.0F &&
+           after->position == initial->position &&
+           after->linearVelocity == DeepRun::Physics::PhysicsVector3{};
+}
+
 bool WorldBoundsUseModelToWorldComposition()
 {
     const ModelBounds& bounds = OffCenterTestBounds; // size (100, 14, 10), center (20, 2, 1): off-center on purpose
@@ -3770,6 +4027,241 @@ bool HydroDragRejectsDerivedOverflow()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice F2: fixed-step integration of F1 outputs through generic PhysicsWorld force/torque APIs.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+bool F2ApplyMarineFromOneSnapshot(
+    DeepRun::Physics::PhysicsWorld& world,
+    const DeepRun::Physics::PhysicsBodyHandle handle,
+    const WaterBody& water,
+    const BuoyancyComponent& buoyancy,
+    const HydroDragComponent& drag)
+{
+    // This one GetBodyState is the authoritative beginning-of-tick snapshot for BOTH calculations.
+    const auto state = world.GetBodyState(handle);
+    const auto gravity = world.Gravity();
+    if (!state || !gravity || !gravity->IsFinite())
+    {
+        return false;
+    }
+    const double gravityMagnitude = std::sqrt(
+        static_cast<double>(gravity->x) * gravity->x + static_cast<double>(gravity->y) * gravity->y +
+        static_cast<double>(gravity->z) * gravity->z);
+    if (!std::isfinite(gravityMagnitude) || gravityMagnitude <= 0.0 ||
+        gravityMagnitude > (std::numeric_limits<float>::max)())
+    {
+        return false;
+    }
+
+    const auto buoyancyResult = BuoyancySystem::Calculate(
+        water,
+        buoyancy,
+        {.worldPositionMeters = state->position, .worldOrientation = state->orientation},
+        static_cast<float>(gravityMagnitude));
+    const auto dragResult = HydroDragSystem::Calculate(
+        water,
+        drag,
+        {.worldOrientation = state->orientation,
+         .worldLinearVelocityMetersPerSecond = state->linearVelocity,
+         .worldAngularVelocityRadiansPerSecond = state->angularVelocity});
+    if (!buoyancyResult || !dragResult)
+    {
+        return false;
+    }
+
+    for (const auto& point : buoyancyResult->points)
+    {
+        if (!world.AddForceAtWorldPosition(handle, point.forceNewtons, point.worldPositionMeters))
+        {
+            return false;
+        }
+    }
+    // Current test body origin equals its center of mass, matching the F2 playground contract.
+    return world.AddForceAtWorldPosition(handle, dragResult->forceNewtons, state->position) &&
+           world.AddTorque(handle, dragResult->torqueNewtonMeters);
+}
+
+bool F2ApplyDragFromOneSnapshot(
+    DeepRun::Physics::PhysicsWorld& world,
+    const DeepRun::Physics::PhysicsBodyHandle handle,
+    const WaterBody& water,
+    const HydroDragComponent& drag)
+{
+    const auto state = world.GetBodyState(handle);
+    if (!state)
+    {
+        return false;
+    }
+    const auto result = HydroDragSystem::Calculate(
+        water,
+        drag,
+        {.worldOrientation = state->orientation,
+         .worldLinearVelocityMetersPerSecond = state->linearVelocity,
+         .worldAngularVelocityRadiansPerSecond = state->angularVelocity});
+    return result && world.AddForceAtWorldPosition(handle, result->forceNewtons, state->position) &&
+           world.AddTorque(handle, result->torqueNewtonMeters);
+}
+} // namespace
+
+bool HydroDragIntegrationDampsVerticalDescentWithoutSpring()
+{
+    constexpr float Mass = 2000.0F;
+    constexpr float Density = 1000.0F;
+    constexpr float InitialVelocityY = -3.0F;
+    constexpr int Steps = 120;
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(E3BodyInfo(Mass, {0.0F, InitialVelocityY, 0.0F}));
+    const auto initial = world.GetBodyState(handle);
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    const HydroDragComponent drag = F1Component({0.05F, 0.5F, 0.7F});
+    if (!initial)
+    {
+        return false;
+    }
+
+    for (int step = 0; step < Steps; ++step)
+    {
+        if (!F2ApplyMarineFromOneSnapshot(world, handle, *water, buoyancy, drag))
+        {
+            return false;
+        }
+        world.Step(E3FixedDeltaSeconds);
+        const auto current = world.GetBodyState(handle);
+        if (!current || current->linearVelocity.y >= 0.0F)
+        {
+            return false; // drag damps descent; it must never become a spring or reverse direction
+        }
+    }
+
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+    std::cout << "[F2 evidence] vertical drag: Y " << initial->position.y << " -> " << after->position.y
+              << ", Vy " << initial->linearVelocity.y << " -> " << after->linearVelocity.y << '\n';
+    return StateIsFinite(*after) && after->position.y < initial->position.y && after->linearVelocity.y < 0.0F &&
+           std::abs(after->linearVelocity.y) < 0.8F * std::abs(InitialVelocityY) &&
+           std::abs(after->position.x - initial->position.x) < 1.0e-3F &&
+           std::abs(after->position.z - initial->position.z) < 1.0e-3F;
+}
+
+bool HydroDragIntegrationPreservesLinearAnisotropy()
+{
+    constexpr float Mass = 2000.0F;
+    constexpr float Density = 1000.0F;
+    constexpr int Steps = 120;
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+
+    auto xInfo = E3BodyInfo(Mass, {3.0F, 0.0F, 0.0F});
+    auto yInfo = E3BodyInfo(Mass, {0.0F, 3.0F, 0.0F});
+    xInfo.position.x = -100.0F;
+    yInfo.position.x = 100.0F;
+    const auto xBody = world.CreateDynamicBoxBody(xInfo);
+    const auto yBody = world.CreateDynamicBoxBody(yInfo);
+    const BuoyancyComponent buoyancy = E3NeutralBuoyancy(Mass, Density);
+    const HydroDragComponent drag = F1Component({0.05F, 0.5F, 0.7F});
+    for (int step = 0; step < Steps; ++step)
+    {
+        if (!F2ApplyMarineFromOneSnapshot(world, xBody, *water, buoyancy, drag) ||
+            !F2ApplyMarineFromOneSnapshot(world, yBody, *water, buoyancy, drag))
+        {
+            return false;
+        }
+        world.Step(E3FixedDeltaSeconds);
+    }
+
+    const auto xAfter = world.GetBodyState(xBody);
+    const auto yAfter = world.GetBodyState(yBody);
+    if (!xAfter || !yAfter)
+    {
+        return false;
+    }
+    std::cout << "[F2 evidence] anisotropy: Vx(Ax=0.05) " << xAfter->linearVelocity.x
+              << ", Vy(Ay=0.5) " << yAfter->linearVelocity.y << '\n';
+    return StateIsFinite(*xAfter) && StateIsFinite(*yAfter) && xAfter->linearVelocity.x > 0.0F &&
+           yAfter->linearVelocity.y > 0.0F && xAfter->linearVelocity.x > yAfter->linearVelocity.y + 0.5F;
+}
+
+bool HydroDragIntegrationUsesBodyLocalAxes()
+{
+    constexpr float HalfSqrtTwo = 0.7071067811865475F;
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = F1Water(1000.0F);
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    auto info = E3BodyInfo(2000.0F, {0.0F, 3.0F, 0.0F}, {0.0F, 0.0F, HalfSqrtTwo, HalfSqrtTwo});
+    info.gravityEnabled = false;
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    const HydroDragComponent drag = F1Component({0.5F, 0.0F, 0.0F});
+    for (int step = 0; step < 120; ++step)
+    {
+        if (!F2ApplyDragFromOneSnapshot(world, handle, *water, drag))
+        {
+            return false;
+        }
+        world.Step(E3FixedDeltaSeconds);
+    }
+    const auto after = world.GetBodyState(handle);
+    std::cout << "[F2 evidence] rotated local X along world Y: Vy "
+              << (initial ? initial->linearVelocity.y : 0.0F) << " -> "
+              << (after ? after->linearVelocity.y : 0.0F) << '\n';
+    return initial && after && StateIsFinite(*after) && after->linearVelocity.y > 0.0F &&
+           after->linearVelocity.y < 0.8F * initial->linearVelocity.y &&
+           std::abs(after->linearVelocity.x) < 1.0e-3F && std::abs(after->linearVelocity.z) < 1.0e-3F;
+}
+
+bool HydroDragIntegrationDampsAngularVelocity()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = F1Water(1000.0F);
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    auto info = E3BodyInfo(2000.0F);
+    info.gravityEnabled = false;
+    info.initialAngularVelocity = {0.0F, 0.0F, 1.0F};
+    const auto handle = world.CreateDynamicBoxBody(info);
+    const auto initial = world.GetBodyState(handle);
+    const HydroDragComponent drag = F1Component({}, {0.0F, 0.0F, 5.0F});
+    for (int step = 0; step < 60; ++step)
+    {
+        if (!F2ApplyDragFromOneSnapshot(world, handle, *water, drag))
+        {
+            return false;
+        }
+        world.Step(E3FixedDeltaSeconds);
+    }
+    const auto after = world.GetBodyState(handle);
+    std::cout << "[F2 evidence] angular drag: omegaZ "
+              << (initial ? initial->angularVelocity.z : 0.0F) << " -> "
+              << (after ? after->angularVelocity.z : 0.0F) << '\n';
+    return initial && after && StateIsFinite(*after) && after->angularVelocity.z > 0.0F &&
+           after->angularVelocity.z < 0.9F * initial->angularVelocity.z &&
+           after->linearVelocity == PhysicsVector3{};
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -4170,10 +4662,10 @@ bool EngineRenderHasNoPhysicsOrJoltDependency()
 
 bool PhysicsWorldHasNoGpuModelKnowledge()
 {
-    // Engine/Physics must not know about GPU models or domain-specific marine systems (ADR-0007 / E3).
+    // Engine/Physics must not know about GPU models or domain-specific marine systems (ADR-0007 / F2).
     const std::filesystem::path physicsRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Physics";
     return ScanSourceDirectoryForForbiddenPatterns(
-        physicsRoot, {"gpumodel", "d3d12", "waterbody", "buoyancy", "simulation/marine"});
+        physicsRoot, {"gpumodel", "d3d12", "waterbody", "buoyancy", "hydrodrag", "simulation/marine"});
 }
 
 bool PhysicsPublicHeadersHaveNoJoltDependency()
@@ -4250,7 +4742,8 @@ bool EngineHasNoMarineKnowledge()
 {
     // The generic engine must not become aware of marine simulation (M2 Slice D1).
     const std::filesystem::path engineRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine";
-    return ScanSourceDirectoryForForbiddenPatterns(engineRoot, {"waterbody", "marine", "buoyancy", "submarine"});
+    return ScanSourceDirectoryForForbiddenPatterns(
+        engineRoot, {"waterbody", "marine", "buoyancy", "hydrodrag", "submarine"});
 }
 
 bool EngineRenderHasNoWaterSemantics()
@@ -4377,6 +4870,11 @@ int main(const int argumentCount, const char* const* arguments)
         {"F1 invalid configuration rejected", HydroDragRejectsInvalidConfiguration},
         {"F1 invalid state rejected", HydroDragRejectsInvalidState},
         {"F1 derived overflow rejected", HydroDragRejectsDerivedOverflow},
+        // M2 Slice F2: drag integration and generic transient torque application.
+        {"F2 vertical drag damps descent without spring", HydroDragIntegrationDampsVerticalDescentWithoutSpring},
+        {"F2 integrated linear anisotropy", HydroDragIntegrationPreservesLinearAnisotropy},
+        {"F2 integrated body-local axes", HydroDragIntegrationUsesBodyLocalAxes},
+        {"F2 integrated angular damping", HydroDragIntegrationDampsAngularVelocity},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -4398,6 +4896,14 @@ int main(const int argumentCount, const char* const* arguments)
         {"E1 invalid input and zero-force no-op", ForceInvalidInputAndZeroNoOp},
         {"E1 non-zero force activates sleeping body", ForceActivatesSleepingBody},
         {"E1 zero force does not wake sleeping body", ForceZeroDoesNotWakeSleepingBody},
+        // M2 Slice F2: generic torque PhysicsWorld API (headless, public API only).
+        {"F2 torque sign and orientation", TorqueSignAndOrientation},
+        {"F2 torque multiple calls accumulate", TorqueMultipleCallsAccumulate},
+        {"F2 torque is not persistent", TorqueIsNotPersistent},
+        {"F2 torque validation and zero no-op", TorqueInvalidInputAndZeroNoOp},
+        {"F2 non-zero torque activates sleeping body", TorqueActivatesSleepingBody},
+        {"F2 zero torque does not wake sleeping body", TorqueZeroDoesNotWakeSleepingBody},
+        {"F2 planar DOF preservation under torque", TorquePlanarDOFPreservation},
         // M2 Slice C2: architecture boundary scans.
         {"Game code has no Jolt dependency", GameCodeHasNoJoltDependency},
         {"Engine render has no physics or Jolt dependency", EngineRenderHasNoPhysicsOrJoltDependency},

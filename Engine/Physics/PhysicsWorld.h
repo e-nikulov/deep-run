@@ -76,6 +76,16 @@ public:
         PhysicsVector3 worldPositionMeters,
         PhysicsError* error = nullptr);
 
+    // Accumulates torque (unit: Newton-meter) on `handle` for the upcoming fixed simulation step. This is
+    // continuous torque, not angular impulse: do not multiply by delta time, and re-apply it each fixed tick.
+    // Jolt clears the accumulated torque after Step. A finite zero torque is a successful true no-op that
+    // does not touch the backend or wake a sleeping body; a non-zero torque explicitly activates the body.
+    // Invalid world state, invalid/foreign/stale handles, and NaN/Inf input are recoverable errors.
+    bool AddTorque(
+        PhysicsBodyHandle handle,
+        PhysicsVector3 torqueNewtonMeters,
+        PhysicsError* error = nullptr);
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

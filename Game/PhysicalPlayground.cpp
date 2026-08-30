@@ -9,6 +9,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
+#include "Simulation/Marine/HydroDragSystem.h"
 
 #include <algorithm>
 #include <array>
@@ -45,6 +46,13 @@ constexpr float M2BuoyancySubmersionHalfHeightMeters = 6.0F;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
 constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
+
+// F2 Game-owned prototype drag tuning. These are gameplay coefficients, not measured/classified vessel
+// hydrostatics and not values derived from the render mesh, collision box, or displaced-water model.
+// Longitudinal X is intentionally much lower than vertical/lateral Y/Z. The current 2.5D body locks RX/RY,
+// so only Z pitch damping needs a non-zero angular coefficient in this playground.
+constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{150.0F, 1800.0F, 2200.0F};
+constexpr Physics::PhysicsVector3 M2AngularEffectiveMomentMeters5{0.0F, 0.0F, 50'000'000.0F};
 
 // Diagnostics-only logger for the playground; the Engine's logger is not reachable through the generic API.
 Diagnostics::Logger& PlaygroundLog() noexcept
@@ -121,6 +129,13 @@ Marine::BuoyancyComponent BuildM2Buoyancy(const Marine::WaterBody& water)
             .submersionHalfHeightMeters = M2BuoyancySubmersionHalfHeightMeters});
     }
     return component;
+}
+
+Marine::HydroDragComponent BuildM2HydroDrag() noexcept
+{
+    return Marine::HydroDragComponent{
+        .linearEffectiveAreaSquareMeters = M2LinearEffectiveAreaSquareMeters,
+        .angularEffectiveMomentMeters5 = M2AngularEffectiveMomentMeters5};
 }
 } // namespace
 
@@ -303,6 +318,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     physics_ = &physics;
     water_ = *water;
     buoyancy_ = std::move(buoyancy);
+    hydroDrag_ = BuildM2HydroDrag();
     assetBoundsCenter_ = assetBoundsCenter;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
     modelToBody_ = TranslationTransform(
@@ -370,23 +386,38 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
         return std::unexpected("physical playground fixed gravity validation failed: " + gravityMagnitude.error());
     }
 
-    const auto result = Marine::BuoyancySystem::Calculate(
+    const auto buoyancyResult = Marine::BuoyancySystem::Calculate(
         *water_,
         buoyancy_,
         Marine::BuoyancyPose{
             .worldPositionMeters = state->position,
             .worldOrientation = state->orientation},
         *gravityMagnitude);
-    if (!result)
+    if (!buoyancyResult)
     {
-        return std::unexpected("physical playground buoyancy calculation failed: " + result.error().message);
+        return std::unexpected("physical playground buoyancy calculation failed: " + buoyancyResult.error().message);
+    }
+
+    // F2 consumes the SAME beginning-of-tick body snapshot as buoyancy. Both force producers finish before
+    // any output is applied, so neither observes state affected by the other in this fixed tick.
+    const auto dragResult = Marine::HydroDragSystem::Calculate(
+        *water_,
+        hydroDrag_,
+        Marine::HydroDragState{
+            .worldOrientation = state->orientation,
+            .worldLinearVelocityMetersPerSecond = state->linearVelocity,
+            .worldAngularVelocityRadiansPerSecond = state->angularVelocity});
+    if (!dragResult)
+    {
+        return std::unexpected("physical playground hydrodynamic drag calculation failed: " +
+                               dragResult.error().message);
     }
 
     // E2 published output is E1 input, point for point and in order. Do not recompute force, aggregate at
     // COM, derive torque, special-case dry points, or multiply by fixedDeltaSeconds.
-    for (std::size_t index = 0; index < result->points.size(); ++index)
+    for (std::size_t index = 0; index < buoyancyResult->points.size(); ++index)
     {
-        const Marine::BuoyancyPointResult& point = result->points[index];
+        const Marine::BuoyancyPointResult& point = buoyancyResult->points[index];
         Physics::PhysicsError error;
         if (!physics_->AddForceAtWorldPosition(
                 physicsBody_, point.forceNewtons, point.worldPositionMeters, &error))
@@ -394,6 +425,23 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
             return std::unexpected("physical playground buoyancy force application failed at point " +
                                    std::to_string(index) + ": " + error.message);
         }
+    }
+
+    // The current M2 box body's origin is its center of mass (ADR-0008), so apply F1's one net world force
+    // there through the existing E1 operation. Do not distribute it or derive another torque from it.
+    Physics::PhysicsError dragForceError;
+    if (!physics_->AddForceAtWorldPosition(
+            physicsBody_, dragResult->forceNewtons, state->position, &dragForceError))
+    {
+        return std::unexpected("physical playground hydrodynamic drag force application failed: " +
+                               dragForceError.message);
+    }
+
+    Physics::PhysicsError dragTorqueError;
+    if (!physics_->AddTorque(physicsBody_, dragResult->torqueNewtonMeters, &dragTorqueError))
+    {
+        return std::unexpected("physical playground hydrodynamic drag torque application failed: " +
+                               dragTorqueError.message);
     }
 
     ++fixedTickCount_;
@@ -408,7 +456,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
 
         float minimumFraction = 1.0F;
         float maximumFraction = 0.0F;
-        for (const auto& point : result->points)
+        for (const auto& point : buoyancyResult->points)
         {
             minimumFraction = (std::min)(minimumFraction, point.submergedFraction);
             maximumFraction = (std::max)(maximumFraction, point.submergedFraction);
@@ -421,15 +469,17 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
         loggedLaterFixedSample_ = loggedLaterFixedSample_ || fixedTickCount_ >= M2LaterDiagnosticFixedTick;
         PlaygroundLog().Info(
             Diagnostics::LogCategory::Physics,
-            std::string(first ? "Physical playground first E3 fixed sample: "
-                              : "Physical playground later E3 fixed sample: ") +
+            std::string(first ? "Physical playground first F2 fixed sample: "
+                              : "Physical playground later F2 fixed sample: ") +
                 "tick " + std::to_string(fixedTickCount_) + ", position " + FormatVector(state->position) +
                 ", velocity " + FormatVector(state->linearVelocity) + ", pitch Z " +
                 std::to_string(pitchDegrees) + " deg, angular velocity " +
                 FormatVector(state->angularVelocity) + ", signed depth " +
                 std::to_string(bodyDepth->signedDepthMeters) + " m, submerged volume " +
-                std::to_string(result->totalSubmergedVolumeCubicMeters) + " m^3, buoyancy force " +
-                FormatVector(result->totalForceNewtons) + ", gravity magnitude " +
+                std::to_string(buoyancyResult->totalSubmergedVolumeCubicMeters) + " m^3, buoyancy force " +
+                FormatVector(buoyancyResult->totalForceNewtons) + ", drag force " +
+                FormatVector(dragResult->forceNewtons) + ", drag torque " +
+                FormatVector(dragResult->torqueNewtonMeters) + ", gravity magnitude " +
                 std::to_string(*gravityMagnitude) + " m/s^2, weight " +
                 std::to_string(weightMagnitude) + " N, point fraction range [" +
                 std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');
@@ -541,7 +591,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
             loggedRenderPresentation_ = true;
             PlaygroundLog().Info(
                 Diagnostics::LogCategory::Render,
-                "Physical playground E3 presentation: surface Y " +
+                "Physical playground F2 presentation: surface Y " +
                     std::to_string(water_->Config().surfaceLevelY) + ", camera target Y " +
                     std::to_string(camera->target.y) + ", horizontal span " +
                     std::to_string(camera->width) + ", vertical span " +
