@@ -10,6 +10,7 @@
 #include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
+#include "Simulation/Marine/ControlSurfaceSystem.h"
 #include "Simulation/Marine/HydroDragSystem.h"
 #include "Simulation/Marine/PropulsionSystem.h"
 
@@ -66,10 +67,9 @@ constexpr Marine::PropulsionComponent M2Propulsion{
     .spinUpRateRpmPerSecond = 30.0F,
     .spinDownRateRpmPerSecond = 45.0F};
 
-// Temporary M2 scripted propulsion request. This is deliberately not player input or the final command layer.
-constexpr Marine::PropulsionCommand M2ScriptedPropulsionRequest{
-    .requestedDriveFraction = 1.0F,
-    .availablePowerFraction = 1.0F};
+// Temporary M2 scenario truth until the later power system exists. The direct throttle command remains the only
+// source of requested drive in I1; this value must not become an M6 power-management system early.
+constexpr float M2AvailablePropulsionPowerFraction = 1.0F;
 
 // Authoritative physics tuning relative to the rigid-body origin/COM. The asset only validates alignment.
 constexpr Physics::PhysicsVector3 M2PropulsorBodyLocalPositionMeters{-50.0F, 0.0F, 0.0F};
@@ -77,6 +77,19 @@ constexpr Physics::PhysicsVector3 M2PropulsorBodyLocalPositionMeters{-50.0F, 0.0
 // Two meters is still a narrow content-alignment gate for this approximately 100 m prototype, while the
 // simulation point remains the explicit centerline tuning above rather than being mesh-derived.
 constexpr float M2PropulsorAlignmentToleranceMeters = 2.0F;
+
+// H2 Game-owned prototype tuning for exactly two independently evaluated diving-plane groups. These values
+// are not measured/classified vessel data, mesh- or collision-derived, or universal submarine constants.
+constexpr std::size_t M2BowPlaneIndex = 0;
+constexpr std::size_t M2SternPlaneIndex = 1;
+constexpr std::array<Marine::ControlSurfaceComponent, 2> M2ControlSurfaces{{
+    {.bodyLocalPositionMeters = {32.0F, 0.0F, 0.0F},
+     .maxEffectiveLiftAreaSquareMeters = 40.0F},
+    {.bodyLocalPositionMeters = {-32.0F, 0.0F, 0.0F},
+     .maxEffectiveLiftAreaSquareMeters = 40.0F}}};
+
+constexpr float M2MaximumPlaneDeflection = 0.5F;
+constexpr std::array<std::string_view, 2> M2ControlSurfaceNames{"bow", "stern"};
 
 // Diagnostics-only logger for the playground; the Engine's logger is not reachable through the generic API.
 Diagnostics::Logger& PlaygroundLog() noexcept
@@ -347,6 +360,28 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             "physical playground initial transform cannot be built: " + initialBodyToWorld.error());
     }
 
+    // H2 content/configuration gate: validate exactly two independent Game-owned groups against the initial
+    // pose with benign zero deflection. At rest their published application points must be finite and their
+    // forces exactly zero. No mesh node or asset bound supplies either physics position.
+    const Marine::ControlSurfaceKinematics initialControlKinematics{
+        .bodyWorldPositionMeters = initialState->position,
+        .worldOrientation = initialState->orientation,
+        .worldLinearVelocityMetersPerSecond = initialState->linearVelocity};
+    for (std::size_t index = 0; index < M2ControlSurfaces.size(); ++index)
+    {
+        const auto control = Marine::ControlSurfaceSystem::Calculate(
+            *water, M2ControlSurfaces[index], initialControlKinematics, 0.0F);
+        if (!control || !control->worldPositionMeters.IsFinite() ||
+            control->forceNewtons != Physics::PhysicsVector3{})
+        {
+            (void)physics.DestroyBody(body, &physicsError);
+            return std::unexpected(
+                "physical playground " + std::string(M2ControlSurfaceNames[index]) +
+                " control-surface initialization validation failed" +
+                (control ? std::string{} : ": " + control.error().message));
+        }
+    }
+
     modelAsset_ = *model;
     submarineModel_ = upload->handle;
     physicsBody_ = body;
@@ -356,6 +391,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     hydroDrag_ = BuildM2HydroDrag();
     propulsion_ = M2Propulsion;
     propulsionState_ = {};
+    controlSurfaces_ = M2ControlSurfaces;
     propellerPresentationAngleRadians_ = 0.0F;
     propellerNodeIndex_ = *propellerNodeIndex;
     assetBoundsCenter_ = assetBoundsCenter;
@@ -389,7 +425,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     return {};
 }
 
-std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fixedDeltaSeconds)
+std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
+    const float fixedDeltaSeconds,
+    const VesselCommandState& command)
 {
     if (!std::isfinite(fixedDeltaSeconds) || fixedDeltaSeconds <= 0.0F)
     {
@@ -406,6 +444,11 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
     if (!water_.has_value())
     {
         return std::unexpected("physical playground water body is unavailable");
+    }
+    const auto validatedCommand = ValidateVesselCommandState(command);
+    if (!validatedCommand)
+    {
+        return std::unexpected("physical playground command validation failed: " + validatedCommand.error());
     }
     if (buoyancy_.points.empty())
     {
@@ -452,16 +495,47 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
                                dragResult.error().message);
     }
 
-    const auto propulsionResult = Marine::PropulsionSystem::Advance(
-        propulsion_, propulsionState_, M2ScriptedPropulsionRequest, fixedDeltaSeconds);
+    const Marine::PropulsionCommand propulsionCommand{
+        .requestedDriveFraction = command.throttleFraction,
+        .availablePowerFraction = M2AvailablePropulsionPowerFraction};
+    const auto propulsionResult =
+        Marine::PropulsionSystem::Advance(propulsion_, propulsionState_, propulsionCommand, fixedDeltaSeconds);
     if (!propulsionResult)
     {
         return std::unexpected("physical playground propulsion calculation failed: " +
                                propulsionResult.error().message);
     }
 
-    // Validate every derived G2 output before applying any tick output. Both force and application point use
-    // the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
+    // Both H2 surfaces consume the SAME beginning-of-tick pose/velocity. H1 alone owns conversion to body
+    // flow, force magnitude/sign, orientation back to world, and the published world application point.
+    const Marine::ControlSurfaceKinematics controlKinematics{
+        .bodyWorldPositionMeters = state->position,
+        .worldOrientation = state->orientation,
+            .worldLinearVelocityMetersPerSecond = state->linearVelocity};
+    // I1 intentionally maps direct semantic Depth to the existing H2 prototype *actual* deflection range.
+    // There is no actuator state, target depth, vertical-velocity command, or stabilization layer here.
+    const std::array<float, 2> controlDeflections{
+        -M2MaximumPlaneDeflection * command.depthCommandFraction,
+        M2MaximumPlaneDeflection * command.depthCommandFraction};
+    std::array<Marine::ControlSurfaceResult, 2> controlResults{};
+    for (std::size_t index = 0; index < controlSurfaces_.size(); ++index)
+    {
+        const auto control = Marine::ControlSurfaceSystem::Calculate(
+            *water_,
+            controlSurfaces_[index],
+            controlKinematics,
+            controlDeflections[index]);
+        if (!control)
+        {
+            return std::unexpected(
+                "physical playground " + std::string(M2ControlSurfaceNames[index]) +
+                " control-surface calculation failed: " + control.error().message);
+        }
+        controlResults[index] = *control;
+    }
+
+    // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
+    // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
     const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(
         state->orientation,
         {propulsionResult->thrustNewtons, 0.0F, 0.0F});
@@ -527,7 +601,25 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
                                propulsionForceError.message);
     }
 
-    // Transaction boundary: state advances only after every calculation and force/torque application succeeds.
+    // Apply the two published H1 outputs independently. Their near-zero linear sum must never be collapsed
+    // at COM: opposite forces at +/-32 m generate the physical pitch moment through PhysicsWorld/Jolt.
+    for (std::size_t index = 0; index < controlResults.size(); ++index)
+    {
+        Physics::PhysicsError controlForceError;
+        if (!physics_->AddForceAtWorldPosition(
+                physicsBody_,
+                controlResults[index].forceNewtons,
+                controlResults[index].worldPositionMeters,
+                &controlForceError))
+        {
+            return std::unexpected(
+                "physical playground " + std::string(M2ControlSurfaceNames[index]) +
+                " control-surface force application failed: " + controlForceError.message);
+        }
+    }
+
+    // Transaction boundary: state advances only after every calculation and force/torque application,
+    // including both H2 surface forces, succeeds.
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
 
@@ -556,8 +648,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
         loggedLaterFixedSample_ = loggedLaterFixedSample_ || fixedTickCount_ >= M2LaterDiagnosticFixedTick;
         PlaygroundLog().Info(
             Diagnostics::LogCategory::Physics,
-            std::string(first ? "Physical playground first G2 fixed sample: "
-                              : "Physical playground later G2 fixed sample: ") +
+            std::string(first ? "Physical playground first I1 fixed sample: "
+                              : "Physical playground later I1 fixed sample: ") +
                 "tick " + std::to_string(fixedTickCount_) + ", position " + FormatVector(state->position) +
                 ", velocity " + FormatVector(state->linearVelocity) + ", pitch Z " +
                 std::to_string(pitchDegrees) + " deg, angular velocity " +
@@ -567,12 +659,21 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(const float fix
                 FormatVector(buoyancyResult->totalForceNewtons) + ", drag force " +
                 FormatVector(dragResult->forceNewtons) + ", drag torque " +
                 FormatVector(dragResult->torqueNewtonMeters) + ", requested drive " +
-                std::to_string(M2ScriptedPropulsionRequest.requestedDriveFraction) +
+                std::to_string(command.throttleFraction) + ", depth command " +
+                std::to_string(command.depthCommandFraction) +
                 ", available power " +
-                std::to_string(M2ScriptedPropulsionRequest.availablePowerFraction) + ", shaft RPM " +
+                std::to_string(M2AvailablePropulsionPowerFraction) + ", shaft RPM " +
                 std::to_string(propulsionState_.shaftRpm) + ", target RPM " +
                 std::to_string(propulsionResult->targetRpm) + ", thrust " +
-                std::to_string(propulsionResult->thrustNewtons) + " N, gravity magnitude " +
+                std::to_string(propulsionResult->thrustNewtons) + " N, bow deflection " +
+                std::to_string(controlDeflections[M2BowPlaneIndex]) +
+                ", bow force " + FormatVector(controlResults[M2BowPlaneIndex].forceNewtons) +
+                ", bow point " + FormatVector(controlResults[M2BowPlaneIndex].worldPositionMeters) +
+                ", stern deflection " +
+                std::to_string(controlDeflections[M2SternPlaneIndex]) +
+                ", stern force " + FormatVector(controlResults[M2SternPlaneIndex].forceNewtons) +
+                ", stern point " + FormatVector(controlResults[M2SternPlaneIndex].worldPositionMeters) +
+                ", gravity magnitude " +
                 std::to_string(*gravityMagnitude) + " m/s^2, weight " +
                 std::to_string(weightMagnitude) + " N, point fraction range [" +
                 std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');

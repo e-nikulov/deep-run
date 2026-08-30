@@ -1319,6 +1319,12 @@ Density берётся из `WaterBody`; world velocity переводится �
 Результат содержит world force и world application point. H1 не вычисляет torque, не применяет force и не
 моделирует partial immersion, current, angular local flow или propeller wash.
 
+Начиная с M2 Slice H2, Game может компоновать несколько control-surface components на одном vessel. Они
+вычисляются из одного beginning-of-tick body snapshot, после чего каждая опубликованная world force
+прикладывается в своей опубликованной world position до `PhysicsWorld::Step`. Pitch/heave возникают из
+rigid-body dynamics. M2 depth response получается потому, что physical pitch меняет world direction
+body-local propulsion axis, а не через прямую установку depth или vertical velocity.
+
 ---
 
 # 18. Buoyancy

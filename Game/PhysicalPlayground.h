@@ -5,12 +5,15 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
+#include "Simulation/Marine/ControlSurfaceComponent.h"
 #include "Simulation/Marine/HydroDragComponent.h"
 #include "Simulation/Marine/PropulsionComponent.h"
 #include "Simulation/Marine/PropulsionSystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -42,12 +45,14 @@ namespace DeepRun::Game
 // Lifetime assumption: the Engine owns the PhysicsWorld and outlives all playground rendering
 // during Application::Run; no shared ownership is created here (ADR-0008).
 //
-// M2 Slice D2/E3/F2/G2: the scenario owns its authoritative Marine::WaterBody as a plain value — the single
+// M2 Slice D2/E3/F2/G2/H2/I1: the scenario owns its authoritative Marine::WaterBody as a plain value — the single
 // source of truth for sea level and signed depth. The Game reads it (surface level, body-center depth) and
 // derives presentation from those values; the renderer never sees a WaterBody, and the WaterBody never
 // knows about the renderer, camera or submarine. Game composes that water with Game-owned buoyancy/drag
 // tuning and generic PhysicsWorld force/torque operations during the fixed phase. G2 adds one authoritative
-// shaft state; propeller angle is presentation-only and can never feed the simulation.
+// shaft state; propeller angle is presentation-only and can never feed the simulation. H2 composes two
+// Game-owned control surfaces through their pure Marine calculation and the existing world-point force API. I1
+// receives only a Game-owned VesselCommandState; it never sees a physical key, gamepad field, or XInput type.
 class PhysicalPlayground final
 {
 public:
@@ -61,7 +66,9 @@ public:
     // Produces and applies transient marine forces/torques from one authoritative body snapshot for one
     // fixed tick. The Engine calls this before PhysicsWorld::Step; this function never steps physics and
     // never scales force or torque by dt.
-    [[nodiscard]] std::expected<void, std::string> FixedUpdate(float fixedDeltaSeconds);
+    [[nodiscard]] std::expected<void, std::string> FixedUpdate(
+        float fixedDeltaSeconds,
+        const VesselCommandState& command);
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
     // fixed-step update for the frame; never steps physics itself. Also paints the D2 flat-water
@@ -86,6 +93,7 @@ private:
     Marine::HydroDragComponent hydroDrag_;
     Marine::PropulsionComponent propulsion_;
     Marine::PropulsionState propulsionState_{};
+    std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
 
     // Asset-space pivot: (bounds.min + bounds.max) * 0.5. Used ONLY for modelToBody = T(-assetBoundsCenter).
     Assets::ModelVector3 assetBoundsCenter_{};
@@ -94,7 +102,7 @@ private:
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     Assets::ModelTransform modelToBody_{};
 
-    // Bounded G2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.
+    // Bounded H2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.
     std::uint64_t fixedTickCount_ = 0;
     bool loggedFirstFixedSample_ = false;
     bool loggedLaterFixedSample_ = false;

@@ -340,6 +340,7 @@ Accepted slices (in order):
 | G1 | Pure shaft/RPM/thrust propulsion model | ACCEPTED |
 | G2 | Submarine propulsion integration + RPM-driven propeller presentation | ACCEPTED |
 | H1 | Pure control-surface hydrodynamic force model | ACCEPTED |
+| H2 | Submarine control-surface integration + scripted depth/pitch response | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps
