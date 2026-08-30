@@ -3124,6 +3124,55 @@ bool BuoyancyNeutralDisplacementIdentity()
            E2Near(result->totalForceNewtons.z, 0.0F);
 }
 
+bool BuoyancyTotalsSumPublishedPointResults()
+{
+    // These deliberately awkward values make the former sum-of-unrounded-intermediates path differ by one
+    // float ULP from the sum of the published point results for both volume and force.
+    const auto water = DeepRun::Marine::WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 997.3F});
+    if (!water)
+    {
+        return false;
+    }
+    const BuoyancyComponent component{
+        .points = {E2Point({0.0F, -0.597106695F, 0.0F}, 1.83203733F, 4.6845293F),
+                   E2Point({0.0F, -1.00079024F, 0.0F}, 0.930839837F, 3.84205127F),
+                   E2Point({0.0F, -0.316459775F, 0.0F}, 0.407760501F, 1.8995986F)}};
+    const auto result = BuoyancySystem::Calculate(*water, component, {}, 9.8137F);
+    if (!result || result->points.size() != component.points.size())
+    {
+        return false;
+    }
+
+    double publishedForceX = 0.0;
+    double publishedForceY = 0.0;
+    double publishedForceZ = 0.0;
+    double publishedVolume = 0.0;
+    for (const auto& point : result->points)
+    {
+        publishedForceX += static_cast<double>(point.forceNewtons.x);
+        publishedForceY += static_cast<double>(point.forceNewtons.y);
+        publishedForceZ += static_cast<double>(point.forceNewtons.z);
+        publishedVolume += static_cast<double>(point.submergedVolumeCubicMeters);
+    }
+
+    const PhysicsVector3 expectedForce{
+        static_cast<float>(publishedForceX),
+        static_cast<float>(publishedForceY),
+        static_cast<float>(publishedForceZ)};
+    const float expectedVolume = static_cast<float>(publishedVolume);
+    const auto withinQuarterUlp = [](const float actual, const float expected) {
+        const float adjacent = std::nextafter(expected, std::numeric_limits<float>::infinity());
+        const float quarterUlp = std::abs(adjacent - expected) * 0.25F;
+        return std::abs(actual - expected) <= quarterUlp;
+    };
+
+    return withinQuarterUlp(result->totalForceNewtons.x, expectedForce.x) &&
+           withinQuarterUlp(result->totalForceNewtons.y, expectedForce.y) &&
+           withinQuarterUlp(result->totalForceNewtons.z, expectedForce.z) &&
+           withinQuarterUlp(result->totalSubmergedVolumeCubicMeters, expectedVolume);
+}
+
 bool BuoyancyRejectsDerivedOverflow()
 {
     const float maximum = std::numeric_limits<float>::max();
@@ -3682,6 +3731,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"E2 quaternion sign equivalence", BuoyancyQuaternionSignEquivalence},
         {"E2 pitch-sensitive bow and stern", BuoyancyPitchSensitiveBowAndStern},
         {"E2 neutral-displacement identity", BuoyancyNeutralDisplacementIdentity},
+        {"E2 totals sum published point results", BuoyancyTotalsSumPublishedPointResults},
         {"E2 derived overflow rejected", BuoyancyRejectsDerivedOverflow},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},

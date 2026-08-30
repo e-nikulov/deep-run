@@ -49,8 +49,10 @@ struct BuoyancyPointResult final
     Physics::PhysicsVector3 forceNewtons{};
 };
 
-// Aggregate result: per-point results in input order plus the sums of those exact per-point values. No
-// torque and no center-of-buoyancy are derived here — moment response belongs to rigid-body integration.
+// Aggregate result: per-point results in input order plus totals accumulated from the published per-point
+// float values. Totals are a diagnostic/aggregate view of those outputs, not a separate higher-precision
+// physical calculation. No torque and no center-of-buoyancy are derived here — moment response belongs to
+// rigid-body integration.
 struct BuoyancyResult final
 {
     std::vector<BuoyancyPointResult> points;

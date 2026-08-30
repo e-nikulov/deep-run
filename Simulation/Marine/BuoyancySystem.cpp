@@ -229,14 +229,18 @@ std::expected<BuoyancyResult, BuoyancyError> BuoyancySystem::Calculate(
             .submergedVolumeCubicMeters = static_cast<float>(submergedVolume),
             .forceNewtons = {static_cast<float>(forceX), static_cast<float>(forceY), static_cast<float>(forceZ)}};
 
-        totalForceX += forceX;
-        totalForceY += forceY;
-        totalForceZ += forceZ;
-        totalSubmergedVolume += submergedVolume;
+        // Published per-point floats are authoritative: E3 will apply these exact force values. Aggregate
+        // totals are therefore accumulated from the stored outputs, not from their higher-precision
+        // intermediates, so diagnostics describe the same forces and volumes consumers observe.
+        const BuoyancyPointResult& published = result.points[index];
+        totalForceX += static_cast<double>(published.forceNewtons.x);
+        totalForceY += static_cast<double>(published.forceNewtons.y);
+        totalForceZ += static_cast<double>(published.forceNewtons.z);
+        totalSubmergedVolume += static_cast<double>(published.submergedVolumeCubicMeters);
     }
 
-    // Totals are the exact sums of the per-point values, accumulated in double and rejected (not clamped)
-    // if the sum itself leaves the finite float range.
+    // Totals are sums of the published per-point result values. Accumulation stays in double, and a total
+    // is rejected (not clamped) if the final value leaves the finite float range.
     if (!FitsInFloat(totalForceX) || !FitsInFloat(totalForceY) || !FitsInFloat(totalForceZ))
     {
         return std::unexpected(MakeError(BuoyancyErrorCode::NonFiniteResult, "total buoyant force overflowed"));
