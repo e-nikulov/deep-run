@@ -6226,6 +6226,85 @@ bool I2MixerDurationExpiresDeterministically()
            mixer.CurrentOutput() == DeepRun::Input::GamepadVibration{};
 }
 
+bool I2LongCurrentFrameSubmissionSurvivesFirstOutput()
+{
+    constexpr DeepRun::Input::HapticEffectId StableEffectId = 77;
+    DeepRun::Input::HapticMixer mixer;
+    const auto inheritedEffectsAged = mixer.Advance(0.15F);
+    const auto currentFixedPhaseSubmission = mixer.Submit({
+        .id = StableEffectId,
+        .lowFrequencyMotor = 0.5F,
+        .durationSeconds = 0.10F,
+        .priority = 10});
+    const auto currentFrameOutput = mixer.CurrentOutput();
+    std::cout << "[I2 corrective evidence] long frame 0.15 s, current 0.10 s effect output low "
+              << currentFrameOutput.lowFrequencyMotor << '\n';
+    return inheritedEffectsAged && currentFixedPhaseSubmission &&
+           E2Near(currentFrameOutput.lowFrequencyMotor, 0.5F) &&
+           currentFrameOutput.highFrequencyMotor == 0.0F;
+}
+
+bool I2OldUnrefreshedEffectExpiresOnLongFrame()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto priorFrameSubmission = mixer.Submit({
+        .id = 77,
+        .lowFrequencyMotor = 0.5F,
+        .durationSeconds = 0.10F,
+        .priority = 10});
+    const auto nextFrameAdvance = mixer.Advance(0.15F);
+    const auto output = mixer.CurrentOutput();
+    std::cout << "[I2 corrective evidence] prior 0.10 s effect after unrefreshed 0.15 s frame low "
+              << output.lowFrequencyMotor << '\n';
+    return priorFrameSubmission && nextFrameAdvance && output == DeepRun::Input::GamepadVibration{};
+}
+
+bool I2SameIdRefreshAfterLongFrameExpiryDoesNotStack()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto priorFrameSubmission = mixer.Submit({
+        .id = 77,
+        .lowFrequencyMotor = 0.2F,
+        .durationSeconds = 0.10F,
+        .priority = 10});
+    const auto nextFrameAdvance = mixer.Advance(0.15F);
+    const auto currentFixedPhaseRefresh = mixer.Submit({
+        .id = 77,
+        .lowFrequencyMotor = 0.7F,
+        .durationSeconds = 0.10F,
+        .priority = 10});
+    const auto output = mixer.CurrentOutput();
+    std::cout << "[I2 corrective evidence] expired ID refreshed at low 0.7, resolved low "
+              << output.lowFrequencyMotor << '\n';
+    return priorFrameSubmission && nextFrameAdvance && currentFixedPhaseRefresh &&
+           E2Near(output.lowFrequencyMotor, 0.7F) && output.highFrequencyMotor == 0.0F;
+}
+
+bool I2NormalFrameContinuousRefreshIsStable()
+{
+    DeepRun::Input::HapticMixer mixer;
+    for (int frame = 0; frame < 120; ++frame)
+    {
+        if (!mixer.Advance(1.0F / 60.0F) ||
+            !mixer.Submit({
+                .id = 77,
+                .lowFrequencyMotor = 0.35F,
+                .highFrequencyMotor = 0.05F,
+                .durationSeconds = 0.10F,
+                .priority = 10}))
+        {
+            return false;
+        }
+        const auto output = mixer.CurrentOutput();
+        if (!E2Near(output.lowFrequencyMotor, 0.35F) || !E2Near(output.highFrequencyMotor, 0.05F))
+        {
+            return false;
+        }
+    }
+    std::cout << "[I2 corrective evidence] 120 frames at 60 Hz remained 0.35/0.05\n";
+    return true;
+}
+
 bool I2MixerMasterIntensity()
 {
     DeepRun::Input::HapticMixer mixer;
@@ -7357,6 +7436,11 @@ int main(const int argumentCount, const char* const* arguments)
         {"I2 mixer same-priority add and clamp", I2MixerSamePriorityAddsAndClamps},
         {"I2 mixer priority suppression and resume", I2MixerPrioritySuppressesAndResumes},
         {"I2 mixer deterministic duration expiry", I2MixerDurationExpiresDeterministically},
+        {"I2 long current-frame submit survives first output", I2LongCurrentFrameSubmissionSurvivesFirstOutput},
+        {"I2 old unrefreshed effect expires on long frame", I2OldUnrefreshedEffectExpiresOnLongFrame},
+        {"I2 same-ID refresh after long-frame expiry does not stack",
+         I2SameIdRefreshAfterLongFrameExpiryDoesNotStack},
+        {"I2 normal-frame continuous refresh is stable", I2NormalFrameContinuousRefreshIsStable},
         {"I2 mixer master intensity", I2MixerMasterIntensity},
         {"I2 mixer disable keeps effects ageing", I2MixerDisableKeepsAgeing},
         {"I2 mixer rejects malformed configuration", I2MixerRejectsMalformedConfiguration},

@@ -2297,9 +2297,13 @@ continuous effect emitted on fixed ticks from stacking with itself. Different ID
 only the highest active priority participates; lower-priority effects remain active and continue ageing. Effects
 at the winning priority add per motor, clamp to `0..1`, and then receive the normalized master intensity.
 
-The mixer advances once per ordinary application frame after fixed simulation, independent of how many fixed
-ticks ran. When globally disabled, output is exact zero while effects continue ageing, so expired effects never
-resurrect on re-enable. Effect durations use presentation time and never simulation, physics or random state.
+After input polling and the application timer tick, previous active effects age once using the application-frame
+delta. Current fixed simulation then may submit or refresh semantic effects, and resolved normalized vibration is
+sent to the backend after fixed simulation. Current-frame submissions are not retroactively aged by the elapsed
+frame delta, while a frame with zero fixed steps still ages inherited effects once. This is independent of how
+many fixed ticks ran. When globally disabled, output is exact zero while effects continue ageing, so expired
+effects never resurrect on re-enable. Effect durations use presentation time and never simulation, physics or
+random state.
 
 Windows desktop backend может использовать XInput.
 

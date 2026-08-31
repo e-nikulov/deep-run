@@ -191,19 +191,10 @@ public:
         }
 
         timer.Tick();
-        const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(timer.DeltaSeconds());
-        const float fixedDeltaSeconds = static_cast<float>(fixedStepAccumulator.StepSeconds());
-        for (std::uint32_t step = 0; step < fixedSteps; ++step)
-        {
-            if (!RunFixedStep(fixedUpdateHook, fixedDeltaSeconds))
-            {
-                return false;
-            }
-        }
 
-        // Presentation time advances exactly once per ordinary application frame, after all fixed ticks.
-        // Same-ID requests submitted by the Game during those ticks have already replaced/refreshed their
-        // effect and can therefore affect this frame's normalized backend output.
+        // Age only effects inherited from the previous application frame. Current fixed ticks run below and
+        // may replace/refresh effects at their full requested lifetime before this frame's backend output.
+        // This presentation-time operation runs exactly once regardless of the number of fixed steps.
         const auto hapticsAdvanced = hapticMixer.Advance(static_cast<float>(timer.DeltaSeconds()));
         if (!hapticsAdvanced)
         {
@@ -214,8 +205,20 @@ public:
             }
             hapticMixer.Reset();
         }
+
+        const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(timer.DeltaSeconds());
+        const float fixedDeltaSeconds = static_cast<float>(fixedStepAccumulator.StepSeconds());
+        for (std::uint32_t step = 0; step < fixedSteps; ++step)
+        {
+            if (!RunFixedStep(fixedUpdateHook, fixedDeltaSeconds))
+            {
+                return false;
+            }
+        }
+
         // A disconnected controller is normal and ApplyGamepadVibration degrades to silence. Backend status
-        // is presentation-only and must never fail an otherwise successful frame or fixed update.
+        // is presentation-only and must never fail an otherwise successful frame or fixed update. Requests
+        // submitted by current fixed ticks are resolved here without retroactive ageing by this frame's delta.
         static_cast<void>(input->ApplyGamepadVibration(hapticMixer.CurrentOutput()));
 
         if (options.smokeTest && timer.FrameIndex() == 30)

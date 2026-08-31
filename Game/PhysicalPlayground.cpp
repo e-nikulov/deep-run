@@ -696,8 +696,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         loggedLaterFixedSample_ = loggedLaterFixedSample_ || fixedTickCount_ >= M2LaterDiagnosticFixedTick;
         PlaygroundLog().Info(
             Diagnostics::LogCategory::Physics,
-            std::string(first ? "Physical playground first I1 fixed sample: "
-                              : "Physical playground later I1 fixed sample: ") +
+            std::string(first ? "Physical playground first M2/I2 fixed sample: "
+                              : "Physical playground later M2/I2 fixed sample: ") +
                 "tick " + std::to_string(fixedTickCount_) + ", position " + FormatVector(state->position) +
                 ", velocity " + FormatVector(state->linearVelocity) + ", pitch Z " +
                 std::to_string(pitchDegrees) + " deg, angular velocity " +
@@ -844,7 +844,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
             loggedRenderPresentation_ = true;
             PlaygroundLog().Info(
                 Diagnostics::LogCategory::Render,
-                "Physical playground G2 presentation: surface Y " +
+                "Physical playground M2 presentation: surface Y " +
                     std::to_string(water_->Config().surfaceLevelY) + ", camera target Y " +
                     std::to_string(camera->target.y) + ", horizontal span " +
                     std::to_string(camera->width) + ", vertical span " +
