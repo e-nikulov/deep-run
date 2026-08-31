@@ -1,0 +1,31 @@
+{
+  "asset": "Antey",
+  "type": "submarine",
+  "scaleMeters": true,
+  "forwardAxis": "+X",
+  "upAxis": "+Z",
+  "visualReviewBoundsMeters": {
+    "length": 154.0,
+    "beam": 18.0,
+    "height": 9.2
+  },
+  "lods": 4,
+  "missileHardpoints": 24,
+  "p700HatchGroups": 12,
+  "torpedoHardpoints": 8,
+  "propellers": 2,
+  "propellerBladeCount": 7,
+  "gameplayCompartments": 10,
+  "runtimeAsset": "Antey.glb",
+  "sourceAsset": "Source/Antey_Source.blend",
+  "authoringSidecar": "Antey.authoring.json",
+  "renderNodes": [
+    "SM_Antey_LOD0",
+    "SM_Antey_LOD1",
+    "SM_Antey_LOD2",
+    "SM_Antey_LOD3",
+    "SM_Propeller_Port",
+    "SM_Propeller_Starboard"
+  ],
+  "runtimeBoundary": "Markers and volumes are authoring data; simulation owns authoritative state."
+}

@@ -1,0 +1,1942 @@
+{
+  "asset": "Antey",
+  "authoringOnly": true,
+  "coordinateSystem": {
+    "forward": "+X",
+    "up": "+Z",
+    "units": "meters"
+  },
+  "proportionReview": {
+    "lengthMeters": 154.0,
+    "beamMeters": 18.0,
+    "heightMeters": 9.2,
+    "basis": "public side/top reference review"
+  },
+  "p700Hardpoints": [
+    {
+      "name": "HP_P700_PORT_01",
+      "positionMeters": [
+        -28.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_02",
+      "positionMeters": [
+        -23.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_03",
+      "positionMeters": [
+        -18.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_04",
+      "positionMeters": [
+        -13.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_05",
+      "positionMeters": [
+        -8.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_06",
+      "positionMeters": [
+        -3.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_07",
+      "positionMeters": [
+        2.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_08",
+      "positionMeters": [
+        7.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_09",
+      "positionMeters": [
+        12.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_10",
+      "positionMeters": [
+        17.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_11",
+      "positionMeters": [
+        22.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_PORT_12",
+      "positionMeters": [
+        27.0,
+        6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        0.088106,
+        -0.453265,
+        0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_01",
+      "positionMeters": [
+        -28.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_02",
+      "positionMeters": [
+        -23.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_03",
+      "positionMeters": [
+        -18.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_04",
+      "positionMeters": [
+        -13.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_05",
+      "positionMeters": [
+        -8.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_06",
+      "positionMeters": [
+        -3.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_07",
+      "positionMeters": [
+        2.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_08",
+      "positionMeters": [
+        7.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_09",
+      "positionMeters": [
+        12.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_10",
+      "positionMeters": [
+        17.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_11",
+      "positionMeters": [
+        22.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    },
+    {
+      "name": "HP_P700_STARBOARD_12",
+      "positionMeters": [
+        27.0,
+        -6.8,
+        0.051111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        -0.959931,
+        -0.383972
+      ],
+      "orientationQuaternionWXYZ": [
+        0.870714,
+        -0.088106,
+        -0.453265,
+        -0.16925
+      ],
+      "forwardVector": [
+        0.531811,
+        -0.214866,
+        0.819152
+      ]
+    }
+  ],
+  "torpedoHardpoints": [
+    {
+      "name": "HP_TORPEDO_01",
+      "positionMeters": [
+        72.0,
+        -3.6,
+        -1.022222
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_02",
+      "positionMeters": [
+        72.0,
+        -1.2,
+        -1.022222
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_03",
+      "positionMeters": [
+        72.0,
+        1.2,
+        -1.022222
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_04",
+      "positionMeters": [
+        72.0,
+        3.6,
+        -1.022222
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_05",
+      "positionMeters": [
+        72.0,
+        -3.6,
+        -0.408889
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_06",
+      "positionMeters": [
+        72.0,
+        -1.2,
+        -0.408889
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_07",
+      "positionMeters": [
+        72.0,
+        1.2,
+        -0.408889
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_TORPEDO_08",
+      "positionMeters": [
+        72.0,
+        3.6,
+        -0.408889
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "torpedoOrigin": {
+    "name": "HP_TORPEDO_ORIGIN",
+    "positionMeters": [
+      72.0,
+      0.0,
+      -0.613333
+    ],
+    "rotationEulerRadians": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "orientationQuaternionWXYZ": [
+      1.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "forwardVector": [
+      1.0,
+      0.0,
+      0.0
+    ]
+  },
+  "propellerOrigins": [
+    {
+      "name": "SM_Propeller_Port",
+      "positionMeters": [
+        -78.0,
+        8.2,
+        -2.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "SM_Propeller_Starboard",
+      "positionMeters": [
+        -78.0,
+        -8.2,
+        -2.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "sonarMarkers": [
+    {
+      "name": "HP_Sonar_Bow",
+      "positionMeters": [
+        76.0,
+        0.0,
+        -0.511111
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_Sonar_PassiveReference",
+      "positionMeters": [
+        70.0,
+        0.0,
+        -0.255556
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "bowSternCenterMarkers": [
+    {
+      "name": "HP_Bow",
+      "positionMeters": [
+        77.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_Stern",
+      "positionMeters": [
+        -77.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_Center",
+      "positionMeters": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "presentationMarkers": [
+    {
+      "name": "HP_MastReference",
+      "positionMeters": [
+        14.0,
+        0.0,
+        5.008889
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_PeriscopicReference",
+      "positionMeters": [
+        12.0,
+        0.0,
+        4.855556
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_ShowcaseCameraTarget",
+      "positionMeters": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "HP_WaterlineReference",
+      "positionMeters": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "p700Hatches": [
+    {
+      "name": "SM_P700_Hatch_Port_01",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_PORT_01",
+        "HP_P700_PORT_02"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Port_01",
+        "positionMeters": [
+          -23.0,
+          7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          0.088106,
+          -0.453265,
+          0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Port_02",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_PORT_03",
+        "HP_P700_PORT_04"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Port_02",
+        "positionMeters": [
+          -13.0,
+          7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          0.088106,
+          -0.453265,
+          0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Port_03",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_PORT_05",
+        "HP_P700_PORT_06"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Port_03",
+        "positionMeters": [
+          -3.0,
+          7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          0.088106,
+          -0.453265,
+          0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Port_04",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_PORT_07",
+        "HP_P700_PORT_08"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Port_04",
+        "positionMeters": [
+          7.0,
+          7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          0.088106,
+          -0.453265,
+          0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Port_05",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_PORT_09",
+        "HP_P700_PORT_10"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Port_05",
+        "positionMeters": [
+          17.0,
+          7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          0.088106,
+          -0.453265,
+          0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Port_06",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_PORT_11",
+        "HP_P700_PORT_12"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Port_06",
+        "positionMeters": [
+          27.0,
+          7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          0.088106,
+          -0.453265,
+          0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Starboard_01",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_STARBOARD_01",
+        "HP_P700_STARBOARD_02"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Starboard_01",
+        "positionMeters": [
+          -23.0,
+          -7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          -0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          -0.088106,
+          -0.453265,
+          -0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          -0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Starboard_02",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_STARBOARD_03",
+        "HP_P700_STARBOARD_04"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Starboard_02",
+        "positionMeters": [
+          -13.0,
+          -7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          -0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          -0.088106,
+          -0.453265,
+          -0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          -0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Starboard_03",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_STARBOARD_05",
+        "HP_P700_STARBOARD_06"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Starboard_03",
+        "positionMeters": [
+          -3.0,
+          -7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          -0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          -0.088106,
+          -0.453265,
+          -0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          -0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Starboard_04",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_STARBOARD_07",
+        "HP_P700_STARBOARD_08"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Starboard_04",
+        "positionMeters": [
+          7.0,
+          -7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          -0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          -0.088106,
+          -0.453265,
+          -0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          -0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Starboard_05",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_STARBOARD_09",
+        "HP_P700_STARBOARD_10"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Starboard_05",
+        "positionMeters": [
+          17.0,
+          -7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          -0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          -0.088106,
+          -0.453265,
+          -0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          -0.214866,
+          0.819152
+        ]
+      }
+    },
+    {
+      "name": "SM_P700_Hatch_Starboard_06",
+      "logicalPivot": "hatch_center",
+      "pairedHardpoints": [
+        "HP_P700_STARBOARD_11",
+        "HP_P700_STARBOARD_12"
+      ],
+      "transform": {
+        "name": "SM_P700_Hatch_Starboard_06",
+        "positionMeters": [
+          27.0,
+          -7.55,
+          0.25
+        ],
+        "rotationEulerRadians": [
+          0.0,
+          -0.959931,
+          -0.383972
+        ],
+        "orientationQuaternionWXYZ": [
+          0.870714,
+          -0.088106,
+          -0.453265,
+          -0.16925
+        ],
+        "forwardVector": [
+          0.531811,
+          -0.214866,
+          0.819152
+        ]
+      }
+    }
+  ],
+  "compartments": [
+    {
+      "name": "VOL_COMP_01_BowWeapons",
+      "positionMeters": [
+        -61.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        9.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          -61.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          9.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_02_Command",
+      "positionMeters": [
+        -45.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        7.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          -45.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          7.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_03_SensorsCombat",
+      "positionMeters": [
+        -31.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        7.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          -31.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          7.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_04_Habitation",
+      "positionMeters": [
+        -16.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        8.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          -16.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          8.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_05_ReactorForward",
+      "positionMeters": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        8.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          8.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_06_ReactorAft",
+      "positionMeters": [
+        16.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        8.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          16.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          8.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_07_Propulsion",
+      "positionMeters": [
+        31.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        7.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          31.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          7.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_08_MachineryPort",
+      "positionMeters": [
+        45.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        7.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          45.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          7.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_09_MachineryStarboard",
+      "positionMeters": [
+        58.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        6.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          58.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          6.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "name": "VOL_COMP_10_AftDrive",
+      "positionMeters": [
+        67.0,
+        0.0,
+        0.0
+      ],
+      "rotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "orientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "halfExtentsMeters": [
+        3.0,
+        6.0,
+        3.066667
+      ],
+      "obb": {
+        "centerMeters": [
+          67.0,
+          0.0,
+          0.0
+        ],
+        "halfExtentsMeters": [
+          3.0,
+          6.0,
+          3.066667
+        ],
+        "orientationQuaternionWXYZ": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  ],
+  "runtimeBoundary": "This sidecar is authoring data only; simulation owns authoritative gameplay state."
+}

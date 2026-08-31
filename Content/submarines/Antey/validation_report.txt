@@ -1,0 +1,58 @@
+ANTEY ASSET VALIDATION
+
+Dimensions:
+Length: 154.000 m
+Width: 18.000 m
+Height: 9.200 m
+
+LOD0:
+Vertices: 52010
+Triangles: 102880
+
+LOD1:
+Vertices: 32385
+Triangles: 63779
+
+LOD2:
+Vertices: 14759
+Triangles: 28798
+
+LOD3:
+Vertices: 4571
+Triangles: 8744
+
+Propellers:
+2/2
+Propeller blades:
+7/7 each
+P700 hardpoints:
+24/24
+P700 hatch groups:
+12/12 (6/side)
+P700 launch axes:
+PASS (angled local +X)
+Gameplay compartments:
+10/10
+Torpedo hardpoints:
+8/8
+Collision:
+PASS
+Transforms:
+PASS
+Normals:
+PASS
+Materials:
+MAT_Antey_Hull, MAT_Antey_Propeller
+Missing textures:
+none (material factors only)
+Authoring sidecar:
+PASS
+GLB export:
+PASS
+GLB reimport:
+PASS
+GLB file size: 6680216 bytes
+GLB reimport meshes: SM_Antey_LOD0, SM_Antey_LOD1, SM_Antey_LOD2, SM_Antey_LOD3, SM_Propeller_Port, SM_Propeller_Starboard
+GLB reimport dimensions: (155.451, 24.687, 10.85)
+
+Runtime boundary: hardpoints, volumes, collision, and buoyancy proxy are authoring data; simulation remains authoritative.
