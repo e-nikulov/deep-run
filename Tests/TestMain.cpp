@@ -11,6 +11,7 @@
 #include "Engine/Input/HapticMixer.h"
 #include "Engine/Input/InputState.h"
 #include "Engine/Input/InputSystem.h"
+#include "Engine/Input/Windows/WindowsGamingInputGamepad.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ClearRect.h"
@@ -953,7 +954,7 @@ bool I1SemanticAxisStorage()
 bool I1KeyboardSemanticMapping()
 {
     DeepRun::Diagnostics::Logger logger;
-    // Unit tests use the pure semantic/event path; no physical XInput polling or output is performed.
+    // Unit tests use the pure semantic/event path; no physical Windows gamepad polling or output is performed.
     DeepRun::Input::InputSystem input(logger, false);
     const auto key = [](const DeepRun::Platform::WindowEventType type, const DeepRun::Platform::Key value) {
         return DeepRun::Platform::WindowEvent{.type = type, .key = value};
@@ -1029,6 +1030,71 @@ bool I1ControllerDisconnectAndArbitration()
            DeepRun::Input::ResolveSemanticAxis(false, false, controller) == controller &&
            DeepRun::Input::ResolveSemanticAxis(false, true, -0.25F) == 1.0F &&
            DeepRun::Input::ResolveSemanticAxis(true, false, -0.25F) == -1.0F;
+}
+
+bool WgiGamepadReadingConvertsToGenericState()
+{
+    using DeepRun::Input::GamepadButton;
+    using DeepRun::Input::Windows::PublishWindowsGamepadState;
+    using DeepRun::Input::Windows::WindowsGamepadReading;
+    constexpr std::uint32_t WgiMenu = 1U << 0U;
+    constexpr std::uint32_t WgiA = 1U << 2U;
+    constexpr std::uint32_t WgiDpadLeft = 1U << 8U;
+    constexpr std::uint32_t WgiRightShoulder = 1U << 11U;
+    const auto state = PublishWindowsGamepadState(
+        true,
+        true,
+        WindowsGamepadReading{
+            .leftX = 0.75,
+            .leftY = -0.50,
+            .rightX = -0.25,
+            .rightY = 0.125,
+            .leftTrigger = 0.20,
+            .rightTrigger = 0.90,
+            .buttons = WgiMenu | WgiA | WgiDpadLeft | WgiRightShoulder});
+    const std::uint16_t expectedButtons = static_cast<std::uint16_t>(GamepadButton::Start) |
+                                          static_cast<std::uint16_t>(GamepadButton::A) |
+                                          static_cast<std::uint16_t>(GamepadButton::DpadLeft) |
+                                          static_cast<std::uint16_t>(GamepadButton::RightShoulder);
+    return state.connected && std::abs(state.leftX - 0.75F) < 1.0e-6F &&
+           std::abs(state.leftY + 0.50F) < 1.0e-6F && std::abs(state.rightX + 0.25F) < 1.0e-6F &&
+           std::abs(state.rightY - 0.125F) < 1.0e-6F && std::abs(state.leftTrigger - 0.20F) < 1.0e-6F &&
+           std::abs(state.rightTrigger - 0.90F) < 1.0e-6F && state.buttons == expectedButtons;
+}
+
+bool WgiConnectionAndFocusNeutralization()
+{
+    using DeepRun::Input::Windows::PublishWindowsGamepadState;
+    using DeepRun::Input::Windows::WindowsGamepadReading;
+    const WindowsGamepadReading live{
+        .leftX = 0.8,
+        .leftY = -0.4,
+        .rightX = 0.0,
+        .rightY = 0.0,
+        .leftTrigger = 0.0,
+        .rightTrigger = 0.0,
+        .buttons = 0};
+    const auto disconnected = PublishWindowsGamepadState(false, true, live);
+    const auto connected = PublishWindowsGamepadState(true, true, live);
+    const auto unfocused = PublishWindowsGamepadState(true, false, live);
+    const auto unavailable = PublishWindowsGamepadState(true, true, std::nullopt);
+    const auto resumed = PublishWindowsGamepadState(
+        true,
+        true,
+        WindowsGamepadReading{
+            .leftX = -0.6,
+            .leftY = 0.3,
+            .rightX = 0.0,
+            .rightY = 0.0,
+            .leftTrigger = 0.0,
+            .rightTrigger = 0.0,
+            .buttons = 0});
+    return !disconnected.connected && disconnected.leftX == 0.0F && disconnected.leftY == 0.0F &&
+           connected.connected && std::abs(connected.leftX - 0.8F) < 1.0e-6F &&
+           std::abs(connected.leftY + 0.4F) < 1.0e-6F && unfocused.connected && unfocused.leftX == 0.0F &&
+           unfocused.leftY == 0.0F && unavailable.connected && unavailable.leftX == 0.0F &&
+           unavailable.leftY == 0.0F && resumed.connected && std::abs(resumed.leftX + 0.6F) < 1.0e-6F &&
+           std::abs(resumed.leftY - 0.3F) < 1.0e-6F;
 }
 
 bool I1VesselCommandMapsSemanticAxesAndRejectsMalformedInput()
@@ -6377,12 +6443,15 @@ bool I2MixerRejectsMalformedConfiguration()
            !mixer.Advance(-0.1F) && !mixer.Advance(nan);
 }
 
-bool I2NormalizedMotorConversionUsesFullRange()
+bool WgiVibrationConversionUsesNormalizedMotors()
 {
-    const std::uint16_t half = DeepRun::Input::NormalizedMotorToUnsigned16(0.5F);
-    return DeepRun::Input::NormalizedMotorToUnsigned16(0.0F) == 0 &&
-           DeepRun::Input::NormalizedMotorToUnsigned16(1.0F) == 65'535U &&
-           (half == 32'767U || half == 32'768U);
+    using DeepRun::Input::GamepadVibration;
+    using DeepRun::Input::Windows::MapWindowsGamepadVibration;
+    const auto active = MapWindowsGamepadVibration({.lowFrequencyMotor = 0.55F, .highFrequencyMotor = 0.10F});
+    const auto zero = MapWindowsGamepadVibration(GamepadVibration{});
+    return std::abs(active.leftMotor - 0.55) < 1.0e-6 && std::abs(active.rightMotor - 0.10) < 1.0e-6 &&
+           active.leftTrigger == 0.0 && active.rightTrigger == 0.0 && zero.leftMotor == 0.0 &&
+           zero.rightMotor == 0.0 && zero.leftTrigger == 0.0 && zero.rightTrigger == 0.0;
 }
 
 bool I2SemanticEngineVibrationMapping()
@@ -7234,7 +7303,7 @@ bool I2SemanticHapticArchitectureBoundaries()
     const std::filesystem::path gameHapticsRoot = sourceRoot / "Game" / "Haptics";
     const std::filesystem::path marineRoot = sourceRoot / "Simulation" / "Marine";
     const std::filesystem::path commandRoot = sourceRoot / "Game" / "Submarine";
-    const std::string backendCall = std::string("xinput") + "setstate";
+    const std::string backendCall = std::string("windows.gaming.") + "input";
     return ScanSourceDirectoryForForbiddenPatterns(
                engineRoot, {"enginevibration", "shaft rpm", "simulation/marine", "propeller"}) &&
            ScanSourceDirectoryForForbiddenPatterns(
@@ -7244,6 +7313,30 @@ bool I2SemanticHapticArchitectureBoundaries()
            ScanSourceDirectoryForForbiddenPatterns(marineRoot, {"haptic"}) &&
            ScanSourceDirectoryForForbiddenPatterns(commandRoot, {"haptic", "vibration", "motor"}) &&
            SourcePatternAppearsOnlyUnder(sourceRoot, inputRoot, backendCall);
+}
+
+bool M2MinimizedWindowSilencesHapticsBeforeWaiting()
+{
+    const std::filesystem::path enginePath =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Core" / "Engine.cpp";
+    std::ifstream input(enginePath, std::ios::binary);
+    if (!input)
+    {
+        return false;
+    }
+    std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::ranges::transform(source, source.begin(), [](const unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+
+    const std::size_t minimized = source.find("if (window->minimized())");
+    const std::size_t silence = source.find("input->applygamepadvibration({})", minimized);
+    const std::size_t wait = source.find("window->waitforevents()", minimized);
+    const std::size_t rebase = source.find("timer.rebase()", minimized);
+    const std::size_t nextTick = source.find("timer.tick()", minimized);
+    return minimized != std::string::npos && silence != std::string::npos && wait != std::string::npos &&
+           rebase != std::string::npos && nextTick != std::string::npos && minimized < silence &&
+           silence < wait && wait < rebase && rebase < nextTick;
 }
 } // namespace
 
@@ -7297,6 +7390,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"I1 keyboard semantic mapping", I1KeyboardSemanticMapping},
         {"I1 controller semantic mapping and dead zone", I1ControllerSemanticMapping},
         {"I1 controller disconnect and keyboard arbitration", I1ControllerDisconnectAndArbitration},
+        {"WGI reading converts to generic gamepad state", WgiGamepadReadingConvertsToGenericState},
+        {"WGI connection and focus neutralization", WgiConnectionAndFocusNeutralization},
         {"I1 vessel command semantic mapping and validation", I1VesselCommandMapsSemanticAxesAndRejectsMalformedInput},
         {"Deterministic random", DeterministicRandom},
         {"Jolt initialization", JoltInitialization},
@@ -7444,7 +7539,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"I2 mixer master intensity", I2MixerMasterIntensity},
         {"I2 mixer disable keeps effects ageing", I2MixerDisableKeepsAgeing},
         {"I2 mixer rejects malformed configuration", I2MixerRejectsMalformedConfiguration},
-        {"I2 normalized motor conversion full range", I2NormalizedMotorConversionUsesFullRange},
+        {"WGI normalized vibration conversion", WgiVibrationConversionUsesNormalizedMotors},
         {"I2 semantic engine-vibration mapping", I2SemanticEngineVibrationMapping},
         {"I2 authoritative directional RPM normalization", I2RpmNormalizationUsesAuthoritativeDirectionLimits},
         {"I2 RPM inertia produces haptic ramp", I2RpmRampProducesHapticRamp},
@@ -7499,6 +7594,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"H2 integration architecture boundaries", H2IntegrationArchitectureBoundaries},
         {"I1 semantic input architecture boundaries", I1SemanticInputArchitectureBoundaries},
         {"I2 semantic haptic architecture boundaries", I2SemanticHapticArchitectureBoundaries},
+        {"M2 minimized window silences haptics before waiting", M2MinimizedWindowSilencesHapticsBeforeWaiting},
     };
 
     int failed = 0;

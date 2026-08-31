@@ -28,7 +28,7 @@ The complete production game must be playable using only a controller.
 Keyboard and mouse are a feature-equivalent alternative on PC.
 
 Gameplay code consumes semantic actions and normalized axes rather than
-physical keyboard keys, mouse buttons, or XInput constants.
+physical keyboard keys, mouse buttons, or platform-specific gamepad constants.
 
 Canonical gameplay inputs:
 
@@ -209,7 +209,7 @@ axis inversion
 device connection state
 ```
 
-Submarine simulation must not contain XInput-specific dead-zone or raw
+Submarine simulation must not contain platform-specific dead-zone or raw
 device handling logic.
 
 ---
@@ -320,7 +320,7 @@ HapticSystem
     v
 Gamepad output backend
     |
-    +-- Windows desktop: XInput
+    +-- Windows desktop: Windows.Gaming.Input
     |
     `-- Xbox: platform / GDK backend
 ```
@@ -381,16 +381,14 @@ Headless execution must work normally without gamepad or haptic hardware.
 
 ## 13. Platform boundary
 
-The Windows desktop backend may use:
+The Windows desktop backend uses `Windows.Gaming.Input` through a private
+`Engine/Input/Windows` implementation. Windows Runtime types, physical button masks and
+native vibration structures do not escape the Input layer. WGI input is foreground/focus-gated:
+focus loss or an unavailable reading contributes neutral controller axes rather than stale
+commands. Generic low/high motors map to WGI `LeftMotor`/`RightMotor`; trigger motors remain
+unused in M2.
 
-```cpp
-XInputGetState(...)
-XInputSetState(...)
-```
-
-These calls belong only to the platform/input implementation.
-
-They must not appear in gameplay or simulation code.
+Platform calls must not appear in gameplay or simulation code.
 
 Future Xbox/GDK support must be implementable using another backend without
 changing gameplay actions or semantic haptic events.

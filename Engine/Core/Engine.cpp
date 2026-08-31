@@ -79,7 +79,7 @@ public:
                         .title = "DeepRun Engine",
                         .width = config.renderer.width,
                         .height = config.renderer.height});
-                input = std::make_unique<Input::InputSystem>(core.Log());
+                input = std::make_unique<Input::InputSystem>(core.Log(), true, window->NativeHandle());
 
                 renderer = std::make_unique<Render::D3D12Renderer>(core.Log());
                 if (!renderer->Initialize(
@@ -185,6 +185,10 @@ public:
         }
         if (window->Minimized())
         {
+            // Ordinary frame processing is about to suspend in WaitForEvents. Silence the normalized
+            // backend output first so the last native motor state cannot remain active while mixer time and
+            // simulation are paused. Active generic effects remain owned by the mixer and are not cleared.
+            static_cast<void>(input->ApplyGamepadVibration({}));
             window->WaitForEvents();
             timer.Rebase();
             return false;

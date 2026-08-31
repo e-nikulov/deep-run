@@ -4,7 +4,7 @@
 #include "Engine/Input/InputState.h"
 #include "Engine/Platform/Window.h"
 
-#include <cstdint>
+#include <memory>
 #include <span>
 
 namespace DeepRun::Diagnostics
@@ -14,6 +14,11 @@ class Logger;
 
 namespace DeepRun::Input
 {
+namespace Windows
+{
+class WindowsGamingInputGamepad;
+}
+
 // Small pure controller boundary used by InputSystem and headless tests. Inputs are already normalized by
 // the platform backend; output follows the canonical semantic signs (stick up -> Depth < 0).
 struct ControllerSemanticAxes final
@@ -29,13 +34,13 @@ struct ControllerSemanticAxes final
     bool positiveKeyboardDown,
     float controllerValue) noexcept;
 
-// Pure full-range conversion used by the Windows backend. The caller supplies a finite normalized value.
-[[nodiscard]] std::uint16_t NormalizedMotorToUnsigned16(float normalizedMotor) noexcept;
-
 class InputSystem final
 {
 public:
-    explicit InputSystem(Diagnostics::Logger& logger, bool platformBackendEnabled = true);
+    explicit InputSystem(
+        Diagnostics::Logger& logger,
+        bool platformBackendEnabled = true,
+        void* nativeWindowHandle = nullptr);
     ~InputSystem();
 
     void BeginFrame();
@@ -56,14 +61,13 @@ private:
     void RefreshSemanticAxes() noexcept;
 
     Diagnostics::Logger& logger_;
+    std::unique_ptr<Windows::WindowsGamingInputGamepad> windowsGamepad_;
     InputState state_;
     bool platformBackendEnabled_ = true;
     bool controllerConnected_ = false;
-    bool controllerStateKnown_ = false;
     bool throttleAsternKeyDown_ = false;
     bool throttleAheadKeyDown_ = false;
     bool depthSurfaceKeyDown_ = false;
     bool depthDiveKeyDown_ = false;
-    bool vibrationBackendFailureLogged_ = false;
 };
 }

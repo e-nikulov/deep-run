@@ -1,27 +1,13 @@
 #include "Engine/Input/InputSystem.h"
 
 #include "Engine/Diagnostics/Logger.h"
-
-#include <Windows.h>
-#include <Xinput.h>
+#include "Engine/Input/Windows/WindowsGamingInputGamepad.h"
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace DeepRun::Input
 {
-namespace
-{
-float NormalizeStick(const short value) noexcept
-{
-    constexpr float PositiveScale = 1.0F / 32'767.0F;
-    constexpr float NegativeScale = 1.0F / 32'768.0F;
-    return static_cast<float>(value) * (value >= 0 ? PositiveScale : NegativeScale);
-}
-
-}
-
 ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const float normalizedLeftY) noexcept
 {
     if (!std::isfinite(normalizedLeftX) || !std::isfinite(normalizedLeftY))
@@ -29,7 +15,8 @@ ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const
         return {};
     }
 
-    // XInput's recommended left-thumb dead zone is applied radially after normalizing the signed pair.
+    // Preserve the accepted normalized threshold derived from the former XInput backend (7849 / 32767).
+    // The physical API is no longer part of this pure radial dead-zone contract.
     constexpr float LeftThumbDeadZone = 7'849.0F / 32'767.0F;
     const float clampedX = std::clamp(normalizedLeftX, -1.0F, 1.0F);
     const float clampedY = std::clamp(normalizedLeftY, -1.0F, 1.0F);
@@ -64,21 +51,26 @@ float ResolveSemanticAxis(
     return std::isfinite(controllerValue) ? std::clamp(controllerValue, -1.0F, 1.0F) : 0.0F;
 }
 
-std::uint16_t NormalizedMotorToUnsigned16(const float normalizedMotor) noexcept
-{
-    constexpr double FullMotorRange = static_cast<double>((std::numeric_limits<std::uint16_t>::max)());
-    return static_cast<std::uint16_t>(std::lround(static_cast<double>(normalizedMotor) * FullMotorRange));
-}
-
-InputSystem::InputSystem(Diagnostics::Logger& logger, const bool platformBackendEnabled)
+InputSystem::InputSystem(
+    Diagnostics::Logger& logger,
+    const bool platformBackendEnabled,
+    void* nativeWindowHandle)
     : logger_(logger), platformBackendEnabled_(platformBackendEnabled)
 {
+    if (platformBackendEnabled_)
+    {
+        auto backend = std::make_unique<Windows::WindowsGamingInputGamepad>(logger_, nativeWindowHandle);
+        if (backend->Initialize())
+        {
+            windowsGamepad_ = std::move(backend);
+        }
+    }
     logger_.Info(Diagnostics::LogCategory::Input, "Input system initialized");
 }
 
 InputSystem::~InputSystem()
 {
-    // Ordinary shutdown always requests exact silence before the XInput-facing backend disappears.
+    // Ordinary shutdown always requests exact silence before the physical Windows backend disappears.
     static_cast<void>(ApplyGamepadVibration({}));
     logger_.Info(Diagnostics::LogCategory::Input, "Input system shut down");
 }
@@ -168,35 +160,13 @@ void InputSystem::UpdateController()
         state_.SetGamepad({});
         RefreshSemanticAxes();
         controllerConnected_ = false;
-        controllerStateKnown_ = true;
         return;
     }
 
-    XINPUT_STATE state{};
-    const bool connected = XInputGetState(0, &state) == ERROR_SUCCESS;
-    GamepadState gamepad;
-    gamepad.connected = connected;
-    if (connected)
-    {
-        constexpr float TriggerScale = 1.0F / static_cast<float>(std::numeric_limits<unsigned char>::max());
-        gamepad.leftX = NormalizeStick(state.Gamepad.sThumbLX);
-        gamepad.leftY = NormalizeStick(state.Gamepad.sThumbLY);
-        gamepad.rightX = NormalizeStick(state.Gamepad.sThumbRX);
-        gamepad.rightY = NormalizeStick(state.Gamepad.sThumbRY);
-        gamepad.leftTrigger = static_cast<float>(state.Gamepad.bLeftTrigger) * TriggerScale;
-        gamepad.rightTrigger = static_cast<float>(state.Gamepad.bRightTrigger) * TriggerScale;
-        gamepad.buttons = state.Gamepad.wButtons;
-    }
+    const GamepadState gamepad = windowsGamepad_ ? windowsGamepad_->Poll() : GamepadState{};
     state_.SetGamepad(gamepad);
     RefreshSemanticAxes();
-    if (!controllerStateKnown_ || connected != controllerConnected_)
-    {
-        logger_.Info(
-            Diagnostics::LogCategory::Input,
-            connected ? "XInput controller connected" : "XInput controller disconnected");
-    }
-    controllerConnected_ = connected;
-    controllerStateKnown_ = true;
+    controllerConnected_ = gamepad.connected;
 }
 
 bool InputSystem::ApplyGamepadVibration(const GamepadVibration& vibration) noexcept
@@ -208,25 +178,11 @@ bool InputSystem::ApplyGamepadVibration(const GamepadVibration& vibration) noexc
     {
         return false;
     }
-    if (!platformBackendEnabled_)
+    if (!platformBackendEnabled_ || !windowsGamepad_)
     {
         return true;
     }
-
-    XINPUT_VIBRATION native{};
-    native.wLeftMotorSpeed = NormalizedMotorToUnsigned16(vibration.lowFrequencyMotor);
-    native.wRightMotorSpeed = NormalizedMotorToUnsigned16(vibration.highFrequencyMotor);
-    const DWORD result = XInputSetState(0, &native);
-    if (result == ERROR_SUCCESS || result == ERROR_DEVICE_NOT_CONNECTED)
-    {
-        return true;
-    }
-    if (!vibrationBackendFailureLogged_)
-    {
-        vibrationBackendFailureLogged_ = true;
-        logger_.Warning(Diagnostics::LogCategory::Input, "XInput vibration output failed; haptics are silent");
-    }
-    return false;
+    return windowsGamepad_->ApplyVibration(vibration);
 }
 
 void InputSystem::RefreshSemanticAxes() noexcept

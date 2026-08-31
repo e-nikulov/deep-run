@@ -61,6 +61,7 @@ add_library(DeepRunEngine STATIC
     Engine/Input/HapticMixer.cpp
     Engine/Input/InputState.cpp
     Engine/Input/InputSystem.cpp
+    Engine/Input/Windows/WindowsGamingInputGamepad.cpp
     Engine/Physics/PhysicsWorld.cpp
     Engine/Platform/Windows/WinPlatform.cpp
     Engine/Platform/Windows/WinWindow.cpp
@@ -100,7 +101,7 @@ target_link_libraries(DeepRunEngine
         d3d12
         dxgi
         dxguid
-        xinput9_1_0
+        windowsapp
 )
 
 add_executable(DeepRun

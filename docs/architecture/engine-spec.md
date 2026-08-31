@@ -2195,9 +2195,9 @@ Gameplay и Simulation должны работать только с semantic ac
 ```text
 Win32 virtual keys
 mouse button constants
-XInput button masks
-raw XInput stick values
-raw XInput trigger values
+platform gamepad button masks
+raw platform stick values
+raw platform trigger values
 ```
 
 Основные поддерживаемые устройства:
@@ -2285,7 +2285,7 @@ Game semantic HapticEvent
     -> Game haptic feedback mapping
     -> generic Engine haptic mixer
     -> normalized low/high motor output
-    -> XInput backend
+    -> Windows.Gaming.Input backend
 ```
 
 Gameplay and Simulation never directly control gamepad motors. The Engine knows only generic effect IDs,
@@ -2305,9 +2305,17 @@ many fixed ticks ran. When globally disabled, output is exact zero while effects
 effects never resurrect on re-enable. Effect durations use presentation time and never simulation, physics or
 random state.
 
-Windows desktop backend может использовать XInput.
+Windows desktop controller backend uses `Windows.Gaming.Input` through a private
+`Engine/Input/Windows` implementation. C++/WinRT and WGI gamepad types do not escape
+the Input layer; Game and Simulation continue to receive only normalized semantic axes.
 
-`XInputGetState()` и `XInputSetState()` разрешены только внутри platform /
+Windows gates WGI gamepad input on foreground focus. While the gameplay HWND is not
+foreground, or a current reading is unavailable, the backend publishes a neutral controller
+contribution rather than caching the last throttle/depth value. When focus and a current
+reading return, the backend uses that new reading.
+
+The generic low/high motor output maps directly to WGI `LeftMotor`/`RightMotor`; M2 leaves
+both trigger motors at zero. WGI calls and event subscriptions remain private to the Windows
 input implementation.
 
 Haptic system должен поддерживать:
@@ -2346,7 +2354,9 @@ headless execution
 
 Controller absence is normal presentation state: generic submissions still succeed and the backend degrades to
 silence. Ordinary shutdown sends zero to both motors before the input backend is destroyed. Headless execution
-does not initialize controller output hardware.
+does not initialize controller output hardware. Before a minimized window enters its suspended event wait, the
+Engine sends exact zero to both motors; mixer effects and simulation remain paused rather than being cleared or
+artificially expired.
 
 Semantic haptic events и reference vibration patterns определены в:
 

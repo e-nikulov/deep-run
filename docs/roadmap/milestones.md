@@ -300,7 +300,7 @@ Do not implement:
 
 ### Milestone 2 - Physical Playground
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 Scope:
 
