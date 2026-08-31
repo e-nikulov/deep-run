@@ -5,9 +5,9 @@
 #include <Windows.h>
 #include <Xinput.h>
 
-#include <limits>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace DeepRun::Input
 {
@@ -64,14 +64,22 @@ float ResolveSemanticAxis(
     return std::isfinite(controllerValue) ? std::clamp(controllerValue, -1.0F, 1.0F) : 0.0F;
 }
 
-InputSystem::InputSystem(Diagnostics::Logger& logger)
-    : logger_(logger)
+std::uint16_t NormalizedMotorToUnsigned16(const float normalizedMotor) noexcept
+{
+    constexpr double FullMotorRange = static_cast<double>((std::numeric_limits<std::uint16_t>::max)());
+    return static_cast<std::uint16_t>(std::lround(static_cast<double>(normalizedMotor) * FullMotorRange));
+}
+
+InputSystem::InputSystem(Diagnostics::Logger& logger, const bool platformBackendEnabled)
+    : logger_(logger), platformBackendEnabled_(platformBackendEnabled)
 {
     logger_.Info(Diagnostics::LogCategory::Input, "Input system initialized");
 }
 
 InputSystem::~InputSystem()
 {
+    // Ordinary shutdown always requests exact silence before the XInput-facing backend disappears.
+    static_cast<void>(ApplyGamepadVibration({}));
     logger_.Info(Diagnostics::LogCategory::Input, "Input system shut down");
 }
 
@@ -155,6 +163,15 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
 
 void InputSystem::UpdateController()
 {
+    if (!platformBackendEnabled_)
+    {
+        state_.SetGamepad({});
+        RefreshSemanticAxes();
+        controllerConnected_ = false;
+        controllerStateKnown_ = true;
+        return;
+    }
+
     XINPUT_STATE state{};
     const bool connected = XInputGetState(0, &state) == ERROR_SUCCESS;
     GamepadState gamepad;
@@ -180,6 +197,36 @@ void InputSystem::UpdateController()
     }
     controllerConnected_ = connected;
     controllerStateKnown_ = true;
+}
+
+bool InputSystem::ApplyGamepadVibration(const GamepadVibration& vibration) noexcept
+{
+    const auto validMotor = [](const float value) {
+        return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+    };
+    if (!validMotor(vibration.lowFrequencyMotor) || !validMotor(vibration.highFrequencyMotor))
+    {
+        return false;
+    }
+    if (!platformBackendEnabled_)
+    {
+        return true;
+    }
+
+    XINPUT_VIBRATION native{};
+    native.wLeftMotorSpeed = NormalizedMotorToUnsigned16(vibration.lowFrequencyMotor);
+    native.wRightMotorSpeed = NormalizedMotorToUnsigned16(vibration.highFrequencyMotor);
+    const DWORD result = XInputSetState(0, &native);
+    if (result == ERROR_SUCCESS || result == ERROR_DEVICE_NOT_CONNECTED)
+    {
+        return true;
+    }
+    if (!vibrationBackendFailureLogged_)
+    {
+        vibrationBackendFailureLogged_ = true;
+        logger_.Warning(Diagnostics::LogCategory::Input, "XInput vibration output failed; haptics are silent");
+    }
+    return false;
 }
 
 void InputSystem::RefreshSemanticAxes() noexcept

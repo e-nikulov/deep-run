@@ -8,6 +8,7 @@
 #include "Engine/Core/Random.h"
 #include "Engine/Core/Time.h"
 #include "Engine/Diagnostics/Logger.h"
+#include "Engine/Input/HapticMixer.h"
 #include "Engine/Input/InputState.h"
 #include "Engine/Input/InputSystem.h"
 #include "Engine/Physics/PhysicsWorld.h"
@@ -17,6 +18,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
+#include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
@@ -756,7 +758,14 @@ bool EngineHeadlessLifecycle()
     }
     const DeepRun::Scene::Entity entity = engine.ActiveScene().CreateEntity("shutdown-order");
     const auto assetResult = engine.Assets().LoadText("lifetime.txt");
-    if (!engine.ActiveScene().IsValid(entity) || !assetResult || !assetResult->IsValid())
+    const auto silentHeadlessHaptic = engine.SubmitHapticEffect({
+        .id = 1,
+        .lowFrequencyMotor = 0.5F,
+        .highFrequencyMotor = 0.25F,
+        .durationSeconds = 0.1F,
+        .priority = 10});
+    if (!engine.ActiveScene().IsValid(entity) || !assetResult || !assetResult->IsValid() ||
+        !silentHeadlessHaptic)
     {
         return false;
     }
@@ -944,7 +953,8 @@ bool I1SemanticAxisStorage()
 bool I1KeyboardSemanticMapping()
 {
     DeepRun::Diagnostics::Logger logger;
-    DeepRun::Input::InputSystem input(logger);
+    // Unit tests use the pure semantic/event path; no physical XInput polling or output is performed.
+    DeepRun::Input::InputSystem input(logger, false);
     const auto key = [](const DeepRun::Platform::WindowEventType type, const DeepRun::Platform::Key value) {
         return DeepRun::Platform::WindowEvent{.type = type, .key = value};
     };
@@ -6109,6 +6119,393 @@ bool I1CommandSnapshotIsFixedStepStable()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice I2: Game semantic engine feedback, generic presentation-time mixing, and pure backend
+// conversion. No test calls controller hardware and no haptic state is an input to simulation.
+// ---------------------------------------------------------------------------
+
+bool I2MixerEmptyIsSilent()
+{
+    const DeepRun::Input::HapticMixer mixer;
+    return mixer.CurrentOutput() == DeepRun::Input::GamepadVibration{};
+}
+
+bool I2MixerSingleEffect()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto submitted = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.4F,
+        .highFrequencyMotor = 0.2F,
+        .durationSeconds = 1.0F,
+        .priority = 10});
+    const auto output = mixer.CurrentOutput();
+    return submitted && E2Near(output.lowFrequencyMotor, 0.4F) &&
+           E2Near(output.highFrequencyMotor, 0.2F);
+}
+
+bool I2MixerSameIdReplacesAndRefreshes()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto first = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.2F,
+        .durationSeconds = 0.1F,
+        .priority = 10});
+    const auto firstAdvance = mixer.Advance(0.05F);
+    const auto refreshed = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.6F,
+        .durationSeconds = 0.1F,
+        .priority = 10});
+    const auto immediate = mixer.CurrentOutput();
+    const auto refreshedAdvance = mixer.Advance(0.06F);
+    const auto afterOriginalExpiry = mixer.CurrentOutput();
+    const auto zeroRefresh = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.0F,
+        .durationSeconds = 0.1F,
+        .priority = 10});
+    return first && firstAdvance && refreshed && refreshedAdvance &&
+           E2Near(immediate.lowFrequencyMotor, 0.6F) &&
+           E2Near(afterOriginalExpiry.lowFrequencyMotor, 0.6F) && zeroRefresh &&
+           mixer.CurrentOutput() == DeepRun::Input::GamepadVibration{};
+}
+
+bool I2MixerSamePriorityAddsAndClamps()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto first = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.6F,
+        .highFrequencyMotor = 0.2F,
+        .durationSeconds = 1.0F,
+        .priority = 10});
+    const auto second = mixer.Submit({
+        .id = 2,
+        .lowFrequencyMotor = 0.6F,
+        .highFrequencyMotor = 0.9F,
+        .durationSeconds = 1.0F,
+        .priority = 10});
+    const auto output = mixer.CurrentOutput();
+    return first && second && output.lowFrequencyMotor == 1.0F && output.highFrequencyMotor == 1.0F;
+}
+
+bool I2MixerPrioritySuppressesAndResumes()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto low = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.3F,
+        .durationSeconds = 1.0F,
+        .priority = 5});
+    const auto high = mixer.Submit({
+        .id = 2,
+        .highFrequencyMotor = 0.8F,
+        .durationSeconds = 0.1F,
+        .priority = 20});
+    const auto overridden = mixer.CurrentOutput();
+    const auto advanced = mixer.Advance(0.11F);
+    const auto resumed = mixer.CurrentOutput();
+    return low && high && advanced && overridden.lowFrequencyMotor == 0.0F &&
+           E2Near(overridden.highFrequencyMotor, 0.8F) && E2Near(resumed.lowFrequencyMotor, 0.3F) &&
+           resumed.highFrequencyMotor == 0.0F;
+}
+
+bool I2MixerDurationExpiresDeterministically()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto submitted = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.4F,
+        .durationSeconds = 0.1F,
+        .priority = 10});
+    const auto partialAdvance = mixer.Advance(0.04F);
+    const auto active = mixer.CurrentOutput();
+    const auto expiryAdvance = mixer.Advance(0.061F);
+    return submitted && partialAdvance && expiryAdvance && E2Near(active.lowFrequencyMotor, 0.4F) &&
+           mixer.CurrentOutput() == DeepRun::Input::GamepadVibration{};
+}
+
+bool I2MixerMasterIntensity()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto submitted = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.8F,
+        .highFrequencyMotor = 0.4F,
+        .durationSeconds = 1.0F,
+        .priority = 10});
+    const auto master = mixer.SetMasterIntensity(0.5F);
+    const auto single = mixer.CurrentOutput();
+    const auto second = mixer.Submit({
+        .id = 2,
+        .lowFrequencyMotor = 0.8F,
+        .highFrequencyMotor = 0.8F,
+        .durationSeconds = 1.0F,
+        .priority = 10});
+    const auto clampedThenScaled = mixer.CurrentOutput();
+    return submitted && master && second && E2Near(single.lowFrequencyMotor, 0.4F) &&
+           E2Near(single.highFrequencyMotor, 0.2F) &&
+           E2Near(clampedThenScaled.lowFrequencyMotor, 0.5F) &&
+           E2Near(clampedThenScaled.highFrequencyMotor, 0.5F);
+}
+
+bool I2MixerDisableKeepsAgeing()
+{
+    DeepRun::Input::HapticMixer mixer;
+    const auto submitted = mixer.Submit({
+        .id = 1,
+        .lowFrequencyMotor = 0.8F,
+        .highFrequencyMotor = 0.4F,
+        .durationSeconds = 0.1F,
+        .priority = 10});
+    mixer.SetEnabled(false);
+    const bool suppressed = mixer.CurrentOutput() == DeepRun::Input::GamepadVibration{};
+    const auto advanced = mixer.Advance(0.11F);
+    mixer.SetEnabled(true);
+    return submitted && suppressed && advanced && mixer.Enabled() &&
+           mixer.CurrentOutput() == DeepRun::Input::GamepadVibration{};
+}
+
+bool I2MixerRejectsMalformedConfiguration()
+{
+    using DeepRun::Input::HapticEffectRequest;
+    DeepRun::Input::HapticMixer mixer;
+    const HapticEffectRequest valid{
+        .id = 1,
+        .lowFrequencyMotor = 0.2F,
+        .highFrequencyMotor = 0.3F,
+        .durationSeconds = 1.0F,
+        .priority = 10};
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    auto rejected = [&mixer, &valid](auto mutate) {
+        HapticEffectRequest request = valid;
+        mutate(request);
+        return !mixer.Submit(request);
+    };
+    return rejected([](auto& request) { request.id = DeepRun::Input::InvalidHapticEffectId; }) &&
+           rejected([nan](auto& request) { request.lowFrequencyMotor = nan; }) &&
+           rejected([infinity](auto& request) { request.lowFrequencyMotor = infinity; }) &&
+           rejected([](auto& request) { request.lowFrequencyMotor = -0.1F; }) &&
+           rejected([](auto& request) { request.highFrequencyMotor = 1.1F; }) &&
+           rejected([](auto& request) { request.durationSeconds = 0.0F; }) &&
+           rejected([](auto& request) { request.durationSeconds = -1.0F; }) &&
+           rejected([nan](auto& request) { request.durationSeconds = nan; }) &&
+           rejected([infinity](auto& request) { request.durationSeconds = infinity; }) &&
+           !mixer.SetMasterIntensity(nan) && !mixer.SetMasterIntensity(infinity) &&
+           !mixer.SetMasterIntensity(-0.1F) && !mixer.SetMasterIntensity(1.1F) &&
+           !mixer.Advance(-0.1F) && !mixer.Advance(nan);
+}
+
+bool I2NormalizedMotorConversionUsesFullRange()
+{
+    const std::uint16_t half = DeepRun::Input::NormalizedMotorToUnsigned16(0.5F);
+    return DeepRun::Input::NormalizedMotorToUnsigned16(0.0F) == 0 &&
+           DeepRun::Input::NormalizedMotorToUnsigned16(1.0F) == 65'535U &&
+           (half == 32'767U || half == 32'768U);
+}
+
+bool I2SemanticEngineVibrationMapping()
+{
+    const DeepRun::Game::HapticFeedbackSystem feedback;
+    const auto zero = feedback.Map({.type = DeepRun::Game::HapticEventType::EngineVibration, .intensity = 0.0F});
+    const auto mid = feedback.Map({.type = DeepRun::Game::HapticEventType::EngineVibration, .intensity = 0.5F});
+    const auto full = feedback.Map({.type = DeepRun::Game::HapticEventType::EngineVibration, .intensity = 1.0F});
+    const auto nan = feedback.Map({
+        .type = DeepRun::Game::HapticEventType::EngineVibration,
+        .intensity = std::numeric_limits<float>::quiet_NaN()});
+    const auto below = feedback.Map({.type = DeepRun::Game::HapticEventType::EngineVibration, .intensity = -0.1F});
+    const auto above = feedback.Map({.type = DeepRun::Game::HapticEventType::EngineVibration, .intensity = 1.1F});
+    return zero && mid && full && zero->id == DeepRun::Game::HapticFeedbackSystem::EngineVibrationEffectId &&
+           zero->lowFrequencyMotor == 0.0F && zero->highFrequencyMotor == 0.0F &&
+           E2Near(mid->lowFrequencyMotor, 0.275F) && E2Near(mid->highFrequencyMotor, 0.05F) &&
+           full->id == zero->id && E2Near(full->lowFrequencyMotor, 0.55F) &&
+           E2Near(full->highFrequencyMotor, 0.10F) && E2Near(full->durationSeconds, 0.10F) &&
+           full->priority == 10 && !nan && !below && !above;
+}
+
+bool I2RpmNormalizationUsesAuthoritativeDirectionLimits()
+{
+    const DeepRun::Game::HapticFeedbackSystem feedback;
+    const auto stopped = feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = 0.0F});
+    const auto negativeZero = feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = -0.0F});
+    const auto halfAhead = feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = 90.0F});
+    const auto fullAhead = feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = 180.0F});
+    const auto halfAstern = feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = -60.0F});
+    const auto fullAstern = feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = -120.0F});
+    PropulsionComponent badConfig = G2Component;
+    badConfig.maxReverseRpm = 0.0F;
+    return stopped && negativeZero && halfAhead && fullAhead && halfAstern && fullAstern &&
+           stopped->intensity == 0.0F && negativeZero->intensity == 0.0F &&
+           !std::signbit(negativeZero->intensity) &&
+           E2Near(halfAhead->intensity, 0.5F) && fullAhead->intensity == 1.0F &&
+           E2Near(halfAstern->intensity, 0.5F) && fullAstern->intensity == 1.0F &&
+           !feedback.EngineVibrationFromShaftRpm(badConfig, {}) &&
+           !feedback.EngineVibrationFromShaftRpm(G2Component, {.shaftRpm = 181.0F}) &&
+           !feedback.EngineVibrationFromShaftRpm(
+               G2Component, {.shaftRpm = std::numeric_limits<float>::quiet_NaN()});
+}
+
+bool I2RpmRampProducesHapticRamp()
+{
+    const DeepRun::Game::HapticFeedbackSystem feedback;
+    PropulsionState aheadState{};
+    float previousAheadIntensity = 0.0F;
+    bool aheadMonotonic = true;
+    for (int tick = 0; tick < 120; ++tick)
+    {
+        const auto propulsion = PropulsionSystem::Advance(
+            G2Component,
+            aheadState,
+            {.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F},
+            E3FixedDeltaSeconds);
+        if (!propulsion)
+        {
+            return false;
+        }
+        aheadState = propulsion->nextState;
+        const auto event = feedback.EngineVibrationFromShaftRpm(G2Component, aheadState);
+        if (!event || event->intensity < previousAheadIntensity)
+        {
+            aheadMonotonic = false;
+            break;
+        }
+        previousAheadIntensity = event->intensity;
+    }
+    const float aheadIntensity = previousAheadIntensity;
+    const auto aheadEffect = feedback.Map({DeepRun::Game::HapticEventType::EngineVibration, aheadIntensity});
+
+    float previousReleaseIntensity = aheadIntensity;
+    bool releaseMonotonic = true;
+    for (int tick = 0; tick < 60; ++tick)
+    {
+        const auto propulsion = PropulsionSystem::Advance(
+            G2Component,
+            aheadState,
+            {.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F},
+            E3FixedDeltaSeconds);
+        if (!propulsion)
+        {
+            return false;
+        }
+        aheadState = propulsion->nextState;
+        const auto event = feedback.EngineVibrationFromShaftRpm(G2Component, aheadState);
+        if (!event || event->intensity > previousReleaseIntensity)
+        {
+            releaseMonotonic = false;
+            break;
+        }
+        previousReleaseIntensity = event->intensity;
+    }
+    const auto releaseEffect = feedback.Map(
+        {DeepRun::Game::HapticEventType::EngineVibration, previousReleaseIntensity});
+
+    PropulsionState asternState{};
+    PropulsionResult astern{};
+    for (int tick = 0; tick < 120; ++tick)
+    {
+        const auto next = PropulsionSystem::Advance(
+            G2Component,
+            asternState,
+            {.requestedDriveFraction = -1.0F, .availablePowerFraction = 1.0F},
+            E3FixedDeltaSeconds);
+        if (!next)
+        {
+            return false;
+        }
+        astern = *next;
+        asternState = next->nextState;
+    }
+    const auto asternEvent = feedback.EngineVibrationFromShaftRpm(G2Component, asternState);
+    const auto asternEffect = asternEvent ? feedback.Map(*asternEvent)
+                                         : std::expected<DeepRun::Input::HapticEffectRequest, std::string>{
+                                               std::unexpected("astern event unavailable")};
+    if (aheadEffect && releaseEffect && asternEvent && asternEffect)
+    {
+        std::cout << "[I2 evidence] ahead RPM " << 60.0F << ", intensity " << aheadIntensity
+                  << ", motors " << aheadEffect->lowFrequencyMotor << '/' << aheadEffect->highFrequencyMotor
+                  << "; release RPM " << aheadState.shaftRpm << ", intensity " << previousReleaseIntensity
+                  << ", motors " << releaseEffect->lowFrequencyMotor << '/' << releaseEffect->highFrequencyMotor
+                  << "; astern RPM " << astern.nextState.shaftRpm << ", intensity " << asternEvent->intensity
+                  << ", motors " << asternEffect->lowFrequencyMotor << '/' << asternEffect->highFrequencyMotor
+                  << '\n';
+    }
+    return aheadMonotonic && releaseMonotonic && aheadEffect && releaseEffect && asternEvent && asternEffect &&
+           aheadIntensity > 0.0F && aheadIntensity < 1.0F && previousReleaseIntensity < aheadIntensity &&
+           previousReleaseIntensity > 0.0F && asternState.shaftRpm < 0.0F && asternEvent->intensity > 0.0F &&
+           asternEvent->intensity < 1.0F;
+}
+
+bool I2HapticsCannotAffectSimulation()
+{
+    struct Outcome final
+    {
+        PhysicsBodyState body{};
+        PropulsionState propulsion{};
+        float thrustNewtons = 0.0F;
+        DeepRun::Game::VesselCommandState command{};
+    };
+    const auto run = [](const bool hapticsEnabled) -> std::optional<Outcome> {
+        DeepRun::Diagnostics::Logger logger;
+        DeepRun::Physics::PhysicsWorld world(logger);
+        const auto water = WaterBody::Create(
+            {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+        if (!world.Initialize() || !water)
+        {
+            return std::nullopt;
+        }
+        const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+        const DeepRun::Game::VesselCommandState command{.throttleFraction = 0.75F};
+        const DeepRun::Game::HapticFeedbackSystem feedback;
+        DeepRun::Input::HapticMixer mixer;
+        mixer.SetEnabled(hapticsEnabled);
+        PropulsionState propulsion{};
+        H2TickSample sample;
+        for (int tick = 0; tick < 120; ++tick)
+        {
+            if (!I1ApplyVesselCommandTick(
+                    world, handle, *water, H2NeutralBuoyancy(), command, &propulsion, &sample))
+            {
+                return std::nullopt;
+            }
+            const auto event = feedback.EngineVibrationFromShaftRpm(G2Component, propulsion);
+            const auto effect = event ? feedback.Map(*event)
+                                      : std::expected<DeepRun::Input::HapticEffectRequest, std::string>{
+                                            std::unexpected("event unavailable")};
+            if (!effect || !mixer.Submit(*effect) || !mixer.Advance(E3FixedDeltaSeconds))
+            {
+                return std::nullopt;
+            }
+        }
+        const auto body = world.GetBodyState(handle);
+        if (!body)
+        {
+            return std::nullopt;
+        }
+        return Outcome{.body = *body, .propulsion = propulsion, .thrustNewtons = sample.thrustNewtons, .command = command};
+    };
+
+    const auto enabled = run(true);
+    const auto disabled = run(false);
+    if (!enabled || !disabled)
+    {
+        return false;
+    }
+    return enabled->command.throttleFraction == disabled->command.throttleFraction &&
+           enabled->command.depthCommandFraction == disabled->command.depthCommandFraction &&
+           enabled->propulsion.shaftRpm == disabled->propulsion.shaftRpm &&
+           enabled->thrustNewtons == disabled->thrustNewtons &&
+           E2VectorNear(enabled->body.position, disabled->body.position) &&
+           E2VectorNear(enabled->body.linearVelocity, disabled->body.linearVelocity) &&
+           E2VectorNear(enabled->body.angularVelocity, disabled->body.angularVelocity) &&
+           E2Near(enabled->body.orientation.x, disabled->body.orientation.x) &&
+           E2Near(enabled->body.orientation.y, disabled->body.orientation.y) &&
+           E2Near(enabled->body.orientation.z, disabled->body.orientation.z) &&
+           E2Near(enabled->body.orientation.w, disabled->body.orientation.w);
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -6718,6 +7115,57 @@ bool I1SemanticInputArchitectureBoundaries()
            ScanSourceDirectoryForForbiddenPatterns(
                playgroundRoot, {"platform::key", "xinput", "vk_", "wm_key", ".gamepad()", ".leftx", ".lefty"});
 }
+
+bool SourcePatternAppearsOnlyUnder(
+    const std::filesystem::path& sourceRoot,
+    const std::filesystem::path& allowedRoot,
+    const std::string_view pattern)
+{
+    bool found = false;
+    for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(sourceRoot))
+    {
+        if (!entry.is_regular_file() || (entry.path().extension() != ".h" && entry.path().extension() != ".cpp"))
+        {
+            continue;
+        }
+        std::ifstream input(entry.path(), std::ios::binary);
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        if (contents.find(pattern) == std::string::npos)
+        {
+            continue;
+        }
+        found = true;
+        const std::filesystem::path relative = entry.path().lexically_relative(allowedRoot);
+        if (relative.empty() || *relative.begin() == "..")
+        {
+            return false;
+        }
+    }
+    return found;
+}
+
+bool I2SemanticHapticArchitectureBoundaries()
+{
+    const std::filesystem::path sourceRoot = DEEPRUN_SOURCE_ROOT;
+    const std::filesystem::path engineRoot = sourceRoot / "Engine";
+    const std::filesystem::path inputRoot = engineRoot / "Input";
+    const std::filesystem::path gameHapticsRoot = sourceRoot / "Game" / "Haptics";
+    const std::filesystem::path marineRoot = sourceRoot / "Simulation" / "Marine";
+    const std::filesystem::path commandRoot = sourceRoot / "Game" / "Submarine";
+    const std::string backendCall = std::string("xinput") + "setstate";
+    return ScanSourceDirectoryForForbiddenPatterns(
+               engineRoot, {"enginevibration", "shaft rpm", "simulation/marine", "propeller"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               inputRoot, {"submarine", "marine", "enginevibration", "shaft", "rpm", "propeller"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               gameHapticsRoot, {"windows.h", "xinput", "xinput_vibration", "word motor", "setstate"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(marineRoot, {"haptic"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(commandRoot, {"haptic", "vibration", "motor"}) &&
+           SourcePatternAppearsOnlyUnder(sourceRoot, inputRoot, backendCall);
+}
 } // namespace
 
 int main(const int argumentCount, const char* const* arguments)
@@ -6902,6 +7350,21 @@ int main(const int argumentCount, const char* const* arguments)
         {"I1 depth command maps to physical dive and surface", I1DepthCommandMapsToPhysicalDiveAndSurface},
         {"I1 depth release and low speed have no magic authority", I1DepthReleaseAndLowSpeedHaveNoMagicAuthority},
         {"I1 command snapshot is fixed-step stable", I1CommandSnapshotIsFixedStepStable},
+        // M2 Slice I2: semantic engine feedback, generic mixer, and normalized backend conversion.
+        {"I2 mixer empty output is silent", I2MixerEmptyIsSilent},
+        {"I2 mixer single effect", I2MixerSingleEffect},
+        {"I2 mixer same-ID replace and refresh", I2MixerSameIdReplacesAndRefreshes},
+        {"I2 mixer same-priority add and clamp", I2MixerSamePriorityAddsAndClamps},
+        {"I2 mixer priority suppression and resume", I2MixerPrioritySuppressesAndResumes},
+        {"I2 mixer deterministic duration expiry", I2MixerDurationExpiresDeterministically},
+        {"I2 mixer master intensity", I2MixerMasterIntensity},
+        {"I2 mixer disable keeps effects ageing", I2MixerDisableKeepsAgeing},
+        {"I2 mixer rejects malformed configuration", I2MixerRejectsMalformedConfiguration},
+        {"I2 normalized motor conversion full range", I2NormalizedMotorConversionUsesFullRange},
+        {"I2 semantic engine-vibration mapping", I2SemanticEngineVibrationMapping},
+        {"I2 authoritative directional RPM normalization", I2RpmNormalizationUsesAuthoritativeDirectionLimits},
+        {"I2 RPM inertia produces haptic ramp", I2RpmRampProducesHapticRamp},
+        {"I2 haptics cannot affect simulation", I2HapticsCannotAffectSimulation},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -6951,6 +7414,7 @@ int main(const int argumentCount, const char* const* arguments)
          G2IntegrationAndPresentationArchitectureBoundaries},
         {"H2 integration architecture boundaries", H2IntegrationArchitectureBoundaries},
         {"I1 semantic input architecture boundaries", I1SemanticInputArchitectureBoundaries},
+        {"I2 semantic haptic architecture boundaries", I2SemanticHapticArchitectureBoundaries},
     };
 
     int failed = 0;

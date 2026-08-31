@@ -58,6 +58,7 @@ add_library(DeepRunEngine STATIC
     Engine/Core/Time.cpp
     Engine/Diagnostics/DebugOverlay.cpp
     Engine/Diagnostics/Logger.cpp
+    Engine/Input/HapticMixer.cpp
     Engine/Input/InputState.cpp
     Engine/Input/InputSystem.cpp
     Engine/Physics/PhysicsWorld.cpp
@@ -104,6 +105,7 @@ target_link_libraries(DeepRunEngine
 
 add_executable(DeepRun
     DeepRun/Main.cpp
+    Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
@@ -139,6 +141,7 @@ enable_testing()
 
 add_executable(DeepRunTests
     Tests/TestMain.cpp
+    Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
     Game/Submarine/VesselCommandState.cpp

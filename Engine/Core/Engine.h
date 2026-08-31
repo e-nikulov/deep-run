@@ -3,8 +3,10 @@
 #include "Engine/Core/Time.h"
 
 #include <filesystem>
+#include <expected>
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace DeepRun::Assets
 {
@@ -18,6 +20,7 @@ class PhysicsWorld;
 
 namespace DeepRun::Input
 {
+struct HapticEffectRequest;
 class InputState;
 }
 
@@ -82,6 +85,11 @@ public:
     // Read-only view of the stable frame input state. It is available only for initialized windowed engines;
     // callers keep no ownership and must not retain it past the Engine's lifetime.
     [[nodiscard]] const Input::InputState* InputState() const noexcept;
+
+    // Generic presentation submission. The Engine understands effect IDs, motors, duration and priority;
+    // semantic event meaning remains entirely above this boundary in Game.
+    [[nodiscard]] std::expected<void, std::string> SubmitHapticEffect(
+        const Input::HapticEffectRequest& request);
 
     [[nodiscard]] int ExitCode() const noexcept;
 

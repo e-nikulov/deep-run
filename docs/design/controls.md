@@ -243,25 +243,23 @@ Vibration must be optional and have configurable master intensity.
 
 ## 8. Semantic haptic events
 
-Baseline events:
+M2 Slice I2 implements exactly one runtime semantic producer:
 
 ```text
 EngineVibration
-Cavitation
-ActiveSonarPing
-IncomingSonarPing
-TorpedoLaunch
-ExplosionNear
-ExplosionFar
-HullImpact
-GroundContact
-Damage
-DamageCritical
-FloodingPulse
-IncomingTorpedo
 ```
 
-Gameplay emits semantic events.
+Its intensity is derived only from authoritative `PropulsionState::shaftRpm`:
+
+```text
+ahead:  shaftRpm / maxForwardRpm
+astern: abs(shaftRpm) / maxReverseRpm
+```
+
+Zero RPM means exact zero intensity. Requested throttle, depth command and visual propeller angle are not
+haptic sources. Other semantic events are added only together with real authoritative gameplay producers.
+
+Gameplay emits semantic events with finite normalized intensity.
 
 Gameplay must not directly set controller motor values.
 
@@ -269,20 +267,15 @@ Gameplay must not directly set controller motor values.
 
 ## 9. Reference vibration language
 
-| Event | Feedback |
-|---|---|
-| low propulsion | extremely subtle low-frequency vibration |
-| high propulsion | stronger continuous low-frequency vibration |
-| cavitation | fine high-frequency vibration |
-| own active sonar ping | short clean pulse |
-| incoming sonar ping | distinct short pulse |
-| torpedo launch | short mechanical impulse |
-| distant explosion | weak low-frequency impulse |
-| nearby explosion | strong dual-motor impulse |
-| hull impact | sharp impulse |
-| ground contact | heavy irregular vibration |
-| damaged machinery | periodic mechanical vibration |
-| incoming torpedo | escalating pulse pattern |
+The M2 prototype `EngineVibration` pattern is continuous low-frequency-dominant feedback:
+
+```text
+low-frequency motor  = 0.55 * normalized shaft-RPM intensity
+high-frequency motor = 0.10 * normalized shaft-RPM intensity
+duration             = 0.10 s
+priority             = 10
+stable effect ID     = refreshed, never stacked per fixed tick
+```
 
 Exact strengths and durations are tuning data and must be refined during
 playtesting.
@@ -348,7 +341,7 @@ Range:
 0.0 .. 1.0
 ```
 
-`HapticSystem` owns:
+The generic Engine mixer owns:
 
 ```text
 effect duration
@@ -357,9 +350,13 @@ mixing
 clamping
 master intensity
 global enable / disable
-effect cancellation
 device disconnect handling
+same-ID replacement / lifetime refresh
 ```
+
+Only effects at the highest current priority are mixed. Same-priority motor values add and clamp before master
+intensity. Suppressed lower-priority effects keep ageing and may resume if still active. Disabled output is
+exact zero while effects continue ageing.
 
 ---
 

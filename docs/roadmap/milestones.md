@@ -342,6 +342,7 @@ Accepted slices (in order):
 | H1 | Pure control-surface hydrodynamic force model | ACCEPTED |
 | H2 | Submarine control-surface integration + scripted depth/pitch response | ACCEPTED |
 | I1 | Semantic Throttle/Depth vessel commands + controller/keyboard integration | ACCEPTED |
+| I2 | Basic semantic gamepad haptics | ACCEPTED |
 
 C2 notes: the canonical submarine is rendered from authoritative Jolt body state through a
 `PhysicsBodyState` value copy; box collision proxy derived from `ModelAsset::bounds`; pivot contract keeps

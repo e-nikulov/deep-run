@@ -5,6 +5,7 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Game/Haptics/HapticEvent.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/ControlSurfaceComponent.h"
@@ -17,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -53,9 +55,13 @@ namespace DeepRun::Game
 // shaft state; propeller angle is presentation-only and can never feed the simulation. H2 composes two
 // Game-owned control surfaces through their pure Marine calculation and the existing world-point force API. I1
 // receives only a Game-owned VesselCommandState; it never sees a physical key, gamepad field, or backend type.
+// I2 publishes a Game-owned semantic feedback event after authoritative propulsion state commit; it never sees
+// a motor value or platform backend, and feedback success never participates in the simulation transaction.
 class PhysicalPlayground final
 {
 public:
+    using HapticEventSink = std::function<void(const HapticEvent&)>;
+
     // verifyDistinctUploads keeps the B2 GPU-handle regression check active in smoke runs.
     [[nodiscard]] std::expected<void, std::string> Initialize(
         Assets::AssetManager& assets,
@@ -68,7 +74,8 @@ public:
     // never scales force or torque by dt.
     [[nodiscard]] std::expected<void, std::string> FixedUpdate(
         float fixedDeltaSeconds,
-        const VesselCommandState& command);
+        const VesselCommandState& command,
+        const HapticEventSink& hapticEventSink = {});
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
     // fixed-step update for the frame; never steps physics itself. Also paints the D2 flat-water
@@ -106,6 +113,7 @@ private:
     std::uint64_t fixedTickCount_ = 0;
     bool loggedFirstFixedSample_ = false;
     bool loggedLaterFixedSample_ = false;
+    bool loggedHapticFailure_ = false;
     mutable bool loggedRenderPresentation_ = false;
 
     // Presentation state derived only from authoritative shaft RPM. It is not Marine/save/physics authority.

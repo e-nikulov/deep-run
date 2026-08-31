@@ -2,6 +2,7 @@
 #include "Engine/Core/Engine.h"
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
+#include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicalPlayground.h"
 #include "Game/Submarine/VesselCommandState.h"
 
@@ -261,10 +262,13 @@ int main(const int argumentCount, char** argumentValues)
 
         const DeepRun::Core::ApplicationOptions options = DeepRun::Core::ApplicationOptions::Parse(arguments);
         DeepRun::Game::PhysicalPlayground playground;
+        DeepRun::Game::HapticFeedbackSystem hapticFeedback;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
+        bool loggedHapticSubmissionFailure = false;
+        DeepRun::Core::Engine* engineServices = nullptr;
         const DeepRun::Input::InputState* inputState = nullptr;
         // Bisection aid: DR_NO_CAPTURE=1 disables window frame capture entirely so the physics/render path
         // can be tested in isolation. _dupenv_s allocates with malloc (not new), so the pointer must be
@@ -277,8 +281,9 @@ int main(const int argumentCount, char** argumentValues)
 
         DeepRun::Core::Application application(
             options,
-            [&options, &playground, &inputState](DeepRun::Core::Engine& engine)
+            [&options, &playground, &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
+                engineServices = &engine;
                 if (options.headless)
                 {
                     return true;
@@ -315,7 +320,8 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return playground.SubmarineModel().IsValid();
             },
-            [&options, &playground, &inputState](const float fixedDeltaSeconds)
+            [&options, &playground, &hapticFeedback, &inputState, &engineServices,
+             &loggedHapticSubmissionFailure](const float fixedDeltaSeconds)
             {
                 // Smoke runs deliberately consume an explicit neutral command, insulating deterministic
                 // automated validation from any live controller connected to the developer machine.
@@ -331,7 +337,32 @@ int main(const int argumentCount, char** argumentValues)
                     std::cerr << "[Game][ERROR] vessel command mapping failed: " << command.error() << '\n';
                     return false;
                 }
-                const auto updated = playground.FixedUpdate(fixedDeltaSeconds, *command);
+                const auto updated = playground.FixedUpdate(
+                    fixedDeltaSeconds,
+                    *command,
+                    [&hapticFeedback, &engineServices, &loggedHapticSubmissionFailure](
+                        const DeepRun::Game::HapticEvent& event)
+                    {
+                        const auto effect = hapticFeedback.Map(event);
+                        if (!effect || engineServices == nullptr)
+                        {
+                            if (!loggedHapticSubmissionFailure)
+                            {
+                                loggedHapticSubmissionFailure = true;
+                                std::cerr << "[Game][WARN] Haptic presentation suppressed: "
+                                          << (effect ? "engine haptic service is unavailable" : effect.error())
+                                          << '\n';
+                            }
+                            return;
+                        }
+                        const auto submitted = engineServices->SubmitHapticEffect(*effect);
+                        if (!submitted && !loggedHapticSubmissionFailure)
+                        {
+                            loggedHapticSubmissionFailure = true;
+                            std::cerr << "[Game][WARN] Haptic presentation suppressed: "
+                                      << submitted.error() << '\n';
+                        }
+                    });
                 if (!updated)
                 {
                     std::cerr << "[Game][ERROR] " << updated.error() << '\n';

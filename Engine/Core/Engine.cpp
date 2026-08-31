@@ -6,6 +6,7 @@
 #include "Engine/Core/EngineConfig.h"
 #include "Engine/Core/FixedStepAccumulator.h"
 #include "Engine/Diagnostics/DebugOverlay.h"
+#include "Engine/Input/HapticMixer.h"
 #include "Engine/Input/InputSystem.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Platform/Window.h"
@@ -38,6 +39,8 @@ public:
 
         exitCode = 0;
         fixedStepAccumulator.Reset();
+        hapticMixer.Reset();
+        hapticFailureLogged = false;
         audioReady = false;
         lifecycle = EngineLifecycle::Initializing;
         try
@@ -198,6 +201,23 @@ public:
             }
         }
 
+        // Presentation time advances exactly once per ordinary application frame, after all fixed ticks.
+        // Same-ID requests submitted by the Game during those ticks have already replaced/refreshed their
+        // effect and can therefore affect this frame's normalized backend output.
+        const auto hapticsAdvanced = hapticMixer.Advance(static_cast<float>(timer.DeltaSeconds()));
+        if (!hapticsAdvanced)
+        {
+            if (!hapticFailureLogged)
+            {
+                hapticFailureLogged = true;
+                core.Log().Warning(Diagnostics::LogCategory::Input, hapticsAdvanced.error());
+            }
+            hapticMixer.Reset();
+        }
+        // A disconnected controller is normal and ApplyGamepadVibration degrades to silence. Backend status
+        // is presentation-only and must never fail an otherwise successful frame or fixed update.
+        static_cast<void>(input->ApplyGamepadVibration(hapticMixer.CurrentOutput()));
+
         if (options.smokeTest && timer.FrameIndex() == 30)
         {
             window->SetClientSize(1024, 640);
@@ -311,6 +331,11 @@ public:
         core.Log().Info(Diagnostics::LogCategory::Assets, "Clearing manager-owned asset cache after scene");
         assets.Clear();
 
+        hapticMixer.Reset();
+        if (input != nullptr)
+        {
+            static_cast<void>(input->ApplyGamepadVibration({}));
+        }
         input.reset();
         window.reset();
         audio.reset();
@@ -331,8 +356,10 @@ public:
     std::unique_ptr<Diagnostics::DebugOverlay> debugOverlay;
     EngineLifecycle lifecycle = EngineLifecycle::Stopped;
     FixedStepAccumulator fixedStepAccumulator;
+    Input::HapticMixer hapticMixer;
     int exitCode = 0;
     bool audioReady = false;
+    bool hapticFailureLogged = false;
 };
 
 Engine::Engine(EngineOptions options)
@@ -403,6 +430,11 @@ Physics::PhysicsWorld* Engine::Physics() noexcept
 const Input::InputState* Engine::InputState() const noexcept
 {
     return impl_->input != nullptr ? &impl_->input->State() : nullptr;
+}
+
+std::expected<void, std::string> Engine::SubmitHapticEffect(const Input::HapticEffectRequest& request)
+{
+    return impl_->hapticMixer.Submit(request);
 }
 
 int Engine::ExitCode() const noexcept

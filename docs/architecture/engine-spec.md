@@ -2278,18 +2278,28 @@ position или velocity.
 
 ## Haptics
 
-Gameplay генерирует semantic `HapticEvent`.
-
-Gameplay и Simulation не должны напрямую управлять gamepad motors.
-
-Архитектурный поток:
+M2 Slice I2 implements this presentation-only boundary:
 
 ```text
-Gameplay
-    -> HapticEvent
-    -> HapticSystem
-    -> gamepad output backend
+Game semantic HapticEvent
+    -> Game haptic feedback mapping
+    -> generic Engine haptic mixer
+    -> normalized low/high motor output
+    -> XInput backend
 ```
+
+Gameplay and Simulation never directly control gamepad motors. The Engine knows only generic effect IDs,
+normalized motor magnitudes, presentation duration and integer priority; it has no semantic event names or
+marine state.
+
+Submitting the same generic effect ID replaces its amplitudes and refreshes its lifetime. This prevents a
+continuous effect emitted on fixed ticks from stacking with itself. Different IDs may coexist. At evaluation,
+only the highest active priority participates; lower-priority effects remain active and continue ageing. Effects
+at the winning priority add per motor, clamp to `0..1`, and then receive the normalized master intensity.
+
+The mixer advances once per ordinary application frame after fixed simulation, independent of how many fixed
+ticks ran. When globally disabled, output is exact zero while effects continue ageing, so expired effects never
+resurrect on re-enable. Effect durations use presentation time and never simulation, physics or random state.
 
 Windows desktop backend может использовать XInput.
 
@@ -2308,6 +2318,8 @@ clamping
 master intensity
 global enable / disable
 safe device disconnect
+same-ID replace / refresh
+shutdown motor zeroing
 ```
 
 Motor intensity нормализована в диапазон:
@@ -2327,6 +2339,10 @@ save state
 simulation determinism
 headless execution
 ```
+
+Controller absence is normal presentation state: generic submissions still succeed and the backend degrades to
+silence. Ordinary shutdown sends zero to both motors before the input backend is destroyed. Headless execution
+does not initialize controller output hardware.
 
 Semantic haptic events и reference vibration patterns определены в:
 

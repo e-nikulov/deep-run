@@ -6,6 +6,7 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/D3D12Renderer.h"
+#include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <sstream>
 #include <string_view>
@@ -427,7 +429,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
 std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     const float fixedDeltaSeconds,
-    const VesselCommandState& command)
+    const VesselCommandState& command,
+    const HapticEventSink& hapticEventSink)
 {
     if (!std::isfinite(fixedDeltaSeconds) || fixedDeltaSeconds <= 0.0F)
     {
@@ -623,6 +626,51 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
 
+    // I2 presentation producer: derive semantic intensity only from the newly committed authoritative shaft
+    // RPM. A malformed impossible state is validated and diagnosed once, but haptic presentation can never
+    // roll back or fail the already-successful simulation transaction.
+    float engineVibrationIntensity = 0.0F;
+    const HapticFeedbackSystem hapticFeedback;
+    const auto engineVibration = hapticFeedback.EngineVibrationFromShaftRpm(propulsion_, propulsionState_);
+    if (engineVibration)
+    {
+        engineVibrationIntensity = engineVibration->intensity;
+        if (hapticEventSink)
+        {
+            try
+            {
+                hapticEventSink(*engineVibration);
+            }
+            catch (const std::exception& exception)
+            {
+                if (!loggedHapticFailure_)
+                {
+                    loggedHapticFailure_ = true;
+                    PlaygroundLog().Warning(
+                        Diagnostics::LogCategory::Input,
+                        "Haptic presentation callback failed and was suppressed: " + std::string(exception.what()));
+                }
+            }
+            catch (...)
+            {
+                if (!loggedHapticFailure_)
+                {
+                    loggedHapticFailure_ = true;
+                    PlaygroundLog().Warning(
+                        Diagnostics::LogCategory::Input,
+                        "Haptic presentation callback failed and was suppressed");
+                }
+            }
+        }
+    }
+    else if (!loggedHapticFailure_)
+    {
+        loggedHapticFailure_ = true;
+        PlaygroundLog().Warning(
+            Diagnostics::LogCategory::Input,
+            "Engine-vibration semantic feedback rejected and suppressed: " + engineVibration.error());
+    }
+
     ++fixedTickCount_;
     if (!loggedFirstFixedSample_ ||
         (!loggedLaterFixedSample_ && fixedTickCount_ >= M2LaterDiagnosticFixedTick))
@@ -664,7 +712,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 ", available power " +
                 std::to_string(M2AvailablePropulsionPowerFraction) + ", shaft RPM " +
                 std::to_string(propulsionState_.shaftRpm) + ", target RPM " +
-                std::to_string(propulsionResult->targetRpm) + ", thrust " +
+                std::to_string(propulsionResult->targetRpm) + ", engine haptic intensity " +
+                std::to_string(engineVibrationIntensity) + ", thrust " +
                 std::to_string(propulsionResult->thrustNewtons) + " N, bow deflection " +
                 std::to_string(controlDeflections[M2BowPlaneIndex]) +
                 ", bow force " + FormatVector(controlResults[M2BowPlaneIndex].forceNewtons) +
