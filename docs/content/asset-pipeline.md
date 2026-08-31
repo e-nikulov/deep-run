@@ -72,3 +72,29 @@ If Blender is not on `PATH`, use the discovered executable explicitly:
 The script clears the Blender scene, creates the complete prototype from
 Python, validates it, saves the `.blend`, exports the `.glb`, then validates the
 GLB structure. Manual `.blend` edits are not part of the reproducible pipeline.
+
+## Antey production preparation
+
+Antey is the canonical production asset inside the existing C0 Player
+Submarine package. It is not a second C-ID or a separate registry package.
+The canonical neutral Antey package is authored alongside the C0 prototype
+source:
+
+```text
+Content/submarines/Antey/Antey_GameReady.blend
+Content/submarines/Antey/Antey.glb
+Content/submarines/Antey/Antey.asset.json
+Content/submarines/Antey/Antey.authoring.json
+```
+
+`Tools/Blender/prepare_antey.py` audits the supplied immutable source first,
+then creates the production copy, normalizes the source surface to the
+`+X/+Y/+Z` DeepRun contract, creates controlled LODs, and exports only runtime
+mesh nodes. `Antey.authoring.json` records authoring-only hardpoints, hatch
+placement proxies, propeller origins, reference markers, and compartment OBB
+data; it is not loaded as authoritative gameplay state. Hardpoints, gameplay
+compartment volumes, collision proxies, hatch proxies, and the buoyancy
+authoring volume are retained in the production BLEND and authoring sidecar,
+while simulation remains authoritative for gameplay state. The current
+fastgltf loader does not consume empty marker nodes or authoring-only proxies,
+so they are intentionally not placed in the runtime GLB.
