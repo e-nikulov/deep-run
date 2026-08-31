@@ -15,23 +15,33 @@ from typing import Iterable, Sequence
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSET = ROOT / "Content" / "Weapons" / "P700"
+RUNTIME_ASSET = ROOT / "Engine" / "Assets" / "Weapons" / "P700"
 REFS = ASSET / "References"
 TEXTURES = ASSET / "Textures"
 BLEND = ASSET / "P700_Granit.blend"
-GLB = ASSET / "P700_Granit.glb"
+GLB = RUNTIME_ASSET / "P700_Granit.glb"
 PREVIEWS = ASSET / "Previews"
 REPORT = ASSET / "validation_report.txt"
+METADATA = ASSET / "P700.asset.json"
+AUTHORING = ASSET / "P700.authoring.json"
 
-BODY_MATERIAL = "MAT_P700_Granit"
-INLET_MATERIAL = "MAT_P700_Granit_Inlet"
-COLLISION_MATERIAL = "MAT_P700_Collision_Debug"
+BODY_MATERIAL = "M_P700_Granit"
+INLET_MATERIAL = "M_P700_Granit_Inlet"
+COLLISION_MATERIAL = "M_P700_Collision_Debug"
 LOD_NAMES = ("LOD0", "LOD1", "LOD2", "LOD3")
 EPSILON = 1.0e-4
+
+MARKERS = (
+    ("HP_P700_Nose", (5.0, 0.0, 0.0), (0.0, 0.0, 0.0), "nose attachment/reference", (1.0, 0.0, 0.0)),
+    ("HP_P700_Exhaust", (-4.98, 0.0, 0.0), (0.0, 0.0, math.pi), "flight exhaust VFX attachment/reference", (-1.0, 0.0, 0.0)),
+    ("HP_P700_Center", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), "neutral center/origin reference", (1.0, 0.0, 0.0)),
+    ("HP_P700_WaterExitFX", (0.0, 0.0, 0.0), (0.0, 0.0, 0.0), "water-exit VFX attachment/reference", (1.0, 0.0, 0.0)),
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -71,23 +81,23 @@ def make_collection(name: str) -> bpy.types.Collection:
     return collection
 
 
-def make_texture(name: str, color: tuple[float, float, float, float]) -> bpy.types.Image:
+def make_texture(name: str, color: tuple[float, float, float, float], non_color: bool) -> bpy.types.Image:
     path = TEXTURES / f"{name}.png"
-    image = bpy.data.images.new(name, width=2048, height=2048, alpha=False)
-    image.generated_color = color
-    image.filepath_raw = str(path)
-    image.file_format = "PNG"
-    image.save()
+    require(path.is_file(), f"source texture is missing: {path}")
+    image = bpy.data.images.load(str(path), check_existing=False)
+    image.name = name
+    require(image.size[0] == 2048 and image.size[1] == 2048, f"{name} is not 2K")
+    image.colorspace_settings.name = "Non-Color" if non_color else "sRGB"
     return image
 
 
 def make_materials() -> tuple[bpy.types.Material, bpy.types.Material, bpy.types.Material]:
     TEXTURES.mkdir(parents=True, exist_ok=True)
-    base = make_texture("P700_Granit_BaseColor_2K", (0.105, 0.135, 0.145, 1.0))
-    normal = make_texture("P700_Granit_Normal_2K", (0.5, 0.5, 1.0, 1.0))
-    roughness = make_texture("P700_Granit_Roughness_2K", (0.68, 0.68, 0.68, 1.0))
-    metallic = make_texture("P700_Granit_Metallic_2K", (0.78, 0.78, 0.78, 1.0))
-    make_texture("P700_Granit_AO_2K", (1.0, 1.0, 1.0, 1.0))
+    base = make_texture("P700_Granit_BaseColor_2K", (0.105, 0.135, 0.145, 1.0), False)
+    normal = make_texture("P700_Granit_Normal_2K", (0.5, 0.5, 1.0, 1.0), True)
+    roughness = make_texture("P700_Granit_Roughness_2K", (0.68, 0.68, 0.68, 1.0), True)
+    metallic = make_texture("P700_Granit_Metallic_2K", (0.78, 0.78, 0.78, 1.0), True)
+    make_texture("P700_Granit_AO_2K", (1.0, 1.0, 1.0, 1.0), True)
 
     material = bpy.data.materials.new(BODY_MATERIAL)
     material.use_nodes = True
@@ -102,25 +112,25 @@ def make_materials() -> tuple[bpy.types.Material, bpy.types.Material, bpy.types.
     rough_node = nodes.new("ShaderNodeTexImage")
     rough_node.name = "P700 Roughness 2K"
     rough_node.image = roughness
-    rough_node.image.colorspace_settings.name = "Non-Color"
     metal_node = nodes.new("ShaderNodeTexImage")
     metal_node.name = "P700 Metallic 2K"
     metal_node.image = metallic
-    metal_node.image.colorspace_settings.name = "Non-Color"
     normal_node = nodes.new("ShaderNodeTexImage")
     normal_node.name = "P700 Normal 2K"
     normal_node.image = normal
-    normal_node.image.colorspace_settings.name = "Non-Color"
     normal_map = nodes.new("ShaderNodeNormalMap")
     links.new(base_node.outputs["Color"], bsdf.inputs["Base Color"])
-    links.new(rough_node.outputs["Color"], bsdf.inputs["Roughness"])
-    links.new(metal_node.outputs["Color"], bsdf.inputs["Metallic"])
+    # The individual scalar maps remain source assets for later packing.  Keep
+    # the current GLB unambiguous by exporting the validated scalar factors;
+    # Blender's glTF exporter cannot represent two separate scalar images as a
+    # single metallicRoughness texture without a packing step.
     links.new(normal_node.outputs["Color"], normal_map.inputs["Color"])
     links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
     bsdf.inputs["Roughness"].default_value = 0.68
     bsdf.inputs["Metallic"].default_value = 0.78
     material["deeprun_texture_resolution"] = "2048x2048"
     material["deeprun_texture_set"] = "BaseColor, Normal, Roughness, Metallic, AO"
+    material["deeprun_scalar_texture_policy"] = "source-only until canonical metallicRoughness packing exists"
 
     inlet = bpy.data.materials.new(INLET_MATERIAL)
     inlet.use_nodes = True
@@ -149,7 +159,8 @@ def create_mesh(
     parent: bpy.types.Object | None = None,
     smooth: bool = True,
 ) -> bpy.types.Object:
-    mesh = bpy.data.meshes.new(f"{name}_Mesh")
+    runtime_name = name if name.startswith("SM_") else f"SM_{name}"
+    mesh = bpy.data.meshes.new(f"{runtime_name}_Mesh")
     mesh.from_pydata(vertices, [], faces)
     mesh.materials.append(material)
     mesh.update(calc_edges=True)
@@ -161,11 +172,12 @@ def create_mesh(
     if smooth:
         for polygon in mesh.polygons:
             polygon.use_smooth = True
-    object_ = bpy.data.objects.new(name, mesh)
+    object_ = bpy.data.objects.new(runtime_name, mesh)
     link_object(object_, collection)
     object_.parent = parent
     object_["deeprun_forward_axis"] = "+X"
-    object_["deeprun_up_axis"] = "+Y"
+    object_["deeprun_authoring_up_axis"] = "+Z"
+    object_["deeprun_runtime_up_axis"] = "+Y"
     object_["deeprun_asset"] = "P700_Granit"
     return object_
 
@@ -604,27 +616,29 @@ def create_collision(collection: bpy.types.Collection, material: bpy.types.Mater
     append_x_prism(vertices, faces, ((-3.0, -0.25), (-3.3, -1.18), (-4.1, -1.12), (-4.2, -0.25)), 0.06)
     collision = create_mesh("P700_COLLISION", vertices, faces, material, collection, None, smooth=False)
     collision["deeprun_role"] = "coarse physics proxy; non-rendering"
+    collision["deeprun_collision_representation"] = "closed low-sided body plus fin proxy"
     return collision
 
 
 def create_helpers(helper_collection: bpy.types.Collection) -> bpy.types.Object:
-    root = bpy.data.objects.new("P700_Granit_ROOT", None)
+    root = bpy.data.objects.new("SM_P700_Granit_ROOT", None)
     helper_collection.objects.link(root)
     root.empty_display_type = "PLAIN_AXES"
     root["deeprun_asset"] = "P700_Granit"
     root["deeprun_forward_axis"] = "+X"
-    root["deeprun_up_axis"] = "+Y"
+    root["deeprun_authoring_up_axis"] = "+Z"
+    root["deeprun_runtime_up_axis"] = "+Y"
     root["deeprun_authoring_contract"] = "DeepRun ADR-0006; glTF export_yup conversion"
-    for name, location, role in (
-        ("P700_Reference_Nose", (5.0, 0.0, 0.0), "front-most missile point"),
-        ("P700_Reference_Tail", (-4.98, 0.0, 0.0), "tail centerline"),
-    ):
+    for name, location, rotation, role, forward in MARKERS:
         marker = bpy.data.objects.new(name, None)
         helper_collection.objects.link(marker)
         marker.location = location
+        marker.rotation_euler = rotation
         marker.empty_display_type = "SPHERE"
         marker.empty_display_size = 0.12
         marker["deeprun_role"] = role
+        marker["deeprun_forward_vector_authoring"] = forward
+        marker["deeprun_runtime_included"] = False
         marker.parent = root
     return root
 
@@ -738,7 +752,7 @@ def render_preview(
     }
     if water:
         for object_ in launch_visibility:
-            if object_.name.startswith("P700_LOD0_"):
+            if object_.name.startswith("SM_P700_LOD0_"):
                 object_.hide_render = False
     if scene.world is None:
         scene.world = bpy.data.worlds.new("P700_PreviewWorld")
@@ -760,10 +774,15 @@ def create_previews() -> None:
     render_preview("preview_top", (0.0, 22.0, 0.0), (0.0, 0.0, 0.0), orthographic=True, ortho_scale=12.0)
     render_preview("preview_water_launch", (17.0, 7.0, 18.0), (0.0, 0.0, 0.0), water=True)
     render_reference_overlay()
+    render_scale_axes_preview()
     for datablock in list(bpy.data.cameras):
         bpy.data.cameras.remove(datablock)
     for datablock in list(bpy.data.lights):
         bpy.data.lights.remove(datablock)
+    bpy.context.scene.world = None
+    for datablock in list(bpy.data.worlds):
+        if datablock.users == 0:
+            bpy.data.worlds.remove(datablock)
 
 
 def render_reference_overlay() -> None:
@@ -792,7 +811,7 @@ def render_reference_overlay() -> None:
     for object_ in reference_objects:
         object_.location.x -= reference_center.x
         object_.location.y -= reference_center.y
-    root = bpy.data.objects.get("P700_Granit_ROOT")
+    root = bpy.data.objects.get("SM_P700_Granit_ROOT")
     require(root is not None, "asset root is missing for reference overlay")
     original_root_location = root.location.copy()
     scene.render.resolution_x = 960
@@ -844,6 +863,120 @@ def render_reference_overlay() -> None:
     scene.camera = None
 
 
+def preview_material(name: str, color: tuple[float, float, float, float]) -> bpy.types.Material:
+    material = bpy.data.materials.new(name)
+    material.diffuse_color = color
+    material.use_nodes = True
+    bsdf = next(node for node in material.node_tree.nodes if node.type == "BSDF_PRINCIPLED")
+    bsdf.inputs["Base Color"].default_value = color
+    bsdf.inputs["Roughness"].default_value = 0.35
+    return material
+
+
+def preview_line(
+    name: str,
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    material: bpy.types.Material,
+) -> bpy.types.Object:
+    curve = bpy.data.curves.new(f"{name}_Curve", "CURVE")
+    curve.dimensions = "3D"
+    curve.bevel_depth = 0.012
+    curve.bevel_resolution = 2
+    spline = curve.splines.new("POLY")
+    spline.points.add(1)
+    spline.points[0].co = (*start, 1.0)
+    spline.points[1].co = (*end, 1.0)
+    object_ = bpy.data.objects.new(name, curve)
+    bpy.context.scene.collection.objects.link(object_)
+    object_.data.materials.append(material)
+    return object_
+
+
+def preview_label(name: str, text: str, location: tuple[float, float, float], material: bpy.types.Material) -> bpy.types.Object:
+    curve = bpy.data.curves.new(f"{name}_Text", "FONT")
+    curve.body = text
+    curve.align_x = "CENTER"
+    curve.size = 0.18
+    curve.extrude = 0.002
+    object_ = bpy.data.objects.new(name, curve)
+    bpy.context.scene.collection.objects.link(object_)
+    object_.location = location
+    object_.rotation_euler = (math.pi * 0.5, 0.0, 0.0)
+    object_.data.materials.append(material)
+    return object_
+
+
+def render_scale_axes_preview() -> None:
+    scene = bpy.context.scene
+    camera_data = bpy.data.cameras.new("ScaleAxes_Camera")
+    camera = bpy.data.objects.new("ScaleAxes_Camera", camera_data)
+    scene.collection.objects.link(camera)
+    camera.location = (0.0, -25.0, 5.0)
+    camera_data.lens = 58.0
+    look_at(camera, Vector((0.0, 0.0, 0.0)))
+    scene.camera = camera
+
+    key_data = bpy.data.lights.new("ScaleAxes_Key", "AREA")
+    key_data.energy = 1600.0
+    key_data.size = 8.0
+    key = bpy.data.objects.new("ScaleAxes_Key", key_data)
+    scene.collection.objects.link(key)
+    key.location = (2.0, -8.0, 8.0)
+    look_at(key, Vector((0.0, 0.0, 0.0)))
+
+    axis_x = preview_material("P700_Technical_Fwd", (0.8, 0.08, 0.04, 1.0))
+    axis_z = preview_material("P700_Technical_Up", (0.08, 0.35, 0.9, 1.0))
+    marker_material = preview_material("P700_Technical_Marker", (0.95, 0.72, 0.05, 1.0))
+    label_material = preview_material("P700_Technical_Label", (0.95, 0.95, 0.95, 1.0))
+    temporary: list[bpy.types.Object] = [camera, key]
+    temporary.extend((
+        preview_line("P700_Technical_Length", (-4.98, -0.75, -1.55), (5.0, -0.75, -1.55), axis_x),
+        preview_line("P700_Technical_ForwardAxis", (-4.98, -0.72, -1.35), (5.7, -0.72, -1.35), axis_x),
+        preview_line("P700_Technical_UpAxis", (5.35, -0.72, -1.55), (5.35, -0.72, 1.55), axis_z),
+        preview_label("P700_Technical_ForwardLabel", "FWD +X", (4.35, -0.78, -1.22), axis_x),
+        preview_label("P700_Technical_UpLabel", "UP +Z authoring", (4.9, -0.78, 1.28), axis_z),
+        preview_label("P700_Technical_RuntimeLabel", "runtime UP +Y", (4.9, -0.78, 1.02), label_material),
+        preview_label("P700_Technical_NoseLabel", "NOSE", (5.0, -0.78, 0.65), marker_material),
+        preview_label("P700_Technical_ExhaustLabel", "EXHAUST", (-4.98, -0.78, 0.65), marker_material),
+        preview_label("P700_Technical_CenterLabel", "CENTER / WATER EXIT", (0.0, -0.78, 0.65), marker_material),
+    ))
+    for name, location, _, _, _ in MARKERS:
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=12, ring_count=6, radius=0.075, location=location)
+        marker = bpy.context.object
+        marker.name = f"P700_Technical_{name}"
+        marker.data.materials.append(marker_material)
+        temporary.append(marker)
+
+    scene.render.resolution_x = 1200
+    scene.render.resolution_y = 640
+    scene.render.resolution_percentage = 100
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.filepath = str(PREVIEWS / "preview_scale_axes.png")
+    scene.render.film_transparent = False
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("P700_PreviewWorld")
+    scene.world.color = (0.012, 0.018, 0.028)
+    bpy.ops.render.render(write_still=True)
+
+    for object_ in temporary:
+        data = object_.data
+        object_type = object_.type
+        bpy.data.objects.remove(object_, do_unlink=True)
+        if data is not None and data.users == 0:
+            if object_type == "MESH":
+                bpy.data.meshes.remove(data)
+            elif object_type == "CURVE":
+                bpy.data.curves.remove(data)
+            elif object_type == "CAMERA":
+                bpy.data.cameras.remove(data)
+            elif object_type == "LIGHT":
+                bpy.data.lights.remove(data)
+    for material in (axis_x, axis_z, marker_material, label_material):
+        bpy.data.materials.remove(material, do_unlink=True)
+    scene.camera = None
+
+
 def glb_json(path: Path) -> dict:
     data = path.read_bytes()
     require(data[:4] == b"glTF", "GLB magic")
@@ -859,7 +992,11 @@ def glb_json(path: Path) -> dict:
     raise RuntimeError("GLB JSON chunk is absent")
 
 
-def export_glb(render_objects: Sequence[bpy.types.Object]) -> None:
+def export_glb(
+    render_objects: Sequence[bpy.types.Object],
+    static_object: bpy.types.Object,
+    articulated_objects: Sequence[bpy.types.Object],
+) -> dict:
     bpy.ops.object.select_all(action="DESELECT")
     for object_ in render_objects:
         object_.select_set(True)
@@ -890,9 +1027,228 @@ def export_glb(render_objects: Sequence[bpy.types.Object]) -> None:
     require(document.get("asset", {}).get("version") == "2.0", "invalid glTF asset version")
     require("cameras" not in document and "animations" not in document, "GLB contains forbidden data")
     require("KHR_lights_punctual" not in document.get("extensionsUsed", []), "GLB contains lights")
+    require(len(document.get("nodes", [])) == len(render_objects), "runtime GLB node count differs from selected render objects")
+    require(len(document.get("meshes", [])) == len(render_objects), "runtime GLB mesh count differs from selected render objects")
+    require(all(node.get("mesh") is not None for node in document.get("nodes", [])), "runtime GLB contains non-mesh nodes")
+    node_meshes = {
+        node["name"]: document["meshes"][node["mesh"]]
+        for node in document.get("nodes", [])
+    }
+    require(static_object.name in node_meshes, "merged static runtime mesh is absent")
+    require(len(node_meshes[static_object.name].get("primitives", [])) == 2, "merged static runtime mesh must retain its two material primitives")
+    for object_ in articulated_objects:
+        require(object_.name in node_meshes, f"articulated runtime mesh is absent: {object_.name}")
+        require(len(node_meshes[object_.name].get("primitives", [])) == 1, f"articulated runtime mesh must keep one primitive: {object_.name}")
+    require(sum(len(mesh.get("primitives", [])) for mesh in document.get("meshes", [])) == 2 + len(articulated_objects), "runtime GLB primitive count is unexpected")
+    require(all("P700_Launch" not in node.get("name", "") and "P700_Booster" not in node.get("name", "") for node in document.get("nodes", [])), "launch-only geometry leaked into runtime GLB")
+    return document
 
 
-def write_report(lod_objects: dict[str, list[bpy.types.Object]], all_render: Sequence[bpy.types.Object], bounds: tuple[Vector, Vector]) -> None:
+def runtime_vector(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    return (vector[0], vector[2], -vector[1])
+
+
+def is_articulated_runtime_object(object_: bpy.types.Object) -> bool:
+    role = str(object_.get("deeprun_role", ""))
+    return role in {"deployable main wing", "folding cross-tail surface"}
+
+
+def merge_static_runtime_geometry(static_objects: Sequence[bpy.types.Object]) -> bpy.types.Object:
+    """Make an export-only mesh without altering the saved authoring scene."""
+    require(static_objects, "static runtime object set is empty")
+    expected_vertices, expected_triangles = triangle_count(static_objects)
+    copies: list[bpy.types.Object] = []
+    for source in static_objects:
+        mesh = source.data.copy()
+        mesh.transform(source.matrix_world)
+        copy = bpy.data.objects.new(f"{source.name}_RuntimeStatic", mesh)
+        bpy.context.scene.collection.objects.link(copy)
+        copy.matrix_world = Matrix.Identity(4)
+        copies.append(copy)
+    bpy.ops.object.select_all(action="DESELECT")
+    for copy in copies:
+        copy.select_set(True)
+    bpy.context.view_layer.objects.active = copies[0]
+    bpy.ops.object.join()
+    merged = bpy.context.view_layer.objects.active
+    merged.name = "SM_P700_LOD0_Static"
+    merged.data.name = "SM_P700_LOD0_Static_Mesh"
+    merged["deeprun_role"] = "static deployed flight geometry; merged for runtime export"
+    merged["deeprun_source_objects"] = ", ".join(sorted(object_.name for object_ in static_objects))
+    require(tuple(merged.location) == (0.0, 0.0, 0.0), "merged static runtime mesh location is not identity")
+    require(tuple(merged.rotation_euler) == (0.0, 0.0, 0.0), "merged static runtime mesh rotation is not identity")
+    require(tuple(merged.scale) == (1.0, 1.0, 1.0), "merged static runtime mesh scale is not identity")
+    vertices, triangles = triangle_count((merged,))
+    require((vertices, triangles) == (expected_vertices, expected_triangles), "static runtime merge changed geometry statistics")
+    require(len(merged.data.uv_layers) > 0, "static runtime merge lost UVs")
+    require(len(merged.data.materials) == 2, "static runtime merge did not preserve materials")
+    return merged
+
+
+def remove_temporary_runtime_geometry(object_: bpy.types.Object) -> None:
+    mesh = object_.data
+    bpy.data.objects.remove(object_, do_unlink=True)
+    bpy.data.meshes.remove(mesh)
+
+
+def write_metadata(
+    lod_objects: dict[str, list[bpy.types.Object]],
+    runtime_objects: Sequence[bpy.types.Object],
+    static_source_objects: Sequence[bpy.types.Object],
+    articulated_objects: Sequence[bpy.types.Object],
+    collision: bpy.types.Object,
+    bounds: tuple[Vector, Vector],
+    glb_document: dict,
+) -> None:
+    minimum, maximum = bounds
+    runtime_vertices, runtime_triangles = triangle_count(runtime_objects)
+    collision_vertices, collision_triangles = triangle_count((collision,))
+    marker_data = []
+    for name, location, rotation, role, forward in MARKERS:
+        marker_data.append({
+            "name": name,
+            "role": role,
+            "positionMeters": [round(value, 6) for value in runtime_vector(location)],
+            "authoringRotationEulerRadians": [round(value, 6) for value in rotation],
+            "runtimeOrientationQuaternionWXYZ": [0.0, 0.0, 1.0, 0.0] if forward[0] < 0.0 else [1.0, 0.0, 0.0, 0.0],
+            "forwardVector": [round(value, 6) for value in runtime_vector(forward)],
+        })
+    authoring = {
+        "asset": "P700_Granit",
+        "authoringOnly": True,
+        "sourceAsset": "P700_Granit.blend",
+        "coordinateSystem": {
+            "units": "meters",
+            "forward": "+X",
+            "up": "+Z",
+            "across": "+Y",
+            "runtimeForward": "+X",
+            "runtimeUp": "+Y",
+            "runtimeTowardCamera": "+Z",
+            "exportConversion": "Blender glTF export_yup: (X, Y, Z) -> runtime (X, Z, -Y)",
+        },
+        "origin": {
+            "positionMeters": [0.0, 0.0, 0.0],
+            "contract": "neutral centerline origin near geometric center; no corrective rotation or scale",
+        },
+        "semanticMarkers": marker_data,
+        "collision": {
+            "object": collision.name,
+            "representation": "closed low-sided body plus four fin proxy prisms",
+            "authoringOnly": True,
+            "vertices": collision_vertices,
+            "triangles": collision_triangles,
+            "runtimeIncluded": False,
+            "gameplayAuthority": "future simulation/physics owns collision behavior",
+        },
+        "lods": {
+            lod: {
+                "authoringObjectCount": len(objects),
+                "vertices": triangle_count(objects)[0],
+                "triangles": triangle_count(objects)[1],
+            }
+            for lod, objects in lod_objects.items()
+        },
+        "launchOnlyObjects": sorted(object_.name for object_ in lod_objects["LOD0"] if is_launch_only(object_)),
+        "runtimeObjects": [object_.name for object_ in runtime_objects],
+        "runtimeStaticMerge": {
+            "sourceObjects": sorted(object_.name for object_ in static_source_objects),
+            "runtimeObject": runtime_objects[0].name,
+            "reason": "static construction pieces with no independent runtime transform requirement; merged to reduce primitive and draw-call overhead",
+            "preservedArticulatedObjects": sorted(object_.name for object_ in articulated_objects),
+            "articulationReason": "wings and cross-tail surfaces retain their authored pivots for a future deployment transition",
+        },
+        "runtimeLodPolicy": "LOD0 only until profiling and a runtime LOD-selection contract justify exporting alternates",
+        "configuration": {
+            "currentRuntime": "P700_FLIGHT_DEPLOYED",
+            "deployedWingSpanMeters": 2.6,
+            "stowedLaunchConfiguration": "NOT YET AUTHORED",
+            "deploymentTransition": "DEFERRED TO FUTURE WEAPON/VFX WORK",
+            "launcherCompatibility": "NOT VALIDATED; the deployed flight mesh must not be treated as in-launcher geometry",
+        },
+        "dimensionsMeters": {
+            "length": round(maximum.x - minimum.x, 6),
+            "runtimeUpExtent": round(maximum.y - minimum.y, 6),
+            "runtimeTowardCameraExtent": round(maximum.z - minimum.z, 6),
+            "deployedWingSpan": 2.6,
+        },
+        "materials": [BODY_MATERIAL, INLET_MATERIAL],
+        "textures": {
+            "resolution": "2048x2048",
+            "format": "PNG",
+            "baseColor": {"file": "Textures/P700_Granit_BaseColor_2K.png", "colorSpace": "sRGB", "runtimeUsage": "source-only; embedded in the GLB for interchange but NOT consumed by the current Engine material path"},
+            "normal": {"file": "Textures/P700_Granit_Normal_2K.png", "colorSpace": "Non-Color", "runtimeUsage": "source-only; embedded in the GLB for interchange but NOT consumed by the current Engine material path"},
+            "roughness": {"file": "Textures/P700_Granit_Roughness_2K.png", "colorSpace": "Non-Color", "runtimeUsage": "source-only; current runtime uses material factor 0.68; texture consumption deferred to the material/cooking pipeline"},
+            "metallic": {"file": "Textures/P700_Granit_Metallic_2K.png", "colorSpace": "Non-Color", "runtimeUsage": "source-only; current runtime uses material factor 0.78; texture consumption deferred to the material/cooking pipeline"},
+            "ao": {"file": "Textures/P700_Granit_AO_2K.png", "colorSpace": "Non-Color", "runtimeUsage": "source-only; texture consumption deferred to the material/cooking pipeline"},
+        },
+        "runtimeMaterialContract": {
+            "currentEngineConsumes": ["baseColorFactor", "metallicFactor", "roughnessFactor"],
+            "sourceTextureConsumption": "DEFERRED TO MATERIAL/COOKING PIPELINE",
+            "embeddedGlbTextures": ["BaseColor", "Normal"],
+            "embeddedGlbTexturesConsumedByCurrentEngine": False,
+        },
+        "geometryStatistics": {
+            "runtimeNodes": len(glb_document.get("nodes", [])),
+            "runtimeMeshes": len(glb_document.get("meshes", [])),
+            "runtimePrimitives": sum(len(mesh.get("primitives", [])) for mesh in glb_document.get("meshes", [])),
+            "runtimeVertices": runtime_vertices,
+            "runtimeTriangles": runtime_triangles,
+        },
+        "runtimeAsset": "Engine/Assets/Weapons/P700/P700_Granit.glb",
+        "sourceAssetPath": "Content/Weapons/P700/P700_Granit.blend",
+        "authoringSidecar": "Content/Weapons/P700/P700.authoring.json",
+        "provenance": "References/references.md",
+        "generator": "Tools/Blender/generate_p700_granit.py",
+        "validationState": "headless generation and runtime GLB structure validation passed",
+        "runtimeBoundary": "neutral flight render mesh only; markers, launch-only parts, collision proxy and gameplay state remain outside runtime geometry",
+    }
+    METADATA.write_text(json.dumps({
+        "asset": "P700_Granit",
+        "type": "weapon_visual_asset",
+        "sourceAsset": "Content/Weapons/P700/P700_Granit.blend",
+        "runtimeAsset": "Engine/Assets/Weapons/P700/P700_Granit.glb",
+        "authoringSidecar": "Content/Weapons/P700/P700.authoring.json",
+        "scaleMeters": True,
+        "forwardAxis": "+X",
+        "upAxis": "+Y",
+        "coordinateSystem": authoring["coordinateSystem"],
+        "origin": authoring["origin"],
+        "dimensionsMeters": authoring["dimensionsMeters"],
+        "configuration": authoring["configuration"],
+        "runtimeNodes": authoring["geometryStatistics"]["runtimeNodes"],
+        "runtimeMeshes": authoring["geometryStatistics"]["runtimeMeshes"],
+        "runtimePrimitives": authoring["geometryStatistics"]["runtimePrimitives"],
+        "runtimeTriangles": authoring["geometryStatistics"]["runtimeTriangles"],
+        "runtimeObjects": authoring["runtimeObjects"],
+        "runtimeStaticMerge": authoring["runtimeStaticMerge"],
+        "materials": authoring["materials"],
+        "textures": authoring["textures"],
+        "runtimeMaterialContract": authoring["runtimeMaterialContract"],
+        "collision": authoring["collision"],
+        "runtimeLodPolicy": authoring["runtimeLodPolicy"],
+        "provenance": authoring["provenance"],
+        "generator": authoring["generator"],
+        "validationState": authoring["validationState"],
+        "runtimeBoundary": authoring["runtimeBoundary"],
+    }, indent=2) + "\n", encoding="utf-8", newline="\n")
+    authoring["asset"] = "P700_Granit"
+    AUTHORING.write_text(json.dumps(authoring, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
+def is_launch_only(object_: bpy.types.Object) -> bool:
+    return "LAUNCH_ONLY" in str(object_.get("deeprun_state", "")) or "launch booster" in str(object_.get("deeprun_role", ""))
+
+
+def write_report(
+    lod_objects: dict[str, list[bpy.types.Object]],
+    runtime_objects: Sequence[bpy.types.Object],
+    static_source_objects: Sequence[bpy.types.Object],
+    articulated_objects: Sequence[bpy.types.Object],
+    collision: bpy.types.Object,
+    bounds: tuple[Vector, Vector],
+    glb_document: dict,
+) -> None:
     lines = ["P700 Granit asset validation", f"Blender = {bpy.app.version_string}", ""]
     for lod in LOD_NAMES:
         vertices, triangles = triangle_count(lod_objects[lod])
@@ -900,25 +1256,32 @@ def write_report(lod_objects: dict[str, list[bpy.types.Object]], all_render: Seq
     minimum, maximum = bounds
     lines.extend((
         "",
-        f"Meshes = {len(all_render)} LOD render meshes + 1 collision mesh",
-        f"Dimensions: length = {maximum.x - minimum.x:.4f} m; width = {maximum.z - minimum.z:.4f} m; height = {maximum.y - minimum.y:.4f} m",
-        "Materials = MAT_P700_Granit, MAT_P700_Granit_Inlet",
-        "Textures = 5 x 2048x2048 PNG (BaseColor, Normal, Roughness, Metallic, AO)",
+        f"Authoring meshes = {sum(len(objects) for objects in lod_objects.values())} across four retained LOD candidates + 1 collision mesh",
+        f"Dimensions: length = {maximum.x - minimum.x:.4f} m; runtime-up extent = {maximum.y - minimum.y:.4f} m; runtime-camera extent = {maximum.z - minimum.z:.4f} m",
+        f"Runtime GLB = Engine/Assets/Weapons/P700/P700_Granit.glb; nodes = {len(glb_document.get('nodes', []))}; meshes = {len(glb_document.get('meshes', []))}; primitives = {sum(len(mesh.get('primitives', [])) for mesh in glb_document.get('meshes', []))}; triangles = {triangle_count(runtime_objects)[1]}",
+        f"Materials = {BODY_MATERIAL}, {INLET_MATERIAL}",
+        f"Runtime mesh policy = merged {len(static_source_objects)} static construction meshes into SM_P700_LOD0_Static; retained {len(articulated_objects)} independently pivoted wings/cross-tail surfaces for future deployment",
+        "Textures = 5 x 2048x2048 authoring PNG (BaseColor, Normal, Roughness, Metallic, AO); BaseColor/Normal remain embedded in the GLB for interchange but no source texture map is consumed by the current Engine material path",
+        "Current material data = baseColorFactor, metallicFactor = 0.78, roughnessFactor = 0.68; source texture consumption and packing are deferred to the material/cooking pipeline",
         f"GLB size = {GLB.stat().st_size} bytes",
-        "GLB JSON validation = passed (glTF 2.0, no cameras/lights/animations)",
-        "Collision = P700_COLLISION, coarse body + wing/tail proxy, excluded from GLB",
-        "Launch assembly = detachable P700_*_Booster + four booster nozzles + LAUNCH_ONLY P700_*_Launch_IntakeCap",
+        "GLB JSON validation = passed (glTF 2.0, LOD0 flight geometry only, no cameras/lights/animations/helpers)",
+        f"Collision = {collision.name}, coarse body + wing/tail proxy, excluded from GLB",
+        "Launch-only authoring parts remain in the BLEND and launch preview; excluded from neutral runtime GLB",
+        "Configuration = P700_FLIGHT_DEPLOYED with 2.60 m deployed span; stowed/launch configuration = NOT YET AUTHORED; deployment transition = DEFERRED TO FUTURE WEAPON/VFX WORK",
         "Flight nose = pointed centerbody inside a wide tapered annular cowl, eight equally spaced rectangular intake slots",
         "Flight rear = body-overlapping sustainer Engine + attached flared flight Nozzle; booster nozzles are LAUNCH_ONLY",
         "Primary visual references = References/P-700-Granit_sketch.svg (flight silhouette) and References/granit_3.jpg (underwater launch state)",
-        "Visual previews = orthographic side/top, front_3q, rear_3q, water_launch, reference_overlay",
-        "Coordinate contract = DeepRun ADR-0006: +X forward, +Y up, +Z toward camera",
+        "Visual previews = existing orthographic side/top, front_3q, rear_3q, water_launch, reference_overlay + scale_axes technical preview",
+        "Coordinate contract = authoring +X forward/+Z up/+Y across; runtime +X forward/+Y up/+Z toward camera via glTF Y-up conversion",
+        "Semantic markers = HP_P700_Nose, HP_P700_Exhaust, HP_P700_Center, HP_P700_WaterExitFX in P700.authoring.json",
+        "LOD policy = LOD1-3 retained as authoring candidates; runtime LOD selection/export deferred until profiling",
+        "Provenance = References/references.md; external reference copyright/license status is recorded without unverified license claims",
     ))
     REPORT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:
-    for directory in (ASSET, REFS, TEXTURES, PREVIEWS):
+    for directory in (ASSET, REFS, TEXTURES, PREVIEWS, RUNTIME_ASSET):
         directory.mkdir(parents=True, exist_ok=True)
     for temporary in PREVIEWS.glob("_p700_reference_overlay_*"):
         temporary.unlink(missing_ok=True)
@@ -946,6 +1309,7 @@ def main() -> None:
     collision.hide_viewport = True
     collision.hide_set(True)
     validate_mesh_hygiene(all_render)
+    validate_mesh_hygiene([collision])
     minimum, maximum = mesh_bounds(lod_objects["LOD0"])
     length = maximum.x - minimum.x
     width = maximum.z - minimum.z
@@ -960,19 +1324,31 @@ def main() -> None:
     require(2500 <= counts["LOD2"] <= 7000, f"LOD2 target missed: {counts['LOD2']}")
     require(500 <= counts["LOD3"] <= 1800, f"LOD3 target missed: {counts['LOD3']}")
 
+    runtime_source_objects = [object_ for object_ in lod_objects["LOD0"] if not is_launch_only(object_)]
+    articulated_objects = [object_ for object_ in runtime_source_objects if is_articulated_runtime_object(object_)]
+    static_source_objects = [object_ for object_ in runtime_source_objects if object_ not in articulated_objects]
+    require(len(static_source_objects) == 10, "unexpected static runtime construction object count")
+    require(len(articulated_objects) == 6, "unexpected articulated runtime object count")
+    require(all(object_.name.startswith("SM_") for object_ in runtime_source_objects), "runtime mesh naming contract is invalid")
     create_previews()
     # Cameras, lights and water are temporary validation-only data and have
     # already been removed by create_previews().
     require(not bpy.data.cameras and not bpy.data.lights, "temporary render data was not removed")
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND), check_existing=False)
     require(BLEND.is_file() and BLEND.stat().st_size > 0, "BLEND was not saved")
-    export_glb(lod_objects["LOD0"] + lod_objects["LOD1"] + lod_objects["LOD2"] + lod_objects["LOD3"])
-    write_report(lod_objects, all_render, (minimum, maximum))
+    runtime_static = merge_static_runtime_geometry(static_source_objects)
+    runtime_objects = [runtime_static, *articulated_objects]
+    glb_document = export_glb(runtime_objects, runtime_static, articulated_objects)
+    write_metadata(lod_objects, runtime_objects, static_source_objects, articulated_objects, collision, (minimum, maximum), glb_document)
+    write_report(lod_objects, runtime_objects, static_source_objects, articulated_objects, collision, (minimum, maximum), glb_document)
+    remove_temporary_runtime_geometry(runtime_static)
     print("P700 Granit generated successfully")
     print(f"LOD counts: {counts}")
     print(f"Dimensions: length={length:.4f} width={width:.4f} height={height:.4f}")
     print(f"BLEND: {BLEND} ({BLEND.stat().st_size} bytes)")
     print(f"GLB: {GLB} ({GLB.stat().st_size} bytes)")
+    print(f"METADATA: {METADATA}")
+    print(f"AUTHORING: {AUTHORING}")
     print(f"REPORT: {REPORT}")
 
 

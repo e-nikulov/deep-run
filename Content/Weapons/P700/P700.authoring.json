@@ -1,0 +1,272 @@
+{
+  "asset": "P700_Granit",
+  "authoringOnly": true,
+  "sourceAsset": "P700_Granit.blend",
+  "coordinateSystem": {
+    "units": "meters",
+    "forward": "+X",
+    "up": "+Z",
+    "across": "+Y",
+    "runtimeForward": "+X",
+    "runtimeUp": "+Y",
+    "runtimeTowardCamera": "+Z",
+    "exportConversion": "Blender glTF export_yup: (X, Y, Z) -> runtime (X, Z, -Y)"
+  },
+  "origin": {
+    "positionMeters": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "contract": "neutral centerline origin near geometric center; no corrective rotation or scale"
+  },
+  "semanticMarkers": [
+    {
+      "name": "HP_P700_Nose",
+      "role": "nose attachment/reference",
+      "positionMeters": [
+        5.0,
+        0.0,
+        -0.0
+      ],
+      "authoringRotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "runtimeOrientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "HP_P700_Exhaust",
+      "role": "flight exhaust VFX attachment/reference",
+      "positionMeters": [
+        -4.98,
+        0.0,
+        -0.0
+      ],
+      "authoringRotationEulerRadians": [
+        0.0,
+        0.0,
+        3.141593
+      ],
+      "runtimeOrientationQuaternionWXYZ": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "forwardVector": [
+        -1.0,
+        0.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "HP_P700_Center",
+      "role": "neutral center/origin reference",
+      "positionMeters": [
+        0.0,
+        0.0,
+        -0.0
+      ],
+      "authoringRotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "runtimeOrientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        -0.0
+      ]
+    },
+    {
+      "name": "HP_P700_WaterExitFX",
+      "role": "water-exit VFX attachment/reference",
+      "positionMeters": [
+        0.0,
+        0.0,
+        -0.0
+      ],
+      "authoringRotationEulerRadians": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "runtimeOrientationQuaternionWXYZ": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "forwardVector": [
+        1.0,
+        0.0,
+        -0.0
+      ]
+    }
+  ],
+  "collision": {
+    "object": "SM_P700_COLLISION",
+    "representation": "closed low-sided body plus four fin proxy prisms",
+    "authoringOnly": true,
+    "vertices": 106,
+    "triangles": 192,
+    "runtimeIncluded": false,
+    "gameplayAuthority": "future simulation/physics owns collision behavior"
+  },
+  "lods": {
+    "LOD0": {
+      "authoringObjectCount": 22,
+      "vertices": 12632,
+      "triangles": 25172
+    },
+    "LOD1": {
+      "authoringObjectCount": 20,
+      "vertices": 9632,
+      "triangles": 19172
+    },
+    "LOD2": {
+      "authoringObjectCount": 14,
+      "vertices": 2128,
+      "triangles": 4180
+    },
+    "LOD3": {
+      "authoringObjectCount": 14,
+      "vertices": 644,
+      "triangles": 1212
+    }
+  },
+  "launchOnlyObjects": [
+    "SM_P700_LOD0_Booster",
+    "SM_P700_LOD0_BoosterNozzle_01",
+    "SM_P700_LOD0_BoosterNozzle_02",
+    "SM_P700_LOD0_BoosterNozzle_03",
+    "SM_P700_LOD0_BoosterNozzle_04",
+    "SM_P700_LOD0_Launch_IntakeCap"
+  ],
+  "runtimeObjects": [
+    "SM_P700_LOD0_Static",
+    "SM_P700_LOD0_Wing_L",
+    "SM_P700_LOD0_Wing_R",
+    "SM_P700_LOD0_Tail_Up",
+    "SM_P700_LOD0_Tail_Down",
+    "SM_P700_LOD0_Tail_Horizontal_L",
+    "SM_P700_LOD0_Tail_Horizontal_R"
+  ],
+  "runtimeStaticMerge": {
+    "sourceObjects": [
+      "SM_P700_LOD0_Body",
+      "SM_P700_LOD0_Engine",
+      "SM_P700_LOD0_InletDuct",
+      "SM_P700_LOD0_InletRing",
+      "SM_P700_LOD0_NoseCone",
+      "SM_P700_LOD0_Nozzle",
+      "SM_P700_LOD0_PanelBand_01",
+      "SM_P700_LOD0_PanelBand_02",
+      "SM_P700_LOD0_PanelBand_03",
+      "SM_P700_LOD0_PanelBand_04"
+    ],
+    "runtimeObject": "SM_P700_LOD0_Static",
+    "reason": "static construction pieces with no independent runtime transform requirement; merged to reduce primitive and draw-call overhead",
+    "preservedArticulatedObjects": [
+      "SM_P700_LOD0_Tail_Down",
+      "SM_P700_LOD0_Tail_Horizontal_L",
+      "SM_P700_LOD0_Tail_Horizontal_R",
+      "SM_P700_LOD0_Tail_Up",
+      "SM_P700_LOD0_Wing_L",
+      "SM_P700_LOD0_Wing_R"
+    ],
+    "articulationReason": "wings and cross-tail surfaces retain their authored pivots for a future deployment transition"
+  },
+  "runtimeLodPolicy": "LOD0 only until profiling and a runtime LOD-selection contract justify exporting alternates",
+  "configuration": {
+    "currentRuntime": "P700_FLIGHT_DEPLOYED",
+    "deployedWingSpanMeters": 2.6,
+    "stowedLaunchConfiguration": "NOT YET AUTHORED",
+    "deploymentTransition": "DEFERRED TO FUTURE WEAPON/VFX WORK",
+    "launcherCompatibility": "NOT VALIDATED; the deployed flight mesh must not be treated as in-launcher geometry"
+  },
+  "dimensionsMeters": {
+    "length": 9.98,
+    "runtimeUpExtent": 2.376188,
+    "runtimeTowardCameraExtent": 2.599123,
+    "deployedWingSpan": 2.6
+  },
+  "materials": [
+    "M_P700_Granit",
+    "M_P700_Granit_Inlet"
+  ],
+  "textures": {
+    "resolution": "2048x2048",
+    "format": "PNG",
+    "baseColor": {
+      "file": "Textures/P700_Granit_BaseColor_2K.png",
+      "colorSpace": "sRGB",
+      "runtimeUsage": "source-only; embedded in the GLB for interchange but NOT consumed by the current Engine material path"
+    },
+    "normal": {
+      "file": "Textures/P700_Granit_Normal_2K.png",
+      "colorSpace": "Non-Color",
+      "runtimeUsage": "source-only; embedded in the GLB for interchange but NOT consumed by the current Engine material path"
+    },
+    "roughness": {
+      "file": "Textures/P700_Granit_Roughness_2K.png",
+      "colorSpace": "Non-Color",
+      "runtimeUsage": "source-only; current runtime uses material factor 0.68; texture consumption deferred to the material/cooking pipeline"
+    },
+    "metallic": {
+      "file": "Textures/P700_Granit_Metallic_2K.png",
+      "colorSpace": "Non-Color",
+      "runtimeUsage": "source-only; current runtime uses material factor 0.78; texture consumption deferred to the material/cooking pipeline"
+    },
+    "ao": {
+      "file": "Textures/P700_Granit_AO_2K.png",
+      "colorSpace": "Non-Color",
+      "runtimeUsage": "source-only; texture consumption deferred to the material/cooking pipeline"
+    }
+  },
+  "runtimeMaterialContract": {
+    "currentEngineConsumes": [
+      "baseColorFactor",
+      "metallicFactor",
+      "roughnessFactor"
+    ],
+    "sourceTextureConsumption": "DEFERRED TO MATERIAL/COOKING PIPELINE",
+    "embeddedGlbTextures": [
+      "BaseColor",
+      "Normal"
+    ],
+    "embeddedGlbTexturesConsumedByCurrentEngine": false
+  },
+  "geometryStatistics": {
+    "runtimeNodes": 7,
+    "runtimeMeshes": 7,
+    "runtimePrimitives": 8,
+    "runtimeVertices": 11862,
+    "runtimeTriangles": 23656
+  },
+  "runtimeAsset": "Engine/Assets/Weapons/P700/P700_Granit.glb",
+  "sourceAssetPath": "Content/Weapons/P700/P700_Granit.blend",
+  "authoringSidecar": "Content/Weapons/P700/P700.authoring.json",
+  "provenance": "References/references.md",
+  "generator": "Tools/Blender/generate_p700_granit.py",
+  "validationState": "headless generation and runtime GLB structure validation passed",
+  "runtimeBoundary": "neutral flight render mesh only; markers, launch-only parts, collision proxy and gameplay state remain outside runtime geometry"
+}
