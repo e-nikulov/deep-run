@@ -1,0 +1,21 @@
+P700 Granit asset validation
+Blender = 5.2.1 LTS
+
+LOD0: vertices = 12632; triangles = 25172
+LOD1: vertices = 9632; triangles = 19172
+LOD2: vertices = 2128; triangles = 4180
+LOD3: vertices = 644; triangles = 1212
+
+Meshes = 70 LOD render meshes + 1 collision mesh
+Dimensions: length = 9.9800 m; width = 2.5991 m; height = 2.3762 m
+Materials = MAT_P700_Granit, MAT_P700_Granit_Inlet
+Textures = 5 x 2048x2048 PNG (BaseColor, Normal, Roughness, Metallic, AO)
+GLB size = 1713852 bytes
+GLB JSON validation = passed (glTF 2.0, no cameras/lights/animations)
+Collision = P700_COLLISION, coarse body + wing/tail proxy, excluded from GLB
+Launch assembly = detachable P700_*_Booster + four booster nozzles + LAUNCH_ONLY P700_*_Launch_IntakeCap
+Flight nose = pointed centerbody inside a wide tapered annular cowl, eight equally spaced rectangular intake slots
+Flight rear = body-overlapping sustainer Engine + attached flared flight Nozzle; booster nozzles are LAUNCH_ONLY
+Primary visual references = References/P-700-Granit_sketch.svg (flight silhouette) and References/granit_3.jpg (underwater launch state)
+Visual previews = orthographic side/top, front_3q, rear_3q, water_launch, reference_overlay
+Coordinate contract = DeepRun ADR-0006: +X forward, +Y up, +Z toward camera
