@@ -6,6 +6,8 @@
 #include <Xinput.h>
 
 #include <limits>
+#include <algorithm>
+#include <cmath>
 
 namespace DeepRun::Input
 {
@@ -17,13 +19,55 @@ float NormalizeStick(const short value) noexcept
     constexpr float NegativeScale = 1.0F / 32'768.0F;
     return static_cast<float>(value) * (value >= 0 ? PositiveScale : NegativeScale);
 }
+
+}
+
+ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const float normalizedLeftY) noexcept
+{
+    if (!std::isfinite(normalizedLeftX) || !std::isfinite(normalizedLeftY))
+    {
+        return {};
+    }
+
+    // XInput's recommended left-thumb dead zone is applied radially after normalizing the signed pair.
+    constexpr float LeftThumbDeadZone = 7'849.0F / 32'767.0F;
+    const float clampedX = std::clamp(normalizedLeftX, -1.0F, 1.0F);
+    const float clampedY = std::clamp(normalizedLeftY, -1.0F, 1.0F);
+    const float magnitude = std::sqrt(clampedX * clampedX + clampedY * clampedY);
+    if (magnitude <= LeftThumbDeadZone || magnitude <= 0.0F)
+    {
+        return {};
+    }
+
+    const float boundedMagnitude = (std::min)(magnitude, 1.0F);
+    const float scaledMagnitude = (boundedMagnitude - LeftThumbDeadZone) / (1.0F - LeftThumbDeadZone);
+    const float scale = scaledMagnitude / magnitude;
+    return {.throttle = clampedX * scale, .depth = -clampedY * scale};
+}
+
+ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexcept
+{
+    return gamepad.connected ? MapControllerLeftStick(gamepad.leftX, gamepad.leftY) : ControllerSemanticAxes{};
+}
+
+float ResolveSemanticAxis(
+    const bool negativeKeyboardDown,
+    const bool positiveKeyboardDown,
+    const float controllerValue) noexcept
+{
+    // Any held direction owns that semantic axis. Opposite held keys intentionally produce a keyboard-owned
+    // neutral command instead of leaking a controller value through.
+    if (negativeKeyboardDown || positiveKeyboardDown)
+    {
+        return (positiveKeyboardDown ? 1.0F : 0.0F) - (negativeKeyboardDown ? 1.0F : 0.0F);
+    }
+    return std::isfinite(controllerValue) ? std::clamp(controllerValue, -1.0F, 1.0F) : 0.0F;
 }
 
 InputSystem::InputSystem(Diagnostics::Logger& logger)
     : logger_(logger)
 {
     logger_.Info(Diagnostics::LogCategory::Input, "Input system initialized");
-    UpdateController();
 }
 
 InputSystem::~InputSystem()
@@ -50,6 +94,22 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, true);
             }
+            else if (event.key == Platform::Key::A)
+            {
+                throttleAsternKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::D)
+            {
+                throttleAheadKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::W)
+            {
+                depthSurfaceKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::S)
+            {
+                depthDiveKeyDown_ = true;
+            }
         }
         else if (event.type == Platform::WindowEventType::KeyUp)
         {
@@ -60,6 +120,22 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::F1)
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, false);
+            }
+            else if (event.key == Platform::Key::A)
+            {
+                throttleAsternKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::D)
+            {
+                throttleAheadKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::W)
+            {
+                depthSurfaceKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::S)
+            {
+                depthDiveKeyDown_ = false;
             }
         }
         else if (event.type == Platform::WindowEventType::MouseMove)
@@ -74,6 +150,7 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
                 event.type == Platform::WindowEventType::MouseButtonDown);
         }
     }
+    RefreshSemanticAxes();
 }
 
 void InputSystem::UpdateController()
@@ -94,6 +171,7 @@ void InputSystem::UpdateController()
         gamepad.buttons = state.Gamepad.wButtons;
     }
     state_.SetGamepad(gamepad);
+    RefreshSemanticAxes();
     if (!controllerStateKnown_ || connected != controllerConnected_)
     {
         logger_.Info(
@@ -102,6 +180,17 @@ void InputSystem::UpdateController()
     }
     controllerConnected_ = connected;
     controllerStateKnown_ = true;
+}
+
+void InputSystem::RefreshSemanticAxes() noexcept
+{
+    const ControllerSemanticAxes controller = SemanticAxesForGamepad(state_.Gamepad());
+    state_.SetAxis(
+        InputAxis::Throttle,
+        ResolveSemanticAxis(throttleAsternKeyDown_, throttleAheadKeyDown_, controller.throttle));
+    state_.SetAxis(
+        InputAxis::Depth,
+        ResolveSemanticAxis(depthSurfaceKeyDown_, depthDiveKeyDown_, controller.depth));
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept

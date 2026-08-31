@@ -13,6 +13,14 @@ enum class InputAction
     Count,
 };
 
+// Continuous, gameplay-facing input. These are normalized semantic commands rather than device axes.
+enum class InputAxis
+{
+    Throttle,
+    Depth,
+    Count,
+};
+
 enum class GamepadButton : std::uint16_t
 {
     DpadUp = 1U << 0U,
@@ -51,6 +59,7 @@ public:
     void SetMouseButtonDown(std::size_t button, bool down) noexcept;
     void SetMousePosition(int x, int y) noexcept;
     void SetGamepad(GamepadState gamepad) noexcept;
+    void SetAxis(InputAxis axis, float value) noexcept;
 
     [[nodiscard]] bool IsDown(InputAction action) const noexcept;
     [[nodiscard]] bool WasPressed(InputAction action) const noexcept;
@@ -59,13 +68,16 @@ public:
     [[nodiscard]] int MouseX() const noexcept;
     [[nodiscard]] int MouseY() const noexcept;
     [[nodiscard]] const GamepadState& Gamepad() const noexcept;
+    [[nodiscard]] float Axis(InputAxis axis) const noexcept;
 
 private:
     static constexpr std::size_t ActionCount = static_cast<std::size_t>(InputAction::Count);
+    static constexpr std::size_t AxisCount = static_cast<std::size_t>(InputAxis::Count);
     std::array<bool, ActionCount> down_{};
     std::array<bool, ActionCount> pressed_{};
     std::array<bool, ActionCount> released_{};
     std::array<bool, 3> mouseButtons_{};
+    std::array<float, AxisCount> axes_{};
     GamepadState gamepad_{};
     int mouseX_ = 0;
     int mouseY_ = 0;

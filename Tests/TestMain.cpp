@@ -9,6 +9,7 @@
 #include "Engine/Core/Time.h"
 #include "Engine/Diagnostics/Logger.h"
 #include "Engine/Input/InputState.h"
+#include "Engine/Input/InputSystem.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ClearRect.h"
@@ -19,6 +20,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
 #include "Game/WaterPresentation.h"
+#include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/ControlSurfaceSystem.h"
 #include "Simulation/Marine/HydroDragSystem.h"
@@ -26,6 +28,7 @@
 #include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cctype>
 #include <chrono>
@@ -914,6 +917,127 @@ bool InputStateTransitions()
     input.SetActionDown(DeepRun::Input::InputAction::Quit, false);
     return !input.IsDown(DeepRun::Input::InputAction::Quit) &&
            input.WasReleased(DeepRun::Input::InputAction::Quit);
+}
+
+bool I1SemanticAxisStorage()
+{
+    DeepRun::Input::InputState input;
+    for (const float value : {-1.0F, 0.0F, 1.0F})
+    {
+        input.SetAxis(DeepRun::Input::InputAxis::Throttle, value);
+        input.SetAxis(DeepRun::Input::InputAxis::Depth, value);
+        if (input.Axis(DeepRun::Input::InputAxis::Throttle) != value ||
+            input.Axis(DeepRun::Input::InputAxis::Depth) != value)
+        {
+            return false;
+        }
+        input.BeginFrame();
+        if (input.Axis(DeepRun::Input::InputAxis::Throttle) != value ||
+            input.Axis(DeepRun::Input::InputAxis::Depth) != value)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool I1KeyboardSemanticMapping()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Input::InputSystem input(logger);
+    const auto key = [](const DeepRun::Platform::WindowEventType type, const DeepRun::Platform::Key value) {
+        return DeepRun::Platform::WindowEvent{.type = type, .key = value};
+    };
+    std::vector<DeepRun::Platform::WindowEvent> events{
+        key(DeepRun::Platform::WindowEventType::KeyDown, DeepRun::Platform::Key::D)};
+    input.ProcessEvents(events);
+    if (input.State().Axis(DeepRun::Input::InputAxis::Throttle) != 1.0F)
+    {
+        return false;
+    }
+    events = {key(DeepRun::Platform::WindowEventType::KeyUp, DeepRun::Platform::Key::D)};
+    input.ProcessEvents(events);
+    if (input.State().Axis(DeepRun::Input::InputAxis::Throttle) != 0.0F)
+    {
+        return false;
+    }
+    events = {key(DeepRun::Platform::WindowEventType::KeyDown, DeepRun::Platform::Key::A)};
+    input.ProcessEvents(events);
+    if (input.State().Axis(DeepRun::Input::InputAxis::Throttle) != -1.0F)
+    {
+        return false;
+    }
+    events = {key(DeepRun::Platform::WindowEventType::KeyDown, DeepRun::Platform::Key::D)};
+    input.ProcessEvents(events);
+    if (input.State().Axis(DeepRun::Input::InputAxis::Throttle) != 0.0F)
+    {
+        return false;
+    }
+
+    events = {key(DeepRun::Platform::WindowEventType::KeyDown, DeepRun::Platform::Key::S)};
+    input.ProcessEvents(events);
+    if (input.State().Axis(DeepRun::Input::InputAxis::Depth) != 1.0F)
+    {
+        return false;
+    }
+    events = {key(DeepRun::Platform::WindowEventType::KeyUp, DeepRun::Platform::Key::S),
+              key(DeepRun::Platform::WindowEventType::KeyDown, DeepRun::Platform::Key::W)};
+    input.ProcessEvents(events);
+    if (input.State().Axis(DeepRun::Input::InputAxis::Depth) != -1.0F)
+    {
+        return false;
+    }
+    events = {key(DeepRun::Platform::WindowEventType::KeyDown, DeepRun::Platform::Key::S)};
+    input.ProcessEvents(events);
+    return input.State().Axis(DeepRun::Input::InputAxis::Depth) == 0.0F;
+}
+
+bool I1ControllerSemanticMapping()
+{
+    const auto positiveX = DeepRun::Input::MapControllerLeftStick(1.0F, 0.0F);
+    const auto negativeX = DeepRun::Input::MapControllerLeftStick(-1.0F, 0.0F);
+    const auto up = DeepRun::Input::MapControllerLeftStick(0.0F, 1.0F);
+    const auto down = DeepRun::Input::MapControllerLeftStick(0.0F, -1.0F);
+    const auto nearCenter = DeepRun::Input::MapControllerLeftStick(0.05F, -0.05F);
+    const auto diagonal = DeepRun::Input::MapControllerLeftStick(0.8F, -0.8F);
+    return std::abs(positiveX.throttle - 1.0F) < 1.0e-5F &&
+           std::abs(negativeX.throttle + 1.0F) < 1.0e-5F && std::abs(up.depth + 1.0F) < 1.0e-5F &&
+           std::abs(down.depth - 1.0F) < 1.0e-5F && nearCenter.throttle == 0.0F && nearCenter.depth == 0.0F &&
+           std::isfinite(diagonal.throttle) && std::isfinite(diagonal.depth) &&
+           std::abs(diagonal.throttle) <= 1.0F && std::abs(diagonal.depth) <= 1.0F;
+}
+
+bool I1ControllerDisconnectAndArbitration()
+{
+    const DeepRun::Input::GamepadState disconnected{.connected = false, .leftX = 1.0F, .leftY = -1.0F};
+    const auto disconnectedAxes = DeepRun::Input::SemanticAxesForGamepad(disconnected);
+    const float controller = 0.4F;
+    return disconnectedAxes.throttle == 0.0F && disconnectedAxes.depth == 0.0F &&
+           DeepRun::Input::ResolveSemanticAxis(false, false, controller) == controller &&
+           DeepRun::Input::ResolveSemanticAxis(true, false, controller) == -1.0F &&
+           DeepRun::Input::ResolveSemanticAxis(true, true, controller) == 0.0F &&
+           DeepRun::Input::ResolveSemanticAxis(false, false, controller) == controller &&
+           DeepRun::Input::ResolveSemanticAxis(false, true, -0.25F) == 1.0F &&
+           DeepRun::Input::ResolveSemanticAxis(true, false, -0.25F) == -1.0F;
+}
+
+bool I1VesselCommandMapsSemanticAxesAndRejectsMalformedInput()
+{
+    DeepRun::Input::InputState input;
+    input.SetAxis(DeepRun::Input::InputAxis::Throttle, 0.7F);
+    input.SetAxis(DeepRun::Input::InputAxis::Depth, -0.25F);
+    const auto mapped = DeepRun::Game::VesselCommandStateFromInput(input);
+    if (!mapped || std::abs(mapped->throttleFraction - 0.7F) > 1.0e-5F ||
+        std::abs(mapped->depthCommandFraction + 0.25F) > 1.0e-5F)
+    {
+        return false;
+    }
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float infinity = std::numeric_limits<float>::infinity();
+    return !DeepRun::Game::ValidateVesselCommandState({.throttleFraction = nan}) &&
+           !DeepRun::Game::ValidateVesselCommandState({.depthCommandFraction = infinity}) &&
+           !DeepRun::Game::ValidateVesselCommandState({.throttleFraction = -1.01F}) &&
+           !DeepRun::Game::ValidateVesselCommandState({.depthCommandFraction = 1.01F});
 }
 
 bool DeterministicRandom()
@@ -5301,6 +5425,690 @@ bool G2AsternProducesNegativeResponse()
 }
 
 // ---------------------------------------------------------------------------
+// M2 Slice H2: compose two published H1 force/point results through the public PhysicsWorld API. These
+// headless gates prove physical pitch/depth response; no player command, actuator, animation, or new API.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+constexpr float H2MassKg = 12'000'000.0F;
+constexpr float H2DensityKgPerCubicMeter = 1025.0F;
+constexpr std::array<ControlSurfaceComponent, 2> H2ControlSurfaces{{
+    {.bodyLocalPositionMeters = {32.0F, 0.0F, 0.0F},
+     .maxEffectiveLiftAreaSquareMeters = 40.0F},
+    {.bodyLocalPositionMeters = {-32.0F, 0.0F, 0.0F},
+     .maxEffectiveLiftAreaSquareMeters = 40.0F}}};
+constexpr std::array<float, 2> H2DiveDeflections{-0.5F, 0.5F};
+constexpr std::array<float, 2> H2RiseDeflections{0.5F, -0.5F};
+constexpr std::array<float, 2> H2NeutralDeflections{0.0F, 0.0F};
+
+BuoyancyComponent H2NeutralBuoyancy()
+{
+    const float pointVolume = (H2MassKg / H2DensityKgPerCubicMeter) / 4.0F;
+    return BuoyancyComponent{
+        .points = {E2Point({36.0F, 2.0F, 0.0F}, pointVolume, 6.0F),
+                   E2Point({12.0F, 2.0F, 0.0F}, pointVolume, 6.0F),
+                   E2Point({-12.0F, 2.0F, 0.0F}, pointVolume, 6.0F),
+                   E2Point({-36.0F, 2.0F, 0.0F}, pointVolume, 6.0F)}};
+}
+
+DeepRun::Physics::DynamicBoxBodyCreateInfo H2BodyInfo(const float forwardSpeed = 0.0F)
+{
+    DeepRun::Physics::DynamicBoxBodyCreateInfo info;
+    info.halfExtents = {51.0F, 6.0F, 6.0F};
+    info.mass = H2MassKg;
+    info.position = {0.0F, -100.0F, 0.0F};
+    info.orientation = {};
+    info.gravityEnabled = true;
+    info.linearDamping = 0.0F;
+    info.angularDamping = 0.0F;
+    info.initialLinearVelocity = {forwardSpeed, 0.0F, 0.0F};
+    info.initialAngularVelocity = {};
+    info.degreesOfFreedom.translationX = true;
+    info.degreesOfFreedom.translationY = true;
+    info.degreesOfFreedom.translationZ = false;
+    info.degreesOfFreedom.rotationX = false;
+    info.degreesOfFreedom.rotationY = false;
+    info.degreesOfFreedom.rotationZ = true;
+    return info;
+}
+
+float H2PitchRadians(const PhysicsQuaternion& orientation)
+{
+    return 2.0F * std::atan2(orientation.z, orientation.w);
+}
+
+struct H2TickSample final
+{
+    PhysicsBodyState before{};
+    PhysicsBodyState after{};
+    std::array<ControlSurfaceResult, 2> controls{};
+    PhysicsVector3 propulsionForceWorld{};
+    float shaftRpm = 0.0F;
+    float thrustNewtons = 0.0F;
+};
+
+bool H2ApplyMarineTick(
+    DeepRun::Physics::PhysicsWorld& world,
+    const DeepRun::Physics::PhysicsBodyHandle handle,
+    const WaterBody& water,
+    const BuoyancyComponent& buoyancy,
+    const PropulsionCommand& propulsionCommand,
+    const std::array<float, 2>& deflections,
+    PropulsionState* propulsionState,
+    H2TickSample* sample = nullptr)
+{
+    const auto state = world.GetBodyState(handle); // exactly one beginning-of-tick snapshot
+    const auto gravity = world.Gravity();
+    if (!state || !gravity || !gravity->IsFinite())
+    {
+        return false;
+    }
+    const double gravityMagnitude = std::sqrt(
+        static_cast<double>(gravity->x) * gravity->x + static_cast<double>(gravity->y) * gravity->y +
+        static_cast<double>(gravity->z) * gravity->z);
+    const auto buoyancyResult = BuoyancySystem::Calculate(
+        water,
+        buoyancy,
+        {.worldPositionMeters = state->position, .worldOrientation = state->orientation},
+        static_cast<float>(gravityMagnitude));
+    const auto dragResult = HydroDragSystem::Calculate(
+        water,
+        G2Drag,
+        {.worldOrientation = state->orientation,
+         .worldLinearVelocityMetersPerSecond = state->linearVelocity,
+         .worldAngularVelocityRadiansPerSecond = state->angularVelocity});
+    const auto propulsionResult = PropulsionSystem::Advance(
+        G2Component, *propulsionState, propulsionCommand, E3FixedDeltaSeconds);
+
+    const ControlSurfaceKinematics controlKinematics{
+        .bodyWorldPositionMeters = state->position,
+        .worldOrientation = state->orientation,
+        .worldLinearVelocityMetersPerSecond = state->linearVelocity};
+    std::array<std::expected<ControlSurfaceResult, ControlSurfaceError>, 2> controlResults{
+        ControlSurfaceSystem::Calculate(water, H2ControlSurfaces[0], controlKinematics, deflections[0]),
+        ControlSurfaceSystem::Calculate(water, H2ControlSurfaces[1], controlKinematics, deflections[1])};
+    if (!buoyancyResult || !dragResult || !propulsionResult || !controlResults[0] || !controlResults[1])
+    {
+        return false;
+    }
+
+    const auto propulsionForce = DeepRun::Game::RotateBodyLocalVectorToWorld(
+        state->orientation, {propulsionResult->thrustNewtons, 0.0F, 0.0F});
+    const auto propulsorPoint = DeepRun::Game::TransformBodyLocalPointToWorld(
+        state->position, state->orientation, G2PropulsorBodyLocal);
+    if (!propulsionForce || !propulsorPoint)
+    {
+        return false;
+    }
+
+    for (const auto& point : buoyancyResult->points)
+    {
+        if (!world.AddForceAtWorldPosition(handle, point.forceNewtons, point.worldPositionMeters))
+        {
+            return false;
+        }
+    }
+    if (!world.AddForceAtWorldPosition(handle, dragResult->forceNewtons, state->position) ||
+        !world.AddTorque(handle, dragResult->torqueNewtonMeters) ||
+        !world.AddForceAtWorldPosition(handle, *propulsionForce, *propulsorPoint) ||
+        !world.AddForceAtWorldPosition(
+            handle, controlResults[0]->forceNewtons, controlResults[0]->worldPositionMeters) ||
+        !world.AddForceAtWorldPosition(
+            handle, controlResults[1]->forceNewtons, controlResults[1]->worldPositionMeters))
+    {
+        return false;
+    }
+
+    *propulsionState = propulsionResult->nextState;
+    world.Step(E3FixedDeltaSeconds);
+    const auto after = world.GetBodyState(handle);
+    if (!after)
+    {
+        return false;
+    }
+    if (sample != nullptr)
+    {
+        *sample = {
+            .before = *state,
+            .after = *after,
+            .controls = {*controlResults[0], *controlResults[1]},
+            .propulsionForceWorld = *propulsionForce,
+            .shaftRpm = propulsionResult->nextState.shaftRpm,
+            .thrustNewtons = propulsionResult->thrustNewtons};
+    }
+    return true;
+}
+
+bool H2PlanarState(const PhysicsBodyState& state)
+{
+    return std::abs(state.position.z) < 1.0e-5F && std::abs(state.linearVelocity.z) < 1.0e-5F &&
+           std::abs(state.angularVelocity.x) < 1.0e-5F && std::abs(state.angularVelocity.y) < 1.0e-5F;
+}
+} // namespace
+
+bool H2ZeroSpeedHasNoPhysicalPitchResponse()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    const BuoyancyComponent buoyancy = H2NeutralBuoyancy();
+    const PropulsionCommand idle{.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    H2TickSample sample;
+    for (int step = 0; step < 120; ++step)
+    {
+        if (!H2ApplyMarineTick(
+                world, handle, *water, buoyancy, idle, H2DiveDeflections, &propulsion, &sample))
+        {
+            return false;
+        }
+    }
+    std::cout << "[H2 evidence] zero speed: bow force " << sample.controls[0].forceNewtons.y
+              << " N, stern force " << sample.controls[1].forceNewtons.y << " N, omegaZ "
+              << sample.after.angularVelocity.z << ", pitch " << H2PitchRadians(sample.after.orientation)
+              << " rad\n";
+    return initial && sample.controls[0].forceNewtons == PhysicsVector3{} &&
+           sample.controls[1].forceNewtons == PhysicsVector3{} &&
+           std::abs(sample.after.angularVelocity.z) < 1.0e-5F &&
+           std::abs(H2PitchRadians(sample.after.orientation)) < 1.0e-5F &&
+           std::abs(sample.after.position.y - initial->position.y) < 0.01F && H2PlanarState(sample.after);
+}
+
+bool H2SymmetricPairCreatesNegativePitchWithoutNetLift()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(H2BodyInfo(8.0F));
+    const PropulsionCommand idle{.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    H2TickSample sample;
+    if (!H2ApplyMarineTick(
+            world, handle, *water, H2NeutralBuoyancy(), idle, H2DiveDeflections, &propulsion, &sample))
+    {
+        return false;
+    }
+    const PhysicsVector3 forceSum{
+        sample.controls[0].forceNewtons.x + sample.controls[1].forceNewtons.x,
+        sample.controls[0].forceNewtons.y + sample.controls[1].forceNewtons.y,
+        sample.controls[0].forceNewtons.z + sample.controls[1].forceNewtons.z};
+    std::cout << "[H2 evidence] pair at 8 m/s: bow Y " << sample.controls[0].forceNewtons.y
+              << " N @ X " << sample.controls[0].worldPositionMeters.x << ", stern Y "
+              << sample.controls[1].forceNewtons.y << " N @ X "
+              << sample.controls[1].worldPositionMeters.x << ", sum Y " << forceSum.y
+              << " N, omegaZ " << sample.after.angularVelocity.z << '\n';
+    return sample.controls[0].forceNewtons.y < 0.0F && sample.controls[1].forceNewtons.y > 0.0F &&
+           E2VectorNear(forceSum, {}) && sample.after.angularVelocity.z < -1.0e-6F &&
+           std::abs(sample.after.linearVelocity.y) < 1.0e-4F && H2PlanarState(sample.after);
+}
+
+bool H2OppositePairCreatesPositivePitch()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(H2BodyInfo(8.0F));
+    const PropulsionCommand idle{.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    H2TickSample sample;
+    return H2ApplyMarineTick(
+               world, handle, *water, H2NeutralBuoyancy(), idle, H2RiseDeflections, &propulsion, &sample) &&
+           sample.controls[0].forceNewtons.y > 0.0F && sample.controls[1].forceNewtons.y < 0.0F &&
+           sample.after.angularVelocity.z > 1.0e-6F && H2PlanarState(sample.after);
+}
+
+bool H2ControlAuthorityGrowsWithSpeed()
+{
+    auto run = [](const float speed, H2TickSample* sample) {
+        DeepRun::Diagnostics::Logger logger;
+        DeepRun::Physics::PhysicsWorld world(logger);
+        const auto water = WaterBody::Create(
+            {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+        if (!world.Initialize() || !water)
+        {
+            return false;
+        }
+        const auto handle = world.CreateDynamicBoxBody(H2BodyInfo(speed));
+        const PropulsionCommand idle{.requestedDriveFraction = 0.0F, .availablePowerFraction = 1.0F};
+        PropulsionState propulsion{};
+        return H2ApplyMarineTick(
+            world, handle, *water, H2NeutralBuoyancy(), idle, H2DiveDeflections, &propulsion, sample);
+    };
+    H2TickSample slow;
+    H2TickSample fast;
+    if (!run(4.0F, &slow) || !run(8.0F, &fast))
+    {
+        return false;
+    }
+    const float forceRatio = std::abs(fast.controls[0].forceNewtons.y / slow.controls[0].forceNewtons.y);
+    const float omegaRatio = std::abs(fast.after.angularVelocity.z / slow.after.angularVelocity.z);
+    std::cout << "[H2 evidence] authority: 4 m/s force " << slow.controls[0].forceNewtons.y
+              << " N, omegaZ " << slow.after.angularVelocity.z << "; 8 m/s force "
+              << fast.controls[0].forceNewtons.y << " N, omegaZ " << fast.after.angularVelocity.z << '\n';
+    return E2Near(forceRatio, 4.0F) && omegaRatio > 3.0F && fast.after.angularVelocity.z < 0.0F &&
+           slow.after.angularVelocity.z < 0.0F;
+}
+
+bool H2PropulsionPitchDepthAndControlRelease()
+{
+    constexpr int DiveSteps = 3600;    // 60 seconds, including the six-second shaft spin-up
+    constexpr int ReleaseSteps = 5400; // 90 seconds for physical restoring/damping to settle at a new depth
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    if (!initial)
+    {
+        return false;
+    }
+    const auto initialWater = water->Sample(initial->position);
+    const BuoyancyComponent buoyancy = H2NeutralBuoyancy();
+    const PropulsionCommand ahead{.requestedDriveFraction = 1.0F, .availablePowerFraction = 1.0F};
+    PropulsionState propulsion{};
+    H2TickSample sample;
+    float minimumPitch = 0.0F;
+    float minimumVerticalVelocity = 0.0F;
+    float minimumThrustY = 0.0F;
+    float maximumControlForce = 0.0F;
+    for (int step = 0; step < DiveSteps; ++step)
+    {
+        if (!H2ApplyMarineTick(
+                world, handle, *water, buoyancy, ahead, H2DiveDeflections, &propulsion, &sample))
+        {
+            return false;
+        }
+        minimumPitch = (std::min)(minimumPitch, H2PitchRadians(sample.after.orientation));
+        minimumVerticalVelocity = (std::min)(minimumVerticalVelocity, sample.after.linearVelocity.y);
+        minimumThrustY = (std::min)(minimumThrustY, sample.propulsionForceWorld.y);
+        maximumControlForce = (std::max)(maximumControlForce, std::abs(sample.controls[0].forceNewtons.y));
+        if (!H2PlanarState(sample.after))
+        {
+            return false;
+        }
+    }
+    const auto diveWater = water->Sample(sample.after.position);
+    const float divePitch = H2PitchRadians(sample.after.orientation);
+    const float diveDepth = diveWater ? diveWater->signedDepthMeters : 0.0F;
+    const float diveVelocityX = sample.after.linearVelocity.x;
+    const float diveVelocityY = sample.after.linearVelocity.y;
+    const float diveOmegaZ = sample.after.angularVelocity.z;
+    const float diveRpm = sample.shaftRpm;
+
+    bool releasedForcesAreZero = false;
+    for (int step = 0; step < ReleaseSteps; ++step)
+    {
+        if (!H2ApplyMarineTick(
+                world, handle, *water, buoyancy, ahead, H2NeutralDeflections, &propulsion, &sample))
+        {
+            return false;
+        }
+        if (step == 0)
+        {
+            releasedForcesAreZero = sample.controls[0].forceNewtons == PhysicsVector3{} &&
+                                    sample.controls[1].forceNewtons == PhysicsVector3{};
+        }
+        if (!H2PlanarState(sample.after))
+        {
+            return false;
+        }
+    }
+    const auto finalWater = water->Sample(sample.after.position);
+    if (!initialWater || !diveWater || !finalWater)
+    {
+        return false;
+    }
+    std::cout << "[H2 evidence] 60 s dive: RPM " << diveRpm << ", V (" << diveVelocityX << ','
+              << diveVelocityY << "), pitch " << divePitch << " rad, omegaZ " << diveOmegaZ
+              << " rad/s, min pitch " << minimumPitch
+              << ", thrustY min " << minimumThrustY << " N, control |Fy|max " << maximumControlForce
+              << " N, depth " << initialWater->signedDepthMeters << " -> " << diveDepth
+              << " m; after 90 s release depth " << finalWater->signedDepthMeters << ", pitch "
+              << H2PitchRadians(sample.after.orientation) << " rad, omegaZ "
+              << sample.after.angularVelocity.z << " rad/s\n";
+    return diveRpm == G2Component.maxForwardRpm && maximumControlForce > 1.0F && minimumPitch < -0.01F &&
+           minimumVerticalVelocity < -0.01F && minimumThrustY < -1.0F &&
+           diveDepth > initialWater->signedDepthMeters + 1.0F && releasedForcesAreZero &&
+           finalWater->signedDepthMeters > initialWater->signedDepthMeters + 1.0F &&
+           std::abs(H2PitchRadians(sample.after.orientation)) < 0.06F &&
+           std::abs(sample.after.angularVelocity.z) < 0.01F;
+}
+
+// ---------------------------------------------------------------------------
+// M2 Slice I1: the direct vessel command is the only source of G1 requested drive and H2 deflections.
+// These retain H2's published-force physics path while proving input commands do not bypass it.
+// ---------------------------------------------------------------------------
+
+bool I1ApplyVesselCommandTick(
+    DeepRun::Physics::PhysicsWorld& world,
+    const DeepRun::Physics::PhysicsBodyHandle handle,
+    const WaterBody& water,
+    const BuoyancyComponent& buoyancy,
+    const DeepRun::Game::VesselCommandState& command,
+    PropulsionState* propulsionState,
+    H2TickSample* sample = nullptr)
+{
+    if (!DeepRun::Game::ValidateVesselCommandState(command))
+    {
+        return false;
+    }
+    const PropulsionCommand propulsionCommand{
+        .requestedDriveFraction = command.throttleFraction,
+        .availablePowerFraction = 1.0F};
+    const std::array<float, 2> deflections{
+        -0.5F * command.depthCommandFraction,
+        0.5F * command.depthCommandFraction};
+    return H2ApplyMarineTick(world, handle, water, buoyancy, propulsionCommand, deflections, propulsionState, sample);
+}
+
+bool I1NeutralCommandIsPhysicalDefault()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+    const auto initial = world.GetBodyState(handle);
+    PropulsionState propulsion{};
+    H2TickSample sample;
+    const DeepRun::Game::VesselCommandState neutral{};
+    for (int step = 0; step < 120; ++step)
+    {
+        if (!I1ApplyVesselCommandTick(world, handle, *water, H2NeutralBuoyancy(), neutral, &propulsion, &sample))
+        {
+            return false;
+        }
+    }
+    return initial && sample.shaftRpm == 0.0F && sample.thrustNewtons == 0.0F &&
+           sample.controls[0].forceNewtons == PhysicsVector3{} && sample.controls[1].forceNewtons == PhysicsVector3{} &&
+           std::abs(sample.after.position.y - initial->position.y) < 0.01F && H2PlanarState(sample.after);
+}
+
+bool I1ThrottleAheadReleaseAndAstern()
+{
+    const auto run = [](const float throttle, const int steps, H2TickSample* finalSample) {
+        DeepRun::Diagnostics::Logger logger;
+        DeepRun::Physics::PhysicsWorld world(logger);
+        const auto water = WaterBody::Create(
+            {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+        if (!world.Initialize() || !water)
+        {
+            return std::optional<PhysicsBodyState>{};
+        }
+        const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+        PropulsionState propulsion{};
+        const DeepRun::Game::VesselCommandState command{.throttleFraction = throttle};
+        for (int step = 0; step < steps; ++step)
+        {
+            if (!I1ApplyVesselCommandTick(world, handle, *water, H2NeutralBuoyancy(), command, &propulsion, finalSample))
+            {
+                return std::optional<PhysicsBodyState>{};
+            }
+        }
+        return world.GetBodyState(handle);
+    };
+
+    H2TickSample ahead;
+    const auto aheadState = run(1.0F, 360, &ahead);
+    H2TickSample astern;
+    const auto asternState = run(-1.0F, 360, &astern);
+    if (!aheadState || !asternState || ahead.shaftRpm != G2Component.maxForwardRpm || ahead.thrustNewtons <= 0.0F ||
+        aheadState->linearVelocity.x <= 0.0F || std::abs(aheadState->position.y + 100.0F) > 0.25F ||
+        std::abs(H2PitchRadians(aheadState->orientation)) > 1.0e-3F ||
+        ahead.controls[0].forceNewtons != PhysicsVector3{} || ahead.controls[1].forceNewtons != PhysicsVector3{} ||
+        astern.shaftRpm != -G2Component.maxReverseRpm || astern.thrustNewtons >= 0.0F ||
+        asternState->linearVelocity.x >= 0.0F)
+    {
+        return false;
+    }
+
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld releaseWorld(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!releaseWorld.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = releaseWorld.CreateDynamicBoxBody(H2BodyInfo());
+    PropulsionState propulsion{};
+    H2TickSample release;
+    for (int step = 0; step < 360; ++step)
+    {
+        if (!I1ApplyVesselCommandTick(
+                releaseWorld, handle, *water, H2NeutralBuoyancy(), {.throttleFraction = 1.0F}, &propulsion, &release))
+        {
+            return false;
+        }
+    }
+    const float rpmAtRelease = release.shaftRpm;
+    const float thrustAtRelease = release.thrustNewtons;
+    for (int step = 0; step < 60; ++step)
+    {
+        if (!I1ApplyVesselCommandTick(releaseWorld, handle, *water, H2NeutralBuoyancy(), {}, &propulsion, &release))
+        {
+            return false;
+        }
+    }
+    const float spinDownRpm = release.shaftRpm;
+    const float spinDownThrust = release.thrustNewtons;
+    for (int step = 0; step < 300; ++step)
+    {
+        if (!I1ApplyVesselCommandTick(releaseWorld, handle, *water, H2NeutralBuoyancy(), {}, &propulsion, &release))
+        {
+            return false;
+        }
+    }
+    std::cout << "[I1 evidence] release: RPM " << rpmAtRelease << " -> " << spinDownRpm << " -> "
+              << release.shaftRpm << ", thrust " << thrustAtRelease << " -> " << spinDownThrust << " -> "
+              << release.thrustNewtons << " N, coast Vx " << release.after.linearVelocity.x << '\n';
+    return spinDownRpm > 0.0F && spinDownRpm < rpmAtRelease && spinDownThrust > 0.0F &&
+           spinDownThrust < thrustAtRelease && release.shaftRpm == 0.0F && release.thrustNewtons == 0.0F &&
+           release.after.linearVelocity.x > 0.0F;
+}
+
+bool I1DepthCommandMapsToPhysicalDiveAndSurface()
+{
+    struct ManeuverEvidence final
+    {
+        float finalDepth = 0.0F;
+        float extremePitch = 0.0F;
+        float extremeWorldThrustY = 0.0F;
+        float extremeOmegaZ = 0.0F;
+        float extremeBowForceY = 0.0F;
+        float extremeSternForceY = 0.0F;
+        bool releaseForcesZero = false;
+    };
+    const auto run = [](const float depth, ManeuverEvidence* evidence) {
+        DeepRun::Diagnostics::Logger logger;
+        DeepRun::Physics::PhysicsWorld world(logger);
+        const auto water = WaterBody::Create(
+            {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+        if (!world.Initialize() || !water)
+        {
+            return false;
+        }
+        const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+        PropulsionState propulsion{};
+        H2TickSample sample;
+        const DeepRun::Game::VesselCommandState maneuver{
+            .throttleFraction = 1.0F,
+            .depthCommandFraction = depth};
+        for (int step = 0; step < 1200; ++step) // 20 seconds; remains well below the flat surface
+        {
+            if (!I1ApplyVesselCommandTick(world, handle, *water, H2NeutralBuoyancy(), maneuver, &propulsion, &sample))
+            {
+                return false;
+            }
+            const float pitch = H2PitchRadians(sample.after.orientation);
+            if (depth > 0.0F)
+            {
+                evidence->extremePitch = (std::min)(evidence->extremePitch, pitch);
+                evidence->extremeWorldThrustY = (std::min)(evidence->extremeWorldThrustY, sample.propulsionForceWorld.y);
+                evidence->extremeOmegaZ = (std::min)(evidence->extremeOmegaZ, sample.after.angularVelocity.z);
+                evidence->extremeBowForceY = (std::min)(evidence->extremeBowForceY, sample.controls[0].forceNewtons.y);
+                evidence->extremeSternForceY = (std::max)(evidence->extremeSternForceY, sample.controls[1].forceNewtons.y);
+            }
+            else
+            {
+                evidence->extremePitch = (std::max)(evidence->extremePitch, pitch);
+                evidence->extremeWorldThrustY = (std::max)(evidence->extremeWorldThrustY, sample.propulsionForceWorld.y);
+                evidence->extremeOmegaZ = (std::max)(evidence->extremeOmegaZ, sample.after.angularVelocity.z);
+                evidence->extremeBowForceY = (std::max)(evidence->extremeBowForceY, sample.controls[0].forceNewtons.y);
+                evidence->extremeSternForceY = (std::min)(evidence->extremeSternForceY, sample.controls[1].forceNewtons.y);
+            }
+        }
+        const auto waterSample = water->Sample(sample.after.position);
+        if (!waterSample || !I1ApplyVesselCommandTick(
+                                world,
+                                handle,
+                                *water,
+                                H2NeutralBuoyancy(),
+                                {.throttleFraction = 1.0F},
+                                &propulsion,
+                                &sample))
+        {
+            return false;
+        }
+        evidence->finalDepth = waterSample->signedDepthMeters;
+        evidence->releaseForcesZero = sample.controls[0].forceNewtons == PhysicsVector3{} &&
+                                      sample.controls[1].forceNewtons == PhysicsVector3{};
+        return true;
+    };
+
+    ManeuverEvidence dive;
+    ManeuverEvidence surface;
+    if (!run(1.0F, &dive) || !run(-1.0F, &surface))
+    {
+        return false;
+    }
+    std::cout << "[I1 evidence] Depth +1: depth 100 -> " << dive.finalDepth << " m, min pitch "
+              << dive.extremePitch << " rad, min thrustY " << dive.extremeWorldThrustY
+              << " N; Depth -1: depth 100 -> " << surface.finalDepth << " m, max pitch "
+              << surface.extremePitch << " rad, max thrustY " << surface.extremeWorldThrustY << " N\n";
+    return dive.extremeBowForceY < -1.0F && dive.extremeSternForceY > 1.0F && dive.extremeOmegaZ < -1.0e-6F &&
+           dive.extremePitch < -0.01F && dive.extremeWorldThrustY < -1.0F &&
+           dive.finalDepth > 100.5F && dive.releaseForcesZero && surface.extremeBowForceY > 1.0F &&
+           surface.extremeSternForceY < -1.0F &&
+           surface.extremeOmegaZ > 1.0e-6F &&
+           surface.extremePitch > 0.01F && surface.extremeWorldThrustY > 1.0F && surface.finalDepth < 99.5F &&
+           surface.finalDepth > 20.0F && surface.releaseForcesZero;
+}
+
+bool I1DepthReleaseAndLowSpeedHaveNoMagicAuthority()
+{
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!water)
+    {
+        return false;
+    }
+    bool zeroSpeedNoAuthority = false;
+    {
+        DeepRun::Diagnostics::Logger logger;
+        DeepRun::Physics::PhysicsWorld world(logger);
+        if (!world.Initialize())
+        {
+            return false;
+        }
+        const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+        const auto initial = world.GetBodyState(handle);
+        PropulsionState propulsion{};
+        H2TickSample sample;
+        for (int step = 0; step < 120; ++step)
+        {
+            if (!I1ApplyVesselCommandTick(
+                    world,
+                    handle,
+                    *water,
+                    H2NeutralBuoyancy(),
+                    {.depthCommandFraction = 1.0F},
+                    &propulsion,
+                    &sample))
+            {
+                return false;
+            }
+        }
+        zeroSpeedNoAuthority = initial && sample.controls[0].forceNewtons == PhysicsVector3{} &&
+                               sample.controls[1].forceNewtons == PhysicsVector3{} &&
+                               std::abs(sample.after.angularVelocity.z) < 1.0e-5F &&
+                               std::abs(sample.after.position.y - initial->position.y) < 0.01F;
+    }
+
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld movingWorld(logger);
+    if (!movingWorld.Initialize())
+    {
+        return false;
+    }
+    H2TickSample sample;
+    const auto movingHandle = movingWorld.CreateDynamicBoxBody(H2BodyInfo(8.0F));
+    PropulsionState movingPropulsion{};
+    if (!I1ApplyVesselCommandTick(
+            movingWorld,
+            movingHandle,
+            *water,
+            H2NeutralBuoyancy(),
+            {.depthCommandFraction = 1.0F},
+            &movingPropulsion,
+            &sample) ||
+        !I1ApplyVesselCommandTick(movingWorld, movingHandle, *water, H2NeutralBuoyancy(), {}, &movingPropulsion, &sample))
+    {
+        return false;
+    }
+    return zeroSpeedNoAuthority && sample.controls[0].forceNewtons == PhysicsVector3{} &&
+           sample.controls[1].forceNewtons == PhysicsVector3{};
+}
+
+bool I1CommandSnapshotIsFixedStepStable()
+{
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = H2DensityKgPerCubicMeter});
+    if (!world.Initialize() || !water)
+    {
+        return false;
+    }
+    const auto handle = world.CreateDynamicBoxBody(H2BodyInfo());
+    const DeepRun::Game::VesselCommandState command{.throttleFraction = 1.0F, .depthCommandFraction = 0.0F};
+    PropulsionState propulsion{};
+    H2TickSample sample;
+    for (int step = 0; step < 120; ++step)
+    {
+        if (!I1ApplyVesselCommandTick(world, handle, *water, H2NeutralBuoyancy(), command, &propulsion, &sample))
+        {
+            return false;
+        }
+    }
+    return std::abs(sample.shaftRpm - 60.0F) < 0.01F && sample.controls[0].forceNewtons == PhysicsVector3{} &&
+           sample.controls[1].forceNewtons == PhysicsVector3{};
+}
+
+// ---------------------------------------------------------------------------
 // M2 Slice D2: world placement (asset pivot vs world position), water-surface viewport projection, and the
 // generic renderer clear-rect validation. All pure — no Jolt, no D3D12 device, no GPU required.
 // ---------------------------------------------------------------------------
@@ -5878,6 +6686,38 @@ bool G2IntegrationAndPresentationArchitectureBoundaries()
            ScanSourceDirectoryForForbiddenPatterns(
                physicsRoot, {"propulsion", "shaft", "rpm", "propeller", "submarine"});
 }
+
+bool H2IntegrationArchitectureBoundaries()
+{
+    const std::filesystem::path sourceRoot = DEEPRUN_SOURCE_ROOT;
+    const std::filesystem::path physicsRoot = sourceRoot / "Engine" / "Physics";
+    const std::filesystem::path renderRoot = sourceRoot / "Engine" / "Render";
+    return ControlSurfaceFilesHaveOnlyPureMarineDependencies() && GameCodeHasNoJoltDependency() &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               physicsRoot, {"controlsurface", "control surface", "simulation/marine", "submarine"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               renderRoot, {"controlsurface", "control surface", "simulation/marine"});
+}
+
+bool I1SemanticInputArchitectureBoundaries()
+{
+    const std::filesystem::path sourceRoot = DEEPRUN_SOURCE_ROOT;
+    const std::filesystem::path marineRoot = sourceRoot / "Simulation" / "Marine";
+    const std::filesystem::path inputRoot = sourceRoot / "Engine" / "Input";
+    const std::filesystem::path physicsRoot = sourceRoot / "Engine" / "Physics";
+    const std::filesystem::path commandRoot = sourceRoot / "Game" / "Submarine";
+    const std::filesystem::path playgroundRoot = sourceRoot / "Game";
+    return ScanSourceDirectoryForForbiddenPatterns(
+               marineRoot, {"engine/input", "inputaxis", "inputaction", "xinput", "game/"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               inputRoot, {"submarine", "simulation/marine", "physicsworld", "vesselcommand"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               physicsRoot, {"engine/input", "inputaxis", "vesselcommand", "vessel command"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               commandRoot, {"windows.h", "xinput", "platform::key", "vk_", "wm_key", "jph::", "<jolt/"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               playgroundRoot, {"platform::key", "xinput", "vk_", "wm_key", ".gamepad()", ".leftx", ".lefty"});
+}
 } // namespace
 
 int main(const int argumentCount, const char* const* arguments)
@@ -5926,6 +6766,11 @@ int main(const int argumentCount, const char* const* arguments)
         {"Material defaults and references", MaterialDefaultsAndInvalidReference},
         {"Configuration loading", ConfigurationLoading},
         {"Input state transitions", InputStateTransitions},
+        {"I1 semantic axis storage", I1SemanticAxisStorage},
+        {"I1 keyboard semantic mapping", I1KeyboardSemanticMapping},
+        {"I1 controller semantic mapping and dead zone", I1ControllerSemanticMapping},
+        {"I1 controller disconnect and keyboard arbitration", I1ControllerDisconnectAndArbitration},
+        {"I1 vessel command semantic mapping and validation", I1VesselCommandMapsSemanticAxesAndRejectsMalformedInput},
         {"Deterministic random", DeterministicRandom},
         {"Jolt initialization", JoltInitialization},
         {"Rigid-body gravity", RigidBodySimulation},
@@ -6045,6 +6890,18 @@ int main(const int argumentCount, const char* const* arguments)
         {"G2 natural terminal speed and hydrostatic stability",
          G2NaturalTerminalSpeedAndHydrostaticStability},
         {"G2 astern produces negative response", G2AsternProducesNegativeResponse},
+        // M2 Slice H2: two published H1 forces integrated at distinct world points.
+        {"H2 zero speed has no physical pitch response", H2ZeroSpeedHasNoPhysicalPitchResponse},
+        {"H2 symmetric pair creates pitch without net lift",
+         H2SymmetricPairCreatesNegativePitchWithoutNetLift},
+        {"H2 opposite pair reverses pitch", H2OppositePairCreatesPositivePitch},
+        {"H2 control authority grows with speed", H2ControlAuthorityGrowsWithSpeed},
+        {"H2 propulsion pitch depth and control release", H2PropulsionPitchDepthAndControlRelease},
+        {"I1 neutral vessel command is physical default", I1NeutralCommandIsPhysicalDefault},
+        {"I1 throttle ahead release and astern", I1ThrottleAheadReleaseAndAstern},
+        {"I1 depth command maps to physical dive and surface", I1DepthCommandMapsToPhysicalDiveAndSurface},
+        {"I1 depth release and low speed have no magic authority", I1DepthReleaseAndLowSpeedHaveNoMagicAuthority},
+        {"I1 command snapshot is fixed-step stable", I1CommandSnapshotIsFixedStepStable},
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
@@ -6092,6 +6949,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"Engine render has no water semantics", EngineRenderHasNoWaterSemantics},
         {"G2 integration and presentation architecture boundaries",
          G2IntegrationAndPresentationArchitectureBoundaries},
+        {"H2 integration architecture boundaries", H2IntegrationArchitectureBoundaries},
+        {"I1 semantic input architecture boundaries", I1SemanticInputArchitectureBoundaries},
     };
 
     int failed = 0;

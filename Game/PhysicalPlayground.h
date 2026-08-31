@@ -52,7 +52,7 @@ namespace DeepRun::Game
 // tuning and generic PhysicsWorld force/torque operations during the fixed phase. G2 adds one authoritative
 // shaft state; propeller angle is presentation-only and can never feed the simulation. H2 composes two
 // Game-owned control surfaces through their pure Marine calculation and the existing world-point force API. I1
-// receives only a Game-owned VesselCommandState; it never sees a physical key, gamepad field, or XInput type.
+// receives only a Game-owned VesselCommandState; it never sees a physical key, gamepad field, or backend type.
 class PhysicalPlayground final
 {
 public:

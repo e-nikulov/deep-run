@@ -400,6 +400,11 @@ Physics::PhysicsWorld* Engine::Physics() noexcept
     return impl_->physics.get();
 }
 
+const Input::InputState* Engine::InputState() const noexcept
+{
+    return impl_->input != nullptr ? &impl_->input->State() : nullptr;
+}
+
 int Engine::ExitCode() const noexcept
 {
     return impl_->exitCode;

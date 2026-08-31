@@ -83,6 +83,16 @@ This maps to the semantic `Depth` control axis.
 It represents requested vertical/depth manoeuvre rather than directly
 changing submarine position.
 
+The implemented I1 signs are explicit:
+
+```text
+Throttle: -1 astern, +1 ahead
+Depth:    -1 surface / nose-up, +1 dive / nose-down
+
+Left Stick up / W = Depth -1 (surface)
+Left Stick down / S = Depth +1 (dive)
+```
+
 Actual vessel motion is determined by:
 
 ```text

@@ -2232,6 +2232,17 @@ OpenTacticalView
 Pause
 ```
 
+M2 Slice I1 currently implements only the direct vessel analog axes:
+
+```text
+InputAxis::Throttle: -1 astern, 0 neutral, +1 ahead
+InputAxis::Depth:    -1 surface / nose-up, 0 neutral, +1 dive / nose-down
+```
+
+The Input layer owns physical-device normalization, left-stick dead zone, and keyboard/controller-to-semantic
+mapping. Game receives stable `InputState` semantic values only, snapshots them into a Game-owned vessel command
+for each fixed tick, and never reads raw keys, XInput fields, or device connection state.
+
 Canonical physical bindings определены в:
 
 ```text

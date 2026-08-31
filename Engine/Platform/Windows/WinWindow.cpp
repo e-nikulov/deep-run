@@ -37,6 +37,10 @@ Key TranslateKey(const WPARAM virtualKey)
     {
     case VK_ESCAPE: return Key::Escape;
     case VK_F1: return Key::F1;
+    case 'A': return Key::A;
+    case 'D': return Key::D;
+    case 'W': return Key::W;
+    case 'S': return Key::S;
     default: return Key::Unknown;
     }
 }

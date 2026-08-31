@@ -1,7 +1,9 @@
 #include "Engine/Core/Application.h"
 #include "Engine/Core/Engine.h"
+#include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/PhysicalPlayground.h"
+#include "Game/Submarine/VesselCommandState.h"
 
 #include <Windows.h>
 
@@ -263,6 +265,7 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
+        const DeepRun::Input::InputState* inputState = nullptr;
         // Bisection aid: DR_NO_CAPTURE=1 disables window frame capture entirely so the physics/render path
         // can be tested in isolation. _dupenv_s allocates with malloc (not new), so the pointer must be
         // released with std::free.
@@ -274,7 +277,7 @@ int main(const int argumentCount, char** argumentValues)
 
         DeepRun::Core::Application application(
             options,
-            [&options, &playground](DeepRun::Core::Engine& engine)
+            [&options, &playground, &inputState](DeepRun::Core::Engine& engine)
             {
                 if (options.headless)
                 {
@@ -296,6 +299,13 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
+                inputState = engine.InputState();
+                if (inputState == nullptr)
+                {
+                    std::cerr << "[Game][ERROR] Physical playground requires windowed input state\n";
+                    return false;
+                }
+
                 const auto initialized =
                     playground.Initialize(engine.Assets(), *physics, *renderer, options.smokeTest);
                 if (!initialized)
@@ -305,9 +315,23 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return playground.SubmarineModel().IsValid();
             },
-            [&playground](const float fixedDeltaSeconds)
+            [&options, &playground, &inputState](const float fixedDeltaSeconds)
             {
-                const auto updated = playground.FixedUpdate(fixedDeltaSeconds);
+                // Smoke runs deliberately consume an explicit neutral command, insulating deterministic
+                // automated validation from any live controller connected to the developer machine.
+                const auto command = options.smokeTest
+                                         ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
+                                               DeepRun::Game::VesselCommandState{}}
+                                         : inputState != nullptr
+                                               ? DeepRun::Game::VesselCommandStateFromInput(*inputState)
+                                               : std::expected<DeepRun::Game::VesselCommandState, std::string>{
+                                                     std::unexpected("windowed input state is unavailable")};
+                if (!command)
+                {
+                    std::cerr << "[Game][ERROR] vessel command mapping failed: " << command.error() << '\n';
+                    return false;
+                }
+                const auto updated = playground.FixedUpdate(fixedDeltaSeconds, *command);
                 if (!updated)
                 {
                     std::cerr << "[Game][ERROR] " << updated.error() << '\n';

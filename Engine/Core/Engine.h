@@ -16,6 +16,11 @@ namespace DeepRun::Physics
 class PhysicsWorld;
 }
 
+namespace DeepRun::Input
+{
+class InputState;
+}
+
 namespace DeepRun::Scene
 {
 class Scene;
@@ -73,6 +78,10 @@ public:
     // outlives every gameplay consumer during Application::Run; callers must not store the pointer
     // beyond that lifetime or create shared ownership of it.
     [[nodiscard]] Physics::PhysicsWorld* Physics() noexcept;
+
+    // Read-only view of the stable frame input state. It is available only for initialized windowed engines;
+    // callers keep no ownership and must not retain it past the Engine's lifetime.
+    [[nodiscard]] const Input::InputState* InputState() const noexcept;
 
     [[nodiscard]] int ExitCode() const noexcept;
 

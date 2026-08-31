@@ -17,6 +17,10 @@ enum class Key
     Unknown,
     Escape,
     F1,
+    A,
+    D,
+    W,
+    S,
 };
 
 enum class MouseButton
