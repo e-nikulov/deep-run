@@ -20,8 +20,10 @@ export:
 - [Wikimedia Commons Oscar II class SSGN.svg](https://commons.wikimedia.org/wiki/File:Oscar_II_class_SSGN.svg): author listed as Mike1979 Russia; page lists CC BY-SA 3.0 and GFDL. This attribution applies to that reference drawing only, not to the supplied source model.
 - [Bellona The Arctic Nuclear Challenge PDF](https://network.bellona.org/content/uploads/sites/3/The_Arctic_Nuclear_Challenge.pdf): dimensional cross-check; no source-model license is inferred.
 
-The exact torpedo configuration remains deliberately unresolved in authoring
-data: “Open-source references disagree on the exact torpedo-tube configuration; current authoring choice must cite its reference and remains revisable before combat implementation.”
+The current authoring choice is four 533 mm and two 650 mm bow markers, based
+on the supplied reference sheets and the NTI summary. It remains a revisable
+content-authoring contract until future combat implementation; no internal
+weapon mechanism is inferred.
 
 Before commercial or public distribution, record the verified author,
 canonical source URL, license text, attribution requirements, and any

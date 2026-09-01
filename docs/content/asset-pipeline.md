@@ -87,14 +87,31 @@ Content/submarines/Antey/Antey.asset.json
 Content/submarines/Antey/Antey.authoring.json
 ```
 
-`Tools/Blender/prepare_antey.py` audits the supplied immutable source first,
-then creates the production copy, normalizes the source surface to the
-`+X/+Y/+Z` DeepRun contract, creates controlled LODs, and exports only runtime
-mesh nodes. `Antey.authoring.json` records authoring-only hardpoints, hatch
-placement proxies, propeller origins, reference markers, and compartment OBB
-data; it is not loaded as authoritative gameplay state. Hardpoints, gameplay
-compartment volumes, collision proxies, hatch proxies, and the buoyancy
-authoring volume are retained in the production BLEND and authoring sidecar,
-while simulation remains authoritative for gameplay state. The current
-fastgltf loader does not consume empty marker nodes or authoring-only proxies,
-so they are intentionally not placed in the runtime GLB.
+The clean pipeline reads the immutable source, creates independent production
+mesh datablocks, writes a temporary BLEND, exits Blender, and validates that
+saved file in a new process. Only a passing temporary artifact is promoted.
+The canonical BLEND is then reopened again for hash-bound geometry validation,
+bright-clay reviews, source/public overlays, P700 cross-fit, and GLB export.
+
+Run the pass with:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\blender\blender.exe" --background --factory-startup --python Tools/Blender/build_antey_lod0.py -- --source Content/submarines/Antey/Source/Antey_Source.blend --output Content/submarines/Antey/Antey_GameReady.tmp.blend
+```
+
+`Antey.authoring.json` records 24 launcher transforms as two longitudinal
+banks of 12, six adjacent-pair hatch groups per side, 4x533 and 2x650 torpedo
+markers, propeller origins, compartment OBBs, collision proxies, and the
+buoyancy authoring volume. These are not authoritative gameplay state.
+
+P700 uses the same atomic boundary with `build_p700_production.py`. Its
+separate wing and tail meshes contain authored `STOWED` and `DEPLOYED`
+transforms. `validate_antey_crossfit.py` appends that actual saved P700 asset
+and instances it at all 24 saved Antey hardpoints before export approval.
+
+`export_runtime_glb.py` selects only `runtime_export` mesh nodes. Empty
+hardpoints, references, gameplay volumes, collision proxies, cameras, lights,
+and review helpers never enter GLB. `validate_runtime_glb.py` imports the GLB
+into a factory-empty scene and rejects missing runtime geometry or leaked
+helpers. Runtime integration remains deferred until human art and legal gates
+are closed.

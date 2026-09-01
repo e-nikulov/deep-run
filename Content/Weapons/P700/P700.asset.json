@@ -1,139 +1,85 @@
 {
-  "asset": "P700_Granit",
-  "type": "weapon_visual_asset",
-  "sourceAsset": "Content/Weapons/P700/P700_Granit.blend",
-  "runtimeAsset": "Engine/Assets/Weapons/P700/P700_Granit.glb",
-  "authoringSidecar": "Content/Weapons/P700/P700.authoring.json",
-  "scaleMeters": true,
-  "forwardAxis": "+X",
-  "upAxis": "+Y",
-  "coordinateSystem": {
-    "units": "meters",
-    "forward": "+X",
-    "up": "+Z",
-    "across": "+Y",
-    "runtimeForward": "+X",
-    "runtimeUp": "+Y",
-    "runtimeTowardCamera": "+Z",
-    "exportConversion": "Blender glTF export_yup: (X, Y, Z) -> runtime (X, Z, -Y)"
+  "schemaVersion": 1,
+  "assetId": "P700",
+  "name": "P700 Granit",
+  "blend": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\Weapons\\P700\\P700_Granit_GameReady.blend",
+  "blendSha256": "06C58792515F686AC785E08B8CDE1351580901182767C1C5F29B4F50A37566C7",
+  "glb": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\Weapons\\P700\\P700_Granit.glb",
+  "glbSha256": "B8704B000618FE9AB080E6DB259245512E6EAB8C6E502C6A7BDAA1810869BE8E",
+  "source": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\Weapons\\P700\\P700_Granit.blend",
+  "sourceSha256": "FE91C4C887ADF28E7252210910FEBCF96BF057B35AE9A8E28059C31F0660509A",
+  "coordinateContract": "+X forward; +Y port; +Z up; 1 BU = 1 m",
+  "states": {
+    "STOWED": {
+      "frame": 1,
+      "dimensionsMeters": [
+        9.979999542236328,
+        1.27736496925354,
+        1.2774171829223633
+      ],
+      "minimum": [
+        -4.980000019073486,
+        -0.63868248462677,
+        -0.6387085914611816
+      ],
+      "maximum": [
+        5.0,
+        0.63868248462677,
+        0.6387085914611816
+      ]
+    },
+    "DEPLOYED": {
+      "frame": 41,
+      "dimensionsMeters": [
+        9.979999542236328,
+        2.5204217433929443,
+        2.5992326736450195
+      ],
+      "minimum": [
+        -4.980000019073486,
+        -1.2602108716964722,
+        -1.2996163368225098
+      ],
+      "maximum": [
+        5.0,
+        1.2602108716964722,
+        1.2996163368225098
+      ]
+    }
   },
-  "origin": {
-    "positionMeters": [
-      0.0,
-      0.0,
-      0.0
-    ],
-    "contract": "neutral centerline origin near geometric center; no corrective rotation or scale"
+  "lods": {
+    "LOD0": {
+      "objects": 8,
+      "vertices": 12632,
+      "triangles": 25172
+    },
+    "LOD1": {
+      "objects": 8,
+      "vertices": 7113,
+      "triangles": 14134
+    },
+    "LOD2": {
+      "objects": 8,
+      "vertices": 3339,
+      "triangles": 6586
+    },
+    "LOD3": {
+      "objects": 8,
+      "vertices": 1170,
+      "triangles": 2248
+    }
   },
-  "dimensionsMeters": {
-    "length": 9.98,
-    "runtimeUpExtent": 2.376188,
-    "runtimeTowardCameraExtent": 2.599123,
-    "deployedWingSpan": 2.6
-  },
-  "configuration": {
-    "currentRuntime": "P700_FLIGHT_DEPLOYED",
-    "deployedWingSpanMeters": 2.6,
-    "stowedLaunchConfiguration": "NOT YET AUTHORED",
-    "deploymentTransition": "DEFERRED TO FUTURE WEAPON/VFX WORK",
-    "launcherCompatibility": "NOT VALIDATED; the deployed flight mesh must not be treated as in-launcher geometry"
-  },
-  "runtimeNodes": 7,
-  "runtimeMeshes": 7,
-  "runtimePrimitives": 8,
-  "runtimeTriangles": 23656,
-  "runtimeObjects": [
-    "SM_P700_LOD0_Static",
-    "SM_P700_LOD0_Wing_L",
-    "SM_P700_LOD0_Wing_R",
-    "SM_P700_LOD0_Tail_Up",
-    "SM_P700_LOD0_Tail_Down",
-    "SM_P700_LOD0_Tail_Horizontal_L",
-    "SM_P700_LOD0_Tail_Horizontal_R"
-  ],
-  "runtimeStaticMerge": {
-    "sourceObjects": [
-      "SM_P700_LOD0_Body",
-      "SM_P700_LOD0_Engine",
-      "SM_P700_LOD0_InletDuct",
-      "SM_P700_LOD0_InletRing",
-      "SM_P700_LOD0_NoseCone",
-      "SM_P700_LOD0_Nozzle",
-      "SM_P700_LOD0_PanelBand_01",
-      "SM_P700_LOD0_PanelBand_02",
-      "SM_P700_LOD0_PanelBand_03",
-      "SM_P700_LOD0_PanelBand_04"
-    ],
-    "runtimeObject": "SM_P700_LOD0_Static",
-    "reason": "static construction pieces with no independent runtime transform requirement; merged to reduce primitive and draw-call overhead",
-    "preservedArticulatedObjects": [
-      "SM_P700_LOD0_Tail_Down",
-      "SM_P700_LOD0_Tail_Horizontal_L",
-      "SM_P700_LOD0_Tail_Horizontal_R",
-      "SM_P700_LOD0_Tail_Up",
-      "SM_P700_LOD0_Wing_L",
-      "SM_P700_LOD0_Wing_R"
-    ],
-    "articulationReason": "wings and cross-tail surfaces retain their authored pivots for a future deployment transition"
+  "launcherEnvelopeDiameterMeters": 1.35,
+  "stowedPacking": {
+    "bodyDiameterMeters": 0.8841454764098086,
+    "maximumStowedDiameterMeters": 1.262384456386197,
+    "launcherEnvelopeDiameterMeters": 1.35,
+    "radialClearanceMeters": 0.04380777180690154,
+    "minimumRequiredClearance": 0.025
   },
   "materials": [
     "M_P700_Granit",
     "M_P700_Granit_Inlet"
   ],
-  "textures": {
-    "resolution": "2048x2048",
-    "format": "PNG",
-    "baseColor": {
-      "file": "Textures/P700_Granit_BaseColor_2K.png",
-      "colorSpace": "sRGB",
-      "runtimeUsage": "source-only; embedded in the GLB for interchange but NOT consumed by the current Engine material path"
-    },
-    "normal": {
-      "file": "Textures/P700_Granit_Normal_2K.png",
-      "colorSpace": "Non-Color",
-      "runtimeUsage": "source-only; embedded in the GLB for interchange but NOT consumed by the current Engine material path"
-    },
-    "roughness": {
-      "file": "Textures/P700_Granit_Roughness_2K.png",
-      "colorSpace": "Non-Color",
-      "runtimeUsage": "source-only; current runtime uses material factor 0.68; texture consumption deferred to the material/cooking pipeline"
-    },
-    "metallic": {
-      "file": "Textures/P700_Granit_Metallic_2K.png",
-      "colorSpace": "Non-Color",
-      "runtimeUsage": "source-only; current runtime uses material factor 0.78; texture consumption deferred to the material/cooking pipeline"
-    },
-    "ao": {
-      "file": "Textures/P700_Granit_AO_2K.png",
-      "colorSpace": "Non-Color",
-      "runtimeUsage": "source-only; texture consumption deferred to the material/cooking pipeline"
-    }
-  },
-  "runtimeMaterialContract": {
-    "currentEngineConsumes": [
-      "baseColorFactor",
-      "metallicFactor",
-      "roughnessFactor"
-    ],
-    "sourceTextureConsumption": "DEFERRED TO MATERIAL/COOKING PIPELINE",
-    "embeddedGlbTextures": [
-      "BaseColor",
-      "Normal"
-    ],
-    "embeddedGlbTexturesConsumedByCurrentEngine": false
-  },
-  "collision": {
-    "object": "SM_P700_COLLISION",
-    "representation": "closed low-sided body plus four fin proxy prisms",
-    "authoringOnly": true,
-    "vertices": 106,
-    "triangles": 192,
-    "runtimeIncluded": false,
-    "gameplayAuthority": "future simulation/physics owns collision behavior"
-  },
-  "runtimeLodPolicy": "LOD0 only until profiling and a runtime LOD-selection contract justify exporting alternates",
-  "provenance": "References/references.md",
-  "generator": "Tools/Blender/generate_p700_granit.py",
-  "validationState": "headless generation and runtime GLB structure validation passed",
-  "runtimeBoundary": "neutral flight render mesh only; markers, launch-only parts, collision proxy and gameplay state remain outside runtime geometry"
+  "licenseStatus": "SHIPPING BLOCKED PENDING LEGAL REVIEW"
 }

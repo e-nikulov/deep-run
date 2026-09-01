@@ -1,136 +1,119 @@
-# Antey Canonical Submarine Asset
+# Antey Production Asset Contract
 
-CONTENT STATUS: FROZEN FOR CURRENT MILESTONE
-
-P700 visual hatch geometry: DEFERRED TO WEAPON CONTENT PASS
+CONTENT STATUS: TECHNICALLY VALIDATED; HUMAN ART APPROVAL PENDING
 
 LICENSE STATUS: SHIPPING BLOCKED PENDING LEGAL REVIEW
 
-The base Antey asset is frozen for this milestone. Further changes require a
-specific gameplay/content requirement; weapon-specific geometry is not a
-current-milestone blocker.
+Antey is the neutral Project 949A-inspired production asset for the existing
+`C0 Player Submarine` package. It is not a new C-ID and contains no historical
+boat name, hull number, or commemorative marking.
 
-The canonical neutral asset is authored under:
+## Canonical files
 
-```text
-Content/submarines/Antey/
-```
+| Purpose | Path |
+|---|---|
+| Immutable artistic source | `Content/submarines/Antey/Source/Antey_Source.blend` |
+| Editable production asset | `Content/submarines/Antey/Antey_GameReady.blend` |
+| Runtime render asset | `Content/submarines/Antey/Antey.glb` |
+| Render metadata | `Content/submarines/Antey/Antey.asset.json` |
+| Gameplay authoring | `Content/submarines/Antey/Antey.authoring.json` |
+| Reference provenance | `Content/submarines/Antey/References/reference_manifest.md` |
+| Fresh-reopen validation | `Content/submarines/Antey/Validation/antey_final_validation.json` |
+| P700 cross-fit | `Content/submarines/Antey/Validation/crossfit_final_validation.json` |
 
-Runtime files are `Antey.glb` and `Antey.asset.json`. The editable production
-file is `Antey_GameReady.blend`; the immutable source copy is under
-`Source/Antey_Source.blend`. The supplied source is retained separately and is
-not modified by the preparation tool.
+The source is retained in the production BLEND only as locked, render-hidden,
+non-runtime `REFERENCE_SOURCE` geometry. Production meshes use independent
+datablocks and the canonical Blender contract: one unit is one metre, `+X` bow,
+`+Y` port, and `+Z` up.
 
-## Authoring contract
+## Exterior and LODs
 
-- Blender units are Metric, scale `1.0`, with one Blender unit equal to one metre.
-- Local `+X` is bow/forward, `+Y` is port/left, and `+Z` is up.
-- The root is `SM_Submarine_Antey_ROOT` at the approximate geometric centre.
-- Render nodes have identity rotation and unit scale. Propeller object origins
-  are at their hub centres and their future presentation rotation axis is local `+X`.
-- The production material set is `MAT_Antey_Hull` and `MAT_Antey_Propeller`.
-- Runtime GLB export contains only the six render mesh nodes: four LOD hull
-  nodes and two propellers. Authoring markers and proxies stay in the BLEND and
-  metadata sidecar because the current loader does not consume empty nodes.
+| Measure | Value |
+|---|---:|
+| Length | 154.000 m |
+| Maximum exterior span, including control planes | 19.000 m |
+| Main hull maximum beam | 18.200 m |
+| Main hull exterior height | 11.370 m |
+| Sail height | 4.400 m |
+| Overall exterior height, including raised masts | 19.620 m |
 
-## Geometry and LODs
+The hull is one closed, longitudinally smoothed station-cage surface with a
+complete belly, broad missile region, blunt bow, controlled stern taper, twin
+shaft fairings, and large control surfaces. It has no overlapping shoulder
+shells or circumferential profile waves. The sail uses a long level crown with
+distinct forward and aft transitions. All four masts are vertical. Bow and
+tail planes use independent outward trapezoidal surfaces, and all six torpedo
+doors are on the upper bow half. The 9.2 m public value is treated as draft,
+never as total height. LOD totals are geometry-derived:
 
-The proportion correction pass uses approximately `154 x 18 x 9.2 m` for
-length, beam, and overall height. This is an authoring target from the public
-side/top references, not a claim that every open-source drawing agrees on one
-exact dimensional convention. The source surface was retained after controlled cleanup; seven tiny aft loose
-components identified as source propeller geometry were removed and replaced
-by two clean runtime propellers. This is not a decimate-only conversion.
+| LOD | Objects | Vertices | Triangles |
+|---|---:|---:|---:|
+| LOD0 | 34 | 37,218 | 74,244 |
+| LOD1 | 34 | 29,374 | 58,556 |
+| LOD2 | 34 | 14,388 | 28,584 |
+| LOD3 | 12 | 4,610 | 9,116 |
 
-Current LOD counts are recorded by the deterministic validation report:
+The apparent `34 / 74,244` BLEND versus `20 / 69,516` GLB discrepancy was a
+classification error, not missing runtime geometry. Complete GLB LOD0
+accounting is: 20 base meshes / 69,516 triangles, 12 P700 hatch meshes / 2,256
+triangles, 2 propeller meshes / 2,472 triangles, 0 other meshes, for
+`TOTAL_RUNTIME_LOD0 = 34 objects / 74,244 triangles`.
 
-| Node | Triangles | Role |
-|---|---:|---|
-| `SM_Antey_LOD0` | 102,880 | close/showcase silhouette |
-| `SM_Antey_LOD1` | 63,779 | normal gameplay distance |
-| `SM_Antey_LOD2` | 28,798 | reduced-distance representation |
-| `SM_Antey_LOD3` | 8,744 | distant silhouette |
+`SM_Propeller_Port` and `SM_Propeller_Starboard` are separate real meshes with
+seven visible blades, hub-centred origins, unit scale, and local `+X` rotation
+axes. They are a mirrored pair; exact historical handedness remains unconfirmed.
 
-LOD0 is below the requested 150k–250k target because the cleaned source
-already provides the required silhouette at 102,880 triangles; it remains
-below the 300k hard maximum and the engine's 50k–150k hero-content guideline.
+## P700 launcher contract
 
-All four LODs are derived from the same corrected LOD0 mesh, retain matching
-world-space bounds, and are checked for consistent component structure and
-normals. The wireframe diagnostics remain intentionally non-shipping review
-artifacts.
+There are 12 P700 launch positions per side. Each side is one dense
+longitudinal row of 12 inclined canisters, matching the supplied side cutaway.
+Adjacent positions form six paired hatch groups. The port mapping starts with
+`PORT_HATCH_01 = HP_P700_PORT_01 + HP_P700_PORT_02` and ends with
+`PORT_HATCH_06 = HP_P700_PORT_11 + HP_P700_PORT_12`; starboard is symmetric.
 
-Control surfaces remain integrated in the source render geometry because
-extracting them would damage the available topology. Semantic markers are
-provided for future control-surface authoring; no animation or runtime control
-system is introduced here.
+Centres run from `13.175 m` to `36.825 m`, the bank length by centres is
+`23.650 m`, and every adjacent spacing is `2.150 m`. Launch direction uses a
+40-degree elevation and a 3-degree outward cant as public-reference-guided
+authoring approximations. The cross-fit scene instantiates the actual stowed
+P700 mesh 24 times using shared mesh datablocks. Minimum launcher-axis distance
+is `1.386 m` for a validated maximum stowed missile diameter of `1.262 m`.
+The 1.350 m launcher envelope leaves 0.0438 m radial clearance, exceeding the
+explicit `minimumRequiredClearance` of 0.0250 m.
 
-## Gameplay authoring data
+## Torpedoes, collision, and authoring
 
-The production BLEND contains 24 neutral P-700 attachment markers, eight
-neutral torpedo markers, two propeller and wake marker pairs, sonar/reference
-markers, ten `VOL_COMP_*` gameplay volumes with ten centre markers, four
-collision proxy volumes, and `PHY_Antey_BuoyancyVolume`.
+The bow authoring contract contains four `533` markers and two `650` markers.
+The two `650` doors form the upper row and the four `533` doors form the denser
+row below it; every door and marker remains above the hull centreline. They are
+spatial authoring, not weapon simulation. Collision uses only
+`COL_Antey_Bow`, `COL_Antey_Main`, `COL_Antey_Aft`, and `COL_Antey_Sail`;
+render meshes, propellers, hatches, and small details are excluded.
+`PHY_Antey_BuoyancyVolume` is an authoring proxy only.
 
-The current P-700 hatch objects are explicitly classified as authoring /
-placement proxies: `SM_P700_Hatch_Port_01..06` and
-`SM_P700_Hatch_Starboard_01..06`. They remain separate mesh objects, retain
-their current transforms, pair with two hardpoints each, keep
-`hide_render=True`, and remain excluded from the runtime GLB. Each proxy is
-only 12 triangles and is not a final visual hatch asset or an
-animation-ready shipping mesh. No proxy geometry is changed in the freeze
-pass.
+Ten `VOL_COMP_*` logical volumes prepare future damage/flooding authoring.
+Simulation remains authoritative for loading, hatch state, propulsion,
+damage, flooding, fire, and crew state.
 
-For a future P-700 launch sequence, create separate visual-quality hatch
-meshes: six port and six starboard, with the correct exterior silhouette,
-closed-state hull fit, and an animation pivot/axis based on a selected public
-reference or an explicit gameplay abstraction. The future implementation must
-avoid z-fighting or duplicate hull surfaces and define a separate runtime
-export contract. The opening mechanism is deliberately not reconstructed now.
+## Runtime and review boundary
 
-`Antey.authoring.json` is an authoring-only sidecar. It records names,
-positions, Euler rotations, quaternion orientations, and forward vectors for
-P-700 and torpedo hardpoints, propeller origins, sonar markers, bow/stern/
-centre markers, and OBB centre/orientation/half-extents for the ten gameplay
-compartments.
+The GLB includes only runtime render nodes and LODs. References, hardpoints,
+compartments, collision shapes, buoyancy proxy, cameras, lights, and review
+helpers are excluded. The GLB passed import into a factory-empty Blender
+process. Its JSON material table contains only `MAT_Antey_Hull` and
+`MAT_Antey_Propellers`; `Dots Stroke` and `Material` are factory import-session
+defaults created by Blender and are not stored in `Antey.glb`.
 
-Open-source references disagree on the exact torpedo-tube configuration;
-current authoring choice must cite its reference and remains revisable before
-combat implementation.
+The true same-coordinate, same-scale source overlays measure side IoU 0.889 and
+top/bottom IoU 0.779. The lower plan-view values are deliberate: the retained
+source consists of overlapping, non-manifold multi-component geometry with
+abrupt width changes around the missile shoulders and oversized legacy control
+planes. Production uses one smooth broad missile region with no overlapping
+shoulder shells or circumferential waves, while the public top drawing retains
+the intended 949A width distribution. The overlay inspection therefore did not
+justify another automatic hull edit; human visual approval remains pending.
 
-The ten compartment volumes are gameplay abstractions, not claims about real
-watertight bulkheads or authoritative real-world internal geometry. Collision
-and buoyancy proxies are authoring inputs only. Rendering never becomes
-authoritative gameplay state: simulation will own propulsion, weapon state,
-damage, flooding, acoustics, and future compartment state.
+Hash-bound bright-clay renders, true source overlays, public drawing
+overlays, loaded P700 views, and torpedo diagnostics live under `Review/`.
 
-No P-700 model, torpedo model, damage system, flooding system, animation
-system, acoustics implementation, or combat implementation is included.
-
-## Visual review references and diagnostics
-
-Reference overlays are generated from the public DeepStorm side/top drawing
-and compared against the neutral production render. The public Wikimedia side
-silhouette is retained as a second visual cross-check. The reference images
-are review inputs only and do not become runtime geometry.
-
-The package keeps the existing dark previews and adds `review_side_clay.png`,
-`review_top_clay.png`, `review_bow_clay.png`, `review_stern_clay.png`,
-`review_wireframe_side.png`, `review_wireframe_top.png`,
-`review_p700_hatches.png`, `review_p700_axes.png`,
-`review_propeller_axes.png`, `preview_reference_side_overlay.png`, and
-`preview_reference_top_overlay.png`.
-
-Reference provenance: [DeepStorm Project 949A page](https://deepstorm.ru/DeepStorm.files/45-92/nsrs/949A/list.htm), [Wikimedia Commons Oscar II silhouette](https://commons.wikimedia.org/wiki/File:Oscar_II_class_SSGN.svg), and the [Bellona Arctic Nuclear Challenge PDF](https://network.bellona.org/content/uploads/sites/3/The_Arctic_Nuclear_Challenge.pdf) used for the dimensional cross-check.
-
-## Validation
-
-Run from the repository root:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\blender\blender.exe" --background --factory-startup --python Tools/Blender/prepare_antey.py -- --correct --source Content/submarines/kursk.blend
-```
-
-The tool writes `source_audit.md`, `validation_report.txt`, the GLB, and the
-required non-shipping previews. It independently reimports the GLB before
-writing the validation result.
+Technical validation does not constitute final human art approval or legal
+shipping approval.

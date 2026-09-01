@@ -18,4 +18,4 @@ is defined in [asset-pipeline.md](asset-pipeline.md).
 
 | ID | Package | Specification | Status |
 |---|---|---|---|
-| C0 | Player Submarine package: prototype + Antey canonical production asset | [submarine-prototype.md](submarine-prototype.md); [antey-asset.md](antey-asset.md) | Implemented for M2 bootstrap; Antey production asset prepared |
+| C0 | Player Submarine package: prototype + Antey/P700 production assets | [submarine-prototype.md](submarine-prototype.md); [antey-asset.md](antey-asset.md); [p700-asset.md](p700-asset.md) | Technically validated; human art approval and legal shipping review pending |

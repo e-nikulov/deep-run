@@ -26,3 +26,16 @@ CMakeUserPresets.json
 .idea/
 .vscode/
 /imgui.ini
+
+# Generated Blender review/audit renders
+Content/**/Review/
+Content/**/SourceAuditRenders/
+Content/**/Source/AuditRenders/
+
+__pycache__/
+*.py[cod]
+*.blend1
+*.blend2
+# Generated Blender validation/audit reports
+Content/**/Validation/
+Content/**/source_audit_fresh.json

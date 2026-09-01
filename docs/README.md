@@ -104,7 +104,7 @@ Current registry:
 
 | ID | Package | Primary document | Supporting contract |
 |---|---|---|---|
-| C0 | Player Submarine package: prototype + Antey canonical production asset | [content/submarine-prototype.md](content/submarine-prototype.md); [content/antey-asset.md](content/antey-asset.md) | [content/asset-pipeline.md](content/asset-pipeline.md) |
+| C0 | Player Submarine package: prototype + Antey/P700 canonical production assets | [content/submarine-prototype.md](content/submarine-prototype.md); [content/antey-asset.md](content/antey-asset.md); [content/p700-asset.md](content/p700-asset.md) | [content/asset-pipeline.md](content/asset-pipeline.md) |
 
 ## Content specifications, authored content, and asset runtime
 
