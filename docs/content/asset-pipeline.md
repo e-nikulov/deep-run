@@ -111,7 +111,11 @@ and instances it at all 24 saved Antey hardpoints before export approval.
 
 `export_runtime_glb.py` selects only `runtime_export` mesh nodes. Empty
 hardpoints, references, gameplay volumes, collision proxies, cameras, lights,
-and review helpers never enter GLB. `validate_runtime_glb.py` imports the GLB
-into a factory-empty scene and rejects missing runtime geometry or leaked
-helpers. Runtime integration remains deferred until human art and legal gates
-are closed.
+and review helpers never enter GLB. Animation export is explicit: use
+`--animation-contract none` for Antey (its cover motion is authoring-only) and
+`--animation-contract P700_Deploy` only for the P700 missile asset. The
+exporter does not include every Blender Action implicitly. Future
+`P700CoverState_*` interpolation remains owned by LauncherSystem/Simulation.
+`validate_runtime_glb.py` imports the GLB into a factory-empty scene and
+rejects missing runtime geometry or leaked helpers. Runtime integration
+remains deferred until human art and legal gates are closed.

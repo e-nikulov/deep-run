@@ -1,8 +1,8 @@
 # Antey Production Asset Contract
 
-CONTENT STATUS: TECHNICALLY VALIDATED; HUMAN ART APPROVAL PENDING
+CONTENT STATUS: TECHNICALLY ACCEPTED; HUMAN ART APPROVAL PASS
 
-LICENSE STATUS: SHIPPING BLOCKED PENDING LEGAL REVIEW
+LICENSE STATUS: LEGAL_BLOCKED / PENDING_REVIEW
 
 Antey is the neutral Project 949A-inspired production asset for the existing
 `C0 Player Submarine` package. It is not a new C-ID and contains no historical
@@ -18,8 +18,8 @@ boat name, hull number, or commemorative marking.
 | Render metadata | `Content/submarines/Antey/Antey.asset.json` |
 | Gameplay authoring | `Content/submarines/Antey/Antey.authoring.json` |
 | Reference provenance | `Content/submarines/Antey/References/reference_manifest.md` |
-| Fresh-reopen validation | `Content/submarines/Antey/Validation/antey_final_validation.json` |
-| P700 cross-fit | `Content/submarines/Antey/Validation/crossfit_final_validation.json` |
+| Fresh-reopen validation | `Content/submarines/Antey/Validation/SourceFirst/FinalPromotionQA/canonical_runtime_glb_validation.json` |
+| Source accounting | `Content/submarines/Antey/Validation/SourceFirst/FinalPromotionQA/canonical_source_accounting/source_partition_forensic_summary.json` |
 
 The source is retained in the production BLEND only as locked, render-hidden,
 non-runtime `REFERENCE_SOURCE` geometry. Production meshes use independent
@@ -53,11 +53,13 @@ never as total height. LOD totals are geometry-derived:
 | LOD2 | 34 | 14,388 | 28,584 |
 | LOD3 | 12 | 4,610 | 9,116 |
 
-The apparent `34 / 74,244` BLEND versus `20 / 69,516` GLB discrepancy was a
-classification error, not missing runtime geometry. Complete GLB LOD0
-accounting is: 20 base meshes / 69,516 triangles, 12 P700 hatch meshes / 2,256
-triangles, 2 propeller meshes / 2,472 triangles, 0 other meshes, for
-`TOTAL_RUNTIME_LOD0 = 34 objects / 74,244 triangles`.
+The BLEND authoring LOD0 and runtime GLB are separate accounting boundaries.
+The canonical GLB intentionally exports one selected runtime LOD (LOD0), with
+all independently addressable articulated geometry retained. Complete fresh
+import accounting is: 40 LOD0 base meshes / 100,159 triangles, 12 P700 cover
+meshes / 6,718 triangles, 14 propeller meshes (blades and hubs) / 11,466
+triangles, 0 other meshes, for `TOTAL_RUNTIME_LOD0 = 66 objects / 118,343
+triangles`. No LOD1-LOD3 draw-set leakage is present.
 
 `SM_Propeller_Port` and `SM_Propeller_Starboard` are separate real meshes with
 seven visible blades, hub-centred origins, unit scale, and local `+X` rotation
@@ -96,10 +98,14 @@ damage, flooding, fire, and crew state.
 
 ## Runtime and review boundary
 
-The GLB includes only runtime render nodes and LODs. References, hardpoints,
+The GLB includes only runtime render nodes for the explicitly selected LOD0.
+References, hardpoints,
 compartments, collision shapes, buoyancy proxy, cameras, lights, and review
-helpers are excluded. The GLB passed import into a factory-empty Blender
-process. Its JSON material table contains only `MAT_Antey_Hull` and
+helpers are excluded. The GLB contains no baked runtime animations: the 12
+P700 cover nodes remain independently addressable, while
+`LauncherSystem.P700CoverState_*` owns their `CLOSED`, `OPENING`, `OPEN`, and
+`CLOSING` state. The GLB passed import into a factory-empty Blender process.
+Its JSON material table contains only `MAT_Antey_Hull` and
 `MAT_Antey_Propellers`; `Dots Stroke` and `Material` are factory import-session
 defaults created by Blender and are not stored in `Antey.glb`.
 
@@ -110,10 +116,12 @@ abrupt width changes around the missile shoulders and oversized legacy control
 planes. Production uses one smooth broad missile region with no overlapping
 shoulder shells or circumferential waves, while the public top drawing retains
 the intended 949A width distribution. The overlay inspection therefore did not
-justify another automatic hull edit; human visual approval remains pending.
+justify another automatic hull edit; human visual approval is recorded as
+PASS.
 
 Hash-bound bright-clay renders, true source overlays, public drawing
 overlays, loaded P700 views, and torpedo diagnostics live under `Review/`.
 
-Technical validation does not constitute final human art approval or legal
-shipping approval.
+Technical acceptance is complete and user visual approval is PASS. Legal
+shipping approval remains blocked pending review; future WeaponSystem and
+Simulation systems remain outside this asset promotion.
