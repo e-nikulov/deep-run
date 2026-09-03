@@ -22,7 +22,7 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from finalize_manual_p700 import object_bvh, positive_triangle_intersection
+from mesh_intersection_utils import object_bvh, positive_triangle_intersection
 
 
 TOLERANCE_M = 1.0e-5

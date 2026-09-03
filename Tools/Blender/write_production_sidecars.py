@@ -12,6 +12,9 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from artifact_provenance import require_path_suffix
+
 
 def args() -> argparse.Namespace:
     values = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
@@ -68,7 +71,7 @@ def lods() -> dict:
     return {f"LOD{lod}": topology_totals([obj for obj in runtime if int(obj.get("lod", -1)) == lod]) for lod in range(4)}
 
 
-def antey_data(blend: Path, source: Path, glb: Path) -> tuple[dict, dict]:
+def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_runtime_glb: Path) -> tuple[dict, dict]:
     objects = {obj.name: obj for obj in bpy.context.scene.objects}
     runtime0 = [obj for obj in objects.values() if obj.type == "MESH" and obj.get("runtime_export", False) and int(obj.get("lod", -1)) == 0]
     minimum, maximum = bounds(runtime0)
@@ -121,12 +124,12 @@ def antey_data(blend: Path, source: Path, glb: Path) -> tuple[dict, dict]:
         "assetId": "C0 Player Submarine",
         "name": "Antey",
         "identity": "neutral Project 949A-inspired production asset",
-        "blend": str(blend),
-        "blendSha256": sha256(blend),
-        "glb": str(glb),
-        "glbSha256": sha256(glb),
-        "source": str(source),
-        "sourceSha256": sha256(source),
+        "blend": str(antey_production_blend),
+        "blendSha256": sha256(antey_production_blend),
+        "glb": str(antey_runtime_glb),
+        "glbSha256": sha256(antey_runtime_glb),
+        "source": str(antey_source_blend),
+        "sourceSha256": sha256(antey_source_blend),
         "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
         "dimensionsMeters": {"length": maximum.x - minimum.x, "maximumBeam": hull_max.y - hull_min.y, "maximumExteriorSpan": maximum.y - minimum.y, "mainHullMaximumBeam": hull_max.y - hull_min.y, "mainHullExteriorHeight": hull_max.z - hull_min.z, "sailHeight": sail_max.z - sail_min.z, "overallHeight": maximum.z - minimum.z},
         "lods": lods(),
@@ -151,7 +154,7 @@ def antey_data(blend: Path, source: Path, glb: Path) -> tuple[dict, dict]:
     return asset, authoring
 
 
-def p700_data(blend: Path, source: Path, glb: Path) -> tuple[dict, dict]:
+def p700_data(p700_production_blend: Path, p700_source_blend: Path, p700_runtime_glb: Path) -> tuple[dict, dict]:
     objects = {obj.name: obj for obj in bpy.context.scene.objects}
     lod0 = [obj for obj in objects.values() if obj.type == "MESH" and obj.get("runtime_export", False) and int(obj.get("lod", -1)) == 0]
     states = {}
@@ -180,12 +183,12 @@ def p700_data(blend: Path, source: Path, glb: Path) -> tuple[dict, dict]:
         "schemaVersion": 1,
         "assetId": "P700",
         "name": "P700 Granit",
-        "blend": str(blend),
-        "blendSha256": sha256(blend),
-        "glb": str(glb),
-        "glbSha256": sha256(glb),
-        "source": str(source),
-        "sourceSha256": sha256(source),
+        "blend": str(p700_production_blend),
+        "blendSha256": sha256(p700_production_blend),
+        "glb": str(p700_runtime_glb),
+        "glbSha256": sha256(p700_runtime_glb),
+        "source": str(p700_source_blend),
+        "sourceSha256": sha256(p700_source_blend),
         "coordinateContract": "+X forward; +Y port; +Z up; 1 BU = 1 m",
         "states": states,
         "lods": lods(),
@@ -223,10 +226,17 @@ def p700_data(blend: Path, source: Path, glb: Path) -> tuple[dict, dict]:
 
 def main() -> None:
     options = args()
-    blend = Path(bpy.data.filepath).resolve()
-    source = options.source.resolve()
-    glb = options.glb.resolve()
-    asset, authoring = antey_data(blend, source, glb) if options.asset == "antey" else p700_data(blend, source, glb)
+    production_blend = Path(bpy.data.filepath).resolve()
+    source_blend = options.source.resolve()
+    runtime_glb = options.glb.resolve()
+    if options.asset == "antey":
+        require_path_suffix(production_blend, "Content/submarines/Antey/Antey_GameReady.blend", "ANTEY_PRODUCTION_BLEND")
+        require_path_suffix(runtime_glb, "Content/submarines/Antey/Antey.glb", "ANTEY_RUNTIME_GLB")
+        asset, authoring = antey_data(production_blend, source_blend, runtime_glb)
+    else:
+        require_path_suffix(production_blend, "Content/Weapons/P700/P700_Granit_GameReady.blend", "P700_PRODUCTION_BLEND")
+        require_path_suffix(runtime_glb, "Content/Weapons/P700/P700_Granit.glb", "P700_RUNTIME_GLB")
+        asset, authoring = p700_data(production_blend, source_blend, runtime_glb)
     for path, data in ((options.asset_json.resolve(), asset), (options.authoring_json.resolve(), authoring)):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
