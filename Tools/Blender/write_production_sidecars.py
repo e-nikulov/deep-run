@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -71,6 +72,54 @@ def lods() -> dict:
     return {f"LOD{lod}": topology_totals([obj for obj in runtime if int(obj.get("lod", -1)) == lod]) for lod in range(4)}
 
 
+def propeller_meshes(root: bpy.types.Object | None, name: str) -> list[bpy.types.Object]:
+    """Resolve geometry below a logical propeller articulation root.
+
+    Promoted Antey scenes use EMPTY roots with child meshes for each LOD;
+    older assets may use a single MESH root.  The root itself remains the
+    authoritative transform/pivot in both cases.
+    """
+    if root is None:
+        raise RuntimeError(f"Missing logical propeller root: {name}")
+    if root.type == "MESH":
+        if root.data is None:
+            raise RuntimeError(f"Propeller mesh root has no mesh data: {name}")
+        return [root]
+    if root.type != "EMPTY":
+        raise RuntimeError(f"Propeller root must be EMPTY or MESH: {name} ({root.type})")
+    children = [obj for obj in root.children_recursive if obj.type == "MESH" and obj.data is not None]
+    if not children:
+        raise RuntimeError(f"EMPTY propeller root has no child mesh geometry: {name}")
+    lod0 = [obj for obj in children if int(obj.get("lod", -1)) == 0]
+    return lod0 or children
+
+
+def propeller_metadata(root: bpy.types.Object | None, name: str) -> dict:
+    meshes = propeller_meshes(root, name)
+    bpy.context.view_layer.update()
+    triangles = 0
+    for mesh_object in meshes:
+        mesh_object.data.calc_loop_triangles()
+        triangles += len(mesh_object.data.loop_triangles)
+    blade_count = root.get("visible_blades") if root is not None else None
+    if blade_count is None and root is not None:
+        blade_count = root.get("SOURCE_BLADE_COUNT")
+    if blade_count is None:
+        blade_count = len({re.sub(r"\.\d+$", "", mesh.name) for mesh in meshes if "_Blade_" in mesh.name})
+    handedness = root.get("handedness_status") if root is not None else None
+    if handedness is None:
+        handedness = next((mesh.get("handedness_status") for mesh in meshes if mesh.get("handedness_status")), "UNKNOWN")
+    return {
+        "name": name,
+        "origin": list(root.matrix_world.translation),
+        "transform": matrix_values(root),
+        "axis": "+X",
+        "visibleBlades": int(blade_count),
+        "triangles": triangles,
+        "handednessStatus": handedness,
+    }
+
+
 def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_runtime_glb: Path) -> tuple[dict, dict]:
     objects = {obj.name: obj for obj in bpy.context.scene.objects}
     runtime0 = [obj for obj in objects.values() if obj.type == "MESH" and obj.get("runtime_export", False) and int(obj.get("lod", -1)) == 0]
@@ -109,9 +158,8 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         compartments.append({"name": obj.name, "center": list((volume_min + volume_max) * 0.5), "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0], "halfExtents": list((volume_max - volume_min) * 0.5)})
     props = []
     for name in ("SM_Propeller_Port", "SM_Propeller_Starboard"):
-        obj = objects[name]
-        obj.data.calc_loop_triangles()
-        props.append({"name": name, "origin": list(obj.location), "axis": "+X", "visibleBlades": int(obj.get("visible_blades")), "triangles": len(obj.data.loop_triangles), "handednessStatus": obj.get("handedness_status")})
+        obj = objects.get(name)
+        props.append(propeller_metadata(obj, name))
     rows = {}
     for side in ("PORT", "STARBOARD"):
         rows[side] = {}
