@@ -87,6 +87,7 @@ public:
                         window->Width(),
                         window->Height(),
                         config.renderer.vsync,
+                        config.renderer.hdr,
                         options.shaderRoot))
                 {
                     exitCode = 4;
@@ -280,7 +281,7 @@ public:
 
         renderer->BeginFrame();
         const bool gameRenderSucceeded = !renderHook || renderHook(*renderer);
-        renderer->ToneMapSceneToSdr();
+        renderer->OutputSceneToDisplay();
         debugOverlay->Render(renderer->CommandList());
         renderer->EndFrame();
         if (!gameRenderSucceeded)

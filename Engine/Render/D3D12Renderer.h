@@ -2,6 +2,7 @@
 
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ClearRect.h"
+#include "Engine/Render/DisplayOutput.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 
@@ -41,6 +42,7 @@ public:
         std::uint32_t width,
         std::uint32_t height,
         bool vsync,
+        bool hdrRequested,
         const std::filesystem::path& shaderRoot);
     void Resize(std::uint32_t width, std::uint32_t height);
     void WaitForIdle();
@@ -62,9 +64,9 @@ public:
         const RgbaColor& color);
 
     void BeginFrame();
-    // Completes the scene-linear pass by tone mapping SceneColorHDR into the SDR back buffer. This must be
-    // called after scene draws and before debug/UI draws, which intentionally remain in the SDR M3-A path.
-    void ToneMapSceneToSdr();
+    // Completes the scene-linear pass using the selected SDR or HDR scRGB presentation policy. This must be
+    // called after scene draws and before debug/UI draws.
+    void OutputSceneToDisplay();
     void EndFrame();
 
     [[nodiscard]] bool IsInitialized() const noexcept;
@@ -77,6 +79,8 @@ public:
     [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE ImGuiCpuHandle() const noexcept;
     [[nodiscard]] D3D12_GPU_DESCRIPTOR_HANDLE ImGuiGpuHandle() const noexcept;
     [[nodiscard]] DXGI_FORMAT BackBufferFormat() const noexcept;
+    [[nodiscard]] DisplayOutputMode OutputMode() const noexcept;
+    [[nodiscard]] float HdrUiReferenceWhiteScale() const noexcept;
     [[nodiscard]] std::uint32_t FrameCount() const noexcept;
 
 private:

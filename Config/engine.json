@@ -1,6 +1,7 @@
 {
   "renderer": {
     "vsync": true,
+    "hdr": false,
     "width": 1280,
     "height": 720
   },

@@ -16,6 +16,7 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ClearRect.h"
 #include "Engine/Render/D3D12Renderer.h"
+#include "Engine/Render/DisplayOutput.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
@@ -877,6 +878,7 @@ bool ConfigurationLoading()
     const std::filesystem::path malformedPath = temporary.Path() / "malformed.json";
     const std::filesystem::path invalidPath = temporary.Path() / "invalid.json";
     const std::filesystem::path wrongTypePath = temporary.Path() / "wrong-type.json";
+    const std::filesystem::path hdrPath = temporary.Path() / "hdr.json";
     WriteFile(
         validPath,
         R"({"renderer":{"vsync":false,"width":1920,"height":1080},"physics":{"fixedHz":120}})");
@@ -887,17 +889,21 @@ bool ConfigurationLoading()
     WriteFile(
         wrongTypePath,
         R"({"renderer":{"vsync":"yes","width":1920,"height":1080},"physics":{"fixedHz":60}})");
+    WriteFile(
+        hdrPath,
+        R"({"renderer":{"vsync":true,"hdr":true,"width":1920,"height":1080},"physics":{"fixedHz":60}})");
 
     const auto valid = DeepRun::Core::LoadEngineConfig(validPath);
     const auto malformed = DeepRun::Core::LoadEngineConfig(malformedPath);
     const auto invalid = DeepRun::Core::LoadEngineConfig(invalidPath);
     const auto wrongType = DeepRun::Core::LoadEngineConfig(wrongTypePath);
+    const auto hdr = DeepRun::Core::LoadEngineConfig(hdrPath);
     const auto missing = DeepRun::Core::LoadEngineConfig(temporary.Path() / "missing.json");
     return valid && valid->renderer.width == 1920 && valid->renderer.height == 1080 &&
-           !valid->renderer.vsync && valid->physics.fixedHz == 120 && !malformed &&
+           !valid->renderer.vsync && !valid->renderer.hdr && valid->physics.fixedHz == 120 && !malformed &&
            malformed.error().code == DeepRun::Core::ConfigErrorCode::InvalidJson && !invalid && !wrongType &&
            wrongType.error().code == DeepRun::Core::ConfigErrorCode::InvalidValue &&
-           wrongType.error().message.find("renderer.vsync") != std::string::npos && !missing &&
+           wrongType.error().message.find("renderer.vsync") != std::string::npos && hdr && hdr->renderer.hdr && !missing &&
            missing.error().code == DeepRun::Core::ConfigErrorCode::FileNotFound;
 }
 
@@ -7035,6 +7041,77 @@ bool M3AToneMapProperties()
            two > 0.0F && two < twenty && twenty < 1.0F;
 }
 
+bool M3A1DisplayOutputSelection()
+{
+    using namespace DeepRun::Render;
+
+    const DisplayOutputCapabilities hdrCapable{
+        .output6Available = true,
+        .hdrActive = true,
+        .scRgbPresentSupported = true,
+        .bitsPerColor = 10,
+        .minLuminanceNits = 0.05F,
+        .maxLuminanceNits = 1'000.0F,
+        .maxFullFrameLuminanceNits = 400.0F};
+    const DisplayOutputSelection notRequested = SelectDisplayOutputMode(false, hdrCapable);
+    const DisplayOutputSelection output6Unavailable = SelectDisplayOutputMode(true, {});
+    const DisplayOutputSelection hdrInactive = SelectDisplayOutputMode(
+        true,
+        {.output6Available = true, .hdrActive = false, .scRgbPresentSupported = true});
+    const DisplayOutputSelection scRgbUnsupported = SelectDisplayOutputMode(
+        true,
+        {.output6Available = true, .hdrActive = true, .scRgbPresentSupported = false});
+    const DisplayOutputSelection hdrSelected = SelectDisplayOutputMode(true, hdrCapable);
+
+    return notRequested.mode == DisplayOutputMode::Sdr &&
+           notRequested.fallbackReason == DisplayOutputFallbackReason::HdrNotRequested &&
+           output6Unavailable.mode == DisplayOutputMode::Sdr &&
+           output6Unavailable.fallbackReason == DisplayOutputFallbackReason::Output6Unavailable &&
+           hdrInactive.mode == DisplayOutputMode::Sdr &&
+           hdrInactive.fallbackReason == DisplayOutputFallbackReason::HdrInactive &&
+           scRgbUnsupported.mode == DisplayOutputMode::Sdr &&
+           scRgbUnsupported.fallbackReason == DisplayOutputFallbackReason::ScRgbPresentUnsupported &&
+           hdrSelected.mode == DisplayOutputMode::HdrScRgb &&
+           hdrSelected.fallbackReason == DisplayOutputFallbackReason::None;
+}
+
+float M3A1HdrScRgbScalar(const float sceneLinear) noexcept
+{
+    constexpr float PeakScRgb = 12.5F; // 1,000 nits / 80 nits reference white.
+    const float nonNegative = std::max(sceneLinear, 0.0F);
+    return PeakScRgb * (1.0F - (PeakScRgb - 1.0F) / (nonNegative + (PeakScRgb - 1.0F)));
+}
+
+bool M3A1HdrScRgbMappingProperties()
+{
+    constexpr std::array<float, 7> inputs{
+        0.0F,
+        0.25F,
+        1.0F,
+        2.0F,
+        20.0F,
+        100.0F,
+        std::numeric_limits<float>::max(),
+    };
+
+    float previous = 0.0F;
+    for (const float input : inputs)
+    {
+        const float mapped = M3A1HdrScRgbScalar(input);
+        if (!std::isfinite(mapped) || mapped < 0.0F || mapped > 12.5F || mapped < previous)
+        {
+            return false;
+        }
+        previous = mapped;
+    }
+
+    const float referenceWhite = M3A1HdrScRgbScalar(1.0F);
+    const float two = M3A1HdrScRgbScalar(2.0F);
+    const float twenty = M3A1HdrScRgbScalar(20.0F);
+    return M3A1HdrScRgbScalar(-1.0F) == 0.0F && M3A1HdrScRgbScalar(0.0F) == 0.0F &&
+           std::abs(referenceWhite - 1.0F) < 0.0001F && two > referenceWhite && twenty > two;
+}
+
 // ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
@@ -7592,6 +7669,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"D2 pixel rect conversion", D2PixelRectConversion},
         {"D2 presentation colors distinct and opaque", D2PresentationColorsAreDistinct},
         {"M3-A Reinhard tone-map properties", M3AToneMapProperties},
+        {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
+        {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
         // M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only).
         {"E1 centered force produces translation", ForceCenteredProducesTranslation},
         {"E1 off-center force produces torque", ForceOffCenterProducesTorque},

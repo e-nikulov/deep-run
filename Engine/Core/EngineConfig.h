@@ -10,6 +10,7 @@ namespace DeepRun::Core
 struct RendererConfig final
 {
     bool vsync = true;
+    bool hdr = false;
     std::uint32_t width = 1280;
     std::uint32_t height = 720;
 };

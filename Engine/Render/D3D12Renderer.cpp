@@ -29,11 +29,59 @@ namespace
 {
 using Microsoft::WRL::ComPtr;
 constexpr std::uint32_t BufferCount = 2;
-constexpr DXGI_FORMAT BufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+constexpr DXGI_FORMAT SdrBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+constexpr DXGI_FORMAT HdrScRgbBackBufferFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 constexpr DXGI_FORMAT SceneColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 constexpr DXGI_FORMAT DepthFormat = DXGI_FORMAT_D32_FLOAT;
 constexpr std::uint32_t SceneColorRtvIndex = BufferCount;
 constexpr std::uint32_t DescriptorHeapEntryCount = 2;
+constexpr float HdrReferenceWhiteNits = 80.0F;
+constexpr float ScRgbNominalWhiteNits = 80.0F;
+
+[[nodiscard]] constexpr DXGI_FORMAT BackBufferFormatFor(const DisplayOutputMode mode) noexcept
+{
+    return mode == DisplayOutputMode::HdrScRgb ? HdrScRgbBackBufferFormat : SdrBackBufferFormat;
+}
+
+[[nodiscard]] constexpr DXGI_COLOR_SPACE_TYPE BackBufferColorSpaceFor(const DisplayOutputMode mode) noexcept
+{
+    return mode == DisplayOutputMode::HdrScRgb ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709
+                                                : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+}
+
+[[nodiscard]] constexpr const char* OutputModeName(const DisplayOutputMode mode) noexcept
+{
+    return mode == DisplayOutputMode::HdrScRgb ? "HDR scRGB" : "SDR";
+}
+
+[[nodiscard]] constexpr const char* OutputFormatName(const DisplayOutputMode mode) noexcept
+{
+    return mode == DisplayOutputMode::HdrScRgb ? "R16G16B16A16_FLOAT" : "R8G8B8A8_UNORM";
+}
+
+[[nodiscard]] constexpr const char* OutputColorSpaceName(const DisplayOutputMode mode) noexcept
+{
+    return mode == DisplayOutputMode::HdrScRgb ? "RGB_FULL_G10_NONE_P709" : "RGB_FULL_G22_NONE_P709";
+}
+
+[[nodiscard]] constexpr const char* FallbackReasonName(const DisplayOutputFallbackReason reason) noexcept
+{
+    switch (reason)
+    {
+    case DisplayOutputFallbackReason::None: return "none";
+    case DisplayOutputFallbackReason::HdrNotRequested: return "HDR not requested";
+    case DisplayOutputFallbackReason::Output6Unavailable: return "IDXGIOutput6 unavailable";
+    case DisplayOutputFallbackReason::HdrInactive: return "HDR not active on current display";
+    case DisplayOutputFallbackReason::ScRgbPresentUnsupported: return "scRGB color space not supported for Present";
+    }
+    return "unknown HDR fallback reason";
+}
+
+[[nodiscard]] constexpr bool IsHdrActiveColorSpace(const DXGI_COLOR_SPACE_TYPE colorSpace) noexcept
+{
+    return colorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 ||
+           colorSpace == DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+}
 
 constexpr std::array<float, 4> DefaultSceneClearColor{
     0.00116099F,
@@ -170,6 +218,7 @@ public:
         const std::uint32_t requestedWidth,
         const std::uint32_t requestedHeight,
         const bool requestedVsync,
+        const bool requestedHdr,
         const std::filesystem::path& shaderRoot)
     {
         try
@@ -261,12 +310,13 @@ public:
             width = requestedWidth;
             height = requestedHeight;
             vsync = requestedVsync;
-            CreateSwapChain(static_cast<HWND>(nativeHandle));
+            hdrRequested = requestedHdr;
+            CreateOutputSwapChain(static_cast<HWND>(nativeHandle));
             CreateRenderTargets();
             CreateSceneColorTarget();
             CreateDepthBuffer();
             CreateModelPipeline(shaderRoot);
-            CreateToneMapPipeline(shaderRoot);
+            CreateOutputPipeline(shaderRoot);
 
             ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "CreateFence");
             fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -285,7 +335,7 @@ public:
             initialized = true;
             logger.Info(
                 Diagnostics::LogCategory::Render,
-                "D3D12 device, SceneColorHDR (R16G16B16A16_FLOAT), SDR tone-map pipeline, swap chain, and depth buffer created");
+                "D3D12 device, SceneColorHDR (R16G16B16A16_FLOAT), output pipeline, swap chain, and depth buffer created");
             return true;
         }
         catch (const std::exception& exception)
@@ -341,25 +391,170 @@ public:
         logger.Info(Diagnostics::LogCategory::Render, message.str());
     }
 
-    void CreateSwapChain(HWND windowHandle)
+    DisplayOutputCapabilities DetectDisplayOutputCapabilities(HWND windowHandle)
+    {
+        DisplayOutputCapabilities capabilities;
+        const HMONITOR monitor = MonitorFromWindow(windowHandle, MONITOR_DEFAULTTONEAREST);
+        if (monitor == nullptr)
+        {
+            logger.Warning(Diagnostics::LogCategory::Render, "Unable to identify the window display for HDR detection");
+            return capabilities;
+        }
+
+        for (UINT index = 0;; ++index)
+        {
+            ComPtr<IDXGIOutput> output;
+            const HRESULT enumerateResult = adapter->EnumOutputs(index, &output);
+            if (enumerateResult == DXGI_ERROR_NOT_FOUND)
+            {
+                break;
+            }
+            if (FAILED(enumerateResult))
+            {
+                continue;
+            }
+
+            DXGI_OUTPUT_DESC outputDescription{};
+            if (FAILED(output->GetDesc(&outputDescription)) || outputDescription.Monitor != monitor)
+            {
+                continue;
+            }
+
+            ComPtr<IDXGIOutput6> output6;
+            if (FAILED(output.As(&output6)))
+            {
+                return capabilities;
+            }
+
+            DXGI_OUTPUT_DESC1 description{};
+            if (FAILED(output6->GetDesc1(&description)))
+            {
+                return capabilities;
+            }
+
+            capabilities.output6Available = true;
+            capabilities.bitsPerColor = description.BitsPerColor;
+            capabilities.minLuminanceNits = description.MinLuminance;
+            capabilities.maxLuminanceNits = description.MaxLuminance;
+            capabilities.maxFullFrameLuminanceNits = description.MaxFullFrameLuminance;
+            capabilities.hdrActive = description.BitsPerColor > 8 && IsHdrActiveColorSpace(description.ColorSpace);
+            return capabilities;
+        }
+
+        logger.Warning(Diagnostics::LogCategory::Render, "No DXGI output matched the application window for HDR detection");
+        return capabilities;
+    }
+
+    bool TryCreateSwapChain(HWND windowHandle, const DisplayOutputMode requestedMode)
     {
         DXGI_SWAP_CHAIN_DESC1 description{};
         description.Width = width;
         description.Height = height;
-        description.Format = BufferFormat;
+        description.Format = BackBufferFormatFor(requestedMode);
         description.SampleDesc.Count = 1;
         description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         description.BufferCount = BufferCount;
         description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
         ComPtr<IDXGISwapChain1> initialSwapChain;
-        ThrowIfFailed(
-            factory->CreateSwapChainForHwnd(
-                commandQueue.Get(), windowHandle, &description, nullptr, nullptr, &initialSwapChain),
-            "CreateSwapChainForHwnd");
+        const HRESULT createResult = factory->CreateSwapChainForHwnd(
+            commandQueue.Get(), windowHandle, &description, nullptr, nullptr, &initialSwapChain);
+        if (FAILED(createResult))
+        {
+            std::ostringstream message;
+            message << "Create " << OutputModeName(requestedMode) << " swap chain failed with HRESULT 0x"
+                    << std::hex << std::uppercase << static_cast<unsigned long>(createResult);
+            logger.Warning(Diagnostics::LogCategory::Render, message.str());
+            return false;
+        }
+        if (FAILED(initialSwapChain.As(&swapChain)))
+        {
+            logger.Warning(Diagnostics::LogCategory::Render, "IDXGISwapChain4 unavailable for requested output mode");
+            swapChain.Reset();
+            return false;
+        }
+        return true;
+    }
+
+    bool ConfigureHdrScRgbColorSpace()
+    {
+        const DXGI_COLOR_SPACE_TYPE colorSpace = BackBufferColorSpaceFor(DisplayOutputMode::HdrScRgb);
+        UINT support = 0;
+        const HRESULT supportResult = swapChain->CheckColorSpaceSupport(colorSpace, &support);
+        if (FAILED(supportResult) ||
+            (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0)
+        {
+            return false;
+        }
+        return SUCCEEDED(swapChain->SetColorSpace1(colorSpace));
+    }
+
+    void ConfigureSdrColorSpace()
+    {
+        // R8G8B8A8_UNORM contains the output shader's manually sRGB-encoded values. Keep the swap chain's
+        // display interpretation explicit where DXGI permits it, but never make SDR startup depend on this
+        // redundant standard setting because SDR is the required fallback.
+        if (FAILED(swapChain->SetColorSpace1(BackBufferColorSpaceFor(DisplayOutputMode::Sdr))))
+        {
+            logger.Warning(
+                Diagnostics::LogCategory::Render,
+                "Unable to explicitly set the standard SDR swap-chain color space; retaining DXGI default");
+        }
+    }
+
+    void LogOutputSelection(const DisplayOutputSelection& selection) const
+    {
+        std::ostringstream message;
+        message << "HDR requested: " << (hdrRequested ? "yes" : "no")
+                << "; display HDR active: " << (displayCapabilities.hdrActive ? "yes" : "no")
+                << "; IDXGIOutput6: " << (displayCapabilities.output6Available ? "available" : "unavailable")
+                << "; output mode: " << OutputModeName(selection.mode)
+                << "; swap chain: " << OutputFormatName(selection.mode)
+                << "; color space: " << OutputColorSpaceName(selection.mode)
+                << "; BitsPerColor: " << displayCapabilities.bitsPerColor
+                << "; luminance nits min/max/full-frame: " << displayCapabilities.minLuminanceNits << "/"
+                << displayCapabilities.maxLuminanceNits << "/" << displayCapabilities.maxFullFrameLuminanceNits
+                << "; reference white: " << HdrReferenceWhiteNits << " nits";
+        if (selection.mode == DisplayOutputMode::Sdr)
+        {
+            message << "; SDR fallback: " << FallbackReasonName(selection.fallbackReason);
+        }
+        logger.Info(Diagnostics::LogCategory::Render, message.str());
+    }
+
+    void CreateOutputSwapChain(HWND windowHandle)
+    {
+        displayCapabilities = DetectDisplayOutputCapabilities(windowHandle);
+        const bool tryHdr = hdrRequested && displayCapabilities.output6Available && displayCapabilities.hdrActive;
+        if (tryHdr && TryCreateSwapChain(windowHandle, DisplayOutputMode::HdrScRgb))
+        {
+            displayCapabilities.scRgbPresentSupported = ConfigureHdrScRgbColorSpace();
+            if (displayCapabilities.scRgbPresentSupported)
+            {
+                outputMode = SelectDisplayOutputMode(hdrRequested, displayCapabilities).mode;
+            }
+            else
+            {
+                logger.Warning(
+                    Diagnostics::LogCategory::Render,
+                    "HDR scRGB color-space configuration failed; falling back to SDR output");
+                swapChain.Reset();
+            }
+        }
+
+        const DisplayOutputSelection selection = SelectDisplayOutputMode(hdrRequested, displayCapabilities);
+        outputMode = selection.mode;
+        if (outputMode == DisplayOutputMode::Sdr)
+        {
+            if (!TryCreateSwapChain(windowHandle, DisplayOutputMode::Sdr))
+            {
+                throw std::runtime_error("Create SDR swap chain failed");
+            }
+            ConfigureSdrColorSpace();
+        }
         ThrowIfFailed(factory->MakeWindowAssociation(windowHandle, DXGI_MWA_NO_ALT_ENTER), "MakeWindowAssociation");
-        ThrowIfFailed(initialSwapChain.As(&swapChain), "Query IDXGISwapChain4");
         frameIndex = swapChain->GetCurrentBackBufferIndex();
+        LogOutputSelection(selection);
     }
 
     void CreateRenderTargets()
@@ -544,10 +739,11 @@ public:
                       "Create model graphics pipeline");
     }
 
-    void CreateToneMapPipeline(const std::filesystem::path& shaderRoot)
+    void CreateOutputPipeline(const std::filesystem::path& shaderRoot)
     {
         const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "ToneMapVS.cso");
-        const std::vector<std::byte> pixelShader = ReadBinaryFile(shaderRoot / "ToneMapPS.cso");
+        const std::vector<std::byte> pixelShader = ReadBinaryFile(
+            shaderRoot / (outputMode == DisplayOutputMode::HdrScRgb ? "ToneMapHdrPS.cso" : "ToneMapPS.cso"));
 
         D3D12_DESCRIPTOR_RANGE sceneColorRange{};
         sceneColorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -598,18 +794,18 @@ public:
                                                  static_cast<const char*>(rootErrors->GetBufferPointer()),
                                                  rootErrors->GetBufferSize())
                                            : "unknown root-signature error";
-            throw std::runtime_error("Serialize tone-map root signature failed: " + detail);
+            throw std::runtime_error("Serialize output root signature failed: " + detail);
         }
         ThrowIfFailed(
             device->CreateRootSignature(
                 0,
                 serializedRoot->GetBufferPointer(),
                 serializedRoot->GetBufferSize(),
-                IID_PPV_ARGS(&toneMapRootSignature)),
-            "Create tone-map root signature");
+                IID_PPV_ARGS(&outputRootSignature)),
+            "Create output root signature");
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline{};
-        pipeline.pRootSignature = toneMapRootSignature.Get();
+        pipeline.pRootSignature = outputRootSignature.Get();
         pipeline.VS = {vertexShader.data(), vertexShader.size()};
         pipeline.PS = {pixelShader.data(), pixelShader.size()};
         pipeline.BlendState.AlphaToCoverageEnable = FALSE;
@@ -635,10 +831,10 @@ public:
         pipeline.DepthStencilState.StencilEnable = FALSE;
         pipeline.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pipeline.NumRenderTargets = 1;
-        pipeline.RTVFormats[0] = BufferFormat;
+        pipeline.RTVFormats[0] = BackBufferFormatFor(outputMode);
         pipeline.SampleDesc.Count = 1;
-        ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&toneMapPipeline)),
-                      "Create tone-map graphics pipeline");
+        ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&outputPipeline)),
+                      "Create output graphics pipeline");
     }
 
     void WaitForFrame(const std::uint32_t index)
@@ -1015,8 +1211,16 @@ public:
             depthBuffer.Reset();
             frameFenceValues.fill(0);
             ThrowIfFailed(
-                swapChain->ResizeBuffers(BufferCount, newWidth, newHeight, BufferFormat, 0),
+                swapChain->ResizeBuffers(BufferCount, newWidth, newHeight, BackBufferFormatFor(outputMode), 0),
                 "ResizeBuffers");
+            if (outputMode == DisplayOutputMode::HdrScRgb && !ConfigureHdrScRgbColorSpace())
+            {
+                throw std::runtime_error("Restore HDR scRGB color space after ResizeBuffers failed");
+            }
+            if (outputMode == DisplayOutputMode::Sdr)
+            {
+                ConfigureSdrColorSpace();
+            }
             width = newWidth;
             height = newHeight;
             frameIndex = swapChain->GetCurrentBackBufferIndex();
@@ -1077,7 +1281,7 @@ public:
         sceneColorOutputPending = true;
     }
 
-    void ToneMapSceneToSdr()
+    void OutputSceneToDisplay()
     {
         if (!frameOpen || !sceneColorOutputPending)
         {
@@ -1095,8 +1299,8 @@ public:
         commandList->OMSetRenderTargets(1, &rtvHandles[frameIndex], FALSE, nullptr);
         ID3D12DescriptorHeap* heaps[] = {imguiHeap.Get()};
         commandList->SetDescriptorHeaps(1, heaps);
-        commandList->SetGraphicsRootSignature(toneMapRootSignature.Get());
-        commandList->SetPipelineState(toneMapPipeline.Get());
+        commandList->SetGraphicsRootSignature(outputRootSignature.Get());
+        commandList->SetPipelineState(outputPipeline.Get());
         commandList->SetGraphicsRootDescriptorTable(0, sceneColorSrvGpuHandle);
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         commandList->DrawInstanced(3, 1, 0, 0);
@@ -1107,7 +1311,7 @@ public:
     {
         if (!frameOpen || sceneColorOutputPending)
         {
-            throw std::runtime_error("EndFrame requires the HDR scene to be tone mapped first");
+            throw std::runtime_error("EndFrame requires the HDR scene to be mapped to the display first");
         }
         frameOpen = false;
         D3D12_RESOURCE_BARRIER barrier{};
@@ -1143,8 +1347,8 @@ public:
         }
 
         gpuModels.clear();
-        toneMapPipeline.Reset();
-        toneMapRootSignature.Reset();
+        outputPipeline.Reset();
+        outputRootSignature.Reset();
         modelPipeline.Reset();
         modelRootSignature.Reset();
         sceneColorHdr.Reset();
@@ -1185,8 +1389,8 @@ public:
     ComPtr<ID3D12Resource> depthBuffer;
     ComPtr<ID3D12RootSignature> modelRootSignature;
     ComPtr<ID3D12PipelineState> modelPipeline;
-    ComPtr<ID3D12RootSignature> toneMapRootSignature;
-    ComPtr<ID3D12PipelineState> toneMapPipeline;
+    ComPtr<ID3D12RootSignature> outputRootSignature;
+    ComPtr<ID3D12PipelineState> outputPipeline;
     std::array<D3D12_CPU_DESCRIPTOR_HANDLE, BufferCount> rtvHandles{};
     D3D12_CPU_DESCRIPTOR_HANDLE sceneColorRtvHandle{};
     D3D12_CPU_DESCRIPTOR_HANDLE sceneColorSrvCpuHandle{};
@@ -1206,6 +1410,9 @@ public:
     std::vector<GpuModel> gpuModels;
     bool initialized = false;
     bool vsync = true;
+    bool hdrRequested = false;
+    DisplayOutputMode outputMode = DisplayOutputMode::Sdr;
+    DisplayOutputCapabilities displayCapabilities;
     bool frameOpen = false;
     bool sceneColorOutputPending = false;
     bool logNextDraw = true;
@@ -1223,9 +1430,10 @@ bool D3D12Renderer::Initialize(
     const std::uint32_t width,
     const std::uint32_t height,
     const bool vsync,
+    const bool hdrRequested,
     const std::filesystem::path& shaderRoot)
 {
-    return impl_->Initialize(windowHandle, width, height, vsync, shaderRoot);
+    return impl_->Initialize(windowHandle, width, height, vsync, hdrRequested, shaderRoot);
 }
 
 void D3D12Renderer::Resize(const std::uint32_t width, const std::uint32_t height)
@@ -1281,9 +1489,9 @@ void D3D12Renderer::BeginFrame()
     impl_->BeginFrame();
 }
 
-void D3D12Renderer::ToneMapSceneToSdr()
+void D3D12Renderer::OutputSceneToDisplay()
 {
-    impl_->ToneMapSceneToSdr();
+    impl_->OutputSceneToDisplay();
 }
 
 void D3D12Renderer::EndFrame()
@@ -1338,7 +1546,17 @@ D3D12_GPU_DESCRIPTOR_HANDLE D3D12Renderer::ImGuiGpuHandle() const noexcept
 
 DXGI_FORMAT D3D12Renderer::BackBufferFormat() const noexcept
 {
-    return BufferFormat;
+    return BackBufferFormatFor(impl_->outputMode);
+}
+
+DisplayOutputMode D3D12Renderer::OutputMode() const noexcept
+{
+    return impl_->outputMode;
+}
+
+float D3D12Renderer::HdrUiReferenceWhiteScale() const noexcept
+{
+    return HdrReferenceWhiteNits / ScRgbNominalWhiteNits;
 }
 
 std::uint32_t D3D12Renderer::FrameCount() const noexcept

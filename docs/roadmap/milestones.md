@@ -441,14 +441,24 @@ Implementation status:
 
 | Slice | Content | Status |
 |---|---|---|
-| A | Scene-linear HDR intermediate plus deterministic SDR tone mapping | IMPLEMENTED / READY FOR REVIEW |
-| A.1 | Capability-gated real HDR display output | NOT STARTED |
+| A | Scene-linear HDR intermediate plus deterministic SDR tone mapping | ACCEPTED |
+| A.1 | Capability-gated real HDR display output | IMPLEMENTED / READY FOR REVIEW |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
 linear-to-sRGB transfer into the existing `R8G8B8A8_UNORM` SDR swap chain. Dear ImGui remains an SDR/debug
 overlay after tone mapping. This does not implement HDR monitor output, exposure controls, final HDR-aware UI
 composition, or other M3 environment systems.
+
+M3-A.1 adds an opt-in `renderer.hdr` request (default `false`) that remains presentation-owned. When the
+window's current DXGI output reports active Advanced Color/HDR through `IDXGIOutput6`, and an FP16 swap
+chain reports scRGB Present support, the renderer uses `R16G16B16A16_FLOAT` with
+`RGB_FULL_G10_NONE_P709`. Otherwise it logs the reason and retains the accepted
+`R8G8B8A8_UNORM` / `RGB_FULL_G22_NONE_P709` SDR path. Both modes retain the same
+`R16G16B16A16_FLOAT` SceneColorHDR intermediate. HDR mode maps scene-linear output directly to linear scRGB;
+its temporary fixed reference white is 80 nits (scRGB 1.0) and it uses a bounded 1,000-nit engineering
+shoulder. HDR10/PQ, metadata, calibration UI, final HDR UI composition, runtime output-mode switching, and
+dynamic display-change handling are deferred.
 
 Future work:
 

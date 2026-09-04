@@ -95,6 +95,12 @@ std::expected<EngineConfig, ConfigError> LoadEngineConfig(const std::filesystem:
             return std::unexpected(
                 ConfigError{ConfigErrorCode::InvalidValue, path, "renderer.vsync must be a boolean"});
         }
+        const auto hdr = renderer->find("hdr");
+        if (hdr != renderer->end() && !hdr->is_boolean())
+        {
+            return std::unexpected(
+                ConfigError{ConfigErrorCode::InvalidValue, path, "renderer.hdr must be a boolean"});
+        }
         if (*fixedHz > 1'000U)
         {
             return std::unexpected(
@@ -104,6 +110,7 @@ std::expected<EngineConfig, ConfigError> LoadEngineConfig(const std::filesystem:
         config.renderer.width = *width;
         config.renderer.height = *height;
         config.renderer.vsync = vsync->get<bool>();
+        config.renderer.hdr = hdr != renderer->end() && hdr->get<bool>();
         config.physics.fixedHz = *fixedHz;
         return config;
     }

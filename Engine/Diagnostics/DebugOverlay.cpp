@@ -8,10 +8,33 @@
 #include <imgui_impl_dx12.h>
 #include <imgui_impl_win32.h>
 
+#include <cmath>
 #include <memory>
 
 namespace DeepRun::Diagnostics
 {
+namespace
+{
+float SrgbToLinear(const float value) noexcept
+{
+    return value <= 0.04045F ? value / 12.92F : std::pow((value + 0.055F) / 1.055F, 2.4F);
+}
+
+void ConfigureHdrDebugUi(const float referenceWhiteScale)
+{
+    // ImGui's stock style values are SDR sRGB. The HDR scRGB target is linear, so convert the temporary
+    // developer style once and anchor white to the renderer's fixed SDR reference white. This is explicitly
+    // not a final HDR-aware shipping UI composition system.
+    ImGuiStyle& style = ImGui::GetStyle();
+    for (ImVec4& color : style.Colors)
+    {
+        color.x = SrgbToLinear(color.x) * referenceWhiteScale;
+        color.y = SrgbToLinear(color.y) * referenceWhiteScale;
+        color.z = SrgbToLinear(color.z) * referenceWhiteScale;
+    }
+}
+}
+
 class DebugOverlay::Impl final
 {
 public:
@@ -48,6 +71,10 @@ bool DebugOverlay::Initialize(Platform::Window& window, Render::D3D12Renderer& r
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+    if (renderer.OutputMode() == Render::DisplayOutputMode::HdrScRgb)
+    {
+        ConfigureHdrDebugUi(renderer.HdrUiReferenceWhiteScale());
+    }
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;

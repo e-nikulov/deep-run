@@ -41,8 +41,31 @@ float3 LinearToSrgb(const float3 linearColor)
         clamped.b <= 0.0031308F ? low.b : high.b);
 }
 
+// M3-A.1 fixed presentation policy: scene-linear 1.0 is 80 nits / scRGB 1.0. The 1,000-nit engineering
+// ceiling is a deterministic temporary shoulder, not display calibration or HDR10 metadata.
+static const float HdrReferenceWhiteNits = 80.0F;
+static const float ScRgbNominalWhiteNits = 80.0F;
+static const float HdrOutputPeakNits = 1000.0F;
+
+float3 MapSceneLinearToHdrScRgb(const float3 sceneLinear)
+{
+    const float3 nonNegative = max(sceneLinear, 0.0F.xxx);
+    const float referenceWhiteScale = HdrReferenceWhiteNits / ScRgbNominalWhiteNits;
+    const float peakScRgb = HdrOutputPeakNits / ScRgbNominalWhiteNits;
+    // Maps scene 1.0 exactly to reference white, remains monotonic, and approaches the bounded peak without
+    // applying an sRGB transfer. The denominator form remains finite for every finite non-negative float.
+    return referenceWhiteScale * peakScRgb *
+           (1.0F.xxx - (peakScRgb - 1.0F) / (nonNegative + (peakScRgb - 1.0F)));
+}
+
 float4 PSMain(FullscreenPixelInput input) : SV_TARGET
 {
     const float4 scene = SceneColorHDR.Sample(SceneColorSampler, input.uv);
     return float4(LinearToSrgb(ToneMapSceneLinear(scene.rgb)), scene.a);
+}
+
+float4 PSHdrScRgb(FullscreenPixelInput input) : SV_TARGET
+{
+    const float4 scene = SceneColorHDR.Sample(SceneColorSampler, input.uv);
+    return float4(MapSceneLinearToHdrScRgb(scene.rgb), scene.a);
 }
