@@ -62,6 +62,21 @@ M3 need not deliver every production HDR calibration control or final art
 grade. It must establish a scene-linear intermediate and a deterministic SDR
 fallback without turning the milestone into a complete renderer rewrite.
 
+### Windows M3-A.1 scRGB presentation boundary
+
+On Windows, `IDXGIOutput6::GetDesc1` reporting
+`RGB_FULL_G2084_NONE_P2020` with an appropriate bit depth identifies a current
+HDR-active Windows output path relevant to DXGI presentation. It is not a claim
+that the physical panel itself "is PQ". When capability checks permit HDR
+presentation, DeepRun writes linear FP16 scRGB to an
+`R16G16B16A16_FLOAT` swap chain tagged `RGB_FULL_G10_NONE_P709`.
+
+Windows/DWM performs the required Advanced Color composition/output conversion
+from that application scRGB presentation space toward the active HDR display
+path. DeepRun does not own or assume the final physical-link/display encoding.
+HDR10/PQ application output, HDR10 metadata, calibration, and final shipping
+HDR UI composition remain separate deferred work.
+
 ## Screenshot and capture contract
 
 Captures must identify which representation they contain:

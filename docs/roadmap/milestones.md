@@ -443,6 +443,7 @@ Implementation status:
 |---|---|---|
 | A | Scene-linear HDR intermediate plus deterministic SDR tone mapping | ACCEPTED |
 | A.1 | Capability-gated real HDR display output | ACCEPTED |
+| B | Environment geometry foundation | NOT STARTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -451,9 +452,13 @@ overlay after tone mapping. This does not implement HDR monitor output, exposure
 composition, or other M3 environment systems.
 
 M3-A.1 adds an opt-in `renderer.hdr` request (default `false`) that remains presentation-owned. When the
-window's current DXGI output reports active Advanced Color/HDR through `IDXGIOutput6`, and an FP16 swap
-chain reports scRGB Present support, the renderer uses `R16G16B16A16_FLOAT` with
-`RGB_FULL_G10_NONE_P709`. Otherwise it logs the reason and retains the accepted
+window's current DXGI output reports active Advanced Color/HDR through `IDXGIOutput6::GetDesc1` (for example,
+`RGB_FULL_G2084_NONE_P2020` with 10 bits per color), and an FP16 swap chain reports scRGB Present support,
+the renderer uses `R16G16B16A16_FLOAT` with `RGB_FULL_G10_NONE_P709`. The output report describes the active
+Windows HDR presentation characteristics; it does not mean that the physical panel itself "is PQ". Windows/DWM
+owns Advanced Color composition/output conversion from Deep Run's linear scRGB presentation space toward that
+active HDR display path. Deep Run does not own or assume final physical-link/display encoding. Otherwise it logs
+the reason and retains the accepted
 `R8G8B8A8_UNORM` / `RGB_FULL_G22_NONE_P709` SDR path. Both modes retain the same
 `R16G16B16A16_FLOAT` SceneColorHDR intermediate. HDR mode maps scene-linear output directly to linear scRGB;
 its temporary fixed reference white is 80 nits (scRGB 1.0) and it uses a bounded 1,000-nit engineering
