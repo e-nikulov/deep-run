@@ -17,8 +17,10 @@ namespace DeepRun::Game
 // through the generic renderer clear-rect API (full viewport above-water first, then the underwater
 // region): the renderer's BeginFrame default clear is only a generic fallback and carries no contract to
 // these values.
-constexpr Render::RgbaColor M2AboveWaterBackgroundColor{0.015F, 0.055F, 0.075F, 1.0F};
-constexpr Render::RgbaColor M2UnderwaterBackgroundColor{0.04F, 0.22F, 0.38F, 1.0F};
+// M3-A consumes scene-linear colour. These values are the linear equivalents of the prior SDR-authored
+// M2 colours, preserving the intended cross-section appearance through the renderer's one SDR encode.
+constexpr Render::RgbaColor M2AboveWaterBackgroundColor{0.00116099F, 0.00444609F, 0.00657139F, 1.0F};
+constexpr Render::RgbaColor M2UnderwaterBackgroundColor{0.00309598F, 0.03954624F, 0.11953843F, 1.0F};
 
 // World placement of a body whose model-space bounds center must sit at the given depth below the water
 // surface (M2 Slice D2). The asset Y center is deliberately NOT used as a depth: only X/Z come from the

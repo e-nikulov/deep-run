@@ -62,6 +62,9 @@ public:
         const RgbaColor& color);
 
     void BeginFrame();
+    // Completes the scene-linear pass by tone mapping SceneColorHDR into the SDR back buffer. This must be
+    // called after scene draws and before debug/UI draws, which intentionally remain in the SDR M3-A path.
+    void ToneMapSceneToSdr();
     void EndFrame();
 
     [[nodiscard]] bool IsInitialized() const noexcept;

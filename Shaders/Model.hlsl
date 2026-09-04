@@ -51,6 +51,5 @@ float4 PSMain(PixelInput input) : SV_TARGET
     const float3 specularColor = lerp(0.04F.xxx, BaseColor.rgb, saturate(Metallic));
 
     const float3 linearColor = BaseColor.rgb * diffuseScale + specularColor * specularAmount * 0.35F;
-    const float3 displayColor = pow(saturate(linearColor), 1.0F / 2.2F);
-    return float4(displayColor, BaseColor.a);
+    return float4(linearColor, BaseColor.a);
 }

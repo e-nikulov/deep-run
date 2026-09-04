@@ -6,10 +6,10 @@
 
 namespace DeepRun::Render
 {
-// Renderer-neutral RGBA color, each component in [0, 1]. Presentation-only data: the renderer has no
-// knowledge of what a given color means to gameplay. The [0, 1] range is part of the contract and enforced
-// by ValidateRgbaColor: non-finite or out-of-range components are recoverable errors, never silently
-// clamped (M2 Slice D2 correction).
+// Renderer-neutral scene-linear RGBA color, each component in [0, 1]. Presentation-only data: the renderer
+// has no knowledge of what a given color means to gameplay. The [0, 1] range is part of the contract and
+// enforced by ValidateRgbaColor: non-finite or out-of-range components are recoverable errors, never silently
+// clamped (M2 Slice D2 correction; M3-A writes valid values into SceneColorHDR).
 struct RgbaColor final
 {
     float r = 0.0F;

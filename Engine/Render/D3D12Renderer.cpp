@@ -30,7 +30,16 @@ namespace
 using Microsoft::WRL::ComPtr;
 constexpr std::uint32_t BufferCount = 2;
 constexpr DXGI_FORMAT BufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+constexpr DXGI_FORMAT SceneColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 constexpr DXGI_FORMAT DepthFormat = DXGI_FORMAT_D32_FLOAT;
+constexpr std::uint32_t SceneColorRtvIndex = BufferCount;
+constexpr std::uint32_t DescriptorHeapEntryCount = 2;
+
+constexpr std::array<float, 4> DefaultSceneClearColor{
+    0.00116099F,
+    0.00444609F,
+    0.00657139F,
+    1.0F};
 
 struct DrawRootConstants final
 {
@@ -190,6 +199,17 @@ public:
                 infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
                 infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
                 infoQueue->ClearStoredMessages();
+
+                // The current scene presentation intentionally performs multiple valid partial clear colours
+                // on one HDR target. A fixed optimized-clear value cannot describe that path, so suppress
+                // only D3D12's non-state performance advisory; every other warning and all errors remain
+                // visible to the existing debug validation.
+                D3D12_MESSAGE_ID ignoredMessages[]{
+                    D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE};
+                D3D12_INFO_QUEUE_FILTER filter{};
+                filter.DenyList.NumIDs = static_cast<UINT>(std::size(ignoredMessages));
+                filter.DenyList.pIDList = ignoredMessages;
+                ThrowIfFailed(infoQueue->AddStorageFilterEntries(&filter), "Filter HDR clear advisory");
             }
 #endif
 
@@ -216,17 +236,20 @@ public:
 
             D3D12_DESCRIPTOR_HEAP_DESC rtvDescription{};
             rtvDescription.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-            rtvDescription.NumDescriptors = BufferCount;
+            rtvDescription.NumDescriptors = BufferCount + 1;
             ThrowIfFailed(device->CreateDescriptorHeap(&rtvDescription, IID_PPV_ARGS(&rtvHeap)), "Create RTV heap");
             rtvIncrement = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
             D3D12_DESCRIPTOR_HEAP_DESC imguiDescription{};
             imguiDescription.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-            imguiDescription.NumDescriptors = 1;
+            // Slot 0 is the persistent SceneColorHDR SRV. Slot 1 remains owned by Dear ImGui for its font
+            // texture, keeping both passes on the one shader-visible heap permitted by D3D12.
+            imguiDescription.NumDescriptors = DescriptorHeapEntryCount;
             imguiDescription.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
             ThrowIfFailed(
                 device->CreateDescriptorHeap(&imguiDescription, IID_PPV_ARGS(&imguiHeap)),
                 "Create ImGui descriptor heap");
+            imguiIncrement = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
             D3D12_DESCRIPTOR_HEAP_DESC dsvDescription{};
             dsvDescription.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
@@ -240,8 +263,10 @@ public:
             vsync = requestedVsync;
             CreateSwapChain(static_cast<HWND>(nativeHandle));
             CreateRenderTargets();
+            CreateSceneColorTarget();
             CreateDepthBuffer();
             CreateModelPipeline(shaderRoot);
+            CreateToneMapPipeline(shaderRoot);
 
             ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "CreateFence");
             fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -260,7 +285,7 @@ public:
             initialized = true;
             logger.Info(
                 Diagnostics::LogCategory::Render,
-                "D3D12 device, model pipeline, swap chain, and depth buffer created");
+                "D3D12 device, SceneColorHDR (R16G16B16A16_FLOAT), SDR tone-map pipeline, swap chain, and depth buffer created");
             return true;
         }
         catch (const std::exception& exception)
@@ -383,6 +408,53 @@ public:
         device->CreateDepthStencilView(depthBuffer.Get(), &view, dsvHandle);
     }
 
+    void CreateSceneColorTarget()
+    {
+        const D3D12_HEAP_PROPERTIES defaultHeap = HeapProperties(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC description{};
+        description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        description.Width = width;
+        description.Height = height;
+        description.DepthOrArraySize = 1;
+        description.MipLevels = 1;
+        description.Format = SceneColorFormat;
+        description.SampleDesc.Count = 1;
+        description.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        description.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+        // This target may be cleared with several valid scene colours. It deliberately has no one
+        // optimized-clear value, because D3D12 would warn whenever a partial presentation clear used a
+        // different colour; the target's persistent lifetime matters more than that incompatible optimization.
+        ThrowIfFailed(
+            device->CreateCommittedResource(
+                &defaultHeap,
+                D3D12_HEAP_FLAG_NONE,
+                &description,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                nullptr,
+                IID_PPV_ARGS(&sceneColorHdr)),
+            "Create SceneColorHDR render target");
+
+        D3D12_CPU_DESCRIPTOR_HANDLE sceneRtv = rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        sceneRtv.ptr += static_cast<SIZE_T>(SceneColorRtvIndex) * rtvIncrement;
+        device->CreateRenderTargetView(sceneColorHdr.Get(), nullptr, sceneRtv);
+        sceneColorRtvHandle = sceneRtv;
+
+        sceneColorSrvCpuHandle = imguiHeap->GetCPUDescriptorHandleForHeapStart();
+        sceneColorSrvGpuHandle = imguiHeap->GetGPUDescriptorHandleForHeapStart();
+        imguiCpuHandle = sceneColorSrvCpuHandle;
+        imguiCpuHandle.ptr += imguiIncrement;
+        imguiGpuHandle = sceneColorSrvGpuHandle;
+        imguiGpuHandle.ptr += imguiIncrement;
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+        view.Format = SceneColorFormat;
+        view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        view.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(sceneColorHdr.Get(), &view, sceneColorSrvCpuHandle);
+    }
+
     void CreateModelPipeline(const std::filesystem::path& shaderRoot)
     {
         const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "ModelVS.cso");
@@ -465,11 +537,108 @@ public:
         pipeline.InputLayout = {inputLayout.data(), static_cast<UINT>(inputLayout.size())};
         pipeline.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
         pipeline.NumRenderTargets = 1;
-        pipeline.RTVFormats[0] = BufferFormat;
+        pipeline.RTVFormats[0] = SceneColorFormat;
         pipeline.DSVFormat = DepthFormat;
         pipeline.SampleDesc.Count = 1;
         ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelPipeline)),
                       "Create model graphics pipeline");
+    }
+
+    void CreateToneMapPipeline(const std::filesystem::path& shaderRoot)
+    {
+        const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "ToneMapVS.cso");
+        const std::vector<std::byte> pixelShader = ReadBinaryFile(shaderRoot / "ToneMapPS.cso");
+
+        D3D12_DESCRIPTOR_RANGE sceneColorRange{};
+        sceneColorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        sceneColorRange.NumDescriptors = 1;
+        sceneColorRange.BaseShaderRegister = 0;
+        sceneColorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER sceneColorParameter{};
+        sceneColorParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        sceneColorParameter.DescriptorTable.NumDescriptorRanges = 1;
+        sceneColorParameter.DescriptorTable.pDescriptorRanges = &sceneColorRange;
+        sceneColorParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_STATIC_SAMPLER_DESC sceneColorSampler{};
+        sceneColorSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        sceneColorSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sceneColorSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sceneColorSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sceneColorSampler.MipLODBias = 0.0F;
+        sceneColorSampler.MaxAnisotropy = 1;
+        sceneColorSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        sceneColorSampler.MinLOD = 0.0F;
+        sceneColorSampler.ShaderRegister = 0;
+        sceneColorSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        sceneColorSampler.MaxLOD = D3D12_FLOAT32_MAX;
+
+        D3D12_ROOT_SIGNATURE_DESC rootDescription{};
+        rootDescription.NumParameters = 1;
+        rootDescription.pParameters = &sceneColorParameter;
+        rootDescription.NumStaticSamplers = 1;
+        rootDescription.pStaticSamplers = &sceneColorSampler;
+        rootDescription.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS |
+                                D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+                                D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+                                D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+
+        ComPtr<ID3DBlob> serializedRoot;
+        ComPtr<ID3DBlob> rootErrors;
+        const HRESULT serializeResult = D3D12SerializeRootSignature(
+            &rootDescription,
+            D3D_ROOT_SIGNATURE_VERSION_1,
+            &serializedRoot,
+            &rootErrors);
+        if (FAILED(serializeResult))
+        {
+            const std::string detail = rootErrors != nullptr
+                                           ? std::string(
+                                                 static_cast<const char*>(rootErrors->GetBufferPointer()),
+                                                 rootErrors->GetBufferSize())
+                                           : "unknown root-signature error";
+            throw std::runtime_error("Serialize tone-map root signature failed: " + detail);
+        }
+        ThrowIfFailed(
+            device->CreateRootSignature(
+                0,
+                serializedRoot->GetBufferPointer(),
+                serializedRoot->GetBufferSize(),
+                IID_PPV_ARGS(&toneMapRootSignature)),
+            "Create tone-map root signature");
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline{};
+        pipeline.pRootSignature = toneMapRootSignature.Get();
+        pipeline.VS = {vertexShader.data(), vertexShader.size()};
+        pipeline.PS = {pixelShader.data(), pixelShader.size()};
+        pipeline.BlendState.AlphaToCoverageEnable = FALSE;
+        pipeline.BlendState.IndependentBlendEnable = FALSE;
+        D3D12_RENDER_TARGET_BLEND_DESC& targetBlend = pipeline.BlendState.RenderTarget[0];
+        targetBlend.BlendEnable = FALSE;
+        targetBlend.LogicOpEnable = FALSE;
+        targetBlend.SrcBlend = D3D12_BLEND_ONE;
+        targetBlend.DestBlend = D3D12_BLEND_ZERO;
+        targetBlend.BlendOp = D3D12_BLEND_OP_ADD;
+        targetBlend.SrcBlendAlpha = D3D12_BLEND_ONE;
+        targetBlend.DestBlendAlpha = D3D12_BLEND_ZERO;
+        targetBlend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        targetBlend.LogicOp = D3D12_LOGIC_OP_NOOP;
+        targetBlend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pipeline.SampleMask = std::numeric_limits<UINT>::max();
+        pipeline.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        pipeline.RasterizerState.DepthClipEnable = TRUE;
+        pipeline.DepthStencilState.DepthEnable = FALSE;
+        pipeline.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+        pipeline.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        pipeline.DepthStencilState.StencilEnable = FALSE;
+        pipeline.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pipeline.NumRenderTargets = 1;
+        pipeline.RTVFormats[0] = BufferFormat;
+        pipeline.SampleDesc.Count = 1;
+        ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&toneMapPipeline)),
+                      "Create tone-map graphics pipeline");
     }
 
     void WaitForFrame(const std::uint32_t index)
@@ -824,7 +993,7 @@ public:
             .bottom = static_cast<LONG>(pixelRect->bottom)};
         const FLOAT clearColor[4] = {validatedColor->r, validatedColor->g, validatedColor->b,
                                      validatedColor->a};
-        commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 1, &clearRect);
+        commandList->ClearRenderTargetView(sceneColorRtvHandle, clearColor, 1, &clearRect);
         return {};
     }
 
@@ -842,6 +1011,7 @@ public:
             {
                 buffer.Reset();
             }
+            sceneColorHdr.Reset();
             depthBuffer.Reset();
             frameFenceValues.fill(0);
             ThrowIfFailed(
@@ -851,6 +1021,7 @@ public:
             height = newHeight;
             frameIndex = swapChain->GetCurrentBackBufferIndex();
             CreateRenderTargets();
+            CreateSceneColorTarget();
             CreateDepthBuffer();
             logNextDraw = true;
             logger.Info(Diagnostics::LogCategory::Render, "Swap chain resized");
@@ -877,6 +1048,11 @@ public:
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         commandList->ResourceBarrier(1, &barrier);
 
+        barrier.Transition.pResource = sceneColorHdr.Get();
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        commandList->ResourceBarrier(1, &barrier);
+
         D3D12_VIEWPORT viewport{};
         viewport.Width = static_cast<float>(width);
         viewport.Height = static_cast<float>(height);
@@ -886,19 +1062,53 @@ public:
         const D3D12_RECT fullScissor{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
         commandList->RSSetViewports(1, &viewport);
         commandList->RSSetScissorRects(1, &fullScissor);
-        commandList->OMSetRenderTargets(1, &rtvHandles[frameIndex], FALSE, &dsvHandle);
+        commandList->OMSetRenderTargets(1, &sceneColorRtvHandle, FALSE, &dsvHandle);
         // Generic default background for frames before/without game content. The Game paints its own
         // presentation colors over this (M2 Slice D2) — this value carries no contract to gameplay.
-        constexpr float clearColor[] = {0.015F, 0.055F, 0.075F, 1.0F};
-        commandList->ClearRenderTargetView(rtvHandles[frameIndex], clearColor, 0, nullptr);
+        commandList->ClearRenderTargetView(
+            sceneColorRtvHandle,
+            DefaultSceneClearColor.data(),
+            0,
+            nullptr);
         commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0F, 0, 0, nullptr);
         ID3D12DescriptorHeap* heaps[] = {imguiHeap.Get()};
         commandList->SetDescriptorHeaps(1, heaps);
         frameOpen = true;
+        sceneColorOutputPending = true;
+    }
+
+    void ToneMapSceneToSdr()
+    {
+        if (!frameOpen || !sceneColorOutputPending)
+        {
+            throw std::runtime_error("tone mapping is only valid once between BeginFrame and EndFrame");
+        }
+
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = sceneColorHdr.Get();
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        commandList->ResourceBarrier(1, &barrier);
+
+        commandList->OMSetRenderTargets(1, &rtvHandles[frameIndex], FALSE, nullptr);
+        ID3D12DescriptorHeap* heaps[] = {imguiHeap.Get()};
+        commandList->SetDescriptorHeaps(1, heaps);
+        commandList->SetGraphicsRootSignature(toneMapRootSignature.Get());
+        commandList->SetPipelineState(toneMapPipeline.Get());
+        commandList->SetGraphicsRootDescriptorTable(0, sceneColorSrvGpuHandle);
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commandList->DrawInstanced(3, 1, 0, 0);
+        sceneColorOutputPending = false;
     }
 
     void EndFrame()
     {
+        if (!frameOpen || sceneColorOutputPending)
+        {
+            throw std::runtime_error("EndFrame requires the HDR scene to be tone mapped first");
+        }
         frameOpen = false;
         D3D12_RESOURCE_BARRIER barrier{};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -933,10 +1143,14 @@ public:
         }
 
         gpuModels.clear();
+        toneMapPipeline.Reset();
+        toneMapRootSignature.Reset();
         modelPipeline.Reset();
         modelRootSignature.Reset();
+        sceneColorHdr.Reset();
         depthBuffer.Reset();
         frameOpen = false;
+        sceneColorOutputPending = false;
 #if defined(DEEPRUN_DEBUG)
         ValidateDebugMessages("Renderer shutdown");
 #endif
@@ -967,10 +1181,18 @@ public:
     ComPtr<ID3D12DescriptorHeap> imguiHeap;
     ComPtr<ID3D12DescriptorHeap> dsvHeap;
     std::array<ComPtr<ID3D12Resource>, BufferCount> backBuffers;
+    ComPtr<ID3D12Resource> sceneColorHdr;
     ComPtr<ID3D12Resource> depthBuffer;
     ComPtr<ID3D12RootSignature> modelRootSignature;
     ComPtr<ID3D12PipelineState> modelPipeline;
+    ComPtr<ID3D12RootSignature> toneMapRootSignature;
+    ComPtr<ID3D12PipelineState> toneMapPipeline;
     std::array<D3D12_CPU_DESCRIPTOR_HANDLE, BufferCount> rtvHandles{};
+    D3D12_CPU_DESCRIPTOR_HANDLE sceneColorRtvHandle{};
+    D3D12_CPU_DESCRIPTOR_HANDLE sceneColorSrvCpuHandle{};
+    D3D12_GPU_DESCRIPTOR_HANDLE sceneColorSrvGpuHandle{};
+    D3D12_CPU_DESCRIPTOR_HANDLE imguiCpuHandle{};
+    D3D12_GPU_DESCRIPTOR_HANDLE imguiGpuHandle{};
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle{};
     ComPtr<ID3D12Fence> fence;
     HANDLE fenceEvent = nullptr;
@@ -980,10 +1202,12 @@ public:
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     UINT rtvIncrement = 0;
+    UINT imguiIncrement = 0;
     std::vector<GpuModel> gpuModels;
     bool initialized = false;
     bool vsync = true;
     bool frameOpen = false;
+    bool sceneColorOutputPending = false;
     bool logNextDraw = true;
 };
 
@@ -1057,6 +1281,11 @@ void D3D12Renderer::BeginFrame()
     impl_->BeginFrame();
 }
 
+void D3D12Renderer::ToneMapSceneToSdr()
+{
+    impl_->ToneMapSceneToSdr();
+}
+
 void D3D12Renderer::EndFrame()
 {
     impl_->EndFrame();
@@ -1099,12 +1328,12 @@ ID3D12DescriptorHeap* D3D12Renderer::ImGuiDescriptorHeap() const noexcept
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Renderer::ImGuiCpuHandle() const noexcept
 {
-    return impl_->imguiHeap->GetCPUDescriptorHandleForHeapStart();
+    return impl_->imguiCpuHandle;
 }
 
 D3D12_GPU_DESCRIPTOR_HANDLE D3D12Renderer::ImGuiGpuHandle() const noexcept
 {
-    return impl_->imguiHeap->GetGPUDescriptorHandleForHeapStart();
+    return impl_->imguiGpuHandle;
 }
 
 DXGI_FORMAT D3D12Renderer::BackBufferFormat() const noexcept

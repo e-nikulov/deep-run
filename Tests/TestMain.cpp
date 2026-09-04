@@ -6985,8 +6985,9 @@ bool D2PixelRectConversion()
 
 bool D2PresentationColorsAreDistinct()
 {
-    // The two M2 presentation colors must be visibly distinct (obvious above/underwater difference) and
-    // opaque — no alpha blending is part of the D2 contract.
+    // M3-A stores the former SDR-authored values as scene-linear input, so their numeric difference is
+    // smaller before the renderer's one SDR encode. They must still be clearly distinct and opaque — no
+    // alpha blending is part of the D2 contract.
     const RgbaColor& above = DeepRun::Game::M2AboveWaterBackgroundColor;
     const RgbaColor& below = DeepRun::Game::M2UnderwaterBackgroundColor;
     if (!above.IsFinite() || !below.IsFinite() || above.a != 1.0F || below.a != 1.0F)
@@ -6995,7 +6996,7 @@ bool D2PresentationColorsAreDistinct()
     }
     const float channelDifference = std::abs(above.r - below.r) + std::abs(above.g - below.g) +
                                     std::abs(above.b - below.b);
-    return channelDifference > 0.25F; // clearly different, without asserting final art direction
+    return channelDifference > 0.1F; // clearly different in scene-linear space, without asserting art direction
 }
 
 // ---------------------------------------------------------------------------

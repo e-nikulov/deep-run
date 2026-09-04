@@ -280,6 +280,7 @@ public:
 
         renderer->BeginFrame();
         const bool gameRenderSucceeded = !renderHook || renderHook(*renderer);
+        renderer->ToneMapSceneToSdr();
         debugOverlay->Render(renderer->CommandList());
         renderer->EndFrame();
         if (!gameRenderSucceeded)
