@@ -439,7 +439,8 @@ deep-run/
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── README.md
-├── LICENSE
+├── COPYRIGHT.md
+├── THIRD_PARTY_NOTICES.md
 ├── .gitignore
 │
 ├── cmake/
@@ -639,6 +640,48 @@ gameplay/simulation fixed update (force production and application)
 Ошибка fixed update отменяет этот physics step. Hook остаётся generic точкой композиции: `Game` владеет
 marine-specific расчётами, а `Engine` и `PhysicsWorld` о buoyancy не знают.
 
+## Time-domain and time-compression contract
+
+DeepRun distinguishes three clocks:
+
+| Domain | Ownership and permitted use |
+|---|---|
+| `RealTime` | Monotonic wall/platform time for OS interaction, diagnostics, device handling, and other real-time services |
+| `PresentationTime` | Non-authoritative visual, UI, audio, and haptic presentation where deterministic simulation timing is not required |
+| `SimulationTime` | Authoritative gameplay time advanced only by the fixed-step simulation scheduler |
+
+At normal speed, one simulation second is approximately one real second. Future
+player-controlled compression may expose authored choices such as `1x`, `2x`,
+`4x`, and `8x`, with a possible higher travel/strategic rate later. Exact rates
+and automatic slowdown policy are design/tuning rather than an M3 requirement.
+
+Time compression must advance more fixed simulation steps per unit of
+`RealTime`; it must not make the Jolt/authoritative fixed step dangerously large.
+All executed steps preserve the canonical fixed-update ordering. Bounded
+near/mid/far simulation tiers may update distant or non-critical systems less
+often only when their deterministic contracts permit it.
+
+The following use `SimulationTime`: physics integration, submarine movement,
+AcousticWorld propagation and scheduled arrivals, sensor integration,
+contact/track ageing, persistent signatures and wake decay, AI memory and
+decision timers, weapon phases and movement, mines, damage, flooding, pumping,
+fire, smoke, heat, O2/CO2, crew work, repairs, fatigue/readiness, and
+gameplay-relevant mission timers.
+
+Tactical pause advances zero `SimulationTime`. UI and permitted presentation
+may continue, and queued gameplay commands are applied deterministically after
+resume at fixed-step boundaries. Audio-device time, render-frame time, and
+haptic lifetime are never authoritative gameplay clocks. Time compression does
+not imply global audio pitch-shifting or stronger/faster haptics.
+
+Future danger policy may cap or reduce requested compression for authored states
+such as an incoming torpedo, terminal weapon phase, collision danger, critical
+depth, rapid flooding, major fire, high-confidence hostile engagement, or an
+important launch event. The policy consumes authoritative state but does not
+change ownership of that state.
+
+This decision is recorded by ADR-0009.
+
 Используется для:
 
 * rigid body physics;
@@ -708,6 +751,10 @@ Engine/Platform/
 Не создавать abstraction для Vulkan/Metal/OpenGL.
 
 DeepRun — D3D12-first engine.
+
+The canonical scene-linear HDR/output, capture, environment-presentation, and
+production render-asset boundary is specialized in
+`docs/architecture/rendering-spec.md` and ADR-0010.
 
 Файлы:
 
@@ -1265,6 +1312,31 @@ PhysicsWorld оборачивает Jolt.
 
 Gameplay не должен использовать типы Jolt напрямую.
 
+## Canonical physical units and scale
+
+Authoritative DeepRun simulation uses metric units:
+
+```text
+1 world unit = 1 metre
+distance       metres
+velocity       metres / second
+acceleration   metres / second^2
+mass           kilograms
+force          newtons
+time           seconds
+```
+
+Authored sources may arrive in another scale, but source/import processing must
+normalize them into canonical metres and record the conversion. Camera framing,
+orthographic width, display resolution, render LOD, and presentation scale never
+change authoritative physical dimensions. A 154 m vessel remains 154 m in
+simulation. World scale and time scale are independent; physics must not be
+shrunk to accelerate traversal.
+
+Render meshes, collision/query proxies, and buoyancy/displaced-volume models are
+separate representations. Jolt receives deliberate collision geometry rather
+than detailed production render meshes by default.
+
 ---
 
 # 17. Marine Physics
@@ -1709,6 +1781,12 @@ temperature
 sonar
 ```
 
+World/environment ownership, coarse terrain-query participation, flora/fauna
+boundaries, and stable authored identifiers are defined in
+`docs/architecture/simulation-spec.md`. Rendering consumes that state according
+to `docs/architecture/rendering-spec.md`; it is not the environment source of
+truth.
+
 ---
 
 # 32. Audio Engine
@@ -1886,6 +1964,10 @@ Game/Weapons/
 └── ExplosionWarhead.h
 ```
 
+The canonical future weapon-definition/runtime/phase/movement-domain and
+knowledge boundaries are defined in `docs/architecture/simulation-spec.md`.
+This conceptual file layout is not permission to create placeholders.
+
 ---
 
 # 40. Torpedo State Machine
@@ -2011,7 +2093,7 @@ turn rate
 
 Не делать neural AI.
 
-Использовать:
+Current accepted direction:
 
 ```text
 Hierarchical State Machines
@@ -2022,6 +2104,13 @@ Perception
 +
 Tactical Director
 ```
+
+This pass preserves the accepted HSM + Blackboard + Perception + Tactical
+Director direction. Concrete class names and data layout remain implementation
+choices. The canonical future AI contract is data-driven, headless-capable,
+explainable, and constrained to perceived knowledge as defined in
+`docs/architecture/simulation-spec.md`. Shipping tactical AI must work fully
+offline and must not require an LLM.
 
 ---
 
@@ -2582,6 +2671,14 @@ center of buoyancy
 reactor output
 available power
 ```
+
+As the owning milestones arrive, developer-only diagnostics should also expose
+simulation time/scale and fixed-step state; observations, contacts, tracks, and
+uncertainty; AI belief/selected state; weapon phase and movement domain;
+water/medium transitions; acoustic emitters/paths/noise and terrain queries;
+and compartment rates, boundaries, crew access/assignments, habitability,
+O2/CO2, repair progress, and local electrical availability. Ground-truth views
+remain developer-only.
 
 ---
 
@@ -3524,10 +3621,18 @@ basic gamepad haptics
 depth lighting
 fog
 particles
+bounded scene-linear HDR / SDR output foundation
+seabed and representative rocks / ridges / cliffs / drop-offs
+basic underwater ice geometry
+minimal presentation-first flora
+optional cheap presentation fauna
 surface
 Gerstner waves
 basic ship buoyancy
 ```
+
+M3 remains a bounded environment/presentation milestone. It does not implement
+combat, tactical AI, weapon runtime, crew, flooding, or system management.
 
 ---
 
@@ -3541,6 +3646,7 @@ bounded propagation, delay, environmental loss and noise
 passive and active AcousticObservations with SNR and uncertainty
 minimal Contact / Track vertical slice
 cavitation acoustic signature
+gameplay-relevant biological acoustic source where useful
 Acoustic Debugger
 ```
 
@@ -3552,11 +3658,12 @@ Acoustic Debugger
 
 ```text
 destroyer
-torpedo
+first conventional heavyweight torpedo
 decoy
 mine
 explosion
 damage
+simple combat AI using perceived contacts / tracks
 ```
 
 ---
@@ -3575,6 +3682,10 @@ lights
 system damage
 crew
 repair
+watertight / fire boundaries and authoritative access graph
+fire / smoke / heat and O2 / CO2 habitability
+crew isolation, qualifications, protection and team assignment
+proper / degraded / containment repair outcomes
 ```
 
 ---
@@ -3633,11 +3744,14 @@ new run
 helicopters
 aircraft
 sonobuoys
-missiles
+P700 runtime using the accepted C0 asset
+supercavitating / Shkval-inspired weapon
+smaller / lighter torpedo family
+advanced mines and dropped ASW weapons
 underwater launch
 surface transition
 AUG
-group AI
+advanced enemy submarine and tactical group AI
 ```
 
 ---

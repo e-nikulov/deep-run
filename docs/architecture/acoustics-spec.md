@@ -111,20 +111,27 @@ Examples:
 
 - submarine machinery noise;
 - pump noise;
+- damaged machinery;
 - turbine noise;
 - propeller blade signature;
 - hull-flow noise;
+- quiet-running propulsion state;
 - cavitation;
 - torpedo launch transient;
 - torpedo propulsion;
 - highly cavitating weapon;
 - missile launch from a submerged platform;
 - explosion;
+- mine or depth-charge-like event;
+- sonobuoy transmission or active pulse;
+- surface vessel;
 - collision;
+- environmental machinery;
 - active sonar pulse;
 - whale vocalisation;
 - sperm-whale clicks;
 - dolphin vocalisation;
+- ice movement/fracture;
 - rain;
 - storm;
 - distant shipping.
@@ -577,6 +584,18 @@ Animals MAY:
 
 Biological signals SHOULD be able to create uncertain or initially
 misclassified contacts.
+
+### Airborne platforms and underwater signals
+
+Aircraft and helicopters may affect underwater acoustics only through an
+authored physical/acoustic mechanism, for example a dipping sensor, sonobuoy,
+dropped weapon, surface interaction, underwater explosion, or deliberately
+modelled air-water coupling. Ordinary airborne playback must not be treated as
+if it propagates underwater unchanged.
+
+Sonobuoy observations enter the same `SensorObservation -> Contact -> Track`
+pipeline as vessel sensors. A platform's authoritative aircraft type does not
+leak into a receiver merely because its deployed sensor produced evidence.
 
 ### Physics boundary
 

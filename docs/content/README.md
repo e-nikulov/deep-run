@@ -13,6 +13,8 @@ repository's canonical `Content/` root. Runtime-ready assets belong in
 asset-specific subdirectories under `Engine/Assets/`, alongside the runtime
 asset code already owned by that directory. The C0 source-to-runtime procedure
 is defined in [asset-pipeline.md](asset-pipeline.md).
+Repository-wide provenance fields and legal shipping gates are defined in
+[asset-provenance.md](asset-provenance.md).
 
 ## Registry
 

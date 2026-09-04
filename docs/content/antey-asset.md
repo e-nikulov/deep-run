@@ -4,6 +4,13 @@ CONTENT STATUS: TECHNICALLY ACCEPTED; HUMAN ART APPROVAL PASS
 
 LICENSE STATUS: LEGAL_BLOCKED / PENDING_REVIEW
 
+The canonical provenance record classifies the source and derivative production
+asset as `NON-SHIPPABLE UNTIL RESOLVED`; see
+[`asset-provenance.md`](asset-provenance.md) and
+[`third-party/antey-asset-license-review.md`](third-party/antey-asset-license-review.md).
+This legal gate is independent of the technical and human-art acceptance
+recorded below.
+
 Antey is the neutral Project 949A-inspired production asset for the existing
 `C0 Player Submarine` package. It is not a new C-ID and contains no historical
 boat name, hull number, or commemorative marking.

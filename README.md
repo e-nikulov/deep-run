@@ -1,6 +1,6 @@
 # DeepRun
 
-DeepRun is a Windows submarine roguelite built on a purpose-built C++23 engine. Milestone 0 — Engine Bootstrap and Milestone 1 — Core Engine are complete. The current development goal is Milestone 2 — Physical Playground (`READY`). The completed foundation provides explicit lifecycle and frame state, an EnTT-backed Scene, generic transforms, runtime resource caching, validated JSON configuration, input state, diagnostics, tests, and a headless smoke path; it preserves the Milestone 0 Win32, Direct3D 12, Jolt Physics, miniaudio, and Dear ImGui foundation.
+DeepRun is a Windows submarine roguelite built on a purpose-built C++23 engine. Milestones 0 — Engine Bootstrap, 1 — Core Engine, and 2 — Physical Playground are complete. The next implementation milestone is Milestone 3 — Underwater Environment. The completed foundation provides the Win32, Direct3D 12, Jolt Physics, miniaudio, Dear ImGui, asset, input, fixed-step simulation, marine-physics, controller-control, and headless-test paths required by the accepted M0-M2 scope.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ Jolt Physics, miniaudio, Dear ImGui, EnTT, and nlohmann/json are fetched at pinn
 ./build/windows-debug/Debug/DeepRun.exe
 ```
 
-Press `F1` to toggle the developer overlay and `Escape` to quit. A controller reachable through XInput is reported in the overlay and log.
+Press `F1` to toggle the developer overlay and `Escape` to quit. A controller reachable through the Windows.Gaming.Input backend is reported in the overlay and log.
 
 Headless physics smoke test:
 

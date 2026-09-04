@@ -213,6 +213,21 @@ Pause is for thinking, not for eliminating uncertainty.
 
 Enemy truth remains hidden while paused.
 
+### Time compression
+
+Time compression is distinct from tactical pause. It advances authoritative
+`SimulationTime` faster while preserving fixed-step simulation; it does not
+make the physics timestep larger. It is intended for quiet travel, observation,
+and other periods where additional simulation progress improves pacing.
+
+The initial design may expose authored rates such as `1x`, `2x`, `4x`, and
+`8x`. Exact values, controller bindings, and automatic slowdown rules remain
+playtesting work. Immediate danger such as an incoming weapon, collision risk,
+critical depth, rapid flooding, major fire, a high-confidence engagement, or an
+important launch event may later cap or reduce the requested rate. This safety
+policy must be driven by authoritative state and must remain explainable to the
+player.
+
 ---
 
 ## 9. Mission loop

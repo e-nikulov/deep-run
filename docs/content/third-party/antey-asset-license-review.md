@@ -2,6 +2,23 @@
 
 Status: `REQUIRES LEGAL / LICENSE REVIEW BEFORE SHIPPING`
 
+| Provenance field | Current record |
+|---|---|
+| Asset name | Supplied Antey / Project 949A-inspired Blender source |
+| Author | `UNKNOWN` |
+| Copyright holder | `UNKNOWN` |
+| Source | Locally supplied Blender file |
+| Source URL | `NOT AVAILABLE` |
+| Licence / version | `UNKNOWN` |
+| Commercial use permission | `UNKNOWN` |
+| Modification permission | `UNKNOWN` |
+| Attribution requirement | `UNKNOWN` |
+| Date obtained | `UNKNOWN` |
+| Original/raw path | `Content/submarines/Antey/Source/Antey_Source.blend` |
+| Processed/shipping candidates | `Content/submarines/Antey/Antey_GameReady.blend`; `Content/submarines/Antey/Antey.glb` |
+| Modifications | Neutral production reconstruction, LODs, articulation/marker authoring, validation, and runtime GLB export as documented by `docs/content/antey-asset.md` |
+| Shipping status | `NON-SHIPPABLE UNTIL RESOLVED` |
+
 The supplied third-party Blender source was available locally for technical
 prototype preparation, but no bundled license, author record, source URL, or
 redistribution permission was found in the repository or alongside the

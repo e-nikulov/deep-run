@@ -4,6 +4,12 @@ CONTENT STATUS: TECHNICALLY VALIDATED; HUMAN ART APPROVAL PENDING
 
 LICENSE STATUS: SHIPPING BLOCKED PENDING LEGAL REVIEW
 
+The canonical provenance record classifies the source and derivative production
+asset as `NON-SHIPPABLE UNTIL RESOLVED`; see
+[`asset-provenance.md`](asset-provenance.md) and
+[`third-party/p700-asset-license-review.md`](third-party/p700-asset-license-review.md).
+This legal gate is independent of technical validation and human-art approval.
+
 ## Canonical files
 
 | Purpose | Path |

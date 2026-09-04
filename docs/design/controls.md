@@ -280,6 +280,27 @@ stable effect ID     = refreshed, never stacked per fixed tick
 Exact strengths and durations are tuning data and must be refined during
 playtesting.
 
+The current numeric `EngineVibration` mapping is an M2 prototype baseline, not
+a production intensity target. Future tuning should keep ordinary low-RPM
+propulsion very restrained, quiet/silent running barely perceptible or zero,
+normal internal propulsion/machinery audio subdued, and reserve clearly stronger
+feedback for high RPM, cavitation, faults/damage, nearby explosions, and heavy
+impacts.
+
+One authoritative state may drive independent consumers:
+
+```text
+PropulsionState / shaft RPM / cavitation
+    +-> AcousticWorld signature
+    +-> runtime audio presentation
+    `-> haptic presentation
+```
+
+Speaker volume, audio mute, haptic master intensity, and vibration enable state
+must not change acoustic detectability. Future time compression also does not
+automatically pitch-shift every sound or scale every haptic effect; audio/haptic
+behaviour remains an authored presentation decision.
+
 ---
 
 ## 10. Two-motor convention

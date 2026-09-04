@@ -271,7 +271,12 @@ M1 is infrastructure only. It must remain headless-capable and contain no submar
 - headless tests for lifecycle, timing, scene/entity, transforms, resources, configuration, and input state
 - preserve Debug and Release builds
 - preserve `--headless` and `--smoke-test`
-- preserve D3D12, resize, ImGui, Jolt, miniaudio, keyboard/mouse, XInput, and clean shutdown
+- preserve D3D12, resize, ImGui, Jolt, miniaudio, keyboard/mouse, the then-current XInput backend,
+  and clean shutdown
+
+The M1 XInput reference is historical. The accepted current Windows controller backend is
+`Windows.Gaming.Input` behind the private Windows input backend; it superseded XInput during M2, and
+the current controls/input contract remains authoritative.
 
 #### Completion criteria
 
@@ -296,9 +301,7 @@ Do not implement:
 - production asset pipeline, Blender integration, or complete glTF loading
 - final game UI, networking, or Xbox GDK
 
-## Current milestone
-
-### Milestone 2 - Physical Playground
+## Completed Milestone 2 - Physical Playground
 
 Status: COMPLETE
 
@@ -357,8 +360,10 @@ preparation (ADR-0008).
 D2 notes: sea level Y=0, initial submarine center depth = 100 m below the authoritative surface. The
 playground owns its scenario `WaterBody` value and derives all presentation from it; the flat-water
 cross-section is a temporary M2 presentation path (generic renderer clear-rect below the projected
-surface) that M3 may replace without changing WaterBody truth. D2 water creates no forces — buoyancy
-remains out of scope, so the body keeps sinking under gravity and its signed depth increases.
+surface) that M3 may replace without changing WaterBody truth. At completion of D2, buoyancy had not
+yet been integrated, so the temporary playground behaviour still allowed the body to sink under gravity
+and its signed depth to increase. Later M2 slices E2/E3 superseded this temporary behaviour with the
+accepted buoyancy model and integration.
 
 <!-- deeprun-m2-command-boundary:start -->
 
@@ -426,14 +431,30 @@ The renderer must preserve a compatibility indexed path while that path material
 the supported PC hardware population at acceptable maintenance cost.
 
 <!-- deeprun-renderer-evolution-roadmap:end -->
-## Future milestones
+## Current milestone
 
 ### Milestone 3 - Underwater Environment
+
+Status: READY
 
 Future work:
 
 - underwater fog
 - depth lighting
+- bounded scene-linear HDR intermediate, tone mapping, SDR fallback, and
+  capability-gated HDR output foundation
+- seabed and representative rock formations
+- underwater ridges, cliffs, drop-offs, trenches, and other large terrain
+  formations needed by the environment slice
+- basic underwater ice / ice-shelf / iceberg geometry where appropriate
+- world/environment data with independent render, coarse-collision, navigation,
+  and future acoustic-query representations
+- stable chunk-compatible environment IDs/bounds without requiring production
+  streaming
+- minimal instanced/batched presentation flora such as kelp, seaweed,
+  environmentally appropriate seagrass, and benthic growth
+- optional cheap presentation fauna such as fish schools or surface birds when
+  useful to the environment slice
 - particles
 - Gerstner ocean
 - floating body wave response
@@ -442,10 +463,18 @@ Future work:
 Design boundary:
 
 - M3 is an environment/presentation milestone.
+- M3 preserves `WaterBody` as authoritative water truth; visual waves do not
+  redefine gameplay depth.
+- M3 does not require full CFD, a particle ocean, production world streaming,
+  complex animal AI, or a speculative Asset Cooker.
 - Do not pull future submarine-management systems forward merely to populate the environment.
 - Environment work may expose debug data needed by later acoustics, but does not introduce the commander command layer.
+- Do not add combat, tactical AI, weapon runtime, flooding, crew, or system
+  management to M3.
 
 <!-- deeprun-m3-command-boundary:end -->
+
+## Future milestones
 
 ### Milestone 4 - Acoustic Playground
 
@@ -518,6 +547,11 @@ Secondary or later Milestone 4 scope may include:
 - reverberation envelope
 - synthetic biological acoustic source
 
+Gameplay-relevant whale, sperm-whale, or dolphin emissions may begin here as
+synthetic/data-driven sources. They must produce uncertain observations and
+contacts through the ordinary acoustic/perceived-world pipeline; full animal AI
+is not required.
+
 Hydrodynamic wake is not required for the first working Milestone 4 vertical
 slice. Synthetic/debug emitters and reflectors should be used where practical;
 torpedoes, destroyers, explosions and full combat remain in Milestone 5.
@@ -527,11 +561,13 @@ torpedoes, destroyers, explosions and full combat remain in Milestone 5.
 Future work:
 
 - destroyer
-- torpedo
+- first conventional heavyweight torpedo
 - decoy
 - mine
 - explosions
 - basic damage
+- simple combat AI using observations/contacts/tracks rather than player ground
+  truth
 <!-- deeprun-m5-command-note:start -->
 
 Commander interaction added in M5:
@@ -590,6 +626,11 @@ Required systemic goals:
 - system state that is authoritative outside UI
 - controller-first systems / damage-control UI
 - cross-system consequences between qualified crew, access, habitability, readiness, time, noise, sonar, propulsion, flooding, weapons, damage, and local electrical capacity
+
+All continuous M6 processes use `SimulationTime`. Flooding, pumping, atmosphere,
+fire/smoke/heat, repair, crew travel/tasks, and readiness progress through
+rate/state models rather than arbitrary per-frame random rolls. Seeded
+simulation-owned randomness is reserved for justified discrete outcomes.
 
 The goal is not maximum simulation detail.
 
@@ -679,7 +720,18 @@ Future work:
 - helicopters
 - aircraft
 - sonobuoys
-- missile launch
-- underwater to air transition
+- P700 runtime weapon definition and entity using the accepted C0 content asset
+- missile launch and authoritative underwater-to-air transition
+- supercavitating/Shkval-inspired weapon
+- smaller/lighter torpedo or compact underwater weapon
+- dropped ASW weapons and depth-charge-like threats
+- advanced mines and specialized ASW threats
+- anti-submarine nets and contextual explosive hazards where a scenario needs
+  them
 - carrier group
-- tactical group AI
+- advanced enemy-submarine behaviour
+- coordinated tactical-group AI
+
+M9 consumes the generic weapon, movement-domain, transition, acoustic,
+perception, and AI boundaries established by A1. It does not make the P700,
+Shkval, helicopters, aircraft, sonobuoys, or group AI prerequisites for M5.

@@ -40,7 +40,7 @@ Current registry:
 
 | ID | Specification | Primary document | Specialized contracts |
 |---|---|---|---|
-| A0 | Engine Architecture Baseline | [architecture/engine-spec.md](architecture/engine-spec.md) | None |
+| A0 | Engine Architecture Baseline | [architecture/engine-spec.md](architecture/engine-spec.md) | [architecture/rendering-spec.md](architecture/rendering-spec.md) |
 | A1 | Simulation Boundary | [architecture/simulation-spec.md](architecture/simulation-spec.md) | [architecture/acoustics-spec.md](architecture/acoustics-spec.md) |
 
 Accepted decisions under [adr/](adr/) support the architecture specifications;
@@ -140,3 +140,12 @@ other game objects.
 Specification IDs are metadata, not filename prefixes. Keep semantic filenames
 such as `engine-spec.md`, `controls.md`, and `game-loop.md`, and do not break
 links merely to add an ID.
+
+## Legal and provenance records
+
+Repository-level copyright and dependency-notice policy is recorded in
+[`../COPYRIGHT.md`](../COPYRIGHT.md) and
+[`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Content provenance,
+shipping gates, and the canonical metadata fields for external assets are
+defined in [content/asset-provenance.md](content/asset-provenance.md). These
+records document status; they do not grant rights or replace legal review.
