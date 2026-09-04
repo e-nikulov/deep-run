@@ -22,12 +22,12 @@ FullscreenPixelInput VSMain(const uint vertexId : SV_VertexID)
 
 float3 ToneMapSceneLinear(const float3 sceneLinear)
 {
-    // M3-A's fixed neutral operator preserves the M2 range unchanged and scales only HDR colours whose
-    // largest component exceeds display white. It is deterministic and deliberately replaceable by later
-    // renderer-owned exposure or artistic controls.
+    // M3-A uses fixed neutral exposure (1.0) with a per-channel Reinhard shoulder. This is deterministic,
+    // monotonic, and bounded for finite non-negative input. Unlike peak normalization, it retains distinct
+    // HDR intensities and does not reduce a channel merely because another becomes brighter. It remains
+    // temporary renderer-owned presentation tuning policy.
     const float3 nonNegative = max(sceneLinear, 0.0F.xxx);
-    const float peak = max(max(nonNegative.r, nonNegative.g), nonNegative.b);
-    return nonNegative / max(1.0F, peak);
+    return nonNegative / (1.0F.xxx + nonNegative);
 }
 
 float3 LinearToSrgb(const float3 linearColor)

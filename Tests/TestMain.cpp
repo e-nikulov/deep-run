@@ -6999,6 +6999,42 @@ bool D2PresentationColorsAreDistinct()
     return channelDifference > 0.1F; // clearly different in scene-linear space, without asserting art direction
 }
 
+float M3AToneMapScalar(const float sceneLinear) noexcept
+{
+    const float nonNegative = std::max(sceneLinear, 0.0F);
+    return nonNegative / (1.0F + nonNegative);
+}
+
+bool M3AToneMapProperties()
+{
+    constexpr std::array<float, 7> inputs{
+        0.0F,
+        0.01F,
+        0.25F,
+        1.0F,
+        2.0F,
+        20.0F,
+        std::numeric_limits<float>::max(),
+    };
+
+    float previous = 0.0F;
+    for (const float input : inputs)
+    {
+        const float mapped = M3AToneMapScalar(input);
+        if (!std::isfinite(mapped) || mapped < 0.0F || mapped > 1.0F || mapped < previous)
+        {
+            return false;
+        }
+
+        previous = mapped;
+    }
+
+    const float two = M3AToneMapScalar(2.0F);
+    const float twenty = M3AToneMapScalar(20.0F);
+    return M3AToneMapScalar(-1.0F) == 0.0F && M3AToneMapScalar(0.0F) == 0.0F &&
+           two > 0.0F && two < twenty && twenty < 1.0F;
+}
+
 // ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
@@ -7555,6 +7591,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"D2 clear color validation contract", D2ClearColorValidation},
         {"D2 pixel rect conversion", D2PixelRectConversion},
         {"D2 presentation colors distinct and opaque", D2PresentationColorsAreDistinct},
+        {"M3-A Reinhard tone-map properties", M3AToneMapProperties},
         // M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only).
         {"E1 centered force produces translation", ForceCenteredProducesTranslation},
         {"E1 off-center force produces torque", ForceOffCenterProducesTorque},

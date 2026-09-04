@@ -445,10 +445,10 @@ Implementation status:
 | A.1 | Capability-gated real HDR display output | NOT STARTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
-a fullscreen renderer pass applies fixed peak-normalizing tone mapping and the one manual linear-to-sRGB
-transfer into the existing `R8G8B8A8_UNORM` SDR swap chain. Dear ImGui remains an SDR/debug overlay after
-tone mapping. This does not implement HDR monitor output, exposure controls, final HDR-aware UI composition,
-or other M3 environment systems.
+a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
+linear-to-sRGB transfer into the existing `R8G8B8A8_UNORM` SDR swap chain. Dear ImGui remains an SDR/debug
+overlay after tone mapping. This does not implement HDR monitor output, exposure controls, final HDR-aware UI
+composition, or other M3 environment systems.
 
 Future work:
 
