@@ -442,7 +442,7 @@ Implementation status:
 | Slice | Content | Status |
 |---|---|---|
 | A | Scene-linear HDR intermediate plus deterministic SDR tone mapping | ACCEPTED |
-| A.1 | Capability-gated real HDR display output | IMPLEMENTED / READY FOR REVIEW |
+| A.1 | Capability-gated real HDR display output | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -457,8 +457,9 @@ chain reports scRGB Present support, the renderer uses `R16G16B16A16_FLOAT` with
 `R8G8B8A8_UNORM` / `RGB_FULL_G22_NONE_P709` SDR path. Both modes retain the same
 `R16G16B16A16_FLOAT` SceneColorHDR intermediate. HDR mode maps scene-linear output directly to linear scRGB;
 its temporary fixed reference white is 80 nits (scRGB 1.0) and it uses a bounded 1,000-nit engineering
-shoulder. HDR10/PQ, metadata, calibration UI, final HDR UI composition, runtime output-mode switching, and
-dynamic display-change handling are deferred.
+shoulder. HDR10/PQ application output path, HDR10 metadata, automatic exposure, calibration UI, final
+shipping HDR UI composition, runtime SDR/HDR output-mode switching, monitor hot-plug/dynamic output
+refresh, and FP16 bandwidth profiling are deferred.
 
 Future work:
 
