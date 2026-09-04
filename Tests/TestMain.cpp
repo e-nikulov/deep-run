@@ -20,6 +20,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Scene/Scene.h"
+#include "Game/Environment/EnvironmentSection.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
@@ -7112,6 +7113,178 @@ bool M3A1HdrScRgbMappingProperties()
            std::abs(referenceWhite - 1.0F) < 0.0001F && two > referenceWhite && twenty > two;
 }
 
+bool M3BSeabedSectionGeometryContract()
+{
+    const auto first = DeepRun::Game::BuildSeabedSection({"seabed-main"}, {});
+    const auto second = DeepRun::Game::BuildSeabedSection({"seabed-main"}, {});
+    if (!first || !second)
+    {
+        return false;
+    }
+
+    const DeepRun::Game::EnvironmentSection& section = *first;
+    const DeepRun::Assets::ModelAsset& model = section.renderGeometry;
+    if (section.id.value != "seabed-main" || model.id.Value() != "environment/seabed/seabed-main.section" ||
+        model.primitives.size() != 1 || model.nodes.size() != 1 || model.materials.size() != 1 ||
+        !DeepRun::Game::IsSceneLinearBaseColor(model.materials.front()))
+    {
+        return false;
+    }
+
+    const auto& primitive = model.primitives.front();
+    constexpr std::size_t ExpectedCells = 160;
+    if (primitive.vertices.size() != ExpectedCells * 16U || primitive.indices.size() != ExpectedCells * 24U ||
+        !primitive.hasNormals || primitive.materialIndex != 0U || section.bounds.maximum.y >= 0.0F ||
+        model.nodes.front().localToModel.values != DeepRun::Assets::ModelTransform{}.values ||
+        primitive.localBounds.minimum.x != section.bounds.minimum.x ||
+        primitive.localBounds.minimum.y != section.bounds.minimum.y ||
+        primitive.localBounds.minimum.z != section.bounds.minimum.z ||
+        primitive.localBounds.maximum.x != section.bounds.maximum.x ||
+        primitive.localBounds.maximum.y != section.bounds.maximum.y ||
+        primitive.localBounds.maximum.z != section.bounds.maximum.z || model.bounds.minimum.x != section.bounds.minimum.x ||
+        model.bounds.minimum.y != section.bounds.minimum.y || model.bounds.minimum.z != section.bounds.minimum.z ||
+        model.bounds.maximum.x != section.bounds.maximum.x || model.bounds.maximum.y != section.bounds.maximum.y ||
+        model.bounds.maximum.z != section.bounds.maximum.z)
+    {
+        return false;
+    }
+
+    const auto layout = DeepRun::Render::BuildIndexedGeometryLayout(model);
+    const auto draws = DeepRun::Render::PrepareModelDraws(model);
+    if (!layout || layout->totals.vertexCount != primitive.vertices.size() ||
+        layout->totals.indexCount != primitive.indices.size() || !draws || draws->size() != 1 ||
+        draws->front().modelToWorld.values != DeepRun::Assets::ModelTransform{}.values)
+    {
+        return false;
+    }
+
+    const auto inBounds = [&](const DeepRun::Assets::ModelVector3& position) {
+        return position.x >= section.bounds.minimum.x && position.x <= section.bounds.maximum.x &&
+               position.y >= section.bounds.minimum.y && position.y <= section.bounds.maximum.y &&
+               position.z >= section.bounds.minimum.z && position.z <= section.bounds.maximum.z;
+    };
+    bool sawSlopeAwareTopNormal = false;
+    for (const auto& vertex : primitive.vertices)
+    {
+        if (!std::isfinite(vertex.position.x) || !std::isfinite(vertex.position.y) ||
+            !std::isfinite(vertex.position.z) || !std::isfinite(vertex.normal.x) ||
+            !std::isfinite(vertex.normal.y) || !std::isfinite(vertex.normal.z) || !inBounds(vertex.position))
+        {
+            return false;
+        }
+    }
+    for (std::size_t cell = 0; cell < ExpectedCells; ++cell)
+    {
+        const auto& topNormal = primitive.vertices[cell * 16U].normal;
+        sawSlopeAwareTopNormal = sawSlopeAwareTopNormal || std::abs(topNormal.x) > 0.0001F;
+        for (std::size_t vertex = 1; vertex < 4; ++vertex)
+        {
+            const auto& normal = primitive.vertices[cell * 16U + vertex].normal;
+            if (normal.x != topNormal.x || normal.y != topNormal.y || normal.z != topNormal.z || !(normal.y > 0.0F))
+            {
+                return false;
+            }
+        }
+    }
+    if (!sawSlopeAwareTopNormal)
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < primitive.indices.size(); index += 3)
+    {
+        const std::uint32_t ia = primitive.indices[index];
+        const std::uint32_t ib = primitive.indices[index + 1];
+        const std::uint32_t ic = primitive.indices[index + 2];
+        if (ia >= primitive.vertices.size() || ib >= primitive.vertices.size() || ic >= primitive.vertices.size())
+        {
+            return false;
+        }
+        const auto& a = primitive.vertices[ia].position;
+        const auto& b = primitive.vertices[ib].position;
+        const auto& c = primitive.vertices[ic].position;
+        const double ux = static_cast<double>(b.x) - static_cast<double>(a.x);
+        const double uy = static_cast<double>(b.y) - static_cast<double>(a.y);
+        const double uz = static_cast<double>(b.z) - static_cast<double>(a.z);
+        const double vx = static_cast<double>(c.x) - static_cast<double>(a.x);
+        const double vy = static_cast<double>(c.y) - static_cast<double>(a.y);
+        const double vz = static_cast<double>(c.z) - static_cast<double>(a.z);
+        const double crossX = uy * vz - uz * vy;
+        const double crossY = uz * vx - ux * vz;
+        const double crossZ = ux * vy - uy * vx;
+        const std::size_t face = (index / 3U / 2U) % 4U;
+        if (!std::isfinite(crossX) || !std::isfinite(crossY) || !std::isfinite(crossZ) ||
+            (face == 0U && !(crossY > 0.0)) || (face == 1U && !(crossZ > 0.0)) ||
+            (face == 2U && !(crossZ < 0.0)) || (face == 3U && !(crossY < 0.0)))
+        {
+            return false;
+        }
+    }
+
+    const auto& duplicate = second->renderGeometry.primitives.front();
+    if (section.bounds.minimum.x != second->bounds.minimum.x || section.bounds.minimum.y != second->bounds.minimum.y ||
+        section.bounds.minimum.z != second->bounds.minimum.z || section.bounds.maximum.x != second->bounds.maximum.x ||
+        section.bounds.maximum.y != second->bounds.maximum.y || section.bounds.maximum.z != second->bounds.maximum.z ||
+        primitive.indices != duplicate.indices || primitive.vertices.size() != duplicate.vertices.size())
+    {
+        return false;
+    }
+    for (std::size_t vertex = 0; vertex < primitive.vertices.size(); ++vertex)
+    {
+        const auto& a = primitive.vertices[vertex];
+        const auto& b = duplicate.vertices[vertex];
+        if (a.position.x != b.position.x || a.position.y != b.position.y || a.position.z != b.position.z ||
+            a.normal.x != b.normal.x || a.normal.y != b.normal.y || a.normal.z != b.normal.z)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool M3BSeabedSectionRejectsMalformedInput()
+{
+    using DeepRun::Game::BuildSeabedSection;
+    using DeepRun::Game::EnvironmentSectionId;
+    using DeepRun::Game::SeabedProfileConfig;
+
+    const EnvironmentSectionId valid{"seabed_01"};
+    const std::array<EnvironmentSectionId, 6> malformedIds{
+        EnvironmentSectionId{""}, EnvironmentSectionId{"../seabed"}, EnvironmentSectionId{"seabed/other"},
+        EnvironmentSectionId{"seabed\\other"}, EnvironmentSectionId{"seabed.name"}, EnvironmentSectionId{"seabed:01"}};
+    for (const auto& id : malformedIds)
+    {
+        if (id.IsValid() || BuildSeabedSection(id, {}))
+        {
+            return false;
+        }
+    }
+
+    const auto rejects = [&](const SeabedProfileConfig& profile) { return !BuildSeabedSection(valid, profile); };
+    SeabedProfileConfig sampleCountTooSmall;
+    sampleCountTooSmall.sampleCount = 1;
+    SeabedProfileConfig sampleCountTooLarge;
+    sampleCountTooLarge.sampleCount = 4097;
+    SeabedProfileConfig invertedRange;
+    invertedRange.maxX = invertedRange.minX;
+    SeabedProfileConfig nonFinite;
+    nonFinite.primaryAmplitudeMeters = std::numeric_limits<float>::infinity();
+    SeabedProfileConfig negativeAmplitude;
+    negativeAmplitude.secondaryAmplitudeMeters = -1.0F;
+    SeabedProfileConfig zeroPeriod;
+    zeroPeriod.primaryWavePeriodMeters = 0.0F;
+    SeabedProfileConfig zeroThickness;
+    zeroThickness.zThicknessMeters = 0.0F;
+    SeabedProfileConfig fillAtSurface;
+    fillAtSurface.fillBottomYMeters = -100.0F;
+    SeabedProfileConfig unrepresentableSpan;
+    unrepresentableSpan.minX = -std::numeric_limits<float>::max();
+    unrepresentableSpan.maxX = std::numeric_limits<float>::max();
+    return rejects(sampleCountTooSmall) && rejects(sampleCountTooLarge) && rejects(invertedRange) && rejects(nonFinite) &&
+           rejects(negativeAmplitude) && rejects(zeroPeriod) && rejects(zeroThickness) && rejects(fillAtSurface) &&
+           rejects(unrepresentableSpan);
+}
+
 // ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
@@ -7671,6 +7844,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-A Reinhard tone-map properties", M3AToneMapProperties},
         {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
+        {"M3-B deterministic seabed geometry contract", M3BSeabedSectionGeometryContract},
+        {"M3-B seabed rejects malformed configuration and IDs", M3BSeabedSectionRejectsMalformedInput},
         // M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only).
         {"E1 centered force produces translation", ForceCenteredProducesTranslation},
         {"E1 off-center force produces torque", ForceOffCenterProducesTorque},

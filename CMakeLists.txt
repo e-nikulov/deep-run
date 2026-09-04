@@ -141,6 +141,7 @@ target_link_libraries(DeepRunEngine
 
 add_executable(DeepRun
     DeepRun/Main.cpp
+    Game/Environment/EnvironmentSection.cpp
     Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
@@ -180,6 +181,7 @@ enable_testing()
 
 add_executable(DeepRunTests
     Tests/TestMain.cpp
+    Game/Environment/EnvironmentSection.cpp
     Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
