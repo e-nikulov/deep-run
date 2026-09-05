@@ -412,8 +412,8 @@ int main(const int argumentCount, char** argumentValues)
                 }
 
                 ++renderFrames;
-                return rendered->drawCalls == 4 && rendered->submittedPrimitives == 4 &&
-                       rendered->submittedIndices == 1632;
+                return rendered->drawCalls == 5 && rendered->submittedPrimitives == 5 &&
+                       rendered->submittedIndices == 5472;
             });
         return application.Run();
     }

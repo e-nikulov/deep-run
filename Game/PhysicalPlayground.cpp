@@ -29,6 +29,7 @@ namespace
 {
 constexpr std::string_view SubmarineModelPath = "submarines/prototype/submarine_prototype.glb";
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
+constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
 
 // Game-owned M2 prototype tuning (ADR-0008). This is gameplay/prototype tuning only, not classified or
 // precise real-vessel hydrostatic data. Collision bounds configure only the collision proxy; displaced-water
@@ -105,6 +106,27 @@ std::string FormatVector(const Physics::PhysicsVector3& value)
     std::ostringstream stream;
     stream << '(' << value.x << ", " << value.y << ", " << value.z << ')';
     return stream.str();
+}
+
+std::string FormatBounds(const EnvironmentBounds& bounds)
+{
+    std::ostringstream stream;
+    stream << "min(" << bounds.minimum.x << ", " << bounds.minimum.y << ", " << bounds.minimum.z
+           << "), max(" << bounds.maximum.x << ", " << bounds.maximum.y << ", " << bounds.maximum.z << ')';
+    return stream.str();
+}
+
+Assets::ModelBounds CombineBounds(const Assets::ModelBounds& first, const Assets::ModelBounds& second) noexcept
+{
+    return Assets::ModelBounds{
+        .minimum = {
+            (std::min)(first.minimum.x, second.minimum.x),
+            (std::min)(first.minimum.y, second.minimum.y),
+            (std::min)(first.minimum.z, second.minimum.z)},
+        .maximum = {
+            (std::max)(first.maximum.x, second.maximum.x),
+            (std::max)(first.maximum.y, second.maximum.y),
+            (std::max)(first.maximum.z, second.maximum.z)}};
 }
 
 bool NearlyEqualRelative(const double actual, const double expected, const double relativeTolerance)
@@ -242,6 +264,36 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     if (!water)
     {
         return std::unexpected("physical playground water body creation failed: " + water.error().message);
+    }
+
+    // M3-B environment composition: Game owns the stable section and uses the renderer solely as a consumer
+    // of its existing ModelAsset. The world-space section remains independent of WaterBody/physics truth;
+    // this one check only confirms the canonical presentation floor is below the authoritative water surface.
+    auto seabed = BuildSeabedSection(EnvironmentSectionId{std::string(M3SeabedSectionId)}, {});
+    if (!seabed)
+    {
+        return std::unexpected("physical playground seabed construction failed: " + seabed.error());
+    }
+    if (seabed->bounds.maximum.y >= water->Config().surfaceLevelY)
+    {
+        return std::unexpected("physical playground canonical seabed must remain below the WaterBody surface");
+    }
+
+    const auto seabedUpload = renderer.UploadModel(seabed->renderGeometry);
+    if (!seabedUpload)
+    {
+        return std::unexpected("physical playground seabed GPU upload failed: " + seabedUpload.error());
+    }
+    const auto seabedDraws = Render::PrepareModelDraws(seabed->renderGeometry);
+    const std::size_t seabedVertexCount = seabed->renderGeometry.primitives.front().vertices.size();
+    const std::size_t seabedIndexCount = seabed->renderGeometry.primitives.front().indices.size();
+    if (!seabedUpload->stats.uploadCompleted || !seabedUpload->handle.IsValid() ||
+        !renderer.IsGpuModelValid(seabedUpload->handle) || !seabedDraws || seabedDraws->size() != 1U ||
+        seabedUpload->stats.primitiveCount != seabed->renderGeometry.primitives.size() ||
+        seabedUpload->stats.vertexCount != seabedVertexCount || seabedUpload->stats.indexCount != seabedIndexCount ||
+        seabedDraws->front().modelToWorld.values != Assets::ModelTransform{}.values)
+    {
+        return std::unexpected("physical playground seabed presentation initialization validation failed");
     }
 
     // Asset-space pivot (ADR-0008): the C1 box shape is centered on the body origin, so modelToBody =
@@ -386,6 +438,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
     modelAsset_ = *model;
     submarineModel_ = upload->handle;
+    seabedSection_ = std::move(*seabed);
+    seabedModel_ = seabedUpload->handle;
+    seabedDraws_ = std::move(*seabedDraws);
     physicsBody_ = body;
     physics_ = &physics;
     water_ = *water;
@@ -424,6 +479,12 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             std::to_string(initialBuoyancy->totalSubmergedVolumeCubicMeters) + " m^3, gravity " +
             std::to_string(*gravityMagnitude) + " m/s^2, buoyancy " +
             std::to_string(initialForce.y) + " N, weight " + std::to_string(expectedWeight) + " N");
+    PlaygroundLog().Info(
+        Diagnostics::LogCategory::Render,
+        "Environment section ready: " + seabedSection_->id.value + ", bounds " +
+            FormatBounds(seabedSection_->bounds) + ", vertices " + std::to_string(seabedVertexCount) +
+            ", indices " + std::to_string(seabedIndexCount) + ", triangles " +
+            std::to_string(seabedIndexCount / 3U) + ", GPU upload success");
     return {};
 }
 
@@ -733,7 +794,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
 std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     Render::D3D12Renderer& renderer) const
 {
-    if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || physics_ == nullptr ||
+    if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
+        !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 1U || physics_ == nullptr ||
         !physicsBody_.IsValid() || !water_.has_value())
     {
         return std::unexpected("physical playground model assets are no longer valid");
@@ -788,11 +850,12 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     const Assets::ModelVector3 target{initialBodyWorldCenter_.x, initialBodyWorldCenter_.y,
                                       initialBodyWorldCenter_.z};
+    const Assets::ModelBounds cameraDepthBounds = CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds);
     const auto camera = Render::BuildFixedWorldSideViewCamera(
         target,
         renderer.AspectRatio(),
         M2GameplayCameraHorizontalSpanMeters,
-        *worldBounds);
+        cameraDepthBounds);
     if (!camera || !Render::BoundsFitInCamera(*worldBounds, *camera))
     {
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
@@ -828,10 +891,15 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
 
-    const auto stats = renderer.DrawModel(submarineModel_, *draws, *camera);
-    if (!stats)
+    const auto seabedStats = renderer.DrawModel(seabedModel_, seabedDraws_, *camera);
+    if (!seabedStats)
     {
-        return stats;
+        return seabedStats;
+    }
+    const auto submarineStats = renderer.DrawModel(submarineModel_, *draws, *camera);
+    if (!submarineStats)
+    {
+        return submarineStats;
     }
 
     // Physics diagnostics live in FixedUpdate. Render logs only the bounded presentation contract once, so
@@ -852,7 +920,10 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
                     std::to_string(*waterline));
         }
     }
-    return stats;
+    return Render::ModelDrawStats{
+        .drawCalls = seabedStats->drawCalls + submarineStats->drawCalls,
+        .submittedPrimitives = seabedStats->submittedPrimitives + submarineStats->submittedPrimitives,
+        .submittedIndices = seabedStats->submittedIndices + submarineStats->submittedIndices};
 }
 
 Render::GpuModelHandle PhysicalPlayground::SubmarineModel() const noexcept

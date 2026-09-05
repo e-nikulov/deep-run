@@ -1,7 +1,6 @@
 #include "Game/Environment/EnvironmentSection.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <limits>
 #include <sstream>

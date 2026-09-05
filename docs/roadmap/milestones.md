@@ -443,7 +443,7 @@ Implementation status:
 |---|---|---|
 | A | Scene-linear HDR intermediate plus deterministic SDR tone mapping | ACCEPTED |
 | A.1 | Capability-gated real HDR display output | ACCEPTED |
-| B | Environment geometry foundation | NOT STARTED |
+| B | Environment geometry foundation + first seabed | READY FOR REVIEW |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual

@@ -5,6 +5,7 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Game/Environment/EnvironmentSection.h"
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
@@ -21,6 +22,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace DeepRun::Assets
 {
@@ -88,6 +90,11 @@ public:
 private:
     Assets::AssetHandle<Assets::ModelAsset> modelAsset_;
     Render::GpuModelHandle submarineModel_;
+    // M3-B authoritative environment data remains Game-owned. The GPU model and prepared draws are
+    // presentation-only state; neither replaces the stable section ID, bounds, or renderGeometry data.
+    std::optional<EnvironmentSection> seabedSection_;
+    Render::GpuModelHandle seabedModel_;
+    std::vector<Render::ModelDrawInstance> seabedDraws_;
     Physics::PhysicsBodyHandle physicsBody_;
     // Non-owning: the Engine owns the world and outlives this playground (see class comment).
     Physics::PhysicsWorld* physics_ = nullptr;
