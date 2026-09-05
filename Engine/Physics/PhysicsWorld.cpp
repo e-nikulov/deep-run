@@ -132,10 +132,17 @@ std::uint64_t NextWorldIdentity() noexcept
 // Backend bookkeeping for one Jolt body. Slots are append-only in M2 C1 (no recycling);
 // generation increments on destroy as a safety invariant so stale handles can never alias
 // a future body if slot recycling is introduced later.
+enum class BodyKind
+{
+    Dynamic,
+    Static,
+};
+
 struct BodySlot final
 {
     JPH::BodyID bodyId{};
     std::uint32_t generation = 0;
+    BodyKind kind = BodyKind::Dynamic;
     bool active = false;
 };
 
@@ -333,10 +340,32 @@ public:
         bodies.emplace_back(BodySlot{});
         BodySlot& slot = bodies.back();
         slot.bodyId = bodyId;
+        slot.kind = BodyKind::Dynamic;
         slot.active = true;
         ++bodyCount;
         logger.Info(Diagnostics::LogCategory::Physics, "Dynamic box body created (slot " + std::to_string(bodies.size() - 1) + ")");
         return PhysicsBodyHandle(worldIdentity, bodies.size() - 1, slot.generation);
+    }
+
+    PhysicsBodyHandle CreateStaticBoxBody(const StaticBoxBodyCreateInfo& info, PhysicsError* error)
+    {
+        const auto fail = [error](PhysicsErrorCode code, const char* message) {
+            if (error) *error = {code, message};
+            return PhysicsBodyHandle{};
+        };
+        if (!initialized) return fail(PhysicsErrorCode::NotInitialized, "physics world is not initialized");
+        if (!info.position.IsFinite() || !info.halfExtents.IsFinite() ||
+            info.halfExtents.x <= 0 || info.halfExtents.y <= 0 || info.halfExtents.z <= 0)
+            return fail(PhysicsErrorCode::InvalidInput, "static box requires finite position and positive finite extents");
+        JPH::BodyCreationSettings settings(
+            new JPH::BoxShape(JPH::Vec3(info.halfExtents.x, info.halfExtents.y, info.halfExtents.z), 0.0F),
+            JPH::RVec3(info.position.x, info.position.y, info.position.z), JPH::Quat::sIdentity(),
+            JPH::EMotionType::Static, ObjectLayers::NonMoving);
+        bodies.reserve(bodies.size() + 1);
+        const auto id = physicsSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+        if (id.IsInvalid()) return fail(PhysicsErrorCode::InvalidInput, "Jolt could not allocate a static body");
+        bodies.push_back(BodySlot{.bodyId = id, .kind = BodyKind::Static, .active = true});
+        return PhysicsBodyHandle(worldIdentity, bodies.size() - 1, bodies.back().generation);
     }
 
     bool DestroyBody(PhysicsBodyHandle handle, PhysicsError* error)
@@ -361,7 +390,7 @@ public:
         bodyInterface.DestroyBody(slot->bodyId);
         slot->active = false;
         ++slot->generation; // safety invariant: stale handles must never validate against this slot again
-        logger.Info(Diagnostics::LogCategory::Physics, "Dynamic body destroyed (slot " + std::to_string(handle.Slot()) + ")");
+        logger.Info(Diagnostics::LogCategory::Physics, "Physics body destroyed (slot " + std::to_string(handle.Slot()) + ")");
         return true;
     }
 
@@ -417,6 +446,10 @@ public:
         {
             return fail(PhysicsErrorCode::InvalidHandle, "handle is invalid, foreign, or stale");
         }
+        if (slot->kind != BodyKind::Dynamic)
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "force cannot be applied to a static body");
+        }
 
         // Finite-only validation: a zero force is a legitimate no-op (simulation systems can naturally
         // compute zero), and finite magnitudes are never clamped — there is no arbitrary Newtons cap.
@@ -470,6 +503,10 @@ public:
         if (slot == nullptr)
         {
             return fail(PhysicsErrorCode::InvalidHandle, "handle is invalid, foreign, or stale");
+        }
+        if (slot->kind != BodyKind::Dynamic)
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "torque cannot be applied to a static body");
         }
 
         if (!torqueNewtonMeters.IsFinite())
@@ -675,6 +712,11 @@ PhysicsBodyHandle PhysicsWorld::CreateDynamicBoxBody(const DynamicBoxBodyCreateI
 {
     assert(impl_ != nullptr);
     return impl_->CreateDynamicBoxBody(info, error);
+}
+
+PhysicsBodyHandle PhysicsWorld::CreateStaticBoxBody(const StaticBoxBodyCreateInfo& info, PhysicsError* error)
+{
+    return impl_->CreateStaticBoxBody(info, error);
 }
 
 bool PhysicsWorld::DestroyBody(PhysicsBodyHandle handle, PhysicsError* error)

@@ -154,6 +154,14 @@ struct PhysicsDegreesOfFreedom final
     [[nodiscard]] bool operator==(const PhysicsDegreesOfFreedom&) const noexcept = default;
 };
 
+// Generic axis-aligned static box. PhysicsWorld owns the body lifetime.
+struct StaticBoxBodyCreateInfo final
+{
+    PhysicsVector3 halfExtents{};
+    PhysicsVector3 position{};
+    bool operator==(const StaticBoxBodyCreateInfo&) const noexcept = default;
+};
+
 // Creation parameters for a dynamic box rigid body (M2 Slice C1).
 // Box extents are half-extents: the collision box spans [-halfExtents, +halfExtents] around the body position.
 struct DynamicBoxBodyCreateInfo final

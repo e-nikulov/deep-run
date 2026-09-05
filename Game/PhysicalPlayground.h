@@ -93,6 +93,8 @@ private:
     // M3-B authoritative environment data remains Game-owned. The GPU model and prepared draws are
     // presentation-only state; neither replaces the stable section ID, bounds, or renderGeometry data.
     std::optional<EnvironmentSection> seabedSection_;
+    // Non-owning handles; PhysicsWorld destroys the static bodies at world shutdown.
+    std::vector<Physics::PhysicsBodyHandle> seabedBodies_;
     Render::GpuModelHandle seabedModel_;
     std::vector<Render::ModelDrawInstance> seabedDraws_;
     Physics::PhysicsBodyHandle physicsBody_;

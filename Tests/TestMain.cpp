@@ -7113,6 +7113,158 @@ bool M3A1HdrScRgbMappingProperties()
            std::abs(referenceWhite - 1.0F) < 0.0001F && two > referenceWhite && twenty > two;
 }
 
+bool M3B1StaticBodyContract()
+{
+    using namespace DeepRun::Physics;
+    DeepRun::Diagnostics::Logger logger;
+    PhysicsWorld world(logger);
+    PhysicsError error;
+    const StaticBoxBodyCreateInfo floor{{10, 1, 3}, {0, -1, 0}};
+    if (world.CreateStaticBoxBody(floor, &error).IsValid() ||
+        error.code != PhysicsErrorCode::NotInitialized || !world.Initialize()) return false;
+    for (const float invalid : {0.0F, -1.0F, std::numeric_limits<float>::infinity(),
+                               std::numeric_limits<float>::quiet_NaN()})
+    {
+        auto bad = floor;
+        bad.halfExtents.x = invalid;
+        if (world.CreateStaticBoxBody(bad, &error).IsValid() || error.code != PhysicsErrorCode::InvalidInput)
+            return false;
+    }
+    auto bad = floor;
+    bad.position.y = std::numeric_limits<float>::quiet_NaN();
+    if (world.CreateStaticBoxBody(bad).IsValid()) return false;
+    const auto fixed = world.CreateStaticBoxBody(floor);
+    const auto falling = world.CreateDynamicBoxBody({.halfExtents = {1,1,1}, .mass = 10, .position = {0,5,0}});
+    if (!fixed.IsValid() || !falling.IsValid()) return false;
+    for (int i = 0; i < 600; ++i) world.Step(1.0F / 60.0F);
+    const auto fixedState = world.GetBodyState(fixed);
+    const auto resting = world.GetBodyState(falling);
+    if (!fixedState || fixedState->position != floor.position || fixedState->linearVelocity != PhysicsVector3{} ||
+        !resting || std::abs(resting->position.y - 1) > 0.1F || std::abs(resting->linearVelocity.y) > 0.1F)
+        return false;
+    return world.DestroyBody(fixed) && !world.GetBodyState(fixed) && !world.DestroyBody(fixed) &&
+           world.GetBodyState(falling).has_value();
+}
+
+bool M3B1StaticBodyRejectsMutation()
+{
+    using namespace DeepRun::Physics;
+    DeepRun::Diagnostics::Logger logger;
+    PhysicsWorld world(logger);
+    if (!world.Initialize())
+    {
+        return false;
+    }
+
+    const StaticBoxBodyCreateInfo staticInfo{{10.0F, 1.0F, 3.0F}, {3.0F, -2.0F, 0.0F}};
+    const auto staticBody = world.CreateStaticBoxBody(staticInfo);
+    DynamicBoxBodyCreateInfo dynamicInfo;
+    dynamicInfo.halfExtents = {1.0F, 1.0F, 1.0F};
+    dynamicInfo.mass = 10.0F;
+    dynamicInfo.position = {-3.0F, 5.0F, 0.0F};
+    dynamicInfo.gravityEnabled = false;
+    const auto dynamicBody = world.CreateDynamicBoxBody(dynamicInfo);
+    const auto before = world.GetBodyState(staticBody);
+    if (!staticBody.IsValid() || !dynamicBody.IsValid() || !before)
+    {
+        return false;
+    }
+
+    PhysicsError error;
+    if (world.AddForceAtWorldPosition(staticBody, {50.0F, 0.0F, 0.0F}, before->position, &error) ||
+        error.code != PhysicsErrorCode::InvalidInput || error.message != "force cannot be applied to a static body" ||
+        world.AddTorque(staticBody, {0.0F, 0.0F, 50.0F}, &error) ||
+        error.code != PhysicsErrorCode::InvalidInput || error.message != "torque cannot be applied to a static body" ||
+        !world.GetBodyState(staticBody) ||
+        !world.AddForceAtWorldPosition(dynamicBody, {50.0F, 0.0F, 0.0F}, dynamicInfo.position) ||
+        !world.AddTorque(dynamicBody, {0.0F, 0.0F, 50.0F}))
+    {
+        return false;
+    }
+
+    world.Step(1.0F / 60.0F);
+    const auto after = world.GetBodyState(staticBody);
+    const auto dynamicAfter = world.GetBodyState(dynamicBody);
+    if (!after || !dynamicAfter || after->position != before->position ||
+        !PhysicsQuaternion::SameRotation(after->orientation, before->orientation) ||
+        after->linearVelocity != before->linearVelocity || after->angularVelocity != before->angularVelocity ||
+        dynamicAfter->position.x <= dynamicInfo.position.x || std::abs(dynamicAfter->angularVelocity.z) <= 0.0F)
+    {
+        return false;
+    }
+
+    return world.DestroyBody(staticBody) && !world.GetBodyState(staticBody) &&
+           !world.DestroyBody(staticBody, &error) && error.code == PhysicsErrorCode::InvalidHandle &&
+           world.DestroyBody(dynamicBody);
+}
+
+bool M3B1CollisionTopologyIndependent()
+{
+    const auto section = DeepRun::Game::BuildSeabedSection({"m3_seabed_01"}, {});
+    DeepRun::Game::SeabedProfileConfig profile;
+    profile.sampleCount = 321;
+    const auto dense = DeepRun::Game::BuildSeabedSection({"m3_seabed_01"}, profile);
+    if (!section || !dense || section->collisionBoxes.size() != 32 || section->id != dense->id ||
+        section->collisionBoxes != dense->collisionBoxes ||
+        section->renderGeometry.primitives[0].vertices.size() == dense->renderGeometry.primitives[0].vertices.size())
+        return false;
+    float deviation = 0;
+    for (const auto& box : section->collisionBoxes)
+    {
+        const float top = box.position.y + box.halfExtents.y;
+        if (box.position.x - box.halfExtents.x < section->bounds.minimum.x - 0.001F ||
+            box.position.x + box.halfExtents.x > section->bounds.maximum.x + 0.001F ||
+            std::abs(box.position.y - box.halfExtents.y - section->bounds.minimum.y) > 0.001F ||
+            top > section->bounds.maximum.y + 1.0F || box.halfExtents.z != 3) return false;
+        // Test-only comparison against rendered surface samples, never used to construct collision.
+        for (std::size_t v = 0; v < section->renderGeometry.primitives[0].vertices.size(); v += 16)
+        {
+            const auto p = section->renderGeometry.primitives[0].vertices[v].position;
+            if (std::abs(p.x - box.position.x) <= box.halfExtents.x)
+                deviation = std::max(deviation, std::abs(p.y - top));
+        }
+    }
+    std::cout << "[M3-B.1 evidence] 32 collision columns / 160 render cells; sampled vertical error " << deviation << " m\n";
+    return deviation < 6.0F;
+}
+
+bool M3B1CanonicalSubmarineContact()
+{
+    using namespace DeepRun::Physics;
+    const auto section = DeepRun::Game::BuildSeabedSection({"m3_seabed_01"}, {});
+    if (!section) return false;
+    DeepRun::Diagnostics::Logger logger;
+    PhysicsWorld world(logger);
+    if (!world.Initialize()) return false;
+    float highest = -1000;
+    for (const auto& box : section->collisionBoxes)
+    {
+        if (!world.CreateStaticBoxBody(box).IsValid()) return false;
+        highest = std::max(highest, box.position.y + box.halfExtents.y);
+    }
+    // Same canonical vessel dimensions, mass, position and planar DOFs. Gravity alone drives contact;
+    // production buoyancy/hydrodynamics are unchanged. No renderer or GPU is constructed.
+    if (-100.0F - 9.7F <= highest) return false;
+    DynamicBoxBodyCreateInfo info{.halfExtents = {51, 9.7F, 10.5F}, .mass = 12'000'000,
+                                .position = {1,-100,0}};
+    info.degreesOfFreedom.translationZ = false;
+    info.degreesOfFreedom.rotationX = false;
+    info.degreesOfFreedom.rotationY = false;
+    const auto vessel = world.CreateDynamicBoxBody(info);
+    if (!vessel.IsValid()) return false;
+    for (int i = 0; i < 1200; ++i)
+    {
+        world.Step(1.0F / 60.0F);
+        const auto state = world.GetBodyState(vessel);
+        if (!state || !state->position.IsFinite() || state->position.y < -175 || state->position.z != 0)
+            return false;
+    }
+    const auto state = world.GetBodyState(vessel);
+    std::cout << "[M3-B.1 evidence] canonical vessel dropped from Y=-100; resting Y=" << state->position.y
+              << ", Vy=" << state->linearVelocity.y << "\n";
+    return state->position.y < -110 && state->position.y > -170 && std::abs(state->linearVelocity.y) < 0.1F;
+}
+
 bool M3BSeabedSectionGeometryContract()
 {
     const auto first = DeepRun::Game::BuildSeabedSection({"seabed-main"}, {});
@@ -7845,6 +7997,10 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
         {"M3-B deterministic seabed geometry contract", M3BSeabedSectionGeometryContract},
+        {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
+        {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
+        {"M3-B.1 independent collision topology", M3B1CollisionTopologyIndependent},
+        {"M3-B.1 canonical submarine seabed contact", M3B1CanonicalSubmarineContact},
         {"M3-B seabed rejects malformed configuration and IDs", M3BSeabedSectionRejectsMalformedInput},
         // M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only).
         {"E1 centered force produces translation", ForceCenteredProducesTranslation},

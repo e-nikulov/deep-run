@@ -333,6 +333,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     m2VesselDof.rotationY = false;
     m2VesselDof.rotationZ = true;
 
+    // The canonical identity-oriented vessel must start above every coarse column it overlaps.
+    for (const auto& box : seabed->collisionBoxes)
+    {
+        if (std::abs(initialBodyWorldCenter.x - box.position.x) < halfExtents.x + box.halfExtents.x &&
+            initialBodyWorldCenter.y - halfExtents.y <= box.position.y + box.halfExtents.y)
+            return std::unexpected("canonical submarine starts penetrating seabed collision");
+    }
+
     Physics::DynamicBoxBodyCreateInfo bodyInfo;
     bodyInfo.halfExtents = halfExtents;
     bodyInfo.mass = M2PrototypeMassKg; // gameplay/prototype tuning, see constant comment
@@ -435,6 +443,24 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                 (control ? std::string{} : ": " + control.error().message));
         }
     }
+
+    std::vector<Physics::PhysicsBodyHandle> seabedBodies;
+    seabedBodies.reserve(seabed->collisionBoxes.size());
+    for (const auto& box : seabed->collisionBoxes)
+    {
+        const auto handle = physics.CreateStaticBoxBody(box, &physicsError);
+        if (!handle.IsValid())
+        {
+            for (const auto previous : seabedBodies) (void)physics.DestroyBody(previous);
+            (void)physics.DestroyBody(body);
+            return std::unexpected("seabed static collision creation failed: " + physicsError.message);
+        }
+        seabedBodies.push_back(handle);
+    }
+    seabedBodies_ = std::move(seabedBodies);
+    PlaygroundLog().Info(Diagnostics::LogCategory::Physics,
+        "Environment collision ready: " + seabed->id.value + ", static boxes " +
+        std::to_string(seabedBodies_.size()));
 
     modelAsset_ = *model;
     submarineModel_ = upload->handle;

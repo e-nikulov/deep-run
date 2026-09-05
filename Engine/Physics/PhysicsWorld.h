@@ -48,6 +48,7 @@ public:
     // Creates a dynamic box rigid body. Returns an opaque handle valid only in this world.
     // Recoverable failures (invalid input, capacity) are reported through the error out-parameter.
     PhysicsBodyHandle CreateDynamicBoxBody(const DynamicBoxBodyCreateInfo& info, PhysicsError* error = nullptr);
+    PhysicsBodyHandle CreateStaticBoxBody(const StaticBoxBodyCreateInfo& info, PhysicsError* error = nullptr);
 
     // Removes and destroys the body referenced by a handle from this world.
     // After a successful destroy the handle is invalid forever; destroying increments the slot's
@@ -67,7 +68,8 @@ public:
     // point differs from the body's center of mass, Jolt derives the resulting torque itself; callers never
     // compute it. The backend activates a sleeping dynamic body on a successful non-zero call (standard Jolt
     // behaviour).
-    // Returns false with PhysicsErrorCode::NotInitialized when the world is not initialized,
+    // Requires a dynamic body. Static-body handles are rejected with PhysicsErrorCode::InvalidInput before
+    // the backend is called. Returns false with PhysicsErrorCode::NotInitialized when the world is not initialized,
     // PhysicsErrorCode::InvalidHandle for invalid/foreign/stale handles, and
     // PhysicsErrorCode::InvalidInput when force or world position contains NaN/Inf.
     bool AddForceAtWorldPosition(
@@ -80,7 +82,7 @@ public:
     // continuous torque, not angular impulse: do not multiply by delta time, and re-apply it each fixed tick.
     // Jolt clears the accumulated torque after Step. A finite zero torque is a successful true no-op that
     // does not touch the backend or wake a sleeping body; a non-zero torque explicitly activates the body.
-    // Invalid world state, invalid/foreign/stale handles, and NaN/Inf input are recoverable errors.
+    // Static-body handles, invalid world state, invalid/foreign/stale handles, and NaN/Inf input are recoverable errors.
     bool AddTorque(
         PhysicsBodyHandle handle,
         PhysicsVector3 torqueNewtonMeters,

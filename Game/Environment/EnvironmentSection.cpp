@@ -300,6 +300,27 @@ std::expected<EnvironmentSection, std::string> BuildSeabedSection(
     asset.nodes.push_back(node);
     asset.bounds = Assets::ModelBounds{boundsMin, boundsMax};
 
-    return EnvironmentSection{.id = id, .bounds = bounds, .renderGeometry = std::move(asset)};
+    // Fixed collision resolution is independent of presentation sampleCount. Adjoining columns fill
+    // down to the authored bottom and overlap the XY gameplay plane through finite Z thickness.
+    constexpr int CollisionColumns = 32;
+    std::vector<Physics::StaticBoxBodyCreateInfo> collisionBoxes;
+    collisionBoxes.reserve(CollisionColumns);
+    for (int i = 0; i < CollisionColumns; ++i)
+    {
+        const float x0 = profile.minX + spanX * (static_cast<float>(i) / CollisionColumns);
+        const float x1 = profile.minX + spanX * (static_cast<float>(i + 1) / CollisionColumns);
+        const float x = x0 + (x1 - x0) * 0.5F;
+        const float top = surfaceYAt(x);
+        const float halfHeight = (top - profile.fillBottomYMeters) * 0.5F;
+        Physics::StaticBoxBodyCreateInfo box{
+            .halfExtents = {(x1 - x0) * 0.5F, halfHeight, zMax},
+            .position = {x, profile.fillBottomYMeters + halfHeight, 0.0F}};
+        if (!box.position.IsFinite() || !box.halfExtents.IsFinite() ||
+            box.halfExtents.x <= 0 || box.halfExtents.y <= 0)
+            return std::unexpected("seabed collision samples are not representable");
+        collisionBoxes.push_back(box);
+    }
+    return EnvironmentSection{.id = id, .bounds = bounds, .renderGeometry = std::move(asset),
+                              .collisionBoxes = std::move(collisionBoxes)};
 }
 } // namespace DeepRun::Game

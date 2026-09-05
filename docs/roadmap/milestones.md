@@ -443,7 +443,8 @@ Implementation status:
 |---|---|---|
 | A | Scene-linear HDR intermediate plus deterministic SDR tone mapping | ACCEPTED |
 | A.1 | Capability-gated real HDR display output | ACCEPTED |
-| B | Environment geometry foundation + first seabed | READY FOR REVIEW |
+| B | Environment geometry foundation + first seabed | ACCEPTED |
+| B.1 | Coarse environment collision | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -465,6 +466,14 @@ its temporary fixed reference white is 80 nits (scRGB 1.0) and it uses a bounded
 shoulder. HDR10/PQ application output path, HDR10 metadata, automatic exposure, calibration UI, final
 shipping HDR UI composition, runtime SDR/HDR output-mode switching, monitor hot-plug/dynamic output
 refresh, and FP16 bandwidth profiling are deferred.
+
+M3-B.1 retains Game-owned section identity and adds 32 static box columns sampled independently
+from the authored seabed profile (versus 161 visual samples / 160 render cells). The generic
+`PhysicsWorld::CreateStaticBoxBody` consumes those descriptions, using the existing opaque handle
+and world lifetime contract. Collision never reads render triangles or GPU data. The canonical
+headless vessel-drop regression settles against the floor; initial hydrostatic placement is clear.
+The measured maximum vertical difference at render samples is 5.24 m (rounded up); contacts are
+deliberately stepped, not triangle-accurate. Grounding damage and other environment systems remain deferred.
 
 Future work:
 

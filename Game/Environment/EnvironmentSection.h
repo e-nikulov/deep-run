@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/Assets/ModelAsset.h"
+#include "Engine/Physics/PhysicsTypes.h"
 
 #include <expected>
 #include <string>
@@ -14,7 +15,8 @@ namespace DeepRun::Game
 // data. This module is renderer-neutral: it produces stable identity, deterministic world-space
 // bounds, and a renderer geometry payload (an Assets::ModelAsset) that the classic indexed D3D12
 // path later uploads. It owns NO D3D12 resources and NO physics/navigation/acoustic state, so it
-// is fully runnable headless and never becomes the presentation or collision authority.
+// is fully runnable headless. M3-B.1 adds independent coarse collision descriptions below;
+// PhysicsWorld owns their backend bodies, while this section remains environment authority.
 //
 // DeepRun's rule that "the renderer is not the source of truth" is preserved here: the renderer
 // only consumes the ModelAsset; this section (owned by the scenario) is the source of the stable
@@ -24,7 +26,7 @@ namespace DeepRun::Game
 // Scope for M3-B: ONE deterministic representative seabed section with a modest, authored
 // (non-procedural) profile. This is architecture + a visible floor, NOT a terrain system: no
 // Perlin/procedural generation, no chunk streaming/background paging/origin rebasing, no LOD, no
-// collision, no navigation, no acoustics. A bounded small set of sections (here, one) is enough
+// navigation or acoustics. M3-B.1 adds only coarse static boxes. One bounded section is enough
 // to prove chunk-compatible identity and bounds.
 
 // Stable, renderer-independent identity for one environment section. It is a small authored
@@ -65,8 +67,9 @@ struct SeabedProfileConfig final
     float primaryWavePeriodMeters = 400.0F;
     float secondaryWavePeriodMeters = 150.0F;
 
-    // A small Z thickness (metres) so the section is a bounded, closed world volume with stable
-    // winding rather than a single zero-area plane. Gameplay remains fundamentally side-view / XY.
+    // A small finite Z thickness (metres) gives the side-view seabed a bounded renderable cross-section
+    // with stable winding rather than a zero-thickness plane. M3-B does not require a watertight closed solid.
+    // Gameplay remains fundamentally side-view / XY.
     float zThicknessMeters = 6.0F;
 };
 
@@ -93,6 +96,8 @@ struct EnvironmentSection final
     EnvironmentSectionId id{};
     EnvironmentBounds bounds{};
     Assets::ModelAsset renderGeometry;
+    // Independent coarse profile samples; never derived from render vertices or GPU data.
+    std::vector<Physics::StaticBoxBodyCreateInfo> collisionBoxes;
 };
 
 // Pure contract check for the canonical seabed material: the authored base color must be a finite,
