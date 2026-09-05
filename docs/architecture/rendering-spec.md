@@ -151,6 +151,21 @@ later model draw. This is orthographic view-dependent extinction, not a
 depth-light replacement, perspective-fog contract, fullscreen post-process,
 volumetric technique, or gameplay visibility system.
 
+M3-D adds one fixed 256-particle suspended-particulate field for the canonical orthographic side view. Game
+supplies a finite seed and bounded presentation description only; the renderer performs fixed-seed procedural
+layout generation once, owns the resulting two persistent geometry buffers (1,024 XY-quad vertices and 1,536
+indices), and draws that field once after opaque terrain and vessel draws into `SceneColorHDR`. Its dedicated
+small root signature contains 28 DWORDs of particle/camera constants and a 2-DWORD b1 root-CBV descriptor
+that binds the same immutable M3-C.1 scene-presentation payload as opaque models. The transparent PSO enables
+alpha blending, retains the existing depth test, and disables depth writes, so particles behind opaque geometry
+are rejected while nearby specks blend approximately. The shader applies a small particle-specific depth/fog
+attenuation using the shared snapshot; it does not duplicate the opaque material model or create conflicting
+water coefficients. Motion is analytic lateral sway and vertically wrapped drift driven by Engine's elapsed
+frame clock as `PresentationTime`, never fixed `SimulationTime`; no per-frame heap allocation, GPU allocation,
+spawning, or deletion occurs. The field survives swap-chain resize because its GPU resources are independent of
+the size-dependent scene/depth targets. This is not arbitrary transparent sorting, a general particle engine,
+physics, sonar/acoustic state, bubbles, sediment physics, or volumetric rendering.
+
 Presentation ocean waves do not replace `WaterBody` truth. When CPU wave
 queries become authoritative for floating bodies, Simulation owns that query
 state and the renderer visualizes a compatible snapshot.

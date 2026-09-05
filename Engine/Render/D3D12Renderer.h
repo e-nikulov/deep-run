@@ -5,6 +5,7 @@
 #include "Engine/Render/DisplayOutput.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Engine/Render/SuspendedParticles.h"
 #include "Engine/Render/ViewPathFog.h"
 
 #include <d3d12.h>
@@ -60,6 +61,16 @@ public:
     [[nodiscard]] std::expected<void, std::string> SetScenePresentation(
         const ScenePresentationParameters& parameters);
 
+    // Creates the one bounded, renderer-owned M3-D field outside a frame. The layout input is a small
+    // Game-owned presentation description; it never creates simulation, physics, or environment authority.
+    [[nodiscard]] std::expected<void, std::string> ConfigureSuspendedParticleField(
+        const SuspendedParticleFieldParameters& parameters);
+    [[nodiscard]] std::expected<SuspendedParticleDrawStats, std::string> DrawSuspendedParticleField(
+        const OrthographicCamera& camera);
+
+    // Engine supplies its existing elapsed frame clock; this is PresentationTime only and is never simulation time.
+    void SetPresentationTime(float elapsedSeconds) noexcept;
+
     // Clears a rectangular region of the current render target with a solid color (M2 Slice D2). Valid only
     // between BeginFrame and EndFrame. The rectangle is in normalized viewport coordinates (see ViewportRect)
     // and the color is renderer-neutral RGBA; no D3D12 types leak through this API, and the renderer assigns
@@ -78,6 +89,7 @@ public:
     [[nodiscard]] bool IsInitialized() const noexcept;
     [[nodiscard]] bool IsModelPipelineReady() const noexcept;
     [[nodiscard]] bool IsDepthBufferReady() const noexcept;
+    [[nodiscard]] bool IsSuspendedParticleFieldReady() const noexcept;
     [[nodiscard]] float AspectRatio() const noexcept;
     [[nodiscard]] ID3D12Device* Device() const noexcept;
     [[nodiscard]] ID3D12GraphicsCommandList* CommandList() const noexcept;

@@ -280,6 +280,9 @@ public:
             .controllerConnected = input->IsControllerConnected()});
 
         renderer->BeginFrame();
+        // The renderer receives the existing elapsed frame clock as PresentationTime. This is deliberately
+        // outside the fixed-step loop, so M3-D visual motion cannot advance or influence SimulationTime.
+        renderer->SetPresentationTime(static_cast<float>(timer.ElapsedSeconds()));
         const bool gameRenderSucceeded = !renderHook || renderHook(*renderer);
         renderer->OutputSceneToDisplay();
         debugOverlay->Render(renderer->CommandList());

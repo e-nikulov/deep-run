@@ -20,6 +20,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Render/DepthLighting.h"
+#include "Engine/Render/SuspendedParticles.h"
 #include "Engine/Render/ViewPathFog.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/Environment/EnvironmentSection.h"
@@ -7248,6 +7249,95 @@ bool M3C1ViewPathFogProperties()
            !EvaluateViewPathFog(parameters, {0.0F, std::numeric_limits<float>::infinity(), 0.0F});
 }
 
+bool M3DUnderwaterParticleFieldProperties()
+{
+    using DeepRun::Render::EvaluateSuspendedParticlePosition;
+    using DeepRun::Render::GenerateSuspendedParticleField;
+    using DeepRun::Render::SuspendedParticleFieldParameters;
+    using DeepRun::Render::SuspendedParticleVerticalWrapPeriodSeconds;
+    using DeepRun::Render::ValidateSuspendedParticleFieldParameters;
+
+    const SuspendedParticleFieldParameters parameters{
+        .seed = 0x4D334430U,
+        .particleCount = 256U,
+        .minimumWorldPosition = {-320.0F, -260.0F, -20.0F},
+        .maximumWorldPosition = {320.0F, -15.0F, 20.0F},
+        .particleSizeMeters = 1.15F,
+        .particleOpacity = 0.18F,
+        .verticalDriftMetersPerSecond = 0.16F,
+        .lateralOscillationAmplitudeMeters = 1.4F,
+        .lateralOscillationAngularFrequency = 0.23F};
+    const auto first = GenerateSuspendedParticleField(parameters);
+    const auto repeated = GenerateSuspendedParticleField(parameters);
+    auto differentSeed = parameters;
+    differentSeed.seed ^= 0x9E3779B9U;
+    const auto different = GenerateSuspendedParticleField(differentSeed);
+    const auto wrapPeriod = SuspendedParticleVerticalWrapPeriodSeconds(parameters);
+    if (!first || !repeated || !different || !wrapPeriod || first->size() != parameters.particleCount ||
+        repeated->size() != parameters.particleCount || different->size() != parameters.particleCount)
+    {
+        return false;
+    }
+
+    bool differentLayout = false;
+    for (std::size_t index = 0; index < first->size(); ++index)
+    {
+        const auto& particle = first->at(index);
+        const auto& repeatedParticle = repeated->at(index);
+        const auto& differentParticle = different->at(index);
+        if (particle.initialWorldPosition != repeatedParticle.initialWorldPosition ||
+            particle.phaseRadians != repeatedParticle.phaseRadians ||
+            particle.initialWorldPosition[0] < parameters.minimumWorldPosition[0] ||
+            particle.initialWorldPosition[0] > parameters.maximumWorldPosition[0] ||
+            particle.initialWorldPosition[1] < parameters.minimumWorldPosition[1] ||
+            particle.initialWorldPosition[1] > parameters.maximumWorldPosition[1] ||
+            particle.initialWorldPosition[2] < parameters.minimumWorldPosition[2] ||
+            particle.initialWorldPosition[2] > parameters.maximumWorldPosition[2] ||
+            particle.initialWorldPosition[1] >= 0.0F ||
+            !std::isfinite(particle.initialWorldPosition[0]) || !std::isfinite(particle.initialWorldPosition[1]) ||
+            !std::isfinite(particle.initialWorldPosition[2]) || !std::isfinite(particle.phaseRadians))
+        {
+            return false;
+        }
+        differentLayout = differentLayout || particle.initialWorldPosition != differentParticle.initialWorldPosition ||
+                          particle.phaseRadians != differentParticle.phaseRadians;
+
+        const auto atTime = EvaluateSuspendedParticlePosition(parameters, particle, 7.25F);
+        const auto repeatedTime = EvaluateSuspendedParticlePosition(parameters, particle, 7.25F);
+        const auto afterWrap = EvaluateSuspendedParticlePosition(parameters, particle, 7.25F + *wrapPeriod);
+        if (!atTime || !repeatedTime || !afterWrap || *atTime != *repeatedTime ||
+            std::abs((*atTime)[1] - (*afterWrap)[1]) > 1.0e-3F)
+        {
+            return false;
+        }
+        for (const auto& position : {*atTime, *afterWrap})
+        {
+            for (std::size_t axis = 0; axis < position.size(); ++axis)
+            {
+                if (!std::isfinite(position[axis]) || position[axis] < parameters.minimumWorldPosition[axis] ||
+                    position[axis] > parameters.maximumWorldPosition[axis])
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    auto negativeSize = parameters;
+    negativeSize.particleSizeMeters = -0.1F;
+    auto invalidOpacity = parameters;
+    invalidOpacity.particleOpacity = std::numeric_limits<float>::infinity();
+    auto invalidBounds = parameters;
+    invalidBounds.minimumWorldPosition[2] = std::numeric_limits<float>::quiet_NaN();
+    auto tooManyParticles = parameters;
+    tooManyParticles.particleCount = 513U;
+    return differentLayout && !ValidateSuspendedParticleFieldParameters(negativeSize) &&
+           !ValidateSuspendedParticleFieldParameters(invalidOpacity) &&
+           !ValidateSuspendedParticleFieldParameters(invalidBounds) &&
+           !ValidateSuspendedParticleFieldParameters(tooManyParticles) &&
+           !EvaluateSuspendedParticlePosition(parameters, first->front(), -1.0F);
+}
+
 bool M3B1StaticBodyContract()
 {
     using namespace DeepRun::Physics;
@@ -8205,6 +8295,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
         {"M3-C underwater depth-lighting properties", M3CUnderwaterDepthLightingProperties},
         {"M3-C.1 view-path fog properties", M3C1ViewPathFogProperties},
+        {"M3-D suspended underwater particle field properties", M3DUnderwaterParticleFieldProperties},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},

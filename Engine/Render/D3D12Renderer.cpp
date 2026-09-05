@@ -131,6 +131,40 @@ struct ScenePresentationUpload final
     std::byte* mapped = nullptr;
 };
 
+struct ParticleVertex final
+{
+    std::array<float, 3> baseWorldPosition{};
+    std::array<float, 2> quadCorner{};
+    float phaseRadians = 0.0F;
+};
+
+static_assert(sizeof(ParticleVertex) == 24U);
+
+struct ParticleDrawConstants final
+{
+    std::array<float, 16> viewProjection{};
+    std::array<float, 4> particleMotion{};
+    std::array<float, 4> fieldMinimum{};
+    std::array<float, 4> fieldMaximum{};
+};
+
+static_assert(sizeof(ParticleDrawConstants) == sizeof(std::uint32_t) * 28U);
+constexpr UINT ParticleRootSignatureDwordCost = sizeof(ParticleDrawConstants) / sizeof(std::uint32_t) + 2U;
+static_assert(ParticleRootSignatureDwordCost == 30U);
+static_assert(ParticleRootSignatureDwordCost < D3D12_MAX_ROOT_COST);
+
+struct GpuSuspendedParticleField final
+{
+    ComPtr<ID3D12Resource> vertexBuffer;
+    ComPtr<ID3D12Resource> indexBuffer;
+    D3D12_VERTEX_BUFFER_VIEW vertexView{};
+    D3D12_INDEX_BUFFER_VIEW indexView{};
+    SuspendedParticleFieldParameters parameters{};
+    std::uint32_t particleCount = 0U;
+    std::uint32_t vertexCount = 0U;
+    std::uint32_t indexCount = 0U;
+};
+
 std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -344,6 +378,7 @@ public:
             CreateSceneColorTarget();
             CreateDepthBuffer();
             CreateModelPipeline(shaderRoot);
+            CreateSuspendedParticlePipeline(shaderRoot);
             CreateOutputPipeline(shaderRoot);
 
             ThrowIfFailed(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "CreateFence");
@@ -793,6 +828,104 @@ public:
         pipeline.SampleDesc.Count = 1;
         ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelPipeline)),
                       "Create model graphics pipeline");
+    }
+
+    void CreateSuspendedParticlePipeline(const std::filesystem::path& shaderRoot)
+    {
+        const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "SuspendedParticlesVS.cso");
+        const std::vector<std::byte> pixelShader = ReadBinaryFile(shaderRoot / "SuspendedParticlesPS.cso");
+
+        std::array<D3D12_ROOT_PARAMETER, 2> rootParameters{};
+        D3D12_ROOT_PARAMETER& particleConstantsParameter = rootParameters[0];
+        particleConstantsParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        particleConstantsParameter.Constants.ShaderRegister = 0;
+        particleConstantsParameter.Constants.RegisterSpace = 0;
+        particleConstantsParameter.Constants.Num32BitValues =
+            sizeof(ParticleDrawConstants) / sizeof(std::uint32_t);
+        particleConstantsParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_PARAMETER& scenePresentationParameter = rootParameters[1];
+        scenePresentationParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        scenePresentationParameter.Descriptor.ShaderRegister = 1;
+        scenePresentationParameter.Descriptor.RegisterSpace = 0;
+        scenePresentationParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_ROOT_SIGNATURE_DESC rootDescription{};
+        rootDescription.NumParameters = static_cast<UINT>(rootParameters.size());
+        rootDescription.pParameters = rootParameters.data();
+        rootDescription.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+                                D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+                                D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+                                D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+
+        ComPtr<ID3DBlob> serializedRoot;
+        ComPtr<ID3DBlob> rootErrors;
+        const HRESULT serializeResult = D3D12SerializeRootSignature(
+            &rootDescription,
+            D3D_ROOT_SIGNATURE_VERSION_1,
+            &serializedRoot,
+            &rootErrors);
+        if (FAILED(serializeResult))
+        {
+            const std::string detail = rootErrors != nullptr
+                                           ? std::string(
+                                                 static_cast<const char*>(rootErrors->GetBufferPointer()),
+                                                 rootErrors->GetBufferSize())
+                                           : "unknown root-signature error";
+            throw std::runtime_error("Serialize suspended particle root signature failed: " + detail);
+        }
+        ThrowIfFailed(
+            device->CreateRootSignature(
+                0,
+                serializedRoot->GetBufferPointer(),
+                serializedRoot->GetBufferSize(),
+                IID_PPV_ARGS(&suspendedParticleRootSignature)),
+            "Create suspended particle root signature");
+
+        const std::array<D3D12_INPUT_ELEMENT_DESC, 3> inputLayout{{
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 1, DXGI_FORMAT_R32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}}};
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline{};
+        pipeline.pRootSignature = suspendedParticleRootSignature.Get();
+        pipeline.VS = {vertexShader.data(), vertexShader.size()};
+        pipeline.PS = {pixelShader.data(), pixelShader.size()};
+        pipeline.BlendState.AlphaToCoverageEnable = FALSE;
+        pipeline.BlendState.IndependentBlendEnable = FALSE;
+        D3D12_RENDER_TARGET_BLEND_DESC& targetBlend = pipeline.BlendState.RenderTarget[0];
+        targetBlend.BlendEnable = TRUE;
+        targetBlend.LogicOpEnable = FALSE;
+        targetBlend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        targetBlend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        targetBlend.BlendOp = D3D12_BLEND_OP_ADD;
+        targetBlend.SrcBlendAlpha = D3D12_BLEND_ONE;
+        targetBlend.DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+        targetBlend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        targetBlend.LogicOp = D3D12_LOGIC_OP_NOOP;
+        targetBlend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pipeline.SampleMask = std::numeric_limits<UINT>::max();
+        pipeline.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        pipeline.RasterizerState.FrontCounterClockwise = TRUE;
+        pipeline.RasterizerState.DepthClipEnable = TRUE;
+        pipeline.DepthStencilState.DepthEnable = TRUE;
+        pipeline.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+        pipeline.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+        pipeline.DepthStencilState.StencilEnable = FALSE;
+        pipeline.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+        pipeline.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+        pipeline.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+        pipeline.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        pipeline.DepthStencilState.BackFace = pipeline.DepthStencilState.FrontFace;
+        pipeline.InputLayout = {inputLayout.data(), static_cast<UINT>(inputLayout.size())};
+        pipeline.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pipeline.NumRenderTargets = 1;
+        pipeline.RTVFormats[0] = SceneColorFormat;
+        pipeline.DSVFormat = DepthFormat;
+        pipeline.SampleDesc.Count = 1;
+        ThrowIfFailed(
+            device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&suspendedParticlePipeline)),
+            "Create suspended particle graphics pipeline");
     }
 
     void CreateOutputPipeline(const std::filesystem::path& shaderRoot)
@@ -1249,6 +1382,186 @@ public:
         return {};
     }
 
+    std::expected<void, std::string> ConfigureSuspendedParticleField(
+        const SuspendedParticleFieldParameters& parameters)
+    {
+        if (!initialized || device == nullptr)
+        {
+            return std::unexpected("suspended particle field requires an initialized renderer");
+        }
+        if (frameOpen)
+        {
+            return std::unexpected("suspended particle field configuration is not valid during a frame");
+        }
+        if (suspendedParticleField.vertexBuffer != nullptr)
+        {
+            return std::unexpected("suspended particle field is already configured for this renderer");
+        }
+        if (const auto valid = ValidateSuspendedParticleFieldParameters(parameters); !valid)
+        {
+            return std::unexpected(valid.error());
+        }
+        const auto particles = GenerateSuspendedParticleField(parameters);
+        if (!particles)
+        {
+            return std::unexpected(particles.error());
+        }
+
+        constexpr std::array<std::array<float, 2>, 4> QuadCorners{{
+            {-1.0F, -1.0F}, {1.0F, -1.0F}, {1.0F, 1.0F}, {-1.0F, 1.0F}}};
+        constexpr std::array<std::uint32_t, 6> QuadIndices{0U, 1U, 2U, 0U, 2U, 3U};
+        std::vector<ParticleVertex> vertices;
+        std::vector<std::uint32_t> indices;
+        vertices.reserve(particles->size() * QuadCorners.size());
+        indices.reserve(particles->size() * QuadIndices.size());
+        for (std::size_t particleIndex = 0; particleIndex < particles->size(); ++particleIndex)
+        {
+            const SuspendedParticle& particle = particles->at(particleIndex);
+            const std::uint32_t firstVertex = static_cast<std::uint32_t>(vertices.size());
+            for (const std::array<float, 2>& corner : QuadCorners)
+            {
+                vertices.push_back({
+                    .baseWorldPosition = particle.initialWorldPosition,
+                    .quadCorner = corner,
+                    .phaseRadians = particle.phaseRadians});
+            }
+            for (const std::uint32_t index : QuadIndices)
+            {
+                indices.push_back(firstVertex + index);
+            }
+        }
+
+        try
+        {
+            const D3D12_HEAP_PROPERTIES uploadHeap = HeapProperties(D3D12_HEAP_TYPE_UPLOAD);
+            const auto createUploadBuffer = [&](const void* source, const std::uint64_t byteSize, const char* name)
+                -> ComPtr<ID3D12Resource>
+            {
+                ComPtr<ID3D12Resource> buffer;
+                const D3D12_RESOURCE_DESC description = BufferDescription(byteSize);
+                ThrowIfFailed(
+                    device->CreateCommittedResource(
+                        &uploadHeap,
+                        D3D12_HEAP_FLAG_NONE,
+                        &description,
+                        D3D12_RESOURCE_STATE_GENERIC_READ,
+                        nullptr,
+                        IID_PPV_ARGS(&buffer)),
+                    name);
+                void* mapped = nullptr;
+                ThrowIfFailed(buffer->Map(0, nullptr, &mapped), "Map suspended particle upload buffer");
+                std::memcpy(mapped, source, static_cast<std::size_t>(byteSize));
+                buffer->Unmap(0, nullptr);
+                return buffer;
+            };
+
+            GpuSuspendedParticleField field;
+            field.vertexBuffer = createUploadBuffer(
+                vertices.data(),
+                static_cast<std::uint64_t>(vertices.size()) * sizeof(ParticleVertex),
+                "Create suspended particle vertex buffer");
+            field.indexBuffer = createUploadBuffer(
+                indices.data(),
+                static_cast<std::uint64_t>(indices.size()) * sizeof(std::uint32_t),
+                "Create suspended particle index buffer");
+            field.vertexView.BufferLocation = field.vertexBuffer->GetGPUVirtualAddress();
+            field.vertexView.SizeInBytes = static_cast<UINT>(vertices.size() * sizeof(ParticleVertex));
+            field.vertexView.StrideInBytes = sizeof(ParticleVertex);
+            field.indexView.BufferLocation = field.indexBuffer->GetGPUVirtualAddress();
+            field.indexView.SizeInBytes = static_cast<UINT>(indices.size() * sizeof(std::uint32_t));
+            field.indexView.Format = DXGI_FORMAT_R32_UINT;
+            field.parameters = parameters;
+            field.particleCount = parameters.particleCount;
+            field.vertexCount = static_cast<std::uint32_t>(vertices.size());
+            field.indexCount = static_cast<std::uint32_t>(indices.size());
+#if defined(DEEPRUN_DEBUG)
+            if (ValidateDebugMessages("Suspended particle field creation") != 0)
+            {
+                return std::unexpected("D3D12 validation reported a suspended particle field warning or error");
+            }
+#endif
+            suspendedParticleField = std::move(field);
+            logger.Info(
+                Diagnostics::LogCategory::Render,
+                "M3-D suspended particle field configured: particles=" + std::to_string(parameters.particleCount) +
+                    ", vertices=" + std::to_string(suspendedParticleField.vertexCount) +
+                    ", indices=" + std::to_string(suspendedParticleField.indexCount) + ", draw calls=1");
+            return {};
+        }
+        catch (const std::exception& exception)
+        {
+            logger.Error(Diagnostics::LogCategory::Render, exception.what());
+            return std::unexpected(exception.what());
+        }
+    }
+
+    std::expected<SuspendedParticleDrawStats, std::string> DrawSuspendedParticleField(
+        const OrthographicCamera& camera)
+    {
+        if (!frameOpen)
+        {
+            return std::unexpected("suspended particle draw is only valid between BeginFrame and EndFrame");
+        }
+        if (!scenePresentationConfigured)
+        {
+            return std::unexpected("suspended particle draw requires a scene presentation snapshot for this frame");
+        }
+        if (suspendedParticlePipeline == nullptr || suspendedParticleRootSignature == nullptr ||
+            suspendedParticleField.vertexBuffer == nullptr || suspendedParticleField.indexBuffer == nullptr ||
+            depthBuffer == nullptr)
+        {
+            return std::unexpected("suspended particle pipeline or field is not ready");
+        }
+        if (!IsFinite(camera.viewProjection) || !std::isfinite(camera.width) || !std::isfinite(camera.height) ||
+            camera.width <= 0.0F || camera.height <= 0.0F)
+        {
+            return std::unexpected("suspended particle draw received invalid camera projection data");
+        }
+
+        const SuspendedParticleFieldParameters& parameters = suspendedParticleField.parameters;
+        const ParticleDrawConstants constants{
+            .viewProjection = camera.viewProjection.values,
+            .particleMotion = {
+                presentationTimeSeconds,
+                parameters.particleSizeMeters,
+                parameters.lateralOscillationAmplitudeMeters,
+                parameters.verticalDriftMetersPerSecond},
+            .fieldMinimum = {
+                parameters.minimumWorldPosition[0],
+                parameters.minimumWorldPosition[1],
+                parameters.minimumWorldPosition[2],
+                parameters.lateralOscillationAngularFrequency},
+            .fieldMaximum = {
+                parameters.maximumWorldPosition[0],
+                parameters.maximumWorldPosition[1],
+                parameters.maximumWorldPosition[2],
+                parameters.particleOpacity}};
+        commandList->SetGraphicsRootSignature(suspendedParticleRootSignature.Get());
+        commandList->SetPipelineState(suspendedParticlePipeline.Get());
+        commandList->SetGraphicsRoot32BitConstants(
+            0,
+            sizeof(ParticleDrawConstants) / sizeof(std::uint32_t),
+            &constants,
+            0);
+        commandList->SetGraphicsRootConstantBufferView(
+            1,
+            scenePresentationUploads[frameIndex].resource->GetGPUVirtualAddress());
+        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commandList->IASetVertexBuffers(0, 1, &suspendedParticleField.vertexView);
+        commandList->IASetIndexBuffer(&suspendedParticleField.indexView);
+        commandList->DrawIndexedInstanced(suspendedParticleField.indexCount, 1, 0, 0, 0);
+        return SuspendedParticleDrawStats{
+            .particleCount = suspendedParticleField.particleCount,
+            .vertexCount = suspendedParticleField.vertexCount,
+            .indexCount = suspendedParticleField.indexCount,
+            .drawCalls = 1U};
+    }
+
+    void SetPresentationTime(const float elapsedSeconds) noexcept
+    {
+        presentationTimeSeconds = std::isfinite(elapsedSeconds) && elapsedSeconds >= 0.0F ? elapsedSeconds : 0.0F;
+    }
+
     std::expected<void, std::string> ClearViewportRect(const ViewportRect& rect, const RgbaColor& color)
     {
         if (!frameOpen)
@@ -1446,8 +1759,11 @@ public:
         }
 
         gpuModels.clear();
+        suspendedParticleField = {};
         outputPipeline.Reset();
         outputRootSignature.Reset();
+        suspendedParticlePipeline.Reset();
+        suspendedParticleRootSignature.Reset();
         modelPipeline.Reset();
         modelRootSignature.Reset();
         for (ScenePresentationUpload& upload : scenePresentationUploads)
@@ -1497,6 +1813,8 @@ public:
     ComPtr<ID3D12Resource> depthBuffer;
     ComPtr<ID3D12RootSignature> modelRootSignature;
     ComPtr<ID3D12PipelineState> modelPipeline;
+    ComPtr<ID3D12RootSignature> suspendedParticleRootSignature;
+    ComPtr<ID3D12PipelineState> suspendedParticlePipeline;
     ComPtr<ID3D12RootSignature> outputRootSignature;
     ComPtr<ID3D12PipelineState> outputPipeline;
     std::array<D3D12_CPU_DESCRIPTOR_HANDLE, BufferCount> rtvHandles{};
@@ -1516,7 +1834,9 @@ public:
     UINT rtvIncrement = 0;
     UINT imguiIncrement = 0;
     std::vector<GpuModel> gpuModels;
+    GpuSuspendedParticleField suspendedParticleField;
     std::array<ScenePresentationUpload, BufferCount> scenePresentationUploads;
+    float presentationTimeSeconds = 0.0F;
     bool scenePresentationConfigured = false;
     bool initialized = false;
     bool vsync = true;
@@ -1593,6 +1913,23 @@ std::expected<void, std::string> D3D12Renderer::SetScenePresentation(
     return impl_->SetScenePresentation(parameters);
 }
 
+std::expected<void, std::string> D3D12Renderer::ConfigureSuspendedParticleField(
+    const SuspendedParticleFieldParameters& parameters)
+{
+    return impl_->ConfigureSuspendedParticleField(parameters);
+}
+
+std::expected<SuspendedParticleDrawStats, std::string> D3D12Renderer::DrawSuspendedParticleField(
+    const OrthographicCamera& camera)
+{
+    return impl_->DrawSuspendedParticleField(camera);
+}
+
+void D3D12Renderer::SetPresentationTime(const float elapsedSeconds) noexcept
+{
+    impl_->SetPresentationTime(elapsedSeconds);
+}
+
 std::expected<void, std::string> D3D12Renderer::ClearViewportRect(
     const ViewportRect& rect,
     const RgbaColor& color)
@@ -1628,6 +1965,12 @@ bool D3D12Renderer::IsModelPipelineReady() const noexcept
 bool D3D12Renderer::IsDepthBufferReady() const noexcept
 {
     return impl_->depthBuffer != nullptr;
+}
+
+bool D3D12Renderer::IsSuspendedParticleFieldReady() const noexcept
+{
+    return impl_->suspendedParticlePipeline != nullptr && impl_->suspendedParticleRootSignature != nullptr &&
+           impl_->suspendedParticleField.vertexBuffer != nullptr && impl_->suspendedParticleField.indexBuffer != nullptr;
 }
 
 float D3D12Renderer::AspectRatio() const noexcept

@@ -412,10 +412,11 @@ int main(const int argumentCount, char** argumentValues)
                 }
 
                 ++renderFrames;
-                // M3-B.2 adds one bounded combined-rock primitive beside the terrain primitive; the
-                // representative environment therefore contributes two indexed draws plus the submarine's four.
-                return rendered->drawCalls == 6 && rendered->submittedPrimitives == 6 &&
-                       rendered->submittedIndices == 5976;
+                // M3-D regression: the returned scene totals include terrain (2 draws / 4,344 indices),
+                // submarine (4 / 1,632), and the one suspended-particle field draw (1 / 1,536). The
+                // primitive count remains ModelDrawInstance-only, as documented by PhysicalPlayground.
+                return rendered->drawCalls == 7 && rendered->submittedPrimitives == 6 &&
+                       rendered->submittedIndices == 7512;
             });
         return application.Run();
     }

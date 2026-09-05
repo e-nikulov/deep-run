@@ -23,6 +23,8 @@ list(GET DEEPRUN_DXC_CANDIDATES 0 DEEPRUN_DXC_EXECUTABLE)
 set(DEEPRUN_COMPILED_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/CompiledShaders")
 set(DEEPRUN_MODEL_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ModelVS.cso")
 set(DEEPRUN_MODEL_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ModelPS.cso")
+set(DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/SuspendedParticlesVS.cso")
+set(DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/SuspendedParticlesPS.cso")
 set(DEEPRUN_TONE_MAP_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ToneMapVS.cso")
 set(DEEPRUN_TONE_MAP_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ToneMapPS.cso")
 set(DEEPRUN_TONE_MAP_HDR_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ToneMapHdrPS.cso")
@@ -42,6 +44,24 @@ add_custom_command(
         -T ps_6_0 -E PSMain -Fo "${DEEPRUN_MODEL_PIXEL_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Model.hlsl"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Model.hlsl"
+    VERBATIM
+)
+add_custom_command(
+    OUTPUT "${DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPRUN_COMPILED_SHADER_DIR}"
+    COMMAND "${DEEPRUN_DXC_EXECUTABLE}"
+        -T vs_6_0 -E VSMain -Fo "${DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/UnderwaterParticles.hlsl"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/UnderwaterParticles.hlsl"
+    VERBATIM
+)
+add_custom_command(
+    OUTPUT "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPRUN_COMPILED_SHADER_DIR}"
+    COMMAND "${DEEPRUN_DXC_EXECUTABLE}"
+        -T ps_6_0 -E PSMain -Fo "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/UnderwaterParticles.hlsl"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/UnderwaterParticles.hlsl"
     VERBATIM
 )
 add_custom_command(
@@ -75,6 +95,8 @@ add_custom_target(DeepRunShaders ALL
     DEPENDS
         "${DEEPRUN_MODEL_VERTEX_SHADER}"
         "${DEEPRUN_MODEL_PIXEL_SHADER}"
+        "${DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER}"
+        "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
         "${DEEPRUN_TONE_MAP_VERTEX_SHADER}"
         "${DEEPRUN_TONE_MAP_PIXEL_SHADER}"
         "${DEEPRUN_TONE_MAP_HDR_PIXEL_SHADER}"
@@ -106,6 +128,7 @@ add_library(DeepRunEngine STATIC
     Engine/Render/IndexedGeometry.cpp
     Engine/Render/ModelDraw.cpp
     Engine/Render/DepthLighting.cpp
+    Engine/Render/SuspendedParticles.cpp
     Engine/Render/ViewPathFog.cpp
     Engine/Scene/Scene.cpp
     Simulation/Marine/BuoyancySystem.cpp
@@ -173,6 +196,8 @@ add_custom_command(TARGET DeepRun POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${DEEPRUN_MODEL_VERTEX_SHADER}"
         "${DEEPRUN_MODEL_PIXEL_SHADER}"
+        "${DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER}"
+        "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
         "${DEEPRUN_TONE_MAP_VERTEX_SHADER}"
         "${DEEPRUN_TONE_MAP_PIXEL_SHADER}"
         "${DEEPRUN_TONE_MAP_HDR_PIXEL_SHADER}"

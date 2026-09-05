@@ -448,6 +448,7 @@ Implementation status:
 | B.2 | Representative underwater terrain formations | ACCEPTED |
 | C | Underwater depth lighting | ACCEPTED |
 | C.1 | Underwater fog | ACCEPTED |
+| D | Suspended underwater particulate presentation | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -508,6 +509,18 @@ CBV descriptor). One snapshot is accepted per frame and cannot be overwritten. F
 it cannot alter M3-C world-depth transmission, simulation visibility, sonar, or gameplay state. This is
 neither volumetric rendering nor a fullscreen/post-process pass.
 
+M3-D adds one bounded, deterministic presentation-only field of 256 suspended particles to the canonical
+side view. Game supplies one fixed seed and small field description; the renderer generates the immutable
+layout once (1,024 camera-facing XY-quad vertices and 1,536 indices), retains two small upload-heap geometry
+buffers, and issues one transparent draw after the opaque terrain and submarine. The particle PSO enables
+standard alpha blending, performs depth testing with depth writes disabled, and reuses the frame-local M3-C.1
+scene-presentation root CBV for the same depth attenuation and orthographic fog policy. Animation uses the
+existing elapsed frame clock as `PresentationTime`: analytic lateral sway plus vertical wrapping, with no
+spawning, allocation, or simulation-time work per frame. This is bounded approximate transparency, not
+transparent-mesh sorting, a generic particle system, a physics/acoustic/sonar entity system, bubbles,
+volumetrics, or an additional environment authority. Resize retains the immutable field buffers and uses the
+new orthographic projection on the next draw.
+
 Future work:
 
 - basic underwater ice / ice-shelf / iceberg geometry where appropriate
@@ -519,7 +532,6 @@ Future work:
   environmentally appropriate seagrass, and benthic growth
 - optional cheap presentation fauna such as fish schools or surface birds when
   useful to the environment slice
-- particles
 - Gerstner ocean
 - floating body wave response
 <!-- deeprun-m3-command-boundary:start -->

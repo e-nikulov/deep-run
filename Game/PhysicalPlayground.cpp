@@ -57,6 +57,20 @@ constexpr std::array<float, 3> M3FogColorRgb{
     M2UnderwaterBackgroundColor.g,
     M2UnderwaterBackgroundColor.b};
 
+// M3-D fixed presentation tuning for the one canonical suspended-particulate field. These bounds cover the
+// 600 m side view with a small margin and remain wholly below the Game-owned WaterBody surface. This is not
+// environment authority, a simulation population, or an emitter configuration system.
+constexpr Render::SuspendedParticleFieldParameters M3UnderwaterParticleField{
+    .seed = 0x4D334430U,
+    .particleCount = 256U,
+    .minimumWorldPosition = {-320.0F, -260.0F, -20.0F},
+    .maximumWorldPosition = {320.0F, -15.0F, 20.0F},
+    .particleSizeMeters = 1.15F,
+    .particleOpacity = 0.18F,
+    .verticalDriftMetersPerSecond = 0.16F,
+    .lateralOscillationAmplitudeMeters = 1.4F,
+    .lateralOscillationAngularFrequency = 0.23F};
+
 // E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
 // points distribute force along the prototype length without deriving hydrostatics from mesh/collision
 // geometry or claiming CFD fidelity. The +2 m vertical offset creates a small restoring pitch moment.
@@ -278,6 +292,18 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     if (!water)
     {
         return std::unexpected("physical playground water body creation failed: " + water.error().message);
+    }
+    if (M3UnderwaterParticleField.maximumWorldPosition[1] >= water->Config().surfaceLevelY)
+    {
+        return std::unexpected("physical playground particle field must remain below the WaterBody surface");
+    }
+    if (const auto particles = renderer.ConfigureSuspendedParticleField(M3UnderwaterParticleField); !particles)
+    {
+        return std::unexpected("physical playground particle field configuration failed: " + particles.error());
+    }
+    if (!renderer.IsSuspendedParticleFieldReady())
+    {
+        return std::unexpected("physical playground particle field did not become renderer-ready");
     }
 
     // M3-B environment composition: Game owns the stable section and uses the renderer solely as a consumer
@@ -970,6 +996,14 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return submarineStats;
     }
+    // M3-D runs after opaque terrain and submarine draws, so its deliberately approximate transparent quads
+    // still fail the existing depth test when they are behind opaque geometry. The renderer reuses the exact
+    // immutable M3-C.1 scene presentation CBV rather than accepting another Game snapshot for this pass.
+    const auto particleStats = renderer.DrawSuspendedParticleField(*camera);
+    if (!particleStats)
+    {
+        return std::unexpected("physical playground particle draw failed: " + particleStats.error());
+    }
 
     // Physics diagnostics live in FixedUpdate. Render logs only the bounded presentation contract once, so
     // camera/waterline evidence is not duplicated with authoritative physical samples.
@@ -990,9 +1024,12 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
     return Render::ModelDrawStats{
-        .drawCalls = seabedStats->drawCalls + submarineStats->drawCalls,
+        .drawCalls = seabedStats->drawCalls + submarineStats->drawCalls + particleStats->drawCalls,
+        // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The suspended field
+        // is one non-model batched draw and exposes no equivalent model-primitive count, so retain this
+        // established model-only diagnostic instead of inventing a particle primitive value.
         .submittedPrimitives = seabedStats->submittedPrimitives + submarineStats->submittedPrimitives,
-        .submittedIndices = seabedStats->submittedIndices + submarineStats->submittedIndices};
+        .submittedIndices = seabedStats->submittedIndices + submarineStats->submittedIndices + particleStats->indexCount};
 }
 
 Render::GpuModelHandle PhysicalPlayground::SubmarineModel() const noexcept
