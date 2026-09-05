@@ -93,11 +93,39 @@ explicit `minimumRequiredClearance` of 0.0250 m.
 
 The bow authoring contract contains four `533` markers and two `650` markers.
 The two `650` doors form the upper row and the four `533` doors form the denser
-row below it; every door and marker remains above the hull centreline. They are
-spatial authoring, not weapon simulation. Collision uses only
+row below it; every door and marker remains above the hull centreline. This
+intentional six-lid layout occupies the upper bow hemisphere and does not
+allocate the central axial, predominantly lower/forward bow to torpedo tubes.
+They are spatial authoring, not weapon simulation. Collision uses only
 `COL_Antey_Bow`, `COL_Antey_Main`, `COL_Antey_Aft`, and `COL_Antey_Sail`;
 render meshes, propellers, hatches, and small details are excluded.
 `PHY_Antey_BuoyancyVolume` is an authoring proxy only.
+
+### Main bow sonar reserved region
+
+`MGK540_BOW_ARRAY` is the canonical semantic ID for the primary bow acoustic
+array of the MGK-540 `Skat-3` complex. `Antey.authoring.json` records it in
+`semanticRegions` without a geometric anchor: no bounded antenna geometry is
+authored. It reserves the central, predominantly lower/forward bow as a
+content region.
+
+The region is a content semantic marker only: it is not a physical collider,
+authoritative sonar-simulation state, a requirement to model an internal
+antenna, or a runtime implementation of MGK-540. Future torpedo geometry,
+internal weapon volumes, and other large bow elements must not intersect this
+reserved allocation without an explicit Antey content-contract review. The
+accepted `4 x 533 mm + 2 x 650 mm` upper-bow arrangement remains compatible
+with this reservation and must be retained by future Antey geometry work.
+
+No bounded antenna geometry, numerical sonar-volume extents, or sonar anchor
+marker are authored. Consequently, validation preserves the semantic record and
+upper-bow torpedo layout but deliberately has no automatic region-intersection
+test: inventing an OBB, radius, or coordinate bounds would create unsupported
+geometry data.
+
+Future sonar simulation may support abstract acoustic bands and passive/active
+modes, but real-world MGK-540 frequency parameters are not verified content
+contract data and are not recorded here.
 
 Ten `VOL_COMP_*` logical volumes prepare future damage/flooding authoring.
 Simulation remains authoritative for loading, hatch state, propulsion,

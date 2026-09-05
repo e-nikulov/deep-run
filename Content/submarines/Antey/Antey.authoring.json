@@ -1839,27 +1839,19 @@
     "COL_Antey_Sail"
   ],
   "buoyancyProxy": "PHY_Antey_BuoyancyVolume",
-  "markers": {
-    "HP_Antey_Bow": [
-      77.0,
-      0.0,
-      0.0
-    ],
-    "HP_Antey_Stern": [
-      -77.0,
-      0.0,
-      0.0
-    ],
-    "HP_Antey_Center": [
-      0.0,
-      0.0,
-      0.0
-    ],
-    "HP_Antey_Sonar_Bow": [
-      72.0,
-      0.0,
-      -0.25
-    ]
-  },
+  "semanticRegions": [
+    {
+      "semanticId": "MGK540_BOW_ARRAY",
+      "anchorMarker": null,
+      "anchorStatus": "NO_GEOMETRIC_ANCHOR_AUTHORED",
+      "semanticClass": "RESERVED_CONTENT_REGION",
+      "system": "MGK-540 Skat-3 main bow sonar/acoustic array",
+      "bowAllocation": "CENTRAL_PREDOMINANTLY_LOWER_FORWARD",
+      "geometryContract": "NO_INTERNAL_ARRAY_GEOMETRY_REQUIRED",
+      "authoringConstraint": "NO_TORPEDO_INTERNAL_WEAPON_OR_LARGE_BOW_ELEMENT_INTERSECTION_WITHOUT_EXPLICIT_CONTENT_CONTRACT_REVIEW",
+      "runtimeBoundary": "Content semantic marker only; not a physical collider, authoritative sonar simulation state, or MGK-540 runtime implementation",
+      "spatialValidation": "DOCUMENTED_ONLY_NO_BOUNDED_GEOMETRY"
+    }
+  ],
   "runtimeBoundary": "Spatial authoring only; Simulation owns loading, damage, flooding, fire, crew, hatch state, and propeller RPM"
 }

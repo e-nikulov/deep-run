@@ -745,7 +745,6 @@ def build_collision_and_volumes() -> None:
         ("HP_Antey_Bow", (77.0, 0.0, 0.0)),
         ("HP_Antey_Stern", (-77.0, 0.0, 0.0)),
         ("HP_Antey_Center", (0.0, 0.0, 0.0)),
-        ("HP_Antey_Sonar_Bow", (72.0, 0.0, -0.25)),
     ):
         marker = make_empty(name, location, (1.0, 0.0, 0.0), markers)
         marker["runtime_export"] = False

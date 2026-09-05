@@ -17,6 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from artifact_provenance import require_path_suffix
 
 
+MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
+
+
 def args() -> argparse.Namespace:
     values = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     parser = argparse.ArgumentParser()
@@ -120,40 +123,118 @@ def propeller_metadata(root: bpy.types.Object | None, name: str) -> dict:
     }
 
 
+def main_bow_sonar_region() -> dict:
+    return {
+        "semanticId": MAIN_BOW_SONAR_SEMANTIC_ID,
+        "anchorMarker": None,
+        "anchorStatus": "NO_GEOMETRIC_ANCHOR_AUTHORED",
+        "semanticClass": "RESERVED_CONTENT_REGION",
+        "system": "MGK-540 Skat-3 main bow sonar/acoustic array",
+        "bowAllocation": "CENTRAL_PREDOMINANTLY_LOWER_FORWARD",
+        "geometryContract": "NO_INTERNAL_ARRAY_GEOMETRY_REQUIRED",
+        "authoringConstraint": (
+            "NO_TORPEDO_INTERNAL_WEAPON_OR_LARGE_BOW_ELEMENT_INTERSECTION_"
+            "WITHOUT_EXPLICIT_CONTENT_CONTRACT_REVIEW"
+        ),
+        "runtimeBoundary": (
+            "Content semantic marker only; not a physical collider, authoritative sonar "
+            "simulation state, or MGK-540 runtime implementation"
+        ),
+        "spatialValidation": "DOCUMENTED_ONLY_NO_BOUNDED_GEOMETRY",
+    }
+
+
+def source_first_authoring_objects(objects: dict[str, bpy.types.Object], role: str) -> list[bpy.types.Object]:
+    return sorted(
+        (obj for obj in objects.values() if obj.type == "EMPTY" and obj.get("authoring_role") == role),
+        key=lambda obj: obj.name,
+    )
+
+
+def source_first_launcher_identity(name: str) -> tuple[str, int]:
+    match = re.fullmatch(r"P700_(Port|Starboard)_(\d{2})", name)
+    if match is None:
+        raise RuntimeError(f"Invalid source-first P700 launcher name: {name}")
+    return match.group(1).upper(), int(match.group(2))
+
+
 def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_runtime_glb: Path) -> tuple[dict, dict]:
     objects = {obj.name: obj for obj in bpy.context.scene.objects}
     runtime0 = [obj for obj in objects.values() if obj.type == "MESH" and obj.get("runtime_export", False) and int(obj.get("lod", -1)) == 0]
     minimum, maximum = bounds(runtime0)
     hull_min, hull_max = bounds([objects["SM_Antey_LOD0_Hull"]])
     sail_min, sail_max = bounds([objects["SM_Antey_LOD0_Sail"]])
+    legacy_launchers = sorted((obj for obj in objects.values() if obj.name.startswith("HP_P700_")), key=lambda item: item.name)
+    source_first_launchers = source_first_authoring_objects(objects, "P700_LAUNCH_POSITION")
     launchers = []
-    for obj in sorted((obj for obj in objects.values() if obj.name.startswith("HP_P700_")), key=lambda item: item.name):
-        forward = obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))
-        launchers.append({
-            "name": obj.name,
-            "position": list(obj.location),
-            "orientationQuaternionWXYZ": list(obj.rotation_quaternion),
-            "transform": matrix_values(obj),
-            "launchForward": list(forward),
-            "hatchGroup": obj.get("hatch_group"),
-            "pairIndex": int(obj.get("pair_index")),
-            "bankRow": obj.get("bank_row"),
-            "rowIndex": int(obj.get("row_index")),
-            "launcherEnvelopeDiameter": float(obj.get("launcher_envelope_diameter")),
-            "launcherEnvelopeLength": float(obj.get("launcher_envelope_length")),
-        })
+    launcher_sides = {}
+    if legacy_launchers:
+        for obj in legacy_launchers:
+            forward = obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))
+            launchers.append({
+                "name": obj.name,
+                "position": list(obj.location),
+                "orientationQuaternionWXYZ": list(obj.rotation_quaternion),
+                "transform": matrix_values(obj),
+                "launchForward": list(forward),
+                "hatchGroup": obj.get("hatch_group"),
+                "pairIndex": int(obj.get("pair_index")),
+                "bankRow": obj.get("bank_row"),
+                "rowIndex": int(obj.get("row_index")),
+                "launcherEnvelopeDiameter": float(obj.get("launcher_envelope_diameter")),
+                "launcherEnvelopeLength": float(obj.get("launcher_envelope_length")),
+            })
+            launcher_sides[obj.name] = "PORT" if "_PORT_" in obj.name else "STARBOARD"
+    else:
+        for obj in source_first_launchers:
+            side, row_index = source_first_launcher_identity(obj.name)
+            envelope = objects.get(f"P700_Envelope_{side.title()}_{row_index:02d}")
+            forward = Vector(obj.get("launcher_axis", obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))))
+            launchers.append({
+                "name": obj.name,
+                "position": list(obj.location),
+                "orientationQuaternionWXYZ": list(obj.rotation_quaternion),
+                "transform": matrix_values(obj),
+                "launchForward": list(forward),
+                "hatchGroup": f"{side}_HATCH_{(row_index + 1) // 2:02d}",
+                "pairIndex": 1 + (row_index - 1) % 2,
+                "bankRow": "LONGITUDINAL",
+                "rowIndex": row_index,
+                "launcherEnvelopeDiameter": float(envelope.get("diameterM")) if envelope and envelope.get("diameterM") is not None else None,
+                "launcherEnvelopeLength": float(envelope.get("lengthM")) if envelope and envelope.get("lengthM") is not None else None,
+            })
+            launcher_sides[obj.name] = side
+
+    legacy_torpedoes = sorted((obj for obj in objects.values() if obj.name.startswith("HP_TORPEDO_")), key=lambda item: item.name)
+    source_first_torpedoes = source_first_authoring_objects(objects, "TORPEDO_TUBE")
     torpedoes = []
-    for obj in sorted((obj for obj in objects.values() if obj.name.startswith("HP_TORPEDO_")), key=lambda item: item.name):
-        torpedoes.append({
-            "name": obj.name,
-            "tubeClass": obj.get("tube_class"),
-            "position": list(obj.location),
-            "orientationQuaternionWXYZ": list(obj.rotation_quaternion),
-            "transform": matrix_values(obj),
-            "launchForward": list(obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))),
-        })
+    if legacy_torpedoes:
+        for obj in legacy_torpedoes:
+            torpedoes.append({
+                "name": obj.name,
+                "tubeClass": obj.get("tube_class"),
+                "position": list(obj.location),
+                "orientationQuaternionWXYZ": list(obj.rotation_quaternion),
+                "transform": matrix_values(obj),
+                "launchForward": list(obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))),
+            })
+    else:
+        for obj in source_first_torpedoes:
+            diameter = float(obj.get("diameter_m"))
+            tube_class = "533" if math.isclose(diameter, 0.533, abs_tol=1.0e-6) else "650" if math.isclose(diameter, 0.650, abs_tol=1.0e-6) else None
+            if tube_class is None:
+                raise RuntimeError(f"Unsupported source-first torpedo diameter: {obj.name} ({diameter})")
+            torpedoes.append({
+                "name": obj.name,
+                "tubeClass": tube_class,
+                "position": list(obj.location),
+                "orientationQuaternionWXYZ": list(obj.rotation_quaternion),
+                "transform": matrix_values(obj),
+                "launchForward": list(obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))),
+            })
     compartments = []
-    for obj in sorted((obj for obj in objects.values() if obj.name.startswith("VOL_COMP_")), key=lambda item: item.name):
+    compartment_prefix = "VOL_COMP_" if any(obj.name.startswith("VOL_COMP_") for obj in objects.values()) else "Antey_Compartment_"
+    for obj in sorted((obj for obj in objects.values() if obj.name.startswith(compartment_prefix)), key=lambda item: item.name):
         volume_min, volume_max = bounds([obj])
         compartments.append({"name": obj.name, "center": list((volume_min + volume_max) * 0.5), "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0], "halfExtents": list((volume_max - volume_min) * 0.5)})
     props = []
@@ -163,8 +244,8 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
     rows = {}
     for side in ("PORT", "STARBOARD"):
         rows[side] = {}
-        for row in sorted({item["bankRow"] for item in launchers if f"_{side}_" in item["name"]}):
-            members = sorted((item for item in launchers if f"_{side}_" in item["name"] and item["bankRow"] == row), key=lambda item: item["rowIndex"])
+        for row in sorted({item["bankRow"] for item in launchers if launcher_sides.get(item["name"]) == side}):
+            members = sorted((item for item in launchers if launcher_sides.get(item["name"]) == side and item["bankRow"] == row), key=lambda item: item["rowIndex"])
             xs = [item["position"][0] for item in members]
             rows[side][row] = {"count": len(members), "positions": [item["name"] for item in members], "xPositions": xs, "adjacentSpacing": [b - a for a, b in zip(xs, xs[1:])]}
     asset = {
@@ -194,9 +275,9 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         "torpedoTubes": torpedoes,
         "propellers": props,
         "compartments": compartments,
-        "collision": [name for name in ("COL_Antey_Bow", "COL_Antey_Main", "COL_Antey_Aft", "COL_Antey_Sail") if name in objects],
-        "buoyancyProxy": "PHY_Antey_BuoyancyVolume",
-        "markers": {name: list(objects[name].location) for name in ("HP_Antey_Bow", "HP_Antey_Stern", "HP_Antey_Center", "HP_Antey_Sonar_Bow")},
+        "collision": [obj.name for obj in objects.values() if obj.get("physics_proxy_role") == "COLLISION"] or [name for name in ("COL_Antey_Bow", "COL_Antey_Main", "COL_Antey_Aft", "COL_Antey_Sail") if name in objects],
+        "buoyancyProxy": next((obj.name for obj in objects.values() if obj.get("physics_proxy_role") == "BUOYANCY"), "PHY_Antey_BuoyancyVolume" if "PHY_Antey_BuoyancyVolume" in objects else None),
+        "semanticRegions": [main_bow_sonar_region()],
         "runtimeBoundary": "Spatial authoring only; Simulation owns loading, damage, flooding, fire, crew, hatch state, and propeller RPM",
     }
     return asset, authoring
