@@ -189,6 +189,10 @@ Use headless tests wherever rendering is not required.
 
 Do not claim something is verified unless it was actually built or executed.
 
+Use [docs/development/testing.md](docs/development/testing.md) for the canonical CTest, asset-root, direct
+test-executable, smoke, and D3D12 validation procedure. Do not treat a bare `DeepRunTests.exe` launch as
+equivalent to the registered CTest invocation.
+
 ## Error handling
 
 Programming invariants may use assertions.

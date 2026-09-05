@@ -47,6 +47,9 @@ Automated window, rendering, and resize smoke run:
 
 ## Tests
 
+The canonical configure, CTest, asset-root, direct-invocation, smoke, and
+D3D12-validation procedure is in [docs/development/testing.md](docs/development/testing.md).
+
 ```powershell
 ctest --preset windows-debug
 ctest --preset windows-release

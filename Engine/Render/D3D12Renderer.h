@@ -3,6 +3,7 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ClearRect.h"
 #include "Engine/Render/DisplayOutput.h"
+#include "Engine/Render/GerstnerSurface.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Render/SuspendedParticles.h"
@@ -68,6 +69,12 @@ public:
     [[nodiscard]] std::expected<SuspendedParticleDrawStats, std::string> DrawSuspendedParticleField(
         const OrthographicCamera& camera);
 
+    // Creates the one bounded, renderer-owned M3-E backdrop outside a frame from Game-owned presentation tuning.
+    [[nodiscard]] std::expected<void, std::string> ConfigureGerstnerSurface(
+        const GerstnerSurfacePresentationParameters& parameters);
+    [[nodiscard]] std::expected<GerstnerSurfaceDrawStats, std::string> DrawGerstnerSurface(
+        const OrthographicCamera& camera);
+
     // Engine supplies its existing elapsed frame clock; this is PresentationTime only and is never simulation time.
     void SetPresentationTime(float elapsedSeconds) noexcept;
 
@@ -90,6 +97,7 @@ public:
     [[nodiscard]] bool IsModelPipelineReady() const noexcept;
     [[nodiscard]] bool IsDepthBufferReady() const noexcept;
     [[nodiscard]] bool IsSuspendedParticleFieldReady() const noexcept;
+    [[nodiscard]] bool IsGerstnerSurfaceReady() const noexcept;
     [[nodiscard]] float AspectRatio() const noexcept;
     [[nodiscard]] ID3D12Device* Device() const noexcept;
     [[nodiscard]] ID3D12GraphicsCommandList* CommandList() const noexcept;

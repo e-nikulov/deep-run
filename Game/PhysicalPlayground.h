@@ -80,8 +80,8 @@ public:
         const HapticEventSink& hapticEventSink = {});
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
-    // fixed-step update for the frame; never steps physics itself. Also paints the D2 flat-water
-    // cross-section (generic clear-rect below the projected authoritative surface) before the submarine.
+    // fixed-step update for the frame; never steps physics itself. It draws the M3-E displaced presentation
+    // backdrop before opaque geometry without changing the authoritative WaterBody state.
     [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
         Render::D3D12Renderer& renderer) const;
 

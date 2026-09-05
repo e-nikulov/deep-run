@@ -449,6 +449,8 @@ Implementation status:
 | C | Underwater depth lighting | ACCEPTED |
 | C.1 | Underwater fog | ACCEPTED |
 | D | Suspended underwater particulate presentation | ACCEPTED |
+| E | Gerstner ocean surface presentation | ACCEPTED |
+| E.1 | Authoritative CPU wave-query / WaterBody bridge | NOT STARTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -521,6 +523,20 @@ transparent-mesh sorting, a generic particle system, a physics/acoustic/sonar en
 volumetrics, or an additional environment authority. Resize retains the immutable field buffers and uses the
 new orthographic projection on the next draw.
 
+M3-E replaces the canonical M2 rectangular underwater clear with one Game-tuned, presentation-only 2.5D
+Gerstner fill. The persistent mesh spans X `[-340, 340]` with 257 samples, 514 vertices, 1,536 indices, and
+one pre-opaque draw; its bottom is fixed at Y `-600`. The vertex shader analytically displaces only the top
+edge from existing Engine `PresentationTime`, using three restrained components: `(1.75 m, 100 m, 0.28 rad/s,
+0.20 rad, Q=0.55)`, `(0.80 m, 45 m, 0.48 rad/s, 1.40 rad, Q=0.40)`, and `(0.35 m, 20 m, 0.82 rad/s, 2.30 rad,
+Q=0.20)`. Their summed vertical amplitude is at most `2.90 m`, and parameter validation enforces finite
+bounded values plus a conservative non-folding horizontal-slope bound. The deep linear color remains the M2
+underwater clear RGB `(0.00309598, 0.03954624, 0.11953843)` with a narrow linear surface tint RGB
+`(0.0065, 0.075, 0.18)`; there is no foam, reflection, refraction, or new color system. It uses no
+per-frame geometry allocation, CPU tessellation, SimulationTime, or authoritative query. `WaterBody` Y=0,
+`WaterBody::Sample()`, buoyancy, depth lighting, fog, collision, particles, gameplay visibility, sonar, and
+acoustics stay flat and unchanged. M3-E.1 remains the explicit not-started CPU/Simulation wave-query bridge
+required before any visual crest/trough can affect floating bodies.
+
 Future work:
 
 - basic underwater ice / ice-shelf / iceberg geometry where appropriate
@@ -532,7 +548,6 @@ Future work:
   environmentally appropriate seagrass, and benthic growth
 - optional cheap presentation fauna such as fish schools or surface birds when
   useful to the environment slice
-- Gerstner ocean
 - floating body wave response
 <!-- deeprun-m3-command-boundary:start -->
 

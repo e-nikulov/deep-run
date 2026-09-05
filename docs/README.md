@@ -149,3 +149,8 @@ Repository-level copyright and dependency-notice policy is recorded in
 shipping gates, and the canonical metadata fields for external assets are
 defined in [content/asset-provenance.md](content/asset-provenance.md). These
 records document status; they do not grant rights or replace legal review.
+
+## Development workflow
+
+The canonical configure/build, CTest, asset-root, direct-invocation, smoke,
+and D3D12-validation procedure is [development/testing.md](development/testing.md).

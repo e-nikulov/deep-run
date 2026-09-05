@@ -17,6 +17,7 @@
 #include "Engine/Render/ClearRect.h"
 #include "Engine/Render/D3D12Renderer.h"
 #include "Engine/Render/DisplayOutput.h"
+#include "Engine/Render/GerstnerSurface.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Render/DepthLighting.h"
@@ -7338,6 +7339,118 @@ bool M3DUnderwaterParticleFieldProperties()
            !EvaluateSuspendedParticlePosition(parameters, first->front(), -1.0F);
 }
 
+bool M3EGerstnerSurfacePresentationProperties()
+{
+    using DeepRun::Render::EvaluateGerstnerSurfacePresentation;
+    using DeepRun::Render::GenerateGerstnerSurfaceBaseMesh;
+    using DeepRun::Render::GerstnerSurfacePresentationParameters;
+    using DeepRun::Render::MaximumGerstnerCombinedVerticalAmplitudeMeters;
+    using DeepRun::Render::ValidateGerstnerSurfacePresentationParameters;
+
+    const GerstnerSurfacePresentationParameters parameters{
+        .minimumX = -340.0F,
+        .maximumX = 340.0F,
+        .referenceLevelY = 0.0F,
+        .bottomFillY = -600.0F,
+        .horizontalSampleCount = 257U,
+        .components = {{
+            {.amplitudeMeters = 1.75F,
+             .wavelengthMeters = 100.0F,
+             .angularFrequencyRadiansPerSecond = 0.28F,
+             .phaseOffsetRadians = 0.20F,
+             .horizontalSteepness = 0.55F},
+            {.amplitudeMeters = 0.80F,
+             .wavelengthMeters = 45.0F,
+             .angularFrequencyRadiansPerSecond = 0.48F,
+             .phaseOffsetRadians = 1.40F,
+             .horizontalSteepness = 0.40F},
+            {.amplitudeMeters = 0.35F,
+             .wavelengthMeters = 20.0F,
+             .angularFrequencyRadiansPerSecond = 0.82F,
+             .phaseOffsetRadians = 2.30F,
+             .horizontalSteepness = 0.20F}}},
+        .deepFillRgb = {0.00309598F, 0.03954624F, 0.11953843F},
+        .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};
+    const auto first = GenerateGerstnerSurfaceBaseMesh(parameters);
+    const auto repeated = GenerateGerstnerSurfaceBaseMesh(parameters);
+    const auto maximumAmplitude = MaximumGerstnerCombinedVerticalAmplitudeMeters(parameters);
+    if (!ValidateGerstnerSurfacePresentationParameters(parameters) || !first || !repeated || !maximumAmplitude ||
+        std::abs(*maximumAmplitude - 2.90F) > 1.0e-5F || first->vertices.size() != 514U ||
+        first->indices.size() != 1536U || repeated->vertices.size() != first->vertices.size() ||
+        repeated->indices.size() != first->indices.size() || parameters.minimumX > -300.0F ||
+        parameters.maximumX < 300.0F || parameters.bottomFillY >= -550.0F)
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < first->vertices.size(); ++index)
+    {
+        const auto& vertex = first->vertices[index];
+        const auto& repeatedVertex = repeated->vertices[index];
+        if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y) || !std::isfinite(vertex.surfaceWeight) ||
+            vertex.x != repeatedVertex.x || vertex.y != repeatedVertex.y ||
+            vertex.surfaceWeight != repeatedVertex.surfaceWeight ||
+            (index % 2U == 0U &&
+             (vertex.y != parameters.referenceLevelY || vertex.surfaceWeight != 1.0F)) ||
+            (index % 2U == 1U && (vertex.y != parameters.bottomFillY || vertex.surfaceWeight != 0.0F)))
+        {
+            return false;
+        }
+    }
+    if (first->vertices.front().x != parameters.minimumX || first->vertices[first->vertices.size() - 2U].x != parameters.maximumX)
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < first->indices.size(); index += 3U)
+    {
+        const std::uint32_t a = first->indices[index];
+        const std::uint32_t b = first->indices[index + 1U];
+        const std::uint32_t c = first->indices[index + 2U];
+        if (a >= first->vertices.size() || b >= first->vertices.size() || c >= first->vertices.size() ||
+            a == b || b == c || a == c || first->indices[index] != repeated->indices[index] ||
+            first->indices[index + 1U] != repeated->indices[index + 1U] ||
+            first->indices[index + 2U] != repeated->indices[index + 2U])
+        {
+            return false;
+        }
+    }
+
+    const auto atZero = EvaluateGerstnerSurfacePresentation(parameters, 37.5F, 0.0F);
+    const auto atZeroRepeated = EvaluateGerstnerSurfacePresentation(parameters, 37.5F, 0.0F);
+    const auto later = EvaluateGerstnerSurfacePresentation(parameters, 37.5F, 6.0F);
+    if (!atZero || !atZeroRepeated || !later || *atZero != *atZeroRepeated ||
+        (!std::isfinite(atZero->x) || !std::isfinite(atZero->y)) ||
+        (std::abs(later->x - atZero->x) <= 1.0e-5F && std::abs(later->y - atZero->y) <= 1.0e-5F))
+    {
+        return false;
+    }
+
+    auto zeroWavelength = parameters;
+    zeroWavelength.components[0].wavelengthMeters = 0.0F;
+    auto negativeWavelength = parameters;
+    negativeWavelength.components[1].wavelengthMeters = -1.0F;
+    auto nonFiniteAmplitude = parameters;
+    nonFiniteAmplitude.components[2].amplitudeMeters = std::numeric_limits<float>::infinity();
+    auto tooFewSamples = parameters;
+    tooFewSamples.horizontalSampleCount = 1U;
+    auto tooManySamples = parameters;
+    tooManySamples.horizontalSampleCount = 514U;
+    auto foldingProfile = parameters;
+    foldingProfile.components[0].horizontalSteepness = 1.0F;
+    foldingProfile.components[0].wavelengthMeters = 5.0F;
+    auto shallowBottom = parameters;
+    shallowBottom.bottomFillY = -2.0F;
+    return !ValidateGerstnerSurfacePresentationParameters(zeroWavelength) &&
+           !ValidateGerstnerSurfacePresentationParameters(negativeWavelength) &&
+           !ValidateGerstnerSurfacePresentationParameters(nonFiniteAmplitude) &&
+           !ValidateGerstnerSurfacePresentationParameters(tooFewSamples) &&
+           !ValidateGerstnerSurfacePresentationParameters(tooManySamples) &&
+           !ValidateGerstnerSurfacePresentationParameters(foldingProfile) &&
+           !ValidateGerstnerSurfacePresentationParameters(shallowBottom) &&
+           !EvaluateGerstnerSurfacePresentation(parameters, 0.0F, -0.1F) &&
+           !EvaluateGerstnerSurfacePresentation(parameters, std::numeric_limits<float>::infinity(), 0.0F);
+}
+
 bool M3B1StaticBodyContract()
 {
     using namespace DeepRun::Physics;
@@ -7832,6 +7945,17 @@ bool SimulationMarineHasNoPhysicsOrRenderDependency()
          "collision bounds"});
 }
 
+bool SimulationHasNoGerstnerRenderPresentationDependency()
+{
+    // M3-E is renderer presentation only. Simulation must not acquire this visual parameter/evaluation API;
+    // M3-E.1 will define a separate Simulation-owned contract if authoritative waves become necessary.
+    const std::filesystem::path simulationRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation";
+    return ScanSourceDirectoryForForbiddenPatterns(
+        simulationRoot,
+        {"engine/render/gerstnersurface.h", "gerstnersurfacepresentationparameters",
+         "evaluategerstnersurfacepresentation"});
+}
+
 bool HydroDragFilesHaveOnlyPureMarineDependencies()
 {
     const std::filesystem::path marineRoot =
@@ -8296,6 +8420,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-C underwater depth-lighting properties", M3CUnderwaterDepthLightingProperties},
         {"M3-C.1 view-path fog properties", M3C1ViewPathFogProperties},
         {"M3-D suspended underwater particle field properties", M3DUnderwaterParticleFieldProperties},
+        {"M3-E Gerstner surface presentation properties", M3EGerstnerSurfacePresentationProperties},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
@@ -8330,6 +8455,8 @@ int main(const int argumentCount, const char* const* arguments)
         // M2 Slice D1: architecture boundary scans.
         {"Simulation marine has no physics or render dependency",
          SimulationMarineHasNoPhysicsOrRenderDependency},
+        {"Simulation has no Gerstner render-presentation dependency",
+         SimulationHasNoGerstnerRenderPresentationDependency},
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"G1 Propulsion files have only pure Marine dependencies",
          PropulsionFilesHaveOnlyPureMarineDependencies},

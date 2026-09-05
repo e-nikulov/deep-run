@@ -71,6 +71,40 @@ constexpr Render::SuspendedParticleFieldParameters M3UnderwaterParticleField{
     .lateralOscillationAmplitudeMeters = 1.4F,
     .lateralOscillationAngularFrequency = 0.23F};
 
+// M3-E Game-owned visual tuning. The three restrained components are a presentation backdrop around the
+// authoritative flat WaterBody level; this helper deliberately creates no Game/Simulation wave-query API.
+[[nodiscard]] Render::GerstnerSurfacePresentationParameters BuildM3EGerstnerSurface(
+    const float referenceLevelY) noexcept
+{
+    return Render::GerstnerSurfacePresentationParameters{
+        .minimumX = -340.0F,
+        .maximumX = 340.0F,
+        .referenceLevelY = referenceLevelY,
+        .bottomFillY = -600.0F,
+        .horizontalSampleCount = 257U,
+        .components = {{
+            {.amplitudeMeters = 1.75F,
+             .wavelengthMeters = 100.0F,
+             .angularFrequencyRadiansPerSecond = 0.28F,
+             .phaseOffsetRadians = 0.20F,
+             .horizontalSteepness = 0.55F},
+            {.amplitudeMeters = 0.80F,
+             .wavelengthMeters = 45.0F,
+             .angularFrequencyRadiansPerSecond = 0.48F,
+             .phaseOffsetRadians = 1.40F,
+             .horizontalSteepness = 0.40F},
+            {.amplitudeMeters = 0.35F,
+             .wavelengthMeters = 20.0F,
+             .angularFrequencyRadiansPerSecond = 0.82F,
+             .phaseOffsetRadians = 2.30F,
+             .horizontalSteepness = 0.20F}}},
+        .deepFillRgb = {
+            M2UnderwaterBackgroundColor.r,
+            M2UnderwaterBackgroundColor.g,
+            M2UnderwaterBackgroundColor.b},
+        .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};
+}
+
 // E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
 // points distribute force along the prototype length without deriving hydrostatics from mesh/collision
 // geometry or claiming CFD fidelity. The +2 m vertical offset creates a small restoring pitch moment.
@@ -292,6 +326,16 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     if (!water)
     {
         return std::unexpected("physical playground water body creation failed: " + water.error().message);
+    }
+    const Render::GerstnerSurfacePresentationParameters gerstnerSurface =
+        BuildM3EGerstnerSurface(water->Config().surfaceLevelY);
+    if (const auto configured = renderer.ConfigureGerstnerSurface(gerstnerSurface); !configured)
+    {
+        return std::unexpected("physical playground Gerstner surface configuration failed: " + configured.error());
+    }
+    if (!renderer.IsGerstnerSurfaceReady())
+    {
+        return std::unexpected("physical playground Gerstner surface did not become renderer-ready");
     }
     if (M3UnderwaterParticleField.maximumWorldPosition[1] >= water->Config().surfaceLevelY)
     {
@@ -956,14 +1000,9 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());
     }
 
-    // D2 flat-water cross-section presentation: BOTH presentation colors belong to the Game. The full
-    // viewport is first painted with the above-water color, then everything below the AUTHORITATIVE surface
-    // level (projected through the actual gameplay camera) is overpainted with the underwater color via the
-    // generic renderer clear-rect API. The renderer receives only normalized rects + RGBA — no WaterBody,
-    // no marine semantics; its BeginFrame default clear is a generic fallback this path fully covers.
-    // Camera clipping happens in the Game projection helper; the authoritative water state is never touched
-    // by what is visible. This temporary M2 path must run before the submarine draw so the hull renders on
-    // top of the water background (ImGui stays above everything via the engine overlay).
+    // M3-E keeps the Game-owned full above-water clear, then draws its one displaced presentation backdrop.
+    // Its profile is centered on the authoritative level but never feeds back into WaterBody, simulation,
+    // depth lighting, fog, collision, or particles. The renderer receives only bounded visual tuning.
     const auto aboveWaterCleared = renderer.ClearViewportRect(
         Render::ViewportRect{}, // full viewport: default {0, 0, 1, 1}
         M2AboveWaterBackgroundColor);
@@ -972,18 +1011,10 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(aboveWaterCleared.error());
     }
 
-    const auto underwaterRegion = UnderwaterRegionForSurface(*camera, water_->Config().surfaceLevelY);
-    if (!underwaterRegion)
+    const auto gerstnerStats = renderer.DrawGerstnerSurface(*camera);
+    if (!gerstnerStats)
     {
-        return std::unexpected(underwaterRegion.error());
-    }
-    if (underwaterRegion->has_value())
-    {
-        const auto cleared = renderer.ClearViewportRect(**underwaterRegion, M2UnderwaterBackgroundColor);
-        if (!cleared)
-        {
-            return std::unexpected(cleared.error());
-        }
+        return std::unexpected("physical playground Gerstner surface draw failed: " + gerstnerStats.error());
     }
 
     const auto seabedStats = renderer.DrawModel(seabedModel_, seabedDraws_, *camera);
@@ -1015,7 +1046,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
             loggedRenderPresentation_ = true;
             PlaygroundLog().Info(
                 Diagnostics::LogCategory::Render,
-                "Physical playground M2 presentation: surface Y " +
+                "Physical playground M3-E presentation: authoritative surface Y " +
                     std::to_string(water_->Config().surfaceLevelY) + ", camera target Y " +
                     std::to_string(camera->target.y) + ", horizontal span " +
                     std::to_string(camera->width) + ", vertical span " +
@@ -1024,12 +1055,13 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
     return Render::ModelDrawStats{
-        .drawCalls = seabedStats->drawCalls + submarineStats->drawCalls + particleStats->drawCalls,
-        // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The suspended field
-        // is one non-model batched draw and exposes no equivalent model-primitive count, so retain this
-        // established model-only diagnostic instead of inventing a particle primitive value.
+        .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + submarineStats->drawCalls + particleStats->drawCalls,
+        // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The Gerstner surface
+        // and suspended field are non-model batches, so retain this established model-only diagnostic rather
+        // than inventing model primitive values for presentation passes.
         .submittedPrimitives = seabedStats->submittedPrimitives + submarineStats->submittedPrimitives,
-        .submittedIndices = seabedStats->submittedIndices + submarineStats->submittedIndices + particleStats->indexCount};
+        .submittedIndices = gerstnerStats->indexCount + seabedStats->submittedIndices + submarineStats->submittedIndices +
+                            particleStats->indexCount};
 }
 
 Render::GpuModelHandle PhysicalPlayground::SubmarineModel() const noexcept
