@@ -446,8 +446,8 @@ Implementation status:
 | B | Environment geometry foundation + first seabed | ACCEPTED |
 | B.1 | Coarse environment collision | ACCEPTED |
 | B.2 | Representative underwater terrain formations | ACCEPTED |
-| C | Underwater depth lighting | READY FOR REVIEW |
-| C.1 | Underwater fog | NOT STARTED |
+| C | Underwater depth lighting | ACCEPTED |
+| C.1 | Underwater fog | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -492,12 +492,24 @@ the renderer receives no `WaterBody`, camera position, or environment object. At
 `exp(-k * depth)`, with per-metre coefficients `(0.012, 0.006, 0.003)` for red, green, and blue. The same
 transmission attenuates both direct diffuse and specular; a material-modulated deep ambient floor RGB
 `(0.02, 0.075, 0.12)` is weighted by `1 - transmission` to preserve restrained seabed/rock readability.
-It is presentation-only, camera-independent, runs before M3-A/A.1 output handling, and does not add fog,
+It is presentation-only, camera-independent, runs before M3-A/A.1 output handling, and does not add
 exposure, particles, a water optical model, or gameplay/simulation state.
+
+M3-C.1 adds a separate fixed scene-linear view-path extinction policy after M3-C depth lighting and before
+`SceneColorHDR` output conversion. Game supplies an orthographic camera-plane center and normalized view
+direction along with the same authoritative surface snapshot. For fragment `F`, plane center `C`, and view
+direction `D`, the model shader reconstructs `t = dot(F-C,D)` and `R = F-D*t`, then analytically clips only
+the finite orthographic ray `R -> F` below the flat surface plane. Thus current `-Z` side-view screen X/Y
+displacement does not create false radial fog. It applies `exp(-0.004 * pathLengthMeters)` and blends toward
+the existing linear underwater clear RGB `(0.00309598, 0.03954624, 0.11953843)`. Scene presentation
+parameters occupy an 80-byte payload in one persistently mapped, 256-byte-aligned upload buffer per in-flight
+frame and bind by a root CBV; the model root signature remains 58 DWORDs (56 draw constants plus the 2-DWORD
+CBV descriptor). One snapshot is accepted per frame and cannot be overwritten. Fog is view-dependent only:
+it cannot alter M3-C world-depth transmission, simulation visibility, sonar, or gameplay state. This is
+neither volumetric rendering nor a fullscreen/post-process pass.
 
 Future work:
 
-- underwater fog
 - basic underwater ice / ice-shelf / iceberg geometry where appropriate
 - world/environment data with independent render, coarse-collision, navigation,
   and future acoustic-query representations

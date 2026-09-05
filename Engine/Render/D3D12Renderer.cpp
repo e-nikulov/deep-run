@@ -104,15 +104,32 @@ struct DrawRootConstants final
 
 static_assert(sizeof(DrawRootConstants) == sizeof(std::uint32_t) * 56);
 
-struct DepthLightingRootConstants final
+struct ScenePresentationConstants final
 {
     float surfaceLevelYMeters = 0.0F;
     std::array<float, 3> attenuationPerMeterRgb{};
     std::array<float, 3> deepAmbientRgb{};
-    float padding = 0.0F;
+    float fogExtinctionPerMeter = 0.0F;
+    std::array<float, 3> cameraPlaneCenterWorldPosition{};
+    float padding0 = 0.0F;
+    std::array<float, 3> cameraViewDirection{};
+    float padding1 = 0.0F;
+    std::array<float, 3> fogColorRgb{};
+    float padding2 = 0.0F;
 };
 
-static_assert(sizeof(DepthLightingRootConstants) == sizeof(std::uint32_t) * 8);
+static_assert(sizeof(ScenePresentationConstants) == 80U);
+constexpr UINT ScenePresentationConstantBufferBytes = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+constexpr UINT ModelRootSignatureDwordCost =
+    sizeof(DrawRootConstants) / sizeof(std::uint32_t) + 2U; // b0 root constants + one b1 root CBV descriptor.
+static_assert(ModelRootSignatureDwordCost == 58U);
+static_assert(ModelRootSignatureDwordCost < D3D12_MAX_ROOT_COST);
+
+struct ScenePresentationUpload final
+{
+    ComPtr<ID3D12Resource> resource;
+    std::byte* mapped = nullptr;
+};
 
 std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path)
 {
@@ -292,6 +309,7 @@ public:
                     IID_PPV_ARGS(&commandList)),
                 "CreateCommandList");
             ThrowIfFailed(commandList->Close(), "Close initial command list");
+            CreateScenePresentationUploads();
 
             D3D12_DESCRIPTOR_HEAP_DESC rtvDescription{};
             rtvDescription.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -660,6 +678,28 @@ public:
         device->CreateShaderResourceView(sceneColorHdr.Get(), &view, sceneColorSrvCpuHandle);
     }
 
+    void CreateScenePresentationUploads()
+    {
+        const D3D12_HEAP_PROPERTIES uploadHeap = HeapProperties(D3D12_HEAP_TYPE_UPLOAD);
+        const D3D12_RESOURCE_DESC description = BufferDescription(ScenePresentationConstantBufferBytes);
+        for (ScenePresentationUpload& upload : scenePresentationUploads)
+        {
+            ThrowIfFailed(
+                device->CreateCommittedResource(
+                    &uploadHeap,
+                    D3D12_HEAP_FLAG_NONE,
+                    &description,
+                    D3D12_RESOURCE_STATE_GENERIC_READ,
+                    nullptr,
+                    IID_PPV_ARGS(&upload.resource)),
+                "Create scene presentation upload buffer");
+            void* mapped = nullptr;
+            ThrowIfFailed(upload.resource->Map(0, nullptr, &mapped), "Map scene presentation upload buffer");
+            upload.mapped = static_cast<std::byte*>(mapped);
+            std::memset(upload.mapped, 0, ScenePresentationConstantBufferBytes);
+        }
+    }
+
     void CreateModelPipeline(const std::filesystem::path& shaderRoot)
     {
         const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "ModelVS.cso");
@@ -672,13 +712,11 @@ public:
         drawConstantsParameter.Constants.RegisterSpace = 0;
         drawConstantsParameter.Constants.Num32BitValues = sizeof(DrawRootConstants) / sizeof(std::uint32_t);
         drawConstantsParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-        D3D12_ROOT_PARAMETER& lightingConstantsParameter = rootParameters[1];
-        lightingConstantsParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        lightingConstantsParameter.Constants.ShaderRegister = 1;
-        lightingConstantsParameter.Constants.RegisterSpace = 0;
-        lightingConstantsParameter.Constants.Num32BitValues =
-            sizeof(DepthLightingRootConstants) / sizeof(std::uint32_t);
-        lightingConstantsParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        D3D12_ROOT_PARAMETER& scenePresentationParameter = rootParameters[1];
+        scenePresentationParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        scenePresentationParameter.Descriptor.ShaderRegister = 1;
+        scenePresentationParameter.Descriptor.RegisterSpace = 0;
+        scenePresentationParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rootDescription{};
         rootDescription.NumParameters = static_cast<UINT>(rootParameters.size());
@@ -1121,15 +1159,13 @@ public:
         commandList->SetGraphicsRootSignature(modelRootSignature.Get());
         commandList->SetPipelineState(modelPipeline.Get());
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        const DepthLightingRootConstants depthLightingConstants{
-            .surfaceLevelYMeters = depthLighting.surfaceLevelYMeters,
-            .attenuationPerMeterRgb = depthLighting.attenuationPerMeterRgb,
-            .deepAmbientRgb = depthLighting.deepAmbientRgb};
-        commandList->SetGraphicsRoot32BitConstants(
+        if (!scenePresentationConfigured)
+        {
+            return std::unexpected("model draw requires a scene presentation snapshot for this frame");
+        }
+        commandList->SetGraphicsRootConstantBufferView(
             1,
-            sizeof(DepthLightingRootConstants) / sizeof(std::uint32_t),
-            &depthLightingConstants,
-            0);
+            scenePresentationUploads[frameIndex].resource->GetGPUVirtualAddress());
 
         ModelDrawStats stats;
         for (const ModelDrawInstance& draw : draws)
@@ -1178,17 +1214,38 @@ public:
         return stats;
     }
 
-    std::expected<void, std::string> SetDepthLighting(const DepthLightingParameters& parameters)
+    std::expected<void, std::string> SetScenePresentation(const ScenePresentationParameters& parameters)
     {
         if (!frameOpen)
         {
-            return std::unexpected("depth lighting is only valid between BeginFrame and EndFrame");
+            return std::unexpected("scene presentation is only valid between BeginFrame and EndFrame");
         }
-        if (const auto valid = ValidateDepthLightingParameters(parameters); !valid)
+        if (scenePresentationConfigured)
+        {
+            return std::unexpected("scene presentation is already configured for this frame");
+        }
+        if (const auto valid = ValidateScenePresentationParameters(parameters); !valid)
         {
             return std::unexpected(valid.error());
         }
-        depthLighting = parameters;
+        const float viewDirectionLength = std::hypot(
+            parameters.cameraViewDirection[0],
+            parameters.cameraViewDirection[1],
+            parameters.cameraViewDirection[2]);
+        const std::array<float, 3> normalizedViewDirection{
+            parameters.cameraViewDirection[0] / viewDirectionLength,
+            parameters.cameraViewDirection[1] / viewDirectionLength,
+            parameters.cameraViewDirection[2] / viewDirectionLength};
+        const ScenePresentationConstants constants{
+            .surfaceLevelYMeters = parameters.depthLighting.surfaceLevelYMeters,
+            .attenuationPerMeterRgb = parameters.depthLighting.attenuationPerMeterRgb,
+            .deepAmbientRgb = parameters.depthLighting.deepAmbientRgb,
+            .fogExtinctionPerMeter = parameters.fogExtinctionPerMeter,
+            .cameraPlaneCenterWorldPosition = parameters.cameraPlaneCenterWorldPosition,
+            .cameraViewDirection = normalizedViewDirection,
+            .fogColorRgb = parameters.fogColorRgb};
+        std::memcpy(scenePresentationUploads[frameIndex].mapped, &constants, sizeof(constants));
+        scenePresentationConfigured = true;
         return {};
     }
 
@@ -1318,6 +1375,7 @@ public:
         commandList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0F, 0, 0, nullptr);
         ID3D12DescriptorHeap* heaps[] = {imguiHeap.Get()};
         commandList->SetDescriptorHeaps(1, heaps);
+        scenePresentationConfigured = false;
         frameOpen = true;
         sceneColorOutputPending = true;
     }
@@ -1392,6 +1450,15 @@ public:
         outputRootSignature.Reset();
         modelPipeline.Reset();
         modelRootSignature.Reset();
+        for (ScenePresentationUpload& upload : scenePresentationUploads)
+        {
+            if (upload.resource != nullptr && upload.mapped != nullptr)
+            {
+                upload.resource->Unmap(0, nullptr);
+                upload.mapped = nullptr;
+            }
+            upload.resource.Reset();
+        }
         sceneColorHdr.Reset();
         depthBuffer.Reset();
         frameOpen = false;
@@ -1449,7 +1516,8 @@ public:
     UINT rtvIncrement = 0;
     UINT imguiIncrement = 0;
     std::vector<GpuModel> gpuModels;
-    DepthLightingParameters depthLighting{};
+    std::array<ScenePresentationUpload, BufferCount> scenePresentationUploads;
+    bool scenePresentationConfigured = false;
     bool initialized = false;
     bool vsync = true;
     bool hdrRequested = false;
@@ -1519,9 +1587,10 @@ std::expected<ModelDrawStats, std::string> D3D12Renderer::DrawModel(
     return impl_->DrawModel(handle.modelIndex_, draws, camera);
 }
 
-std::expected<void, std::string> D3D12Renderer::SetDepthLighting(const DepthLightingParameters& parameters)
+std::expected<void, std::string> D3D12Renderer::SetScenePresentation(
+    const ScenePresentationParameters& parameters)
 {
-    return impl_->SetDepthLighting(parameters);
+    return impl_->SetScenePresentation(parameters);
 }
 
 std::expected<void, std::string> D3D12Renderer::ClearViewportRect(

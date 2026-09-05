@@ -5,7 +5,7 @@
 #include "Engine/Render/DisplayOutput.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
-#include "Engine/Render/DepthLighting.h"
+#include "Engine/Render/ViewPathFog.h"
 
 #include <d3d12.h>
 #include <dxgiformat.h>
@@ -55,9 +55,10 @@ public:
         std::span<const ModelDrawInstance> draws,
         const OrthographicCamera& camera);
 
-    // Updates the small Game-derived, renderer-owned lighting snapshot used by all subsequent model draws in
-    // this frame. The data is validated before GPU use.
-    [[nodiscard]] std::expected<void, std::string> SetDepthLighting(const DepthLightingParameters& parameters);
+    // Updates the one Game-derived presentation snapshot used by all model draws in this frame. The data is
+    // validated and copied to the renderer's frame-local GPU constant buffer; no D3D12 types leak to Game.
+    [[nodiscard]] std::expected<void, std::string> SetScenePresentation(
+        const ScenePresentationParameters& parameters);
 
     // Clears a rectangular region of the current render target with a solid color (M2 Slice D2). Valid only
     // between BeginFrame and EndFrame. The rectangle is in normalized viewport coordinates (see ViewportRect)

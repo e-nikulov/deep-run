@@ -49,6 +49,14 @@ constexpr float M2InitialSubmarineDepthMeters = 100.0F;
 constexpr std::array<float, 3> M3DepthAttenuationPerMeterRgb{0.012F, 0.006F, 0.003F};
 constexpr std::array<float, 3> M3DeepAmbientRgb{0.02F, 0.075F, 0.12F};
 
+// M3-C.1 fixed view-path presentation tuning. It deliberately approaches the existing scene-linear
+// underwater clear colour; it does not alter WaterBody, simulation visibility, or depth-light coefficients.
+constexpr float M3FogExtinctionPerMeter = 0.004F;
+constexpr std::array<float, 3> M3FogColorRgb{
+    M2UnderwaterBackgroundColor.r,
+    M2UnderwaterBackgroundColor.g,
+    M2UnderwaterBackgroundColor.b};
+
 // E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
 // points distribute force along the prototype length without deriving hydrostatics from mesh/collision
 // geometry or claiming CFD fidelity. The +2 m vertical offset creates a small restoring pitch moment.
@@ -905,16 +913,21 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
     }
 
-    // M3-C authority boundary: WaterBody remains in Game/Simulation. Game derives only its authoritative
-    // surface Y plus fixed presentation tuning; the renderer never receives a WaterBody, camera distance,
-    // seabed depth, or a gameplay object.
-    const Render::DepthLightingParameters depthLighting{
-        .surfaceLevelYMeters = water_->Config().surfaceLevelY,
-        .attenuationPerMeterRgb = M3DepthAttenuationPerMeterRgb,
-        .deepAmbientRgb = M3DeepAmbientRgb};
-    if (const auto configured = renderer.SetDepthLighting(depthLighting); !configured)
+    // M3-C/C.1 authority boundary: WaterBody remains in Game/Simulation. Game derives only the authoritative
+    // surface Y, fixed presentation tuning, plus the orthographic camera-plane center and view direction. The
+    // renderer receives no WaterBody, physics state, seabed authority, or gameplay visibility state.
+    const Render::ScenePresentationParameters scenePresentation{
+        .depthLighting = {
+            .surfaceLevelYMeters = water_->Config().surfaceLevelY,
+            .attenuationPerMeterRgb = M3DepthAttenuationPerMeterRgb,
+            .deepAmbientRgb = M3DeepAmbientRgb},
+        .cameraPlaneCenterWorldPosition = {camera->position.x, camera->position.y, camera->position.z},
+        .cameraViewDirection = {camera->viewDirection.x, camera->viewDirection.y, camera->viewDirection.z},
+        .fogExtinctionPerMeter = M3FogExtinctionPerMeter,
+        .fogColorRgb = M3FogColorRgb};
+    if (const auto configured = renderer.SetScenePresentation(scenePresentation); !configured)
     {
-        return std::unexpected("physical playground depth lighting configuration failed: " + configured.error());
+        return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());
     }
 
     // D2 flat-water cross-section presentation: BOTH presentation colors belong to the Game. The full

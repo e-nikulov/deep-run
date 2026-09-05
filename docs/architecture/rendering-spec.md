@@ -132,6 +132,25 @@ same transmission. This is fixed presentation tuning, not fog, automatic
 exposure, an optical-water simulation, or a new gameplay/environment
 authority.
 
+M3-C.1 applies a separate view-path fog policy in the same model pixel shader,
+after M3-C depth lighting and before `SceneColorHDR` output conversion. Game
+supplies the orthographic camera-plane center and view direction with the
+existing authoritative surface snapshot; the renderer still receives neither
+`WaterBody` nor simulation visibility. For each fragment `F`, with plane center
+`C` and normalized view direction `D`, the shader reconstructs `t = dot(F-C,D)`
+and ray origin `R = F - D*t`; only the finite orthographic view ray `R -> F`
+is analytically clipped below the flat surface plane. This prevents screen X/Y
+offset from creating false center-distance fog in the current `-Z` side view.
+The shader uses scalar transmission `exp(-0.004 * pathLength)` and blends
+toward the existing scene-linear underwater clear RGB `(0.00309598, 0.03954624,
+0.11953843)`. An 80-byte scene-presentation payload lives in one persistently
+mapped, 256-byte-aligned upload buffer per in-flight frame and is bound as a
+root CBV (model root cost: 58 DWORDs: 56 draw constants plus a 2-DWORD root
+descriptor). One snapshot is accepted per frame and cannot be overwritten by a
+later model draw. This is orthographic view-dependent extinction, not a
+depth-light replacement, perspective-fog contract, fullscreen post-process,
+volumetric technique, or gameplay visibility system.
+
 Presentation ocean waves do not replace `WaterBody` truth. When CPU wave
 queries become authoritative for floating bodies, Simulation owns that query
 state and the renderer visualizes a compatible snapshot.

@@ -20,6 +20,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Engine/Render/DepthLighting.h"
+#include "Engine/Render/ViewPathFog.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/Environment/EnvironmentSection.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
@@ -7167,6 +7168,86 @@ bool M3CUnderwaterDepthLightingProperties()
                -std::numeric_limits<float>::max());
 }
 
+bool M3C1ViewPathFogProperties()
+{
+    using DeepRun::Render::EvaluateDepthLighting;
+    using DeepRun::Render::EvaluateViewPathFog;
+    using DeepRun::Render::ScenePresentationParameters;
+    using DeepRun::Render::ValidateScenePresentationParameters;
+
+    ScenePresentationParameters parameters{
+        .depthLighting = {
+            .surfaceLevelYMeters = 0.0F,
+            .attenuationPerMeterRgb = {0.012F, 0.006F, 0.003F},
+            .deepAmbientRgb = {0.02F, 0.075F, 0.12F}},
+        .cameraPlaneCenterWorldPosition = {0.0F, -100.0F, 20.0F},
+        .cameraViewDirection = {0.0F, 0.0F, -1.0F},
+        .fogExtinctionPerMeter = 0.01F,
+        .fogColorRgb = {0.00309598F, 0.03954624F, 0.11953843F}};
+
+    // Canonical side-view orthographic rays are parallel to -Z: X displacement cannot lengthen fog path.
+    const auto left = EvaluateViewPathFog(parameters, {-250.0F, -100.0F, 0.0F});
+    const auto right = EvaluateViewPathFog(parameters, {250.0F, -100.0F, 0.0F});
+    // Y displacement similarly does not affect this -Z ray length, but M3-C still observes its world depth.
+    const auto shallow = EvaluateViewPathFog(parameters, {0.0F, -100.0F, 0.0F});
+    const auto deep = EvaluateViewPathFog(parameters, {0.0F, -200.0F, 0.0F});
+    const auto shallowDepth = EvaluateDepthLighting(parameters.depthLighting, -100.0F);
+    const auto deepDepth = EvaluateDepthLighting(parameters.depthLighting, -200.0F);
+    const auto fartherZ = EvaluateViewPathFog(parameters, {0.0F, -100.0F, -20.0F});
+    auto translatedPlane = parameters;
+    translatedPlane.cameraPlaneCenterWorldPosition[0] = 250.0F;
+    const auto translated = EvaluateViewPathFog(translatedPlane, {0.0F, -100.0F, 0.0F});
+    if (!left || !right || !shallow || !deep || !shallowDepth || !deepDepth || !fartherZ || !translated ||
+        std::abs(left->submergedPathLengthMeters - 20.0F) > 1.0e-4F ||
+        left->submergedPathLengthMeters != right->submergedPathLengthMeters ||
+        left->transmission != right->transmission ||
+        shallow->submergedPathLengthMeters != deep->submergedPathLengthMeters ||
+        shallow->transmission != deep->transmission ||
+        shallowDepth->directTransmissionRgb == deepDepth->directTransmissionRgb ||
+        !(fartherZ->submergedPathLengthMeters > shallow->submergedPathLengthMeters) ||
+        !(fartherZ->transmission < shallow->transmission) ||
+        translated->submergedPathLengthMeters != shallow->submergedPathLengthMeters ||
+        translated->transmission != shallow->transmission)
+    {
+        return false;
+    }
+
+    // Non-horizontal rays retain analytical plane clipping on reconstructed ray origin -> fragment segments.
+    auto clipping = parameters;
+    clipping.cameraPlaneCenterWorldPosition = {0.0F, 10.0F, 20.0F};
+    clipping.cameraViewDirection = {0.0F, -3.0F, -4.0F}; // normalized internally to (0, -0.6, -0.8)
+    const auto dry = EvaluateViewPathFog(clipping, {0.0F, 4.0F, 12.0F});
+    clipping.cameraPlaneCenterWorldPosition = {0.0F, -10.0F, 20.0F};
+    const auto submerged = EvaluateViewPathFog(clipping, {0.0F, -16.0F, 12.0F});
+    clipping.cameraPlaneCenterWorldPosition = {0.0F, 5.0F, 20.0F};
+    const auto crossing = EvaluateViewPathFog(clipping, {0.0F, -1.0F, 12.0F});
+    if (!dry || !submerged || !crossing || dry->submergedPathLengthMeters != 0.0F ||
+        std::abs(submerged->submergedPathLengthMeters - 10.0F) > 1.0e-4F ||
+        std::abs(crossing->submergedPathLengthMeters - (10.0F / 6.0F)) > 1.0e-4F ||
+        !std::isfinite(crossing->transmission) || crossing->transmission <= 0.0F ||
+        crossing->transmission >= 1.0F)
+    {
+        return false;
+    }
+
+    auto invalidExtinction = parameters;
+    invalidExtinction.fogExtinctionPerMeter = -0.01F;
+    auto invalidPlaneCenter = parameters;
+    invalidPlaneCenter.cameraPlaneCenterWorldPosition[2] = std::numeric_limits<float>::infinity();
+    auto zeroDirection = parameters;
+    zeroDirection.cameraViewDirection = {};
+    auto nonFiniteDirection = parameters;
+    nonFiniteDirection.cameraViewDirection[1] = std::numeric_limits<float>::quiet_NaN();
+    auto invalidColor = parameters;
+    invalidColor.fogColorRgb[1] = std::numeric_limits<float>::quiet_NaN();
+    return !ValidateScenePresentationParameters(invalidExtinction) &&
+           !ValidateScenePresentationParameters(invalidPlaneCenter) &&
+           !ValidateScenePresentationParameters(zeroDirection) &&
+           !ValidateScenePresentationParameters(nonFiniteDirection) &&
+           !ValidateScenePresentationParameters(invalidColor) &&
+           !EvaluateViewPathFog(parameters, {0.0F, std::numeric_limits<float>::infinity(), 0.0F});
+}
+
 bool M3B1StaticBodyContract()
 {
     using namespace DeepRun::Physics;
@@ -8123,6 +8204,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
         {"M3-C underwater depth-lighting properties", M3CUnderwaterDepthLightingProperties},
+        {"M3-C.1 view-path fog properties", M3C1ViewPathFogProperties},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},

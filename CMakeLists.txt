@@ -106,6 +106,7 @@ add_library(DeepRunEngine STATIC
     Engine/Render/IndexedGeometry.cpp
     Engine/Render/ModelDraw.cpp
     Engine/Render/DepthLighting.cpp
+    Engine/Render/ViewPathFog.cpp
     Engine/Scene/Scene.cpp
     Simulation/Marine/BuoyancySystem.cpp
     Simulation/Marine/ControlSurfaceSystem.cpp
