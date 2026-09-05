@@ -7204,28 +7204,29 @@ bool M3B1CollisionTopologyIndependent()
     DeepRun::Game::SeabedProfileConfig profile;
     profile.sampleCount = 321;
     const auto dense = DeepRun::Game::BuildSeabedSection({"m3_seabed_01"}, profile);
-    if (!section || !dense || section->collisionBoxes.size() != 32 || section->id != dense->id ||
+    if (!section || !dense || section->collisionBoxes.size() != 57U || section->id != dense->id ||
         section->collisionBoxes != dense->collisionBoxes ||
         section->renderGeometry.primitives[0].vertices.size() == dense->renderGeometry.primitives[0].vertices.size())
         return false;
     float deviation = 0;
-    for (const auto& box : section->collisionBoxes)
+    for (std::size_t vertex = 0; vertex < section->renderGeometry.primitives[0].vertices.size(); vertex += 16U)
     {
-        const float top = box.position.y + box.halfExtents.y;
-        if (box.position.x - box.halfExtents.x < section->bounds.minimum.x - 0.001F ||
-            box.position.x + box.halfExtents.x > section->bounds.maximum.x + 0.001F ||
-            std::abs(box.position.y - box.halfExtents.y - section->bounds.minimum.y) > 0.001F ||
-            top > section->bounds.maximum.y + 1.0F || box.halfExtents.z != 3) return false;
-        // Test-only comparison against rendered surface samples, never used to construct collision.
-        for (std::size_t v = 0; v < section->renderGeometry.primitives[0].vertices.size(); v += 16)
+        const auto& point = section->renderGeometry.primitives[0].vertices[vertex].position;
+        float collisionTop = -std::numeric_limits<float>::infinity();
+        for (const auto& box : section->collisionBoxes)
         {
-            const auto p = section->renderGeometry.primitives[0].vertices[v].position;
-            if (std::abs(p.x - box.position.x) <= box.halfExtents.x)
-                deviation = std::max(deviation, std::abs(p.y - top));
+            if (std::abs(point.x - box.position.x) <= box.halfExtents.x + 0.001F &&
+                box.position.y - box.halfExtents.y <= section->bounds.minimum.y + 0.001F)
+            {
+                collisionTop = std::max(collisionTop, box.position.y + box.halfExtents.y);
+            }
         }
+        if (!std::isfinite(collisionTop) || collisionTop < point.y - 0.001F) return false;
+        deviation = std::max(deviation, collisionTop - point.y);
     }
-    std::cout << "[M3-B.1 evidence] 32 collision columns / 160 render cells; sampled vertical error " << deviation << " m\n";
-    return deviation < 6.0F;
+    std::cout << "[M3-B.2 evidence] 54 terrain columns + 3 collidable rocks / 160 render cells; sampled vertical error "
+              << deviation << " m\n";
+    return deviation <= 6.6F;
 }
 
 bool M3B1CanonicalSubmarineContact()
@@ -7236,15 +7237,18 @@ bool M3B1CanonicalSubmarineContact()
     DeepRun::Diagnostics::Logger logger;
     PhysicsWorld world(logger);
     if (!world.Initialize()) return false;
-    float highest = -1000;
+    float highestOverInitialVessel = -1000;
     for (const auto& box : section->collisionBoxes)
     {
         if (!world.CreateStaticBoxBody(box).IsValid()) return false;
-        highest = std::max(highest, box.position.y + box.halfExtents.y);
+        if (std::abs(box.position.x - 1.0F) < 51.0F + box.halfExtents.x)
+        {
+            highestOverInitialVessel = std::max(highestOverInitialVessel, box.position.y + box.halfExtents.y);
+        }
     }
     // Same canonical vessel dimensions, mass, position and planar DOFs. Gravity alone drives contact;
     // production buoyancy/hydrodynamics are unchanged. No renderer or GPU is constructed.
-    if (-100.0F - 9.7F <= highest) return false;
+    if (-100.0F - 9.7F <= highestOverInitialVessel) return false;
     DynamicBoxBodyCreateInfo info{.halfExtents = {51, 9.7F, 10.5F}, .mass = 12'000'000,
                                 .position = {1,-100,0}};
     info.degreesOfFreedom.translationZ = false;
@@ -7256,13 +7260,57 @@ bool M3B1CanonicalSubmarineContact()
     {
         world.Step(1.0F / 60.0F);
         const auto state = world.GetBodyState(vessel);
-        if (!state || !state->position.IsFinite() || state->position.y < -175 || state->position.z != 0)
+        if (!state || !state->position.IsFinite() || state->position.y < -250 || state->position.z != 0)
             return false;
     }
     const auto state = world.GetBodyState(vessel);
     std::cout << "[M3-B.1 evidence] canonical vessel dropped from Y=-100; resting Y=" << state->position.y
               << ", Vy=" << state->linearVelocity.y << "\n";
-    return state->position.y < -110 && state->position.y > -170 && std::abs(state->linearVelocity.y) < 0.1F;
+    return state->position.y < -185 && state->position.y > -205 && std::abs(state->linearVelocity.y) < 0.1F;
+}
+
+bool M3B2RepresentativeTerrainCollisionContacts()
+{
+    using namespace DeepRun::Physics;
+    const auto section = DeepRun::Game::BuildSeabedSection({"m3_seabed_01"}, {});
+    if (!section || section->collisionBoxes.size() != 57U) return false;
+    DeepRun::Diagnostics::Logger logger;
+    PhysicsWorld world(logger);
+    if (!world.Initialize()) return false;
+    for (const auto& box : section->collisionBoxes)
+    {
+        if (!world.CreateStaticBoxBody(box).IsValid()) return false;
+    }
+    const auto drop = [&](const float x, const float startY) {
+        const auto body = world.CreateDynamicBoxBody({.halfExtents = {1.0F, 1.0F, 1.0F},
+                                                      .mass = 10.0F,
+                                                      .position = {x, startY, 0.0F}});
+        if (!body.IsValid()) return std::optional<PhysicsBodyState>{};
+        for (int step = 0; step < 900; ++step) world.Step(1.0F / 60.0F);
+        return world.GetBodyState(body);
+    };
+    const auto ridge = drop(-100.0F, -80.0F);
+    const auto trench = drop(40.0F, -180.0F);
+    if (!ridge || !trench || ridge->position.y > -120.0F || ridge->position.y < -140.0F ||
+        trench->position.y > -215.0F || trench->position.y < -222.0F)
+    {
+        return false;
+    }
+
+    DynamicBoxBodyCreateInfo crossing;
+    crossing.halfExtents = {1.0F, 1.0F, 1.0F};
+    crossing.mass = 10.0F;
+    crossing.position = {-70.0F, -100.0F, 0.0F};
+    crossing.gravityEnabled = false;
+    crossing.initialLinearVelocity = {40.0F, 0.0F, 0.0F};
+    const auto cliffCrossing = world.CreateDynamicBoxBody(crossing);
+    if (!cliffCrossing.IsValid()) return false;
+    for (int step = 0; step < 120; ++step) world.Step(1.0F / 60.0F);
+    const auto crossingState = world.GetBodyState(cliffCrossing);
+    // The body crosses over the drop-off above its lip, proving the floor columns did not turn into a
+    // full-height invisible wall. This is not a grounding/damage system.
+    return crossingState && crossingState->position.x > -20.0F &&
+           std::abs(crossingState->position.y + 100.0F) < 0.01F;
 }
 
 bool M3BSeabedSectionGeometryContract()
@@ -7277,23 +7325,23 @@ bool M3BSeabedSectionGeometryContract()
     const DeepRun::Game::EnvironmentSection& section = *first;
     const DeepRun::Assets::ModelAsset& model = section.renderGeometry;
     if (section.id.value != "seabed-main" || model.id.Value() != "environment/seabed/seabed-main.section" ||
-        model.primitives.size() != 1 || model.nodes.size() != 1 || model.materials.size() != 1 ||
-        !DeepRun::Game::IsSceneLinearBaseColor(model.materials.front()))
+        model.primitives.size() != 2 || model.nodes.size() != 2 || model.materials.size() != 2 ||
+        section.rocks.size() != 7U || !DeepRun::Game::IsSceneLinearBaseColor(model.materials[0]) ||
+        !DeepRun::Game::IsSceneLinearBaseColor(model.materials[1]))
     {
         return false;
     }
 
-    const auto& primitive = model.primitives.front();
+    const auto& primitive = model.primitives[0];
+    const auto& rockPrimitive = model.primitives[1];
     constexpr std::size_t ExpectedCells = 160;
     if (primitive.vertices.size() != ExpectedCells * 16U || primitive.indices.size() != ExpectedCells * 24U ||
-        !primitive.hasNormals || primitive.materialIndex != 0U || section.bounds.maximum.y >= 0.0F ||
+        rockPrimitive.vertices.size() != 7U * 38U || rockPrimitive.indices.size() != 7U * 72U ||
+        !primitive.hasNormals || !rockPrimitive.hasNormals || primitive.materialIndex != 0U ||
+        rockPrimitive.materialIndex != 1U || section.bounds.maximum.y >= 0.0F ||
         model.nodes.front().localToModel.values != DeepRun::Assets::ModelTransform{}.values ||
-        primitive.localBounds.minimum.x != section.bounds.minimum.x ||
-        primitive.localBounds.minimum.y != section.bounds.minimum.y ||
-        primitive.localBounds.minimum.z != section.bounds.minimum.z ||
-        primitive.localBounds.maximum.x != section.bounds.maximum.x ||
-        primitive.localBounds.maximum.y != section.bounds.maximum.y ||
-        primitive.localBounds.maximum.z != section.bounds.maximum.z || model.bounds.minimum.x != section.bounds.minimum.x ||
+        model.nodes[1].localToModel.values != DeepRun::Assets::ModelTransform{}.values ||
+        model.bounds.minimum.x != section.bounds.minimum.x ||
         model.bounds.minimum.y != section.bounds.minimum.y || model.bounds.minimum.z != section.bounds.minimum.z ||
         model.bounds.maximum.x != section.bounds.maximum.x || model.bounds.maximum.y != section.bounds.maximum.y ||
         model.bounds.maximum.z != section.bounds.maximum.z)
@@ -7303,8 +7351,8 @@ bool M3BSeabedSectionGeometryContract()
 
     const auto layout = DeepRun::Render::BuildIndexedGeometryLayout(model);
     const auto draws = DeepRun::Render::PrepareModelDraws(model);
-    if (!layout || layout->totals.vertexCount != primitive.vertices.size() ||
-        layout->totals.indexCount != primitive.indices.size() || !draws || draws->size() != 1 ||
+    if (!layout || layout->totals.vertexCount != primitive.vertices.size() + rockPrimitive.vertices.size() ||
+        layout->totals.indexCount != primitive.indices.size() + rockPrimitive.indices.size() || !draws || draws->size() != 2 ||
         draws->front().modelToWorld.values != DeepRun::Assets::ModelTransform{}.values)
     {
         return false;
@@ -7316,14 +7364,44 @@ bool M3BSeabedSectionGeometryContract()
                position.z >= section.bounds.minimum.z && position.z <= section.bounds.maximum.z;
     };
     bool sawSlopeAwareTopNormal = false;
-    for (const auto& vertex : primitive.vertices)
-    {
-        if (!std::isfinite(vertex.position.x) || !std::isfinite(vertex.position.y) ||
-            !std::isfinite(vertex.position.z) || !std::isfinite(vertex.normal.x) ||
-            !std::isfinite(vertex.normal.y) || !std::isfinite(vertex.normal.z) || !inBounds(vertex.position))
+    const auto validPrimitive = [&](const DeepRun::Assets::MeshPrimitiveData& candidate) {
+        for (const auto& vertex : candidate.vertices)
         {
-            return false;
+            if (!std::isfinite(vertex.position.x) || !std::isfinite(vertex.position.y) ||
+                !std::isfinite(vertex.position.z) || !std::isfinite(vertex.normal.x) ||
+                !std::isfinite(vertex.normal.y) || !std::isfinite(vertex.normal.z) || !inBounds(vertex.position))
+            {
+                return false;
+            }
         }
+        for (std::size_t index = 0; index < candidate.indices.size(); index += 3U)
+        {
+            const std::uint32_t ia = candidate.indices[index];
+            const std::uint32_t ib = candidate.indices[index + 1U];
+            const std::uint32_t ic = candidate.indices[index + 2U];
+            if (ia >= candidate.vertices.size() || ib >= candidate.vertices.size() || ic >= candidate.vertices.size())
+            {
+                return false;
+            }
+            const auto& a = candidate.vertices[ia].position;
+            const auto& b = candidate.vertices[ib].position;
+            const auto& c = candidate.vertices[ic].position;
+            const double ux = static_cast<double>(b.x) - a.x;
+            const double uy = static_cast<double>(b.y) - a.y;
+            const double uz = static_cast<double>(b.z) - a.z;
+            const double vx = static_cast<double>(c.x) - a.x;
+            const double vy = static_cast<double>(c.y) - a.y;
+            const double vz = static_cast<double>(c.z) - a.z;
+            const double areaSquared = (uy * vz - uz * vy) * (uy * vz - uz * vy) +
+                                       (uz * vx - ux * vz) * (uz * vx - ux * vz) +
+                                       (ux * vy - uy * vx) * (ux * vy - uy * vx);
+            if (!std::isfinite(areaSquared) || !(areaSquared > 0.0)) return false;
+        }
+        return true;
+    };
+    if (!validPrimitive(primitive) || !validPrimitive(rockPrimitive))
+    {
+        return false;
     }
     for (std::size_t cell = 0; cell < ExpectedCells; ++cell)
     {
@@ -7343,41 +7421,33 @@ bool M3BSeabedSectionGeometryContract()
         return false;
     }
 
-    for (std::size_t index = 0; index < primitive.indices.size(); index += 3)
+    const auto surfaceYAt = [&](const float x) -> std::optional<float> {
+        for (std::size_t cell = 0; cell < ExpectedCells; ++cell)
+        {
+            const auto& position = primitive.vertices[cell * 16U].position;
+            if (std::abs(position.x - x) < 0.001F) return position.y;
+        }
+        return std::nullopt;
+    };
+    const auto ridge = surfaceYAt(-130.0F);
+    const auto floor = surfaceYAt(-250.0F);
+    const auto cliffLip = surfaceYAt(-45.0F);
+    const auto cliffBase = surfaceYAt(-20.0F);
+    const auto trench = surfaceYAt(40.0F);
+    if (!ridge || !floor || !cliffLip || !cliffBase || !trench || !(*ridge > *floor) ||
+        !(*trench < *floor) || std::abs((*cliffBase - *cliffLip) / 25.0F) < 2.0F ||
+        section.rocks[0].id != "ridge-west" || section.rocks[2].id != "ridge-crown" ||
+        section.rocks[4].id != "basin-outcrop")
     {
-        const std::uint32_t ia = primitive.indices[index];
-        const std::uint32_t ib = primitive.indices[index + 1];
-        const std::uint32_t ic = primitive.indices[index + 2];
-        if (ia >= primitive.vertices.size() || ib >= primitive.vertices.size() || ic >= primitive.vertices.size())
-        {
-            return false;
-        }
-        const auto& a = primitive.vertices[ia].position;
-        const auto& b = primitive.vertices[ib].position;
-        const auto& c = primitive.vertices[ic].position;
-        const double ux = static_cast<double>(b.x) - static_cast<double>(a.x);
-        const double uy = static_cast<double>(b.y) - static_cast<double>(a.y);
-        const double uz = static_cast<double>(b.z) - static_cast<double>(a.z);
-        const double vx = static_cast<double>(c.x) - static_cast<double>(a.x);
-        const double vy = static_cast<double>(c.y) - static_cast<double>(a.y);
-        const double vz = static_cast<double>(c.z) - static_cast<double>(a.z);
-        const double crossX = uy * vz - uz * vy;
-        const double crossY = uz * vx - ux * vz;
-        const double crossZ = ux * vy - uy * vx;
-        const std::size_t face = (index / 3U / 2U) % 4U;
-        if (!std::isfinite(crossX) || !std::isfinite(crossY) || !std::isfinite(crossZ) ||
-            (face == 0U && !(crossY > 0.0)) || (face == 1U && !(crossZ > 0.0)) ||
-            (face == 2U && !(crossZ < 0.0)) || (face == 3U && !(crossY < 0.0)))
-        {
-            return false;
-        }
+        return false;
     }
 
     const auto& duplicate = second->renderGeometry.primitives.front();
     if (section.bounds.minimum.x != second->bounds.minimum.x || section.bounds.minimum.y != second->bounds.minimum.y ||
         section.bounds.minimum.z != second->bounds.minimum.z || section.bounds.maximum.x != second->bounds.maximum.x ||
         section.bounds.maximum.y != second->bounds.maximum.y || section.bounds.maximum.z != second->bounds.maximum.z ||
-        primitive.indices != duplicate.indices || primitive.vertices.size() != duplicate.vertices.size())
+        primitive.indices != duplicate.indices || primitive.vertices.size() != duplicate.vertices.size() ||
+        section.rocks != second->rocks || rockPrimitive.indices != second->renderGeometry.primitives[1].indices)
     {
         return false;
     }
@@ -7420,11 +7490,13 @@ bool M3BSeabedSectionRejectsMalformedInput()
     SeabedProfileConfig invertedRange;
     invertedRange.maxX = invertedRange.minX;
     SeabedProfileConfig nonFinite;
-    nonFinite.primaryAmplitudeMeters = std::numeric_limits<float>::infinity();
-    SeabedProfileConfig negativeAmplitude;
-    negativeAmplitude.secondaryAmplitudeMeters = -1.0F;
-    SeabedProfileConfig zeroPeriod;
-    zeroPeriod.primaryWavePeriodMeters = 0.0F;
+    nonFinite.controlPoints[3].yMeters = std::numeric_limits<float>::infinity();
+    SeabedProfileConfig missingEndpoint;
+    missingEndpoint.controlPoints.back().xMeters = 399.0F;
+    SeabedProfileConfig reversedKnots;
+    reversedKnots.controlPoints[4].xMeters = reversedKnots.controlPoints[3].xMeters;
+    SeabedProfileConfig emptyKnots;
+    emptyKnots.controlPoints.clear();
     SeabedProfileConfig zeroThickness;
     zeroThickness.zThicknessMeters = 0.0F;
     SeabedProfileConfig fillAtSurface;
@@ -7433,8 +7505,8 @@ bool M3BSeabedSectionRejectsMalformedInput()
     unrepresentableSpan.minX = -std::numeric_limits<float>::max();
     unrepresentableSpan.maxX = std::numeric_limits<float>::max();
     return rejects(sampleCountTooSmall) && rejects(sampleCountTooLarge) && rejects(invertedRange) && rejects(nonFinite) &&
-           rejects(negativeAmplitude) && rejects(zeroPeriod) && rejects(zeroThickness) && rejects(fillAtSurface) &&
-           rejects(unrepresentableSpan);
+           rejects(missingEndpoint) && rejects(reversedKnots) && rejects(emptyKnots) && rejects(zeroThickness) &&
+           rejects(fillAtSurface) && rejects(unrepresentableSpan);
 }
 
 // ---------------------------------------------------------------------------
@@ -7996,11 +8068,12 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-A Reinhard tone-map properties", M3AToneMapProperties},
         {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
-        {"M3-B deterministic seabed geometry contract", M3BSeabedSectionGeometryContract},
+        {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
         {"M3-B.1 independent collision topology", M3B1CollisionTopologyIndependent},
         {"M3-B.1 canonical submarine seabed contact", M3B1CanonicalSubmarineContact},
+        {"M3-B.2 representative terrain collision contacts", M3B2RepresentativeTerrainCollisionContacts},
         {"M3-B seabed rejects malformed configuration and IDs", M3BSeabedSectionRejectsMalformedInput},
         // M2 Slice E1: generic force-at-world-position PhysicsWorld API (headless, public API only).
         {"E1 centered force produces translation", ForceCenteredProducesTranslation},

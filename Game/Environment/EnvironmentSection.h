@@ -40,10 +40,21 @@ struct EnvironmentSectionId final
     bool operator==(const EnvironmentSectionId&) const noexcept = default;
 };
 
+// One ordered world-space control point of the authored side-view seabed profile. Consecutive
+// knots form deliberate linear geological transitions: gentle slopes remain gentle while an
+// escarpment can remain visibly sharp. This is authored data, never a noise field.
+struct SeabedProfileControlPoint final
+{
+    float xMeters = 0.0F;
+    float yMeters = 0.0F;
+
+    bool operator==(const SeabedProfileControlPoint&) const noexcept = default;
+};
+
 // Deterministic authored seabed profile. All values are world-space (meters, DeepRun convention:
 // +X horizontal / vessel-forward, +Y up, +Z toward the fixed side-view camera; 1 unit = 1 metre).
-// The profile is a fixed combination of two sinusoidal depth terms over an explicit X range —
-// a deliberate non-flat silhouette, never procedural/infinite.
+// The explicit ordered knots are the major terrain authoring model. Rendering tessellates those
+// knots; coarse collision samples them independently.
 struct SeabedProfileConfig final
 {
     // X extent of the section (metres). Must be a finite, non-degenerate span.
@@ -53,19 +64,18 @@ struct SeabedProfileConfig final
     // Number of X samples along the surface. Must be in the bounded prototype range [2, 4096].
     int sampleCount = 161;
 
-    // Baseline seabed depth (world Y, metres, below 0). The surface undulates about this level.
-    float baselineYMeters = -150.0F;
-
     // How far below the surface the section body is filled (world Y, metres) so the lower part of
-    // the gameplay view is covered. Must be below the baseline.
+    // the gameplay view is covered. Must be below every authored profile knot.
     float fillBottomYMeters = -550.0F;
 
-    // Authored surface modulation amplitudes (metres) plus the two fixed wave periods. These are
-    // content values for this section (not a noise field); the profile is fully reproducible.
-    float primaryAmplitudeMeters = 14.0F;
-    float secondaryAmplitudeMeters = 5.0F;
-    float primaryWavePeriodMeters = 400.0F;
-    float secondaryWavePeriodMeters = 150.0F;
+    // Bounded representative M3-B.2 terrain: gentle floor -> broad ridge -> sharp drop-off ->
+    // flat deep trench -> recovery. End knots intentionally coincide with minX/maxX.
+    std::vector<SeabedProfileControlPoint> controlPoints{
+        {-400.0F, -160.0F}, {-320.0F, -155.0F}, {-250.0F, -150.0F},
+        {-180.0F, -125.0F}, {-130.0F, -120.0F}, {-90.0F, -132.0F},
+        {-45.0F, -140.0F}, {-20.0F, -205.0F}, {0.0F, -220.0F},
+        {80.0F, -220.0F}, {120.0F, -205.0F}, {180.0F, -180.0F},
+        {260.0F, -170.0F}, {400.0F, -165.0F}};
 
     // A small finite Z thickness (metres) gives the side-view seabed a bounded renderable cross-section
     // with stable winding rather than a zero-thickness plane. M3-B does not require a watertight closed solid.
@@ -83,6 +93,26 @@ struct EnvironmentBounds final
     [[nodiscard]] bool IsFiniteAndValid() const noexcept;
 };
 
+// Stable Game-owned placement of one low-poly representative rock. position is the terrain-contact
+// anchor, not a GPU handle or renderer transform. Its mesh and optional coarse collision are built
+// independently from this authored value.
+struct EnvironmentRockInstance final
+{
+    std::string id;
+    Assets::ModelVector3 position{};
+    Assets::ModelVector3 halfExtents{};
+    float rotationRadians = 0.0F;
+    bool hasCoarseCollision = false;
+
+    bool operator==(const EnvironmentRockInstance& other) const noexcept
+    {
+        return id == other.id && position.x == other.position.x && position.y == other.position.y &&
+               position.z == other.position.z && halfExtents.x == other.halfExtents.x &&
+               halfExtents.y == other.halfExtents.y && halfExtents.z == other.halfExtents.z &&
+               rotationRadians == other.rotationRadians && hasCoarseCollision == other.hasCoarseCollision;
+    }
+};
+
 // Deterministic render representation + stable identity + world bounds for one section. The
 // renderGeometry is an indexed Assets::ModelAsset authored directly in WORLD space: its single
 // node uses an identity localToModel, so ModelDraw::PrepareModelDraws yields a modelToWorld ==
@@ -96,7 +126,9 @@ struct EnvironmentSection final
     EnvironmentSectionId id{};
     EnvironmentBounds bounds{};
     Assets::ModelAsset renderGeometry;
-    // Independent coarse profile samples; never derived from render vertices or GPU data.
+    // Stable authored rock records; their presentation mesh is only one consumer.
+    std::vector<EnvironmentRockInstance> rocks;
+    // Independent coarse terrain/rock boxes; never derived from render vertices or GPU data.
     std::vector<Physics::StaticBoxBodyCreateInfo> collisionBoxes;
 };
 

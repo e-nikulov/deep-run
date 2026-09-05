@@ -445,6 +445,7 @@ Implementation status:
 | A.1 | Capability-gated real HDR display output | ACCEPTED |
 | B | Environment geometry foundation + first seabed | ACCEPTED |
 | B.1 | Coarse environment collision | ACCEPTED |
+| B.2 | Representative underwater terrain formations | READY FOR REVIEW |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -474,6 +475,13 @@ and world lifetime contract. Collision never reads render triangles or GPU data.
 headless vessel-drop regression settles against the floor; initial hydrostatic placement is clear.
 The measured maximum vertical difference at render samples is 5.24 m (rounded up); contacts are
 deliberately stepped, not triangle-accurate. Grounding damage and other environment systems remain deferred.
+
+M3-B.2 replaces the prototype sine-like floor with one bounded, deterministic authored control-point
+profile: gentle floor, broad ridge, sharp escarpment/drop-off, and a deep trench. Seven Game-owned
+low-poly rock instances have stable local IDs; one combined rock primitive remains a presentation
+consumer, not their authority. Render tessellation remains separate from feature-aware coarse static
+boxes, including only three large collidable rocks. WaterBody, depth, buoyancy, drag, propulsion, and
+grounding/damage remain unchanged.
 
 Future work:
 

@@ -412,8 +412,10 @@ int main(const int argumentCount, char** argumentValues)
                 }
 
                 ++renderFrames;
-                return rendered->drawCalls == 5 && rendered->submittedPrimitives == 5 &&
-                       rendered->submittedIndices == 5472;
+                // M3-B.2 adds one bounded combined-rock primitive beside the terrain primitive; the
+                // representative environment therefore contributes two indexed draws plus the submarine's four.
+                return rendered->drawCalls == 6 && rendered->submittedPrimitives == 6 &&
+                       rendered->submittedIndices == 5976;
             });
         return application.Run();
     }

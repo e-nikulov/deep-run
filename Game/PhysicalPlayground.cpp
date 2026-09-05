@@ -285,13 +285,23 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground seabed GPU upload failed: " + seabedUpload.error());
     }
     const auto seabedDraws = Render::PrepareModelDraws(seabed->renderGeometry);
-    const std::size_t seabedVertexCount = seabed->renderGeometry.primitives.front().vertices.size();
-    const std::size_t seabedIndexCount = seabed->renderGeometry.primitives.front().indices.size();
+    if (seabed->renderGeometry.primitives.size() != 2U)
+    {
+        return std::unexpected("physical playground representative environment must contain terrain and rock primitives");
+    }
+    const std::size_t terrainVertexCount = seabed->renderGeometry.primitives[0].vertices.size();
+    const std::size_t terrainIndexCount = seabed->renderGeometry.primitives[0].indices.size();
+    const std::size_t rockVertexCount = seabed->renderGeometry.primitives[1].vertices.size();
+    const std::size_t rockIndexCount = seabed->renderGeometry.primitives[1].indices.size();
+    const std::size_t environmentVertexCount = terrainVertexCount + rockVertexCount;
+    const std::size_t environmentIndexCount = terrainIndexCount + rockIndexCount;
     if (!seabedUpload->stats.uploadCompleted || !seabedUpload->handle.IsValid() ||
-        !renderer.IsGpuModelValid(seabedUpload->handle) || !seabedDraws || seabedDraws->size() != 1U ||
+        !renderer.IsGpuModelValid(seabedUpload->handle) || !seabedDraws || seabedDraws->size() != 2U ||
         seabedUpload->stats.primitiveCount != seabed->renderGeometry.primitives.size() ||
-        seabedUpload->stats.vertexCount != seabedVertexCount || seabedUpload->stats.indexCount != seabedIndexCount ||
-        seabedDraws->front().modelToWorld.values != Assets::ModelTransform{}.values)
+        seabedUpload->stats.vertexCount != environmentVertexCount ||
+        seabedUpload->stats.indexCount != environmentIndexCount ||
+        seabedDraws->at(0).modelToWorld.values != Assets::ModelTransform{}.values ||
+        seabedDraws->at(1).modelToWorld.values != Assets::ModelTransform{}.values)
     {
         return std::unexpected("physical playground seabed presentation initialization validation failed");
     }
@@ -459,7 +469,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     }
     seabedBodies_ = std::move(seabedBodies);
     PlaygroundLog().Info(Diagnostics::LogCategory::Physics,
-        "Environment collision ready: " + seabed->id.value + ", static boxes " +
+        "Environment collision ready: " + seabed->id.value + ", static bodies " +
         std::to_string(seabedBodies_.size()));
 
     modelAsset_ = *model;
@@ -508,9 +518,11 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     PlaygroundLog().Info(
         Diagnostics::LogCategory::Render,
         "Environment section ready: " + seabedSection_->id.value + ", bounds " +
-            FormatBounds(seabedSection_->bounds) + ", vertices " + std::to_string(seabedVertexCount) +
-            ", indices " + std::to_string(seabedIndexCount) + ", triangles " +
-            std::to_string(seabedIndexCount / 3U) + ", GPU upload success");
+            FormatBounds(seabedSection_->bounds) + ", terrain vertices " + std::to_string(terrainVertexCount) +
+            ", terrain triangles " + std::to_string(terrainIndexCount / 3U) + ", rock vertices " +
+            std::to_string(rockVertexCount) + ", rock triangles " + std::to_string(rockIndexCount / 3U) +
+            ", rocks " + std::to_string(seabedSection_->rocks.size()) + ", environment draws " +
+            std::to_string(seabedDraws_.size()) + ", GPU upload success");
     return {};
 }
 
@@ -821,7 +833,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     Render::D3D12Renderer& renderer) const
 {
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
-        !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 1U || physics_ == nullptr ||
+        !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || physics_ == nullptr ||
         !physicsBody_.IsValid() || !water_.has_value())
     {
         return std::unexpected("physical playground model assets are no longer valid");

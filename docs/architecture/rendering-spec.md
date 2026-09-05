@@ -110,6 +110,14 @@ need not share render-mesh topology. Environment data should use stable authored
 identifiers and chunk-compatible bounds so later streaming can be introduced
 without making production streaming an M3 requirement.
 
+M3-B.2's representative section uses explicit ordered side-view profile knots
+for its ridge, escarpment/drop-off, and trench, plus a bounded list of
+Game-owned rock instances with stable local IDs. The classic indexed path
+consumes the resulting terrain and combined rock primitives. Coarse static-box
+collision samples the authored profile and selected large rocks independently;
+it never reads render triangles, GPU handles, or visual tessellation. This is
+not a terrain engine, streaming format, or general scene graph.
+
 Presentation ocean waves do not replace `WaterBody` truth. When CPU wave
 queries become authoritative for floating bodies, Simulation owns that query
 state and the renderer visualizes a compatible snapshot.
