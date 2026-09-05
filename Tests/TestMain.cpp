@@ -19,6 +19,7 @@
 #include "Engine/Render/DisplayOutput.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Engine/Render/DepthLighting.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/Environment/EnvironmentSection.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
@@ -7113,6 +7114,59 @@ bool M3A1HdrScRgbMappingProperties()
            std::abs(referenceWhite - 1.0F) < 0.0001F && two > referenceWhite && twenty > two;
 }
 
+bool M3CUnderwaterDepthLightingProperties()
+{
+    using DeepRun::Render::DepthLightingParameters;
+    using DeepRun::Render::EvaluateDepthLighting;
+    using DeepRun::Render::ValidateDepthLightingParameters;
+
+    const DepthLightingParameters parameters{
+        .surfaceLevelYMeters = 50.0F,
+        .attenuationPerMeterRgb = {0.012F, 0.006F, 0.003F},
+        .deepAmbientRgb = {0.02F, 0.075F, 0.12F}};
+    const auto surface = EvaluateDepthLighting(parameters, 50.0F);
+    const auto above = EvaluateDepthLighting(parameters, 80.0F);
+    const auto shallow = EvaluateDepthLighting(parameters, -50.0F);
+    // The same world Y represents the same WaterBody depth regardless of hypothetical camera position.
+    const auto sameDepthDifferentCamera = EvaluateDepthLighting(parameters, -50.0F);
+    const auto deep = EvaluateDepthLighting(parameters, -170.0F);
+    if (!surface || !above || !shallow || !sameDepthDifferentCamera || !deep || surface->depthMeters != 0.0F ||
+        above->depthMeters != 0.0F || shallow->depthMeters != 100.0F || deep->depthMeters != 220.0F)
+    {
+        return false;
+    }
+    for (std::size_t channel = 0; channel < 3U; ++channel)
+    {
+        if (surface->directTransmissionRgb[channel] != 1.0F || above->directTransmissionRgb[channel] != 1.0F ||
+            !std::isfinite(deep->directTransmissionRgb[channel]) || deep->directTransmissionRgb[channel] < 0.0F ||
+            deep->directTransmissionRgb[channel] > shallow->directTransmissionRgb[channel] ||
+            deep->deepAmbientWeightRgb[channel] < 0.0F ||
+            0.0F * deep->directTransmissionRgb[channel] + 0.0F * deep->deepAmbientWeightRgb[channel] != 0.0F ||
+            shallow->directTransmissionRgb[channel] != sameDepthDifferentCamera->directTransmissionRgb[channel])
+        {
+            return false;
+        }
+    }
+    if (!(deep->directTransmissionRgb[0] <= deep->directTransmissionRgb[1] &&
+          deep->directTransmissionRgb[1] <= deep->directTransmissionRgb[2]) ||
+        !(shallow->directTransmissionRgb[0] > deep->directTransmissionRgb[0]))
+    {
+        return false;
+    }
+
+    auto invalid = parameters;
+    invalid.attenuationPerMeterRgb[0] = -0.01F;
+    auto invalidAmbient = parameters;
+    invalidAmbient.deepAmbientRgb[1] = std::numeric_limits<float>::infinity();
+    auto extremeSurface = parameters;
+    extremeSurface.surfaceLevelYMeters = std::numeric_limits<float>::max();
+    return !ValidateDepthLightingParameters(invalid) && !ValidateDepthLightingParameters(invalidAmbient) &&
+           !EvaluateDepthLighting(parameters, std::numeric_limits<float>::quiet_NaN()) &&
+           !EvaluateDepthLighting(
+               extremeSurface,
+               -std::numeric_limits<float>::max());
+}
+
 bool M3B1StaticBodyContract()
 {
     using namespace DeepRun::Physics;
@@ -8068,6 +8122,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-A Reinhard tone-map properties", M3AToneMapProperties},
         {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
+        {"M3-C underwater depth-lighting properties", M3CUnderwaterDepthLightingProperties},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},

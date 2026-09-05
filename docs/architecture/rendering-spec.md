@@ -118,6 +118,20 @@ collision samples the authored profile and selected large rocks independently;
 it never reads render triangles, GPU handles, or visual tessellation. This is
 not a terrain engine, streaming format, or general scene graph.
 
+M3-C applies a compact scene-linear depth-lighting policy in the model pixel
+shader before `SceneColorHDR` is tone-mapped. Game derives a finite value
+snapshot from authoritative `WaterBody::Config().surfaceLevelY`; the renderer
+does not receive `WaterBody`, a camera position, or an environment object. At
+each model world position it evaluates `depth = max(surfaceLevelY - worldY, 0)`
+and per-channel direct transmission `exp(-k * depth)`. The initial fixed
+coefficients in reciprocal metres are RGB `(0.012, 0.006, 0.003)`, so red
+attenuates before green and blue. A restrained material-modulated scene-linear
+deep ambient RGB floor `(0.02, 0.075, 0.12)` is weighted by
+`1 - transmission`; direct diffuse and specular are both multiplied by the
+same transmission. This is fixed presentation tuning, not fog, automatic
+exposure, an optical-water simulation, or a new gameplay/environment
+authority.
+
 Presentation ocean waves do not replace `WaterBody` truth. When CPU wave
 queries become authoritative for floating bodies, Simulation owns that query
 state and the renderer visualizes a compatible snapshot.

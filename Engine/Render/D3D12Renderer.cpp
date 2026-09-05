@@ -104,6 +104,16 @@ struct DrawRootConstants final
 
 static_assert(sizeof(DrawRootConstants) == sizeof(std::uint32_t) * 56);
 
+struct DepthLightingRootConstants final
+{
+    float surfaceLevelYMeters = 0.0F;
+    std::array<float, 3> attenuationPerMeterRgb{};
+    std::array<float, 3> deepAmbientRgb{};
+    float padding = 0.0F;
+};
+
+static_assert(sizeof(DepthLightingRootConstants) == sizeof(std::uint32_t) * 8);
+
 std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -655,16 +665,24 @@ public:
         const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "ModelVS.cso");
         const std::vector<std::byte> pixelShader = ReadBinaryFile(shaderRoot / "ModelPS.cso");
 
-        D3D12_ROOT_PARAMETER constantsParameter{};
-        constantsParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-        constantsParameter.Constants.ShaderRegister = 0;
-        constantsParameter.Constants.RegisterSpace = 0;
-        constantsParameter.Constants.Num32BitValues = sizeof(DrawRootConstants) / sizeof(std::uint32_t);
-        constantsParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        std::array<D3D12_ROOT_PARAMETER, 2> rootParameters{};
+        D3D12_ROOT_PARAMETER& drawConstantsParameter = rootParameters[0];
+        drawConstantsParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        drawConstantsParameter.Constants.ShaderRegister = 0;
+        drawConstantsParameter.Constants.RegisterSpace = 0;
+        drawConstantsParameter.Constants.Num32BitValues = sizeof(DrawRootConstants) / sizeof(std::uint32_t);
+        drawConstantsParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_PARAMETER& lightingConstantsParameter = rootParameters[1];
+        lightingConstantsParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        lightingConstantsParameter.Constants.ShaderRegister = 1;
+        lightingConstantsParameter.Constants.RegisterSpace = 0;
+        lightingConstantsParameter.Constants.Num32BitValues =
+            sizeof(DepthLightingRootConstants) / sizeof(std::uint32_t);
+        lightingConstantsParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rootDescription{};
-        rootDescription.NumParameters = 1;
-        rootDescription.pParameters = &constantsParameter;
+        rootDescription.NumParameters = static_cast<UINT>(rootParameters.size());
+        rootDescription.pParameters = rootParameters.data();
         rootDescription.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
                                 D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
                                 D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
@@ -1103,6 +1121,15 @@ public:
         commandList->SetGraphicsRootSignature(modelRootSignature.Get());
         commandList->SetPipelineState(modelPipeline.Get());
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        const DepthLightingRootConstants depthLightingConstants{
+            .surfaceLevelYMeters = depthLighting.surfaceLevelYMeters,
+            .attenuationPerMeterRgb = depthLighting.attenuationPerMeterRgb,
+            .deepAmbientRgb = depthLighting.deepAmbientRgb};
+        commandList->SetGraphicsRoot32BitConstants(
+            1,
+            sizeof(DepthLightingRootConstants) / sizeof(std::uint32_t),
+            &depthLightingConstants,
+            0);
 
         ModelDrawStats stats;
         for (const ModelDrawInstance& draw : draws)
@@ -1149,6 +1176,20 @@ public:
             logNextDraw = false;
         }
         return stats;
+    }
+
+    std::expected<void, std::string> SetDepthLighting(const DepthLightingParameters& parameters)
+    {
+        if (!frameOpen)
+        {
+            return std::unexpected("depth lighting is only valid between BeginFrame and EndFrame");
+        }
+        if (const auto valid = ValidateDepthLightingParameters(parameters); !valid)
+        {
+            return std::unexpected(valid.error());
+        }
+        depthLighting = parameters;
+        return {};
     }
 
     std::expected<void, std::string> ClearViewportRect(const ViewportRect& rect, const RgbaColor& color)
@@ -1408,6 +1449,7 @@ public:
     UINT rtvIncrement = 0;
     UINT imguiIncrement = 0;
     std::vector<GpuModel> gpuModels;
+    DepthLightingParameters depthLighting{};
     bool initialized = false;
     bool vsync = true;
     bool hdrRequested = false;
@@ -1475,6 +1517,11 @@ std::expected<ModelDrawStats, std::string> D3D12Renderer::DrawModel(
         return std::unexpected("invalid or foreign GPU model handle");
     }
     return impl_->DrawModel(handle.modelIndex_, draws, camera);
+}
+
+std::expected<void, std::string> D3D12Renderer::SetDepthLighting(const DepthLightingParameters& parameters)
+{
+    return impl_->SetDepthLighting(parameters);
 }
 
 std::expected<void, std::string> D3D12Renderer::ClearViewportRect(

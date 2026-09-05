@@ -5,6 +5,7 @@
 #include "Engine/Render/DisplayOutput.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Engine/Render/DepthLighting.h"
 
 #include <d3d12.h>
 #include <dxgiformat.h>
@@ -53,6 +54,10 @@ public:
         GpuModelHandle handle,
         std::span<const ModelDrawInstance> draws,
         const OrthographicCamera& camera);
+
+    // Updates the small Game-derived, renderer-owned lighting snapshot used by all subsequent model draws in
+    // this frame. The data is validated before GPU use.
+    [[nodiscard]] std::expected<void, std::string> SetDepthLighting(const DepthLightingParameters& parameters);
 
     // Clears a rectangular region of the current render target with a solid color (M2 Slice D2). Valid only
     // between BeginFrame and EndFrame. The rectangle is in normalized viewport coordinates (see ViewportRect)

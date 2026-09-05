@@ -445,7 +445,9 @@ Implementation status:
 | A.1 | Capability-gated real HDR display output | ACCEPTED |
 | B | Environment geometry foundation + first seabed | ACCEPTED |
 | B.1 | Coarse environment collision | ACCEPTED |
-| B.2 | Representative underwater terrain formations | READY FOR REVIEW |
+| B.2 | Representative underwater terrain formations | ACCEPTED |
+| C | Underwater depth lighting | READY FOR REVIEW |
+| C.1 | Underwater fog | NOT STARTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -483,15 +485,19 @@ consumer, not their authority. Render tessellation remains separate from feature
 boxes, including only three large collidable rocks. WaterBody, depth, buoyancy, drag, propulsion, and
 grounding/damage remain unchanged.
 
+M3-C adds fixed scene-linear underwater depth lighting to the model pixel shader. Game snapshots only the
+authoritative `WaterBody::Config().surfaceLevelY` and fixed presentation data into the generic renderer;
+the renderer receives no `WaterBody`, camera position, or environment object. At actual model world Y,
+`depth = max(surfaceLevelY - worldY, 0)` drives RGB direct transmission
+`exp(-k * depth)`, with per-metre coefficients `(0.012, 0.006, 0.003)` for red, green, and blue. The same
+transmission attenuates both direct diffuse and specular; a material-modulated deep ambient floor RGB
+`(0.02, 0.075, 0.12)` is weighted by `1 - transmission` to preserve restrained seabed/rock readability.
+It is presentation-only, camera-independent, runs before M3-A/A.1 output handling, and does not add fog,
+exposure, particles, a water optical model, or gameplay/simulation state.
+
 Future work:
 
 - underwater fog
-- depth lighting
-- bounded scene-linear HDR intermediate, tone mapping, SDR fallback, and
-  capability-gated HDR output foundation
-- seabed and representative rock formations
-- underwater ridges, cliffs, drop-offs, trenches, and other large terrain
-  formations needed by the environment slice
 - basic underwater ice / ice-shelf / iceberg geometry where appropriate
 - world/environment data with independent render, coarse-collision, navigation,
   and future acoustic-query representations
