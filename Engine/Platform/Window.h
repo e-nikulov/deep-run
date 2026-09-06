@@ -60,6 +60,7 @@ struct WindowConfig
     std::string title = "DeepRun Engine";
     std::uint32_t width = 1280;
     std::uint32_t height = 720;
+    bool borderless = false; // Allows a native-resolution diagnostic client area without caption borders.
 };
 
 class Window final

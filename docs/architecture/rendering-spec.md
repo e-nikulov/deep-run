@@ -235,7 +235,19 @@ primitive, immutable upload, and draw. Game evaluates one school translation fro
 moving without per-fish runtime transforms, geometry regeneration, or allocations. The field does not query
 water or participate in gameplay, physics, entities, acoustics, or sensor state. It renders after ice and before
 the submarine, M3-F float, and particles, bringing the canonical scene totals to 12 draws, 10 model primitives,
-and 10,980 submitted indices. This is presentation policy only; M3-I remains unstarted.
+and 10,980 submitted indices. This is presentation policy only.
+
+M3-I adds bounded acceptance diagnostics without changing any scene pass or authority boundary.
+One renderer-owned four-entry timestamp query heap and one 32-byte readback buffer cover two in-flight
+frames. Each pair brackets the direct command list's scene clear through output/debug UI and the final
+Present transition; timestamp resolve and Present/DWM waiting are outside the measured GPU interval.
+Readback uses the existing completed frame-slot fence, never an extra per-frame flush. Frame serials
+exclude warm-up samples. Resize flushes as before and discards pending timestamp samples while retaining
+the query/readback resources. Optional timestamp failure leaves ordinary rendering available.
+Renderer memory diagnostics distinguish logical geometry bytes and tracked resources from DXGI's
+current-process local-segment usage/budget. These are not exact game-owned residency figures.
+See [M3 acceptance evidence](../development/m3-underwater-environment.md) and
+[repeatable commands](../development/testing.md#m3-acceptance-performance-run).
 
 Presentation fauna does not create sensor truth. Gameplay-relevant biological
 emissions and contacts enter through the A1 signature/observation/contact/track

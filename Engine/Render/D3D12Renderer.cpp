@@ -11,6 +11,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -362,6 +363,7 @@ public:
             D3D12_COMMAND_QUEUE_DESC queueDescription{};
             queueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
             ThrowIfFailed(device->CreateCommandQueue(&queueDescription, IID_PPV_ARGS(&commandQueue)), "CreateCommandQueue");
+            CreateFrameTimestamps();
 
             for (ComPtr<ID3D12CommandAllocator>& allocator : commandAllocators)
             {
@@ -1153,6 +1155,56 @@ public:
                       "Create output graphics pipeline");
     }
 
+    void CreateFrameTimestamps()
+    {
+        // Optional, bounded whole-frame telemetry. Failure does not disable the normal renderer.
+        D3D12_QUERY_HEAP_DESC description{};
+        description.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        description.Count = BufferCount * 2U;
+        const auto heap = HeapProperties(D3D12_HEAP_TYPE_READBACK);
+        const auto buffer = BufferDescription(BufferCount * 2U * sizeof(std::uint64_t));
+        if (FAILED(commandQueue->GetTimestampFrequency(&timestampFrequency)) || timestampFrequency == 0 ||
+            FAILED(device->CreateQueryHeap(&description, IID_PPV_ARGS(&timestampHeap))) ||
+            FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&timestampReadback))))
+        {
+            timestampHeap.Reset();
+            timestampReadback.Reset();
+            logger.Warning(Diagnostics::LogCategory::Render, "Whole-frame GPU timing unavailable");
+            return;
+        }
+        frameDiagnostics.gpuTimingAvailable = true;
+    }
+
+    void ReadFrameTimestamps()
+    {
+        // Called only after the existing slot fence completed, before that slot is overwritten.
+        if (!frameDiagnostics.gpuTimingAvailable || timestampFrames[frameIndex] == 0)
+        {
+            return;
+        }
+        const SIZE_T offset = frameIndex * 2U * sizeof(std::uint64_t);
+        const D3D12_RANGE readRange{offset, offset + 2U * sizeof(std::uint64_t)};
+        void* mapped = nullptr;
+        if (FAILED(timestampReadback->Map(0, &readRange, &mapped)))
+        {
+            frameDiagnostics.gpuTimingAvailable = false;
+            logger.Warning(Diagnostics::LogCategory::Render, "GPU timestamp readback unavailable");
+            return;
+        }
+        std::array<std::uint64_t, 2> ticks{};
+        std::memcpy(ticks.data(), static_cast<const std::byte*>(mapped) + offset, sizeof(ticks));
+        const D3D12_RANGE noWrites{0, 0};
+        timestampReadback->Unmap(0, &noWrites);
+        if (ticks[1] >= ticks[0])
+        {
+            frameDiagnostics.gpuMilliseconds = static_cast<double>(ticks[1] - ticks[0]) * 1000.0 /
+                                               static_cast<double>(timestampFrequency);
+            frameDiagnostics.completedGpuFrame = timestampFrames[frameIndex];
+        }
+        timestampFrames[frameIndex] = 0;
+    }
+
     void WaitForFrame(const std::uint32_t index)
     {
         const std::uint64_t value = frameFenceValues[index];
@@ -1906,6 +1958,7 @@ public:
             sceneColorHdr.Reset();
             depthBuffer.Reset();
             frameFenceValues.fill(0);
+            timestampFrames.fill(0); // Resize flush completed; discard pre-resize measurements.
             ThrowIfFailed(
                 swapChain->ResizeBuffers(BufferCount, newWidth, newHeight, BackBufferFormatFor(outputMode), 0),
                 "ResizeBuffers");
@@ -1936,9 +1989,17 @@ public:
     void BeginFrame()
     {
         frameIndex = swapChain->GetCurrentBackBufferIndex();
+        const auto waitStart = std::chrono::steady_clock::now();
         WaitForFrame(frameIndex);
+        frameDiagnostics.frameSlotWaitMilliseconds =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
+        ReadFrameTimestamps();
         ThrowIfFailed(commandAllocators[frameIndex]->Reset(), "Reset command allocator");
         ThrowIfFailed(commandList->Reset(commandAllocators[frameIndex].Get(), nullptr), "Reset command list");
+        if (frameDiagnostics.gpuTimingAvailable)
+        {
+            commandList->EndQuery(timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIndex * 2U);
+        }
 
         D3D12_RESOURCE_BARRIER barrier{};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -2018,15 +2079,29 @@ public:
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         commandList->ResourceBarrier(1, &barrier);
+        if (frameDiagnostics.gpuTimingAvailable)
+        {
+            commandList->EndQuery(timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIndex * 2U + 1U);
+            commandList->ResolveQueryData(timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
+                frameIndex * 2U, 2U, timestampReadback.Get(), frameIndex * 2U * sizeof(std::uint64_t));
+        }
         ThrowIfFailed(commandList->Close(), "Close command list");
 
         ID3D12CommandList* lists[] = {commandList.Get()};
         commandQueue->ExecuteCommandLists(1, lists);
+        const auto presentStart = std::chrono::steady_clock::now();
         ThrowIfFailed(swapChain->Present(vsync ? 1U : 0U, 0), "Present");
+        frameDiagnostics.presentMilliseconds =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - presentStart).count();
 
         const std::uint64_t signalValue = nextFenceValue++;
         ThrowIfFailed(commandQueue->Signal(fence.Get(), signalValue), "Signal frame fence");
         frameFenceValues[frameIndex] = signalValue;
+        ++frameDiagnostics.submittedFrame;
+        if (frameDiagnostics.gpuTimingAvailable)
+        {
+            timestampFrames[frameIndex] = frameDiagnostics.submittedFrame;
+        }
     }
 
     void Shutdown()
@@ -2044,6 +2119,10 @@ public:
         }
 
         gpuModels.clear();
+        timestampReadback.Reset();
+        timestampHeap.Reset();
+        timestampFrames.fill(0);
+        frameDiagnostics = {};
         suspendedParticleField = {};
         gerstnerSurface = {};
         outputPipeline.Reset();
@@ -2115,6 +2194,11 @@ public:
     D3D12_GPU_DESCRIPTOR_HANDLE imguiGpuHandle{};
     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle{};
     ComPtr<ID3D12Fence> fence;
+    ComPtr<ID3D12QueryHeap> timestampHeap;
+    ComPtr<ID3D12Resource> timestampReadback;
+    std::array<std::uint64_t, BufferCount> timestampFrames{};
+    std::uint64_t timestampFrequency = 0;
+    RendererFrameDiagnostics frameDiagnostics;
     HANDLE fenceEvent = nullptr;
     std::array<std::uint64_t, BufferCount> frameFenceValues{};
     std::uint64_t nextFenceValue = 1;
@@ -2145,6 +2229,50 @@ D3D12Renderer::D3D12Renderer(Diagnostics::Logger& logger)
 }
 
 D3D12Renderer::~D3D12Renderer() = default;
+
+const RendererFrameDiagnostics& D3D12Renderer::FrameDiagnostics() const noexcept
+{
+    return impl_->frameDiagnostics;
+}
+
+RendererMemoryDiagnostics D3D12Renderer::MemoryDiagnostics() const noexcept
+{
+    RendererMemoryDiagnostics result;
+    result.width = impl_->width;
+    result.height = impl_->height;
+    result.modelCount = impl_->gpuModels.size();
+    const auto count = [&](ID3D12Resource* resource, const bool geometry = false) {
+        if (resource != nullptr)
+        {
+            ++result.trackedResourceCount;
+            if (geometry) result.geometryBytes += resource->GetDesc().Width;
+        }
+    };
+    for (const auto& model : impl_->gpuModels)
+        for (const auto& primitive : model.primitives)
+        {
+            count(primitive.vertexBuffer.Get(), true);
+            count(primitive.indexBuffer.Get(), true);
+        }
+    count(impl_->gerstnerSurface.vertexBuffer.Get(), true);
+    count(impl_->gerstnerSurface.indexBuffer.Get(), true);
+    count(impl_->suspendedParticleField.vertexBuffer.Get(), true);
+    count(impl_->suspendedParticleField.indexBuffer.Get(), true);
+    for (const auto& upload : impl_->scenePresentationUploads) count(upload.resource.Get());
+    for (const auto& buffer : impl_->backBuffers) count(buffer.Get());
+    count(impl_->sceneColorHdr.Get());
+    count(impl_->depthBuffer.Get());
+    count(impl_->timestampReadback.Get());
+    DXGI_QUERY_VIDEO_MEMORY_INFO memory{};
+    if (impl_->adapter != nullptr &&
+        SUCCEEDED(impl_->adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory)))
+    {
+        result.videoMemoryAvailable = true;
+        result.localUsageBytes = memory.CurrentUsage;
+        result.localBudgetBytes = memory.Budget;
+    }
+    return result;
+}
 
 bool D3D12Renderer::Initialize(
     void* windowHandle,

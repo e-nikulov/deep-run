@@ -813,6 +813,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     physicsBody_ = body;
     surfaceFloatModel_ = std::move(surfaceFloatModel);
     surfaceFloatModelGpu_ = surfaceFloatUpload->handle;
+    surfaceFloatBaseDraw_ = surfaceFloatDraws->front();
     surfaceFloatBody_ = surfaceFloatBody;
     physics_ = &physics;
     water_ = *water;
@@ -1278,12 +1279,14 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground underwater fauna presentation transform failed: " +
                                faunaModelToWorld.error());
     }
-    const auto surfaceFloatDraws = Render::PrepareModelDraws(*surfaceFloatModel_, *surfaceFloatModelToWorld);
-    if (!surfaceFloatDraws || surfaceFloatDraws->size() != 1U)
+    Render::ModelDrawInstance surfaceFloatDraw = surfaceFloatBaseDraw_;
+    surfaceFloatDraw.modelToWorld = *surfaceFloatModelToWorld;
+    const auto surfaceFloatNormal = Render::BuildNormalTransform(*surfaceFloatModelToWorld);
+    if (!surfaceFloatNormal)
     {
-        return std::unexpected("physical playground M3-F float draw preparation failed" +
-                               (surfaceFloatDraws ? std::string{} : ": " + surfaceFloatDraws.error()));
+        return std::unexpected(surfaceFloatNormal.error());
     }
+    surfaceFloatDraw.normalToWorld = *surfaceFloatNormal;
 
     if (!propellerNodeIndex_.has_value())
     {
@@ -1413,7 +1416,8 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return submarineStats;
     }
-    const auto surfaceFloatStats = renderer.DrawModel(surfaceFloatModelGpu_, *surfaceFloatDraws, *camera);
+    const auto surfaceFloatStats = renderer.DrawModel(
+        surfaceFloatModelGpu_, std::span<const Render::ModelDrawInstance>(&surfaceFloatDraw, 1U), *camera);
     if (!surfaceFloatStats)
     {
         return surfaceFloatStats;

@@ -17,6 +17,9 @@ struct ApplicationOptions
 {
     bool headless = false;
     bool smokeTest = false;
+    bool benchmarkM3 = false;
+    bool benchmarkHdr = false;
+    bool benchmarkStability = false;
 
     [[nodiscard]] static ApplicationOptions Parse(std::span<const std::string_view> arguments);
 };

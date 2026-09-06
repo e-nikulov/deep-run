@@ -8,6 +8,7 @@
 #include "Engine/Core/Random.h"
 #include "Engine/Core/Time.h"
 #include "Engine/Diagnostics/Logger.h"
+#include "Engine/Diagnostics/FrameStatistics.h"
 #include "Engine/Input/HapticMixer.h"
 #include "Engine/Input/InputState.h"
 #include "Engine/Input/InputSystem.h"
@@ -7032,6 +7033,28 @@ float M3AToneMapScalar(const float sceneLinear) noexcept
     return nonNegative / (1.0F + nonNegative);
 }
 
+bool M3IFramePercentiles()
+{
+    using DeepRun::Diagnostics::SummarizeFrameSamples;
+    std::array<double, 0> empty{};
+    std::array<double, 1> one{7.0};
+    std::array<double, 4> even{40.0, 10.0, 30.0, 20.0};
+    std::array<double, 5> odd{5.0, 1.0, 4.0, 2.0, 3.0};
+    std::array<double, 2> invalid{0.0, std::numeric_limits<double>::quiet_NaN()};
+    const auto single = SummarizeFrameSamples(one);
+    const auto a = SummarizeFrameSamples(even);
+    const auto b = SummarizeFrameSamples(odd);
+    if (SummarizeFrameSamples(empty) || SummarizeFrameSamples(invalid) || !single || !a || !b)
+        return false;
+    invalid[1] = -1.0;
+    if (SummarizeFrameSamples(invalid)) return false;
+    invalid[1] = std::numeric_limits<double>::infinity();
+    return !SummarizeFrameSamples(invalid) && single->median == 7.0 && single->p99 == 7.0 &&
+        a->median == 25.0 && std::abs(a->p95 - 38.5) < 1.0e-10 &&
+        std::abs(a->p99 - 39.7) < 1.0e-10 && a->maximum == 40.0 && b->median == 3.0 &&
+        std::abs(b->p95 - 4.8) < 1.0e-10 && std::abs(b->p99 - 4.96) < 1.0e-10;
+}
+
 bool M3AToneMapProperties()
 {
     constexpr std::array<float, 7> inputs{
@@ -9408,6 +9431,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"D2 pixel rect conversion", D2PixelRectConversion},
         {"D2 presentation colors distinct and opaque", D2PresentationColorsAreDistinct},
         {"M3-A Reinhard tone-map properties", M3AToneMapProperties},
+        {"M3-I frame percentiles and invalid samples", M3IFramePercentiles},
         {"M3-A.1 display output selection", M3A1DisplayOutputSelection},
         {"M3-A.1 HDR scRGB mapping properties", M3A1HdrScRgbMappingProperties},
         {"M3-C underwater depth-lighting properties", M3CUnderwaterDepthLightingProperties},

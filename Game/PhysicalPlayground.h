@@ -125,6 +125,7 @@ private:
     // wave-aware buoyancy configuration. It is separate from every canonical submarine member.
     std::optional<Assets::ModelAsset> surfaceFloatModel_;
     Render::GpuModelHandle surfaceFloatModelGpu_;
+    Render::ModelDrawInstance surfaceFloatBaseDraw_{};
     Physics::PhysicsBodyHandle surfaceFloatBody_;
     // Non-owning: the Engine owns the world and outlives this playground (see class comment).
     Physics::PhysicsWorld* physics_ = nullptr;

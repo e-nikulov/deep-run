@@ -40,6 +40,9 @@ struct EngineOptions final
 {
     bool headless = false;
     bool smokeTest = false;
+    bool performanceRun = false;
+    bool performanceHdr = false;
+    bool resizeStress = false;
     std::filesystem::path configPath;
     std::filesystem::path contentRoot;
     std::filesystem::path shaderRoot;
@@ -51,6 +54,12 @@ enum class EngineLifecycle
     Initializing,
     Running,
     ShutdownRequested,
+};
+
+struct CpuFrameDiagnostics final
+{
+    double fixedMilliseconds = 0.0; // All Game fixed hooks plus PhysicsWorld steps in this frame.
+    double gameSubmissionMilliseconds = 0.0; // Game render hook only.
 };
 
 class Engine final
@@ -73,6 +82,7 @@ public:
 
     [[nodiscard]] EngineLifecycle Lifecycle() const noexcept;
     [[nodiscard]] const FrameState& CurrentFrame() const noexcept;
+    [[nodiscard]] const CpuFrameDiagnostics& FrameDiagnostics() const noexcept;
     // Completed fixed-step time; render-only frames and rejected fixed hooks do not advance it.
     [[nodiscard]] double SimulationTimeSeconds() const noexcept;
     [[nodiscard]] Scene::Scene& ActiveScene() noexcept;

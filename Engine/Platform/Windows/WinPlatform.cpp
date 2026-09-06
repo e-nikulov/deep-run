@@ -1,12 +1,22 @@
 #include "Engine/Platform/Platform.h"
 
 #include <Windows.h>
+#include <Psapi.h>
 
 #include <system_error>
 #include <vector>
 
 namespace DeepRun::Platform
 {
+ProcessMemory QueryProcessMemory() noexcept
+{
+    PROCESS_MEMORY_COUNTERS_EX counters{};
+    counters.cb = sizeof(counters);
+    if (!K32GetProcessMemoryInfo(GetCurrentProcess(),
+            reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters), sizeof(counters))) return {};
+    return {counters.WorkingSetSize, counters.PrivateUsage, true};
+}
+
 std::filesystem::path ExecutablePath()
 {
     std::vector<wchar_t> buffer(32'768);

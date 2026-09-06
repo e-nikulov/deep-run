@@ -31,6 +31,28 @@ class Logger;
 
 namespace DeepRun::Render
 {
+struct RendererFrameDiagnostics final
+{
+    std::uint64_t submittedFrame = 0;
+    std::uint64_t completedGpuFrame = 0;
+    double gpuMilliseconds = 0.0;
+    double frameSlotWaitMilliseconds = 0.0;
+    double presentMilliseconds = 0.0;
+    bool gpuTimingAvailable = false;
+};
+
+struct RendererMemoryDiagnostics final
+{
+    std::uint64_t geometryBytes = 0; // Logical buffer bytes, not residency or heap allocation size.
+    std::uint64_t trackedResourceCount = 0; // Model/field buffers, frame uploads, targets, timestamp readback.
+    std::uint64_t modelCount = 0;
+    std::uint64_t localUsageBytes = 0; // DXGI current-process local-segment usage, including driver allocations.
+    std::uint64_t localBudgetBytes = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    bool videoMemoryAvailable = false;
+};
+
 class D3D12Renderer final
 {
 public:
@@ -108,6 +130,8 @@ public:
     [[nodiscard]] DisplayOutputMode OutputMode() const noexcept;
     [[nodiscard]] float HdrUiReferenceWhiteScale() const noexcept;
     [[nodiscard]] std::uint32_t FrameCount() const noexcept;
+    [[nodiscard]] const RendererFrameDiagnostics& FrameDiagnostics() const noexcept;
+    [[nodiscard]] RendererMemoryDiagnostics MemoryDiagnostics() const noexcept;
 
 private:
     class Impl;

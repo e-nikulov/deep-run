@@ -431,11 +431,11 @@ The renderer must preserve a compatibility indexed path while that path material
 the supported PC hardware population at acceptable maintenance cost.
 
 <!-- deeprun-renderer-evolution-roadmap:end -->
-## Current milestone
+## Completed milestones (continued)
 
 ### Milestone 3 - Underwater Environment
 
-Status: READY
+Status: COMPLETE
 
 Implementation status:
 
@@ -455,6 +455,10 @@ Implementation status:
 | G | Bounded underwater flora presentation | ACCEPTED |
 | H | Bounded underwater ice geometry | ACCEPTED |
 | H.1 | Cheap presentation fish school | ACCEPTED |
+| I | Integration, performance and Milestone 3 closure | ACCEPTED |
+
+M3-I evidence is recorded in [the environment acceptance report](../development/m3-underwater-environment.md).
+Milestone 3 — Underwater Environment is COMPLETE.
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -584,7 +588,7 @@ The field computes one horizontal wrap and slow vertical oscillation from the ex
 `PresentationTime`; it keeps a fixed mid-water route and performs no per-fish runtime update, geometry rebuild,
 entity/physics body, acoustic or gameplay work. It renders through the existing model path after ice and before
 the submarine, M3-F float, and particles. Canonical scene totals are 12 draws / 10 model primitives /
-10,980 submitted indices. M3-H remains accepted; H.1 is the only current review item.
+10,980 submitted indices. All slices A through I are ACCEPTED; Milestone 3 is COMPLETE.
 
 Future work:
 
@@ -613,6 +617,8 @@ Design boundary:
 ## Future milestones
 
 ### Milestone 4 - Acoustic Playground
+
+Status: NOT STARTED
 
 Milestone 4 remains a bounded playground for proving the first acoustic
 perception vertical slice.

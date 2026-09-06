@@ -275,8 +275,9 @@ int main(const int argumentCount, char** argumentValues)
         // released with std::free.
         char* noCaptureValue = nullptr;
         std::size_t noCaptureSize = 0;
-        const bool captureEnabled = _dupenv_s(&noCaptureValue, &noCaptureSize, "DR_NO_CAPTURE") != 0 ||
-                                    noCaptureValue == nullptr;
+        const bool captureDisabledByEnvironment =
+            _dupenv_s(&noCaptureValue, &noCaptureSize, "DR_NO_CAPTURE") == 0 && noCaptureValue != nullptr;
+        const bool captureEnabled = !options.benchmarkM3 && !captureDisabledByEnvironment;
         std::free(noCaptureValue);
 
         DeepRun::Core::Application application(
@@ -325,7 +326,7 @@ int main(const int argumentCount, char** argumentValues)
             {
                 // Smoke runs deliberately consume an explicit neutral command, insulating deterministic
                 // automated validation from any live controller connected to the developer machine.
-                const auto command = options.smokeTest
+                const auto command = (options.smokeTest || options.benchmarkM3)
                                          ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
                                                DeepRun::Game::VesselCommandState{}}
                                          : inputState != nullptr
@@ -414,6 +415,13 @@ int main(const int argumentCount, char** argumentValues)
                     }
                 }
 
+                if (options.benchmarkM3 && renderFrames == 0)
+                {
+                    std::cout << "[BenchmarkScene] draws=" << rendered->drawCalls
+                              << " model_primitives=" << rendered->submittedPrimitives
+                              << " submitted_indices=" << rendered->submittedIndices
+                              << " submitted_triangles=" << rendered->submittedIndices / 3U << '\n';
+                }
                 ++renderFrames;
                 // M3-H.1 adds one combined opaque fish school (24 fish / 72 triangles / 216 indices) through
                 // the existing model path. Model primitives remain model draws only.

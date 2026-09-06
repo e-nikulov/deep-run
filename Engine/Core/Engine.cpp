@@ -58,6 +58,18 @@ public:
                 return false;
             }
             config = *configResult;
+            if (options.performanceRun)
+            {
+                config.renderer.width = 2560;
+                config.renderer.height = 1440;
+                config.renderer.hdr = options.performanceHdr;
+            }
+            if (options.performanceRun)
+            {
+                core.Log().Info(Diagnostics::LogCategory::Core,
+                    config.renderer.vsync ? "Performance run: Present sync interval 1 (configured VSync)"
+                                          : "Performance run: Present sync interval 0 (configured VSync off)");
+            }
             fixedStepAccumulator.SetStepSeconds(1.0 / static_cast<double>(config.physics.fixedHz));
 
             physics = std::make_unique<Physics::PhysicsWorld>(core.Log());
@@ -79,7 +91,8 @@ public:
                     Platform::WindowConfig{
                         .title = "DeepRun Engine",
                         .width = config.renderer.width,
-                        .height = config.renderer.height});
+                        .height = config.renderer.height,
+                        .borderless = options.performanceRun});
                 input = std::make_unique<Input::InputSystem>(core.Log(), true, window->NativeHandle());
 
                 renderer = std::make_unique<Render::D3D12Renderer>(core.Log());
@@ -126,6 +139,7 @@ public:
 
     bool Update(const Engine::FixedUpdateHook& fixedUpdateHook)
     {
+        frameDiagnostics = {};
         if (lifecycle != EngineLifecycle::Running)
         {
             return false;
@@ -187,6 +201,13 @@ public:
         }
         if (window->Minimized())
         {
+            if (options.performanceRun)
+            {
+                core.Log().Error(Diagnostics::LogCategory::Core, "Performance run interrupted by minimization");
+                exitCode = 12;
+                RequestShutdown();
+                return false;
+            }
             // Ordinary frame processing is about to suspend in WaitForEvents. Silence the normalized
             // backend output first so the last native motor state cannot remain active while mixer time and
             // simulation are paused. Active generic effects remain owned by the mixer and are not cleared.
@@ -214,6 +235,7 @@ public:
 
         const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(timer.DeltaSeconds());
         const float fixedDeltaSeconds = static_cast<float>(fixedStepAccumulator.StepSeconds());
+        const auto fixedStart = std::chrono::steady_clock::now();
         for (std::uint32_t step = 0; step < fixedSteps; ++step)
         {
             if (!RunFixedStep(fixedUpdateHook, fixedDeltaSeconds))
@@ -221,6 +243,9 @@ public:
                 return false;
             }
         }
+
+        frameDiagnostics.fixedMilliseconds =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - fixedStart).count();
 
         // A disconnected controller is normal and ApplyGamepadVibration degrades to silence. Backend status
         // is presentation-only and must never fail an otherwise successful frame or fixed update. Requests
@@ -235,6 +260,12 @@ public:
         {
             RequestShutdown();
             return false;
+        }
+        if (options.resizeStress && resizeStage < 4U && timer.ElapsedSeconds() >= resizeStage + 1.0)
+        {
+            ++resizeStage;
+            window->SetClientSize(resizeStage % 2U == 0U ? 2560U : 1024U,
+                                  resizeStage % 2U == 0U ? 1440U : 640U);
         }
         return true;
     }
@@ -285,7 +316,10 @@ public:
         // The renderer receives the existing elapsed frame clock as PresentationTime. This is deliberately
         // outside the fixed-step loop, so M3-D visual motion cannot advance or influence SimulationTime.
         renderer->SetPresentationTime(static_cast<float>(timer.ElapsedSeconds()));
+        const auto submissionStart = std::chrono::steady_clock::now();
         const bool gameRenderSucceeded = !renderHook || renderHook(*renderer);
+        frameDiagnostics.gameSubmissionMilliseconds =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submissionStart).count();
         renderer->OutputSceneToDisplay();
         debugOverlay->Render(renderer->CommandList());
         renderer->EndFrame();
@@ -360,6 +394,8 @@ public:
     CoreServices core;
     EngineConfig config;
     FrameTimer timer;
+    CpuFrameDiagnostics frameDiagnostics;
+    std::uint32_t resizeStage = 0;
     Scene::Scene scene;
     Assets::AssetManager assets;
     std::unique_ptr<Physics::PhysicsWorld> physics;
@@ -420,6 +456,11 @@ EngineLifecycle Engine::Lifecycle() const noexcept
 const FrameState& Engine::CurrentFrame() const noexcept
 {
     return impl_->timer.State();
+}
+
+const CpuFrameDiagnostics& Engine::FrameDiagnostics() const noexcept
+{
+    return impl_->frameDiagnostics;
 }
 
 double Engine::SimulationTimeSeconds() const noexcept

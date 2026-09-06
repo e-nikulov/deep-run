@@ -68,7 +68,7 @@ public:
         }
 
         RECT rectangle{0, 0, static_cast<LONG>(width_), static_cast<LONG>(height_)};
-        const DWORD style = WS_OVERLAPPEDWINDOW;
+        const DWORD style = config.borderless ? WS_POPUP : WS_OVERLAPPEDWINDOW;
         if (!AdjustWindowRect(&rectangle, style, FALSE))
         {
             throw std::runtime_error("AdjustWindowRect failed");
@@ -80,8 +80,8 @@ public:
             WindowClassName,
             title.c_str(),
             style,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            config.borderless ? 0 : CW_USEDEFAULT,
+            config.borderless ? 0 : CW_USEDEFAULT,
             rectangle.right - rectangle.left,
             rectangle.bottom - rectangle.top,
             nullptr,
