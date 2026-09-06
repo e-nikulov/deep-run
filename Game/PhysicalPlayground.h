@@ -9,6 +9,7 @@
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
+#include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/ControlSurfaceComponent.h"
 #include "Simulation/Marine/HydroDragComponent.h"
 #include "Simulation/Marine/PropulsionComponent.h"
@@ -72,10 +73,11 @@ public:
         bool verifyDistinctUploads);
 
     // Produces and applies transient marine forces/torques from one authoritative body snapshot for one
-    // fixed tick. The Engine calls this before PhysicsWorld::Step; this function never steps physics and
-    // never scales force or torque by dt.
+    // fixed tick at beginning-of-step SimulationTime. The Engine calls this before PhysicsWorld::Step; this
+    // function never steps physics and never scales force or torque by dt.
     [[nodiscard]] std::expected<void, std::string> FixedUpdate(
         float fixedDeltaSeconds,
+        double simulationTimeSeconds,
         const VesselCommandState& command,
         const HapticEventSink& hapticEventSink = {});
 
@@ -98,6 +100,11 @@ private:
     Render::GpuModelHandle seabedModel_;
     std::vector<Render::ModelDrawInstance> seabedDraws_;
     Physics::PhysicsBodyHandle physicsBody_;
+    // M3-F representative surface float: Game owns the small model, opaque physics handle and explicit
+    // wave-aware buoyancy configuration. It is separate from every canonical submarine member.
+    std::optional<Assets::ModelAsset> surfaceFloatModel_;
+    Render::GpuModelHandle surfaceFloatModelGpu_;
+    Physics::PhysicsBodyHandle surfaceFloatBody_;
     // Non-owning: the Engine owns the world and outlives this playground (see class comment).
     Physics::PhysicsWorld* physics_ = nullptr;
 
@@ -106,6 +113,9 @@ private:
     std::optional<Marine::WaterBody> water_;
     // Explicit Game-owned M2 prototype tuning. Marine owns only the generic point/component data types.
     Marine::BuoyancyComponent buoyancy_;
+    Marine::BuoyancyComponent surfaceFloatBuoyancy_;
+    // Pre-reserved at initialization; CalculateWaveSurface reuses this storage in every fixed tick.
+    Marine::BuoyancyResult surfaceFloatBuoyancyResult_;
     Marine::HydroDragComponent hydroDrag_;
     Marine::PropulsionComponent propulsion_;
     Marine::PropulsionState propulsionState_{};

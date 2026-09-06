@@ -451,7 +451,7 @@ Implementation status:
 | D | Suspended underwater particulate presentation | ACCEPTED |
 | E | Gerstner ocean surface presentation | ACCEPTED |
 | E.1 | Authoritative CPU wave-query / WaterBody bridge | ACCEPTED |
-| F | Floating-body wave response | NOT STARTED |
+| F | Floating-body wave response | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -545,7 +545,17 @@ The new `SampleWaveSurface` inverts world X with 48 fixed double-precision bisec
 Y, signed local depth and an upward normalized normal. Existing submarine buoyancy, drag, collision,
 lighting/fog and other consumers do not use it. Geometry and scene totals remain 514/1,536/one surface draw
 and 8 scene draws / 6 model primitives / 9,048 indices. See
-[ADR-0011](../adr/0011-authoritative-wave-query.md). M3-F floating response is **NOT STARTED**.
+[ADR-0011](../adr/0011-authoritative-wave-query.md).
+
+M3-F adds only one Game-owned representative surface float. Its two explicit buoyancy points call
+`BuoyancySystem::CalculateWaveSurface` with beginning-of-step `SimulationTime`, then apply the published
+forces to one dynamic `PhysicsWorld` body. Its 1,000 kg box proxy is 3 x 1 x 1 m, allows X/Y translation and
+Z rotation only, begins at the local M3-E.1 free surface near X=140 m, and uses 2 x `mass/density` potential
+displacement so reference-plane half-submersion is neutral. The float is represented by one 24-vertex,
+36-index opaque model draw. `BuoyancySystem::Calculate`, submarine buoyancy, submarine placement, drag and
+control surfaces remain flat/reference-plane behavior. No fluid velocity, wave pressure, current, ship
+physics, many-body manager, foam, spray, waterline shader, or further M3 slice is started. Scene totals are
+9 draws / 7 model primitives / 9,084 indices. See [ADR-0012](../adr/0012-opt-in-wave-buoyancy.md).
 
 Future work:
 

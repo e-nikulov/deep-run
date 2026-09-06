@@ -28,6 +28,7 @@
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
+#include "Game/SurfaceFloatModel.h"
 #include "Game/WaterPresentation.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancySystem.h"
@@ -7508,6 +7509,246 @@ bool M3E1WaveQueryAndAdapterParity()
            !water->SampleWaveSurface({std::numeric_limits<float>::infinity(), 0.0F, 0.0F}, 0.0);
 }
 
+DeepRun::Marine::BuoyancyComponent M3FSurfaceFloatBuoyancy(const float densityKgPerCubicMeter)
+{
+    constexpr float MassKg = 1000.0F;
+    const float pointPotentialVolume = MassKg / densityKgPerCubicMeter;
+    return {.points = {
+        {.bodyLocalPositionMeters = {1.0F, 0.0F, 0.0F},
+         .displacedVolumeCubicMeters = pointPotentialVolume,
+         .submersionHalfHeightMeters = 0.55F},
+        {.bodyLocalPositionMeters = {-1.0F, 0.0F, 0.0F},
+         .displacedVolumeCubicMeters = pointPotentialVolume,
+         .submersionHalfHeightMeters = 0.55F}}};
+}
+
+bool SameBuoyancyResult(const DeepRun::Marine::BuoyancyResult& first,
+                        const DeepRun::Marine::BuoyancyResult& second)
+{
+    if (first.totalForceNewtons != second.totalForceNewtons ||
+        first.totalSubmergedVolumeCubicMeters != second.totalSubmergedVolumeCubicMeters ||
+        first.points.size() != second.points.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < first.points.size(); ++index)
+    {
+        const auto& a = first.points[index];
+        const auto& b = second.points[index];
+        if (a.worldPositionMeters != b.worldPositionMeters || a.signedDepthMeters != b.signedDepthMeters ||
+            a.submergedFraction != b.submergedFraction ||
+            a.submergedVolumeCubicMeters != b.submergedVolumeCubicMeters || a.forceNewtons != b.forceNewtons)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool M3FSurfaceFloatModelContract()
+{
+    const DeepRun::Assets::ModelAsset model = DeepRun::Game::BuildM3SurfaceFloatModel();
+    const auto layout = DeepRun::Render::BuildIndexedGeometryLayout(model);
+    const auto draws = DeepRun::Render::PrepareModelDraws(model);
+    if (!layout || !draws || model.materials.size() != 1U || model.primitives.size() != 1U ||
+        model.nodes.size() != 1U || draws->size() != 1U || layout->totals.primitiveCount != 1U ||
+        layout->totals.vertexCount != 24U || layout->totals.indexCount != 36U ||
+        model.bounds.minimum.x != -3.0F || model.bounds.maximum.x != 3.0F ||
+        model.bounds.minimum.y != -0.5F || model.bounds.maximum.y != 3.0F ||
+        model.bounds.minimum.z != -0.5F || model.bounds.maximum.z != 0.5F)
+    {
+        return false;
+    }
+    const auto& primitive = model.primitives.front();
+    if (!primitive.hasNormals || primitive.materialIndex != 0U || primitive.indices.size() != 36U)
+    {
+        return false;
+    }
+    for (const auto& vertex : primitive.vertices)
+    {
+        const float normalLengthSquared = vertex.normal.x * vertex.normal.x + vertex.normal.y * vertex.normal.y +
+                                          vertex.normal.z * vertex.normal.z;
+        if (!DeepRun::Game::IsFinite(vertex.position) || !DeepRun::Game::IsFinite(vertex.normal) ||
+            std::abs(normalLengthSquared - 1.0F) > 1.0e-6F)
+        {
+            return false;
+        }
+    }
+    return model.nodes.front().primitiveIndices == std::vector<std::size_t>{0U} &&
+           model.materials.front().baseColorFactor[3] == 1.0F;
+}
+
+bool M3FWaveBuoyancyIsExplicitAndLocal()
+{
+    using namespace DeepRun::Marine;
+    constexpr float Density = 1025.0F;
+    constexpr float Gravity = 9.81F;
+    const auto flatWater = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density});
+    const auto waveWater = WaterBody::Create(
+        {.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = Density, .waves = M3WaterWaveField});
+    const BuoyancyComponent component = M3FSurfaceFloatBuoyancy(Density);
+    const BuoyancyPose pose{.worldPositionMeters = {140.0F, 0.0F, 0.0F}};
+    if (!flatWater || !waveWater) return false;
+
+    const auto flat = BuoyancySystem::Calculate(*flatWater, component, pose, Gravity);
+    const auto preservedFlat = BuoyancySystem::Calculate(*waveWater, component, pose, Gravity);
+    BuoyancyResult disabledWave;
+    disabledWave.points.reserve(component.points.size());
+    const auto disabledCalculated = BuoyancySystem::CalculateWaveSurface(
+        *flatWater, component, pose, Gravity, 3.0, disabledWave);
+    if (!flat || !preservedFlat || !disabledCalculated || !SameBuoyancyResult(*flat, *preservedFlat) ||
+        !SameBuoyancyResult(*flat, disabledWave))
+    {
+        return false;
+    }
+
+    BuoyancyResult first;
+    BuoyancyResult repeated;
+    BuoyancyResult later;
+    first.points.reserve(component.points.size());
+    repeated.points.reserve(component.points.size());
+    later.points.reserve(component.points.size());
+    if (!BuoyancySystem::CalculateWaveSurface(*waveWater, component, pose, Gravity, 2.0, first) ||
+        !BuoyancySystem::CalculateWaveSurface(*waveWater, component, pose, Gravity, 2.0, repeated) ||
+        !BuoyancySystem::CalculateWaveSurface(*waveWater, component, pose, Gravity, 6.0, later) ||
+        !SameBuoyancyResult(first, repeated))
+    {
+        return false;
+    }
+
+    const float potentialVolume = 2.0F * (1000.0F / Density);
+    bool differentTime = first.totalForceNewtons != later.totalForceNewtons;
+    bool foreAftDifferent = first.points[0].signedDepthMeters != first.points[1].signedDepthMeters ||
+                             first.points[0].forceNewtons != first.points[1].forceNewtons;
+    for (const BuoyancyPointResult& point : first.points)
+    {
+        const auto surface = waveWater->SampleWaveSurface(point.worldPositionMeters, 2.0);
+        const float forceMagnitude = std::sqrt(point.forceNewtons.x * point.forceNewtons.x +
+                                               point.forceNewtons.y * point.forceNewtons.y +
+                                               point.forceNewtons.z * point.forceNewtons.z);
+        if (!surface || point.signedDepthMeters != surface->signedDepthMeters || !point.worldPositionMeters.IsFinite() ||
+            !point.forceNewtons.IsFinite() || point.submergedFraction < 0.0F || point.submergedFraction > 1.0F ||
+            point.submergedVolumeCubicMeters < 0.0F || surface->surfaceNormal.y <= 0.0F ||
+            (forceMagnitude > 0.0F &&
+             (std::abs(point.forceNewtons.x / forceMagnitude - surface->surfaceNormal.x) > 1.0e-5F ||
+              std::abs(point.forceNewtons.y / forceMagnitude - surface->surfaceNormal.y) > 1.0e-5F ||
+              std::abs(point.forceNewtons.z / forceMagnitude - surface->surfaceNormal.z) > 1.0e-5F)))
+        {
+            return false;
+        }
+    }
+    BuoyancyResult invalidTime;
+    const auto invalid = BuoyancySystem::CalculateWaveSurface(
+        *waveWater, component, pose, Gravity, -1.0, invalidTime);
+    const auto nonFinite = BuoyancySystem::CalculateWaveSurface(
+        *waveWater, component, pose, Gravity, std::numeric_limits<double>::infinity(), invalidTime);
+    return differentTime && foreAftDifferent && first.totalSubmergedVolumeCubicMeters >= 0.0F &&
+           first.totalSubmergedVolumeCubicMeters <= potentialVolume && !invalid && !nonFinite &&
+           invalid.error().code == BuoyancyErrorCode::InvalidSimulationTime &&
+           nonFinite.error().code == BuoyancyErrorCode::InvalidSimulationTime;
+}
+
+struct M3FFloatMotion final
+{
+    float minimumY = std::numeric_limits<float>::infinity();
+    float maximumY = -std::numeric_limits<float>::infinity();
+    float minimumPitchRadians = std::numeric_limits<float>::infinity();
+    float maximumPitchRadians = -std::numeric_limits<float>::infinity();
+    PhysicsBodyState finalState{};
+};
+
+std::optional<M3FFloatMotion> SimulateM3FSurfaceFloat(const bool wavesEnabled)
+{
+    constexpr float Density = 1025.0F;
+    constexpr float Mass = 1000.0F;
+    constexpr int Steps = 1200; // 20 s at the canonical 60 Hz fixed tick.
+    DeepRun::Diagnostics::Logger logger;
+    DeepRun::Physics::PhysicsWorld world(logger);
+    const auto water = WaterBody::Create(
+        {.surfaceLevelY = 0.0F,
+         .densityKgPerCubicMeter = Density,
+         .waves = wavesEnabled
+                      ? std::optional<DeepRun::Marine::WaterWaveFieldDefinition>{DeepRun::Marine::M3WaterWaveField}
+                      : std::nullopt});
+    if (!world.Initialize() || !water) return std::nullopt;
+    const auto initialSurface = water->SampleWaveSurface({140.0F, 0.0F, 0.0F}, 0.0);
+    if (!initialSurface) return std::nullopt;
+    DeepRun::Physics::PhysicsDegreesOfFreedom dof;
+    dof.translationX = true;
+    dof.translationY = true;
+    dof.translationZ = false;
+    dof.rotationX = false;
+    dof.rotationY = false;
+    dof.rotationZ = true;
+    const auto handle = world.CreateDynamicBoxBody({
+        .halfExtents = {1.5F, 0.5F, 0.5F},
+        .mass = Mass,
+        .position = {140.0F, initialSurface->surfaceLevelY, 0.0F},
+        .orientation = {},
+        .gravityEnabled = true,
+        .linearDamping = 0.9F,
+        .angularDamping = 2.0F,
+        .initialLinearVelocity = {},
+        .initialAngularVelocity = {},
+        .degreesOfFreedom = dof});
+    const auto gravity = world.Gravity();
+    if (!handle.IsValid() || !gravity || !gravity->IsFinite()) return std::nullopt;
+    const float gravityMagnitude = std::sqrt(
+        gravity->x * gravity->x + gravity->y * gravity->y + gravity->z * gravity->z);
+    const BuoyancyComponent buoyancy = M3FSurfaceFloatBuoyancy(Density);
+    BuoyancyResult result;
+    result.points.reserve(buoyancy.points.size());
+    M3FFloatMotion motion;
+    for (int step = 0; step < Steps; ++step)
+    {
+        const auto before = world.GetBodyState(handle);
+        if (!before || !StateIsFinite(*before) ||
+            !BuoyancySystem::CalculateWaveSurface(
+                *water,
+                buoyancy,
+                {.worldPositionMeters = before->position, .worldOrientation = before->orientation},
+                gravityMagnitude,
+                static_cast<double>(step) * E3FixedDeltaSeconds,
+                result))
+        {
+            return std::nullopt;
+        }
+        for (const DeepRun::Marine::BuoyancyPointResult& point : result.points)
+            if (!world.AddForceAtWorldPosition(handle, point.forceNewtons, point.worldPositionMeters)) return std::nullopt;
+        world.Step(E3FixedDeltaSeconds);
+        const auto after = world.GetBodyState(handle);
+        if (!after || !StateIsFinite(*after)) return std::nullopt;
+        const float pitch = 2.0F * std::atan2(after->orientation.z, after->orientation.w);
+        motion.minimumY = (std::min)(motion.minimumY, after->position.y);
+        motion.maximumY = (std::max)(motion.maximumY, after->position.y);
+        motion.minimumPitchRadians = (std::min)(motion.minimumPitchRadians, pitch);
+        motion.maximumPitchRadians = (std::max)(motion.maximumPitchRadians, pitch);
+        motion.finalState = *after;
+    }
+    return motion;
+}
+
+bool M3FSurfaceFloatWavePhysicsIntegration()
+{
+    const auto wave = SimulateM3FSurfaceFloat(true);
+    const auto flat = SimulateM3FSurfaceFloat(false);
+    if (!wave || !flat) return false;
+    const float waveHeave = wave->maximumY - wave->minimumY;
+    const float wavePitch = wave->maximumPitchRadians - wave->minimumPitchRadians;
+    const float flatHeave = flat->maximumY - flat->minimumY;
+    std::cout << "[M3-F evidence] wave Y [" << wave->minimumY << ", " << wave->maximumY << "] pitch ["
+              << wave->minimumPitchRadians << ", " << wave->maximumPitchRadians << "]; flat Y ["
+              << flat->minimumY << ", " << flat->maximumY << "] pitch [" << flat->minimumPitchRadians << ", "
+              << flat->maximumPitchRadians << "]\n";
+    // A 20-second, 1/60 s deterministic envelope: float remains near the +/-2.90 m free-surface band,
+    // responds materially differently from the flat control, and never exhibits runaway heave or pitch.
+    return StateIsFinite(wave->finalState) && StateIsFinite(flat->finalState) && wave->minimumY > -5.0F &&
+           wave->maximumY < 5.0F && std::abs(wave->minimumPitchRadians) < 0.75F &&
+           std::abs(wave->maximumPitchRadians) < 0.75F && waveHeave > 0.15F && wavePitch > 0.002F &&
+           (std::abs(wave->finalState.position.y - flat->finalState.position.y) > 0.05F ||
+            std::abs(waveHeave - flatHeave) > 0.05F);
+}
+
 bool M3EGerstnerSurfacePresentationProperties()
 {
     using DeepRun::Render::EvaluateGerstnerSurfacePresentation;
@@ -8127,6 +8368,17 @@ bool SimulationHasNoGerstnerRenderPresentationDependency()
                {"simulation/", "marine::", "waterwavefielddefinition", "waterwavecomponent"});
 }
 
+bool M3FWaveBuoyancyHasNoRenderDependency()
+{
+    // The explicit M3-F physical consumer is still pure Marine code: it may query WaterBody but never
+    // includes or names a presentation formula, renderer, shader API, or presentation clock.
+    const std::filesystem::path marineRoot =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation" / "Marine";
+    return ScanSourceDirectoryForForbiddenPatterns(
+        marineRoot,
+        {"engine/render/", "d3d12", "gerstner", "presentationtime"});
+}
+
 bool HydroDragFilesHaveOnlyPureMarineDependencies()
 {
     const std::filesystem::path marineRoot =
@@ -8594,6 +8846,9 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-E Gerstner surface presentation properties", M3EGerstnerSurfacePresentationProperties},
         {"M3-E.1 wave definition validation", M3E1WaveDefinitionValidation},
         {"M3-E.1 world-X wave query and adapter parity", M3E1WaveQueryAndAdapterParity},
+        {"M3-F representative surface-float model", M3FSurfaceFloatModelContract},
+        {"M3-F explicit local wave buoyancy", M3FWaveBuoyancyIsExplicitAndLocal},
+        {"M3-F representative float wave physics integration", M3FSurfaceFloatWavePhysicsIntegration},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
@@ -8630,6 +8885,7 @@ int main(const int argumentCount, const char* const* arguments)
          SimulationMarineHasNoPhysicsOrRenderDependency},
         {"Simulation has no Gerstner render-presentation dependency",
          SimulationHasNoGerstnerRenderPresentationDependency},
+        {"M3-F wave buoyancy has no render dependency", M3FWaveBuoyancyHasNoRenderDependency},
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"G1 Propulsion files have only pure Marine dependencies",
          PropulsionFilesHaveOnlyPureMarineDependencies},

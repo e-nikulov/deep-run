@@ -339,6 +339,7 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 const auto updated = playground.FixedUpdate(
                     fixedDeltaSeconds,
+                    engineServices->SimulationTimeSeconds(),
                     *command,
                     [&hapticFeedback, &engineServices, &loggedHapticSubmissionFailure](
                         const DeepRun::Game::HapticEvent& event)
@@ -380,8 +381,8 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                // Bounded M3-E visual validation: one frame near the start and one later frame makes the
-                // analytic SimulationTime profile observable. The smoke run resizes at engine frame 30
+                // Bounded M3-F visual validation: one frame near the start and one later frame makes the
+                // completed-step surface profile and actual Jolt float response observable. The smoke run resizes at engine frame 30
                 // from 16:9 to 16:10 (1280x720 -> 1024x640), so the later capture also proves the fixed
                 // 600 m view is covered through a changed projection. Capture failure never fails the run.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
@@ -391,7 +392,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_e_frame_004.bmp");
+                        const auto path = std::filesystem::path("m3_f_frame_004.bmp");
                         capturedInitial = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }
@@ -403,18 +404,17 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_e_frame_091.bmp");
+                        const auto path = std::filesystem::path("m3_f_frame_091.bmp");
                         capturedLater = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured later visual frame to " << path.string() << '\n';
                     }
                 }
 
                 ++renderFrames;
-                // M3-E regression: returned scene totals include the one Gerstner backdrop (1 / 1,536),
-                // terrain (2 / 4,344), submarine (4 / 1,632), and suspended particles (1 / 1,536). The
-                // primitive count remains ModelDrawInstance-only, as documented by PhysicalPlayground.
-                return rendered->drawCalls == 8 && rendered->submittedPrimitives == 6 &&
-                       rendered->submittedIndices == 9048;
+                // M3-F adds the single 24-vertex/36-index opaque representative float to the accepted
+                // Gerstner, terrain, submarine and particle totals. Model primitives remain model draws only.
+                return rendered->drawCalls == 9 && rendered->submittedPrimitives == 7 &&
+                       rendered->submittedIndices == 9084;
             });
         return application.Run();
     }

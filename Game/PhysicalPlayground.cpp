@@ -9,6 +9,7 @@
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
+#include "Game/SurfaceFloatModel.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/ControlSurfaceSystem.h"
@@ -70,6 +71,18 @@ constexpr Render::SuspendedParticleFieldParameters M3UnderwaterParticleField{
     .verticalDriftMetersPerSecond = 0.16F,
     .lateralOscillationAmplitudeMeters = 1.4F,
     .lateralOscillationAngularFrequency = 0.23F};
+
+// M3-F's only wave-aware physical consumer. This is a Game-owned engineering float, not a ship or a
+// reusable floating-body framework. Its collision proxy and displaced volume are intentionally independent.
+constexpr float M3SurfaceFloatMassKg = 1000.0F;
+constexpr Physics::PhysicsVector3 M3SurfaceFloatHalfExtents{1.5F, 0.5F, 0.5F};
+constexpr Physics::PhysicsVector3 M3SurfaceFloatInitialReferencePosition{140.0F, 0.0F, 0.0F};
+constexpr std::array<Physics::PhysicsVector3, 2> M3SurfaceFloatBuoyancyPointPositions{{
+    {1.0F, 0.0F, 0.0F}, {-1.0F, 0.0F, 0.0F}}};
+constexpr float M3SurfaceFloatSubmersionHalfHeightMeters = 0.55F;
+constexpr float M3SurfaceFloatLinearDamping = 0.9F;
+constexpr float M3SurfaceFloatAngularDamping = 2.0F;
+constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 
 // E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
 // points distribute force along the prototype length without deriving hydrostatics from mesh/collision
@@ -216,6 +229,23 @@ Marine::BuoyancyComponent BuildM2Buoyancy(const Marine::WaterBody& water)
             .bodyLocalPositionMeters = {x, M2BuoyancyPointYMeters, 0.0F},
             .displacedVolumeCubicMeters = pointVolume,
             .submersionHalfHeightMeters = M2BuoyancySubmersionHalfHeightMeters});
+    }
+    return component;
+}
+
+Marine::BuoyancyComponent BuildM3SurfaceFloatBuoyancy(const Marine::WaterBody& water)
+{
+    // Potential displacement is twice neutral volume. At the reference plane each point is half submerged,
+    // so the two 50% contributions sum to mass / density without inferring volume from the collision box.
+    const float pointPotentialVolume = M3SurfaceFloatMassKg / water.Config().densityKgPerCubicMeter;
+    Marine::BuoyancyComponent component;
+    component.points.reserve(M3SurfaceFloatBuoyancyPointPositions.size());
+    for (const Physics::PhysicsVector3 localPosition : M3SurfaceFloatBuoyancyPointPositions)
+    {
+        component.points.push_back({
+            .bodyLocalPositionMeters = localPosition,
+            .displacedVolumeCubicMeters = pointPotentialVolume,
+            .submersionHalfHeightMeters = M3SurfaceFloatSubmersionHalfHeightMeters});
     }
     return component;
 }
@@ -523,15 +553,123 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         "Environment collision ready: " + seabed->id.value + ", static bodies " +
         std::to_string(seabedBodies_.size()));
 
+    // M3-F presentation is one Game-owned indexed box whose model origin intentionally matches its Jolt
+    // body origin. It uses the existing opaque model path; there is no specialized primitive renderer.
+    Assets::ModelAsset surfaceFloatModel = BuildM3SurfaceFloatModel();
+    const auto surfaceFloatUpload = renderer.UploadModel(surfaceFloatModel);
+    const auto surfaceFloatDraws = Render::PrepareModelDraws(surfaceFloatModel);
+    if (!surfaceFloatUpload || !surfaceFloatDraws || surfaceFloatDraws->size() != 1U ||
+        surfaceFloatModel.primitives.size() != 1U || surfaceFloatModel.primitives.front().vertices.size() != 24U ||
+        surfaceFloatModel.primitives.front().indices.size() != 36U || !surfaceFloatUpload->stats.uploadCompleted ||
+        surfaceFloatUpload->stats.primitiveCount != 1U || surfaceFloatUpload->stats.vertexCount != 24U ||
+        surfaceFloatUpload->stats.indexCount != 36U || !surfaceFloatUpload->handle.IsValid() ||
+        !renderer.IsGpuModelValid(surfaceFloatUpload->handle))
+    {
+        return std::unexpected(
+            "physical playground M3-F surface-float model initialization failed" +
+            (!surfaceFloatUpload ? ": " + surfaceFloatUpload.error() :
+             !surfaceFloatDraws ? ": " + surfaceFloatDraws.error() : std::string{}));
+    }
+
+    // Initial Y is sampled from the authoritative local free surface, never snapped subsequently. The body
+    // remains dynamic and can settle under forces; Z remains the locked gameplay-plane coordinate.
+    const auto initialFloatSurface = water->SampleWaveSurface(M3SurfaceFloatInitialReferencePosition, 0.0);
+    if (!initialFloatSurface)
+    {
+        return std::unexpected("physical playground M3-F initial free-surface sample failed: " +
+                               initialFloatSurface.error().message);
+    }
+    Physics::PhysicsDegreesOfFreedom m3FloatDof;
+    m3FloatDof.translationX = true;
+    m3FloatDof.translationY = true;
+    m3FloatDof.translationZ = false;
+    m3FloatDof.rotationX = false;
+    m3FloatDof.rotationY = false;
+    m3FloatDof.rotationZ = true;
+    Physics::DynamicBoxBodyCreateInfo surfaceFloatInfo{
+        .halfExtents = M3SurfaceFloatHalfExtents,
+        .mass = M3SurfaceFloatMassKg,
+        .position = {M3SurfaceFloatInitialReferencePosition.x, initialFloatSurface->surfaceLevelY,
+                     M3SurfaceFloatInitialReferencePosition.z},
+        .orientation = {},
+        .gravityEnabled = true,
+        .linearDamping = M3SurfaceFloatLinearDamping,
+        .angularDamping = M3SurfaceFloatAngularDamping,
+        .initialLinearVelocity = {},
+        .initialAngularVelocity = {},
+        .degreesOfFreedom = m3FloatDof};
+    const Physics::PhysicsBodyHandle surfaceFloatBody = physics.CreateDynamicBoxBody(surfaceFloatInfo, &physicsError);
+    if (!surfaceFloatBody.IsValid())
+    {
+        return std::unexpected("physical playground M3-F surface-float body creation failed: " +
+                               physicsError.message);
+    }
+    const auto initialFloatState = physics.GetBodyState(surfaceFloatBody);
+    const Marine::BuoyancyComponent surfaceFloatBuoyancy = BuildM3SurfaceFloatBuoyancy(*water);
+    if (!initialFloatState || surfaceFloatBuoyancy.points.size() != M3SurfaceFloatBuoyancyPointPositions.size())
+    {
+        (void)physics.DestroyBody(surfaceFloatBody);
+        return std::unexpected("physical playground M3-F initial float state or buoyancy configuration failed");
+    }
+
+    // Check the Game tuning at the reference plane independently from the current crest/trough. This proves
+    // 50% point submersion yields neutral volume/weight without claiming collision-box volume is buoyancy.
+    const Marine::BuoyancyPose referenceFloatPose{
+        .worldPositionMeters = M3SurfaceFloatInitialReferencePosition,
+        .worldOrientation = initialFloatState->orientation};
+    const auto referenceFloatBuoyancy = Marine::BuoyancySystem::Calculate(
+        *water, surfaceFloatBuoyancy, referenceFloatPose, *gravityMagnitude);
+    const double expectedFloatNeutralVolume = static_cast<double>(M3SurfaceFloatMassKg) /
+                                               static_cast<double>(water->Config().densityKgPerCubicMeter);
+    const double expectedFloatPotentialVolume = 2.0 * expectedFloatNeutralVolume;
+    const double expectedFloatWeight = static_cast<double>(M3SurfaceFloatMassKg) * *gravityMagnitude;
+    double configuredFloatPotentialVolume = 0.0;
+    for (const Marine::BuoyancyPoint& point : surfaceFloatBuoyancy.points)
+    {
+        configuredFloatPotentialVolume += point.displacedVolumeCubicMeters;
+    }
+    if (!referenceFloatBuoyancy ||
+        !NearlyEqualRelative(configuredFloatPotentialVolume, expectedFloatPotentialVolume,
+                             M3SurfaceFloatBalanceRelativeTolerance) ||
+        !NearlyEqualRelative(referenceFloatBuoyancy->totalSubmergedVolumeCubicMeters,
+                             expectedFloatNeutralVolume, M3SurfaceFloatBalanceRelativeTolerance) ||
+        !NearlyEqualRelative(referenceFloatBuoyancy->totalForceNewtons.y, expectedFloatWeight,
+                             M3SurfaceFloatBalanceRelativeTolerance))
+    {
+        (void)physics.DestroyBody(surfaceFloatBody);
+        return std::unexpected("physical playground M3-F reference-plane float balance validation failed");
+    }
+    Marine::BuoyancyResult initialFloatWaveBuoyancy;
+    initialFloatWaveBuoyancy.points.reserve(surfaceFloatBuoyancy.points.size());
+    if (const auto waveCalculated = Marine::BuoyancySystem::CalculateWaveSurface(
+            *water,
+            surfaceFloatBuoyancy,
+            {.worldPositionMeters = initialFloatState->position,
+             .worldOrientation = initialFloatState->orientation},
+            *gravityMagnitude,
+            0.0,
+            initialFloatWaveBuoyancy);
+        !waveCalculated)
+    {
+        (void)physics.DestroyBody(surfaceFloatBody);
+        return std::unexpected("physical playground M3-F initial wave buoyancy calculation failed: " +
+                               waveCalculated.error().message);
+    }
+
     modelAsset_ = *model;
     submarineModel_ = upload->handle;
     seabedSection_ = std::move(*seabed);
     seabedModel_ = seabedUpload->handle;
     seabedDraws_ = std::move(*seabedDraws);
     physicsBody_ = body;
+    surfaceFloatModel_ = std::move(surfaceFloatModel);
+    surfaceFloatModelGpu_ = surfaceFloatUpload->handle;
+    surfaceFloatBody_ = surfaceFloatBody;
     physics_ = &physics;
     water_ = *water;
     buoyancy_ = std::move(buoyancy);
+    surfaceFloatBuoyancy_ = surfaceFloatBuoyancy;
+    surfaceFloatBuoyancyResult_.points.reserve(surfaceFloatBuoyancy_.points.size());
     hydroDrag_ = BuildM2HydroDrag();
     propulsion_ = M2Propulsion;
     propulsionState_ = {};
@@ -579,6 +717,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
 std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     const float fixedDeltaSeconds,
+    const double simulationTimeSeconds,
     const VesselCommandState& command,
     const HapticEventSink& hapticEventSink)
 {
@@ -586,11 +725,15 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     {
         return std::unexpected("physical playground fixed delta must be finite and positive");
     }
+    if (!std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
+    {
+        return std::unexpected("physical playground fixed SimulationTime must be finite and non-negative");
+    }
     if (physics_ == nullptr)
     {
         return std::unexpected("physical playground physics world is unavailable");
     }
-    if (!physicsBody_.IsValid())
+    if (!physicsBody_.IsValid() || !surfaceFloatBody_.IsValid())
     {
         return std::unexpected("physical playground physics body handle is invalid");
     }
@@ -603,7 +746,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     {
         return std::unexpected("physical playground command validation failed: " + validatedCommand.error());
     }
-    if (buoyancy_.points.empty())
+    if (buoyancy_.points.empty() || surfaceFloatBuoyancy_.points.size() != M3SurfaceFloatBuoyancyPointPositions.size())
     {
         return std::unexpected("physical playground buoyancy configuration is unavailable");
     }
@@ -614,6 +757,11 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     if (!state)
     {
         return std::unexpected("physical playground body state is unavailable during fixed update");
+    }
+    const auto surfaceFloatState = physics_->GetBodyState(surfaceFloatBody_);
+    if (!surfaceFloatState)
+    {
+        return std::unexpected("physical playground M3-F float state is unavailable during fixed update");
     }
     const auto gravityMagnitude = GravityMagnitudeForWater(*physics_, *water_, state->position);
     if (!gravityMagnitude)
@@ -631,6 +779,22 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     if (!buoyancyResult)
     {
         return std::unexpected("physical playground buoyancy calculation failed: " + buoyancyResult.error().message);
+    }
+
+    // M3-F is the sole opt-in physical consumer. This uses the Engine-owned beginning-of-step SimulationTime
+    // supplied by Game composition; the submarine's Calculate() above remains flat/reference-plane only.
+    const auto surfaceFloatCalculated = Marine::BuoyancySystem::CalculateWaveSurface(
+        *water_,
+        surfaceFloatBuoyancy_,
+        {.worldPositionMeters = surfaceFloatState->position,
+         .worldOrientation = surfaceFloatState->orientation},
+        *gravityMagnitude,
+        simulationTimeSeconds,
+        surfaceFloatBuoyancyResult_);
+    if (!surfaceFloatCalculated)
+    {
+        return std::unexpected("physical playground M3-F wave buoyancy calculation failed: " +
+                               surfaceFloatCalculated.error().message);
     }
 
     // F2 consumes the SAME beginning-of-tick body snapshot as buoyancy. Both force producers finish before
@@ -725,6 +889,20 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 physicsBody_, point.forceNewtons, point.worldPositionMeters, &error))
         {
             return std::unexpected("physical playground buoyancy force application failed at point " +
+                                   std::to_string(index) + ": " + error.message);
+        }
+    }
+
+    // Apply exactly the published wave-aware point forces. No force is reconstructed at COM and no dt scale,
+    // wave velocity, drag, or visual displacement enters this path; Jolt derives the two-point pitch moment.
+    for (std::size_t index = 0; index < surfaceFloatBuoyancyResult_.points.size(); ++index)
+    {
+        const Marine::BuoyancyPointResult& point = surfaceFloatBuoyancyResult_.points[index];
+        Physics::PhysicsError error;
+        if (!physics_->AddForceAtWorldPosition(
+                surfaceFloatBody_, point.forceNewtons, point.worldPositionMeters, &error))
+        {
+            return std::unexpected("physical playground M3-F float force application failed at point " +
                                    std::to_string(index) + ": " + error.message);
         }
     }
@@ -876,6 +1054,17 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 std::to_string(*gravityMagnitude) + " m/s^2, weight " +
                 std::to_string(weightMagnitude) + " N, point fraction range [" +
                 std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');
+        const float floatPitchDegrees = 2.0F * std::atan2(surfaceFloatState->orientation.z,
+                                                           surfaceFloatState->orientation.w) *
+                                      (180.0F / 3.14159265358979323846F);
+        PlaygroundLog().Info(
+            Diagnostics::LogCategory::Physics,
+            "Physical playground M3-F float fixed sample: beginning SimulationTime " +
+                std::to_string(simulationTimeSeconds) + ", position " +
+                FormatVector(surfaceFloatState->position) + ", pitch Z " +
+                std::to_string(floatPitchDegrees) + " deg, wave buoyancy force " +
+                FormatVector(surfaceFloatBuoyancyResult_.totalForceNewtons) + " N, submerged volume " +
+                std::to_string(surfaceFloatBuoyancyResult_.totalSubmergedVolumeCubicMeters) + " m^3");
     }
     return {};
 }
@@ -885,7 +1074,8 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
 {
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
         !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || physics_ == nullptr ||
-        !physicsBody_.IsValid() || !water_.has_value())
+        !physicsBody_.IsValid() || !surfaceFloatModel_.has_value() || surfaceFloatModel_->primitives.size() != 1U ||
+        !renderer.IsGpuModelValid(surfaceFloatModelGpu_) || !surfaceFloatBody_.IsValid() || !water_.has_value())
     {
         return std::unexpected("physical playground model assets are no longer valid");
     }
@@ -897,6 +1087,11 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return std::unexpected("physical playground body state became unavailable");
     }
+    const auto surfaceFloatState = physics_->GetBodyState(surfaceFloatBody_);
+    if (!surfaceFloatState)
+    {
+        return std::unexpected("physical playground M3-F float state is unavailable during render");
+    }
 
     // M2 Slice C2.1: one snapshot -> bodyToWorld -> modelToWorld, and that single matrix is the source of
     // truth for BOTH draw preparation and the rendered world bounds. The physics pose (bodyToWorld) never
@@ -907,6 +1102,21 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(bodyToWorld.error());
     }
     const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
+
+    // The procedural float model origin is its body origin, so its physics-to-render transform is direct.
+    // The rendered pose always comes from Jolt after the preceding fixed step, never from SampleWaveSurface.
+    const auto surfaceFloatModelToWorld = BuildBodyToWorld(*surfaceFloatState);
+    if (!surfaceFloatModelToWorld)
+    {
+        return std::unexpected("physical playground M3-F float transform failed: " +
+                               surfaceFloatModelToWorld.error());
+    }
+    const auto surfaceFloatDraws = Render::PrepareModelDraws(*surfaceFloatModel_, *surfaceFloatModelToWorld);
+    if (!surfaceFloatDraws || surfaceFloatDraws->size() != 1U)
+    {
+        return std::unexpected("physical playground M3-F float draw preparation failed" +
+                               (surfaceFloatDraws ? std::string{} : ": " + surfaceFloatDraws.error()));
+    }
 
     if (!propellerNodeIndex_.has_value())
     {
@@ -937,15 +1147,23 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return std::unexpected(worldBounds.error());
     }
+    const auto surfaceFloatWorldBounds = TransformBounds(surfaceFloatModel_->bounds, *surfaceFloatModelToWorld);
+    if (!surfaceFloatWorldBounds)
+    {
+        return std::unexpected("physical playground M3-F float bounds transform failed: " +
+                               surfaceFloatWorldBounds.error());
+    }
     const Assets::ModelVector3 target{initialBodyWorldCenter_.x, initialBodyWorldCenter_.y,
                                       initialBodyWorldCenter_.z};
-    const Assets::ModelBounds cameraDepthBounds = CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds);
+    const Assets::ModelBounds cameraDepthBounds = CombineBounds(
+        CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds), *surfaceFloatWorldBounds);
     const auto camera = Render::BuildFixedWorldSideViewCamera(
         target,
         renderer.AspectRatio(),
         M2GameplayCameraHorizontalSpanMeters,
         cameraDepthBounds);
-    if (!camera || !Render::BoundsFitInCamera(*worldBounds, *camera))
+    if (!camera || !Render::BoundsFitInCamera(*worldBounds, *camera) ||
+        !Render::BoundsFitInCamera(*surfaceFloatWorldBounds, *camera))
     {
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
     }
@@ -994,6 +1212,11 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return submarineStats;
     }
+    const auto surfaceFloatStats = renderer.DrawModel(surfaceFloatModelGpu_, *surfaceFloatDraws, *camera);
+    if (!surfaceFloatStats)
+    {
+        return surfaceFloatStats;
+    }
     // M3-D runs after opaque terrain and submarine draws, so its deliberately approximate transparent quads
     // still fail the existing depth test when they are behind opaque geometry. The renderer reuses the exact
     // immutable M3-C.1 scene presentation CBV rather than accepting another Game snapshot for this pass.
@@ -1022,13 +1245,15 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
     return Render::ModelDrawStats{
-        .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + submarineStats->drawCalls + particleStats->drawCalls,
+        .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + submarineStats->drawCalls +
+                     surfaceFloatStats->drawCalls + particleStats->drawCalls,
         // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The Gerstner surface
         // and suspended field are non-model batches, so retain this established model-only diagnostic rather
         // than inventing model primitive values for presentation passes.
-        .submittedPrimitives = seabedStats->submittedPrimitives + submarineStats->submittedPrimitives,
+        .submittedPrimitives = seabedStats->submittedPrimitives + submarineStats->submittedPrimitives +
+                              surfaceFloatStats->submittedPrimitives,
         .submittedIndices = gerstnerStats->indexCount + seabedStats->submittedIndices + submarineStats->submittedIndices +
-                            particleStats->indexCount};
+                            surfaceFloatStats->submittedIndices + particleStats->indexCount};
 }
 
 Render::GpuModelHandle PhysicalPlayground::SubmarineModel() const noexcept

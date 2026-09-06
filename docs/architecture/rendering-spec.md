@@ -196,7 +196,16 @@ only mesh bounds/colors remain Game tuning. Engine accumulates completed fixed-s
 that value to `DrawGerstnerSurface`; particles retain `PresentationTime`. No GPU readback, synchronization,
 mesh regeneration or new draw is introduced. CPU-query/Render-helper parity allows 0.0001 m for float
 publication/phase constants over the tested mesh/time domain; it is not a cross-device bitwise guarantee.
-See [ADR-0011](../adr/0011-authoritative-wave-query.md). Floating-body response remains M3-F, not started.
+M3-F adds exactly one small Game-owned opaque representative float: a 24-vertex, 36-index, one-primitive
+high-visibility box marker rendered through the existing indexed-model path after the submarine and before
+particles. Its local origin maps directly to the rigid-body origin; its marker geometry extends above that
+origin solely to remain legible at the fixed 600 m side-view span. Its transform comes only from its post-step
+`PhysicsWorld::GetBodyState`, never directly from the wave evaluator.
+The float is one M3-F physical consumer of `SampleWaveSurface` through the explicit wave-aware buoyancy call;
+the canonical submarine remains flat/reference-plane based. The additional draw produces scene totals of
+9 draws, 7 model primitives and 9,084 submitted indices. No shader, PSO, mesh regeneration, GPU readback,
+fluid velocity, current, waterline clipping, or general floating-object system is introduced. See
+[ADR-0011](../adr/0011-authoritative-wave-query.md) and [ADR-0012](../adr/0012-opt-in-wave-buoyancy.md).
 
 Initial flora is presentation-first. It should be batchable/instanced and must
 not create thousands of rigid bodies. Only authored large or gameplay-relevant

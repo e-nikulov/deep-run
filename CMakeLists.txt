@@ -194,6 +194,7 @@ add_executable(DeepRun
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
+    Game/SurfaceFloatModel.cpp
     Game/Submarine/VesselCommandState.cpp
     Game/WaterPresentation.cpp
 )
@@ -237,6 +238,7 @@ add_executable(DeepRunTests
     Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
+    Game/SurfaceFloatModel.cpp
     Game/Submarine/VesselCommandState.cpp
     Game/WaterPresentation.cpp
 )

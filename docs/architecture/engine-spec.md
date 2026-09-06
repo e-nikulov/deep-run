@@ -1374,8 +1374,13 @@ Marine `WaterWaveFieldDefinition` is configured. `Config().surfaceLevelY` always
 The separate `SampleWaveSurface(position, simulationTimeSeconds)` inverts the horizontally displaced
 Gerstner profile and publishes local Y, signed local depth and normalized upward normal. Marine owns the
 canonical three components; Game copies them to Render, which never supplies authoritative state.
-No buoyancy, drag, collision, lighting/fog or acoustic consumer migrates to wave-aware behavior in E.1.
-See [ADR-0011](../adr/0011-authoritative-wave-query.md).
+M3-F adds one explicit opt-in consumer only: the Game-owned representative surface float calls
+`BuoyancySystem::CalculateWaveSurface(...)` with beginning-of-step `SimulationTime`, then applies its two
+published point forces to its own `PhysicsWorld` handle. `BuoyancySystem::Calculate(...)` remains the exact
+flat/reference-plane operation for the canonical submarine; submarine buoyancy, drag, control surfaces,
+collision, lighting/fog and acoustics do not become wave-aware. There is no fluid velocity, current, CFD,
+pressure or generic floating-body manager. See [ADR-0011](../adr/0011-authoritative-wave-query.md) and
+[ADR-0012](../adr/0012-opt-in-wave-buoyancy.md).
 
 Canonical signed-depth contract:
 
@@ -1386,6 +1391,12 @@ signedDepthMeters = surfaceLevelY - worldPosition.y
     < 0 -> above the water
 surface normal = (0, +1, 0); water occupies y < surfaceLevelY
 ```
+
+For M3-F's explicit dynamic query, each buoyancy point instead uses one coherent local M3-E.1 sample:
+`signedDepthMeters`, `surfaceNormal`, point fraction and resulting force all derive from the same
+`SampleWaveSurface` call. Force production sees time `t` at the beginning of a fixed step; physics then
+integrates `dt`, increments SimulationTime to `t + dt`, and rendering sees that post-step body state alongside
+the completed-step Gerstner phase. This is an intentional one-step relationship, not render prediction.
 
 M2 Slice H1 задаёт pure fully-immersed control-surface calculation в неподвижной воде. Один
 `ControlSurfaceComponent` представляет одну независимо рассчитываемую поверхность или гидродинамически

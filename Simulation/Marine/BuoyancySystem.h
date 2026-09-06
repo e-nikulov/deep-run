@@ -18,6 +18,7 @@ enum class BuoyancyErrorCode
     InvalidConfiguration, // empty point set or an invalid per-point value
     InvalidPose,          // non-finite world position or zero/non-finite orientation quaternion
     InvalidGravity,       // gravity magnitude not finite and strictly positive
+    InvalidSimulationTime, // wave-surface time is non-finite or negative
     NonFiniteResult,      // a derived value (world point, depth, fraction, volume, force, total) overflowed
 };
 
@@ -82,5 +83,17 @@ public:
         const BuoyancyComponent& component,
         const BuoyancyPose& pose,
         float gravityMagnitudeMetersPerSecondSquared);
+
+    // Explicit M3-F opt-in: samples the instantaneous M3-E.1 free surface at every buoyancy point.
+    // `result` is caller-owned reusable storage. Reserve it for component.points before a fixed-tick loop
+    // to avoid heap allocation in this calculation. Existing Calculate() always retains flat/reference-plane
+    // semantics, even for a WaterBody with waves configured.
+    [[nodiscard]] static std::expected<void, BuoyancyError> CalculateWaveSurface(
+        const WaterBody& water,
+        const BuoyancyComponent& component,
+        const BuoyancyPose& pose,
+        float gravityMagnitudeMetersPerSecondSquared,
+        double simulationTimeSeconds,
+        BuoyancyResult& result);
 };
 }

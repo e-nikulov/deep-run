@@ -26,6 +26,7 @@ existing shader/layout; parity is tolerance-based, not bitwise across CPU/GPU or
 
 ## Consequences
 
-No existing buoyancy, drag, collision, optical or acoustic consumer adopts the new query. Disabled waves
-retain flat behavior. No forces, floating response, currents, spectra, pause UI or time-compression UI are
-introduced. Those consumer changes require their own milestone; M3-F remains not started.
+At M3-E.1 acceptance no buoyancy, drag, collision, optical or acoustic consumer adopted the new query.
+Disabled waves retain flat behavior. M3-F now adds its separately documented one explicit representative-float
+buoyancy consumer; it does not migrate the submarine or introduce drag coupling, currents, spectra, pause UI
+or time-compression UI. See [ADR-0012](0012-opt-in-wave-buoyancy.md).
