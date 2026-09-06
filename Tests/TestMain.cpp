@@ -26,6 +26,7 @@
 #include "Engine/Scene/Scene.h"
 #include "Game/Environment/EnvironmentSection.h"
 #include "Game/Environment/UnderwaterFloraField.h"
+#include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
@@ -8389,6 +8390,202 @@ bool M3GBoundedUnderwaterFloraFieldContract()
     return true;
 }
 
+bool M3HBoundedUnderwaterIceFieldContract()
+{
+    using namespace DeepRun;
+    const auto first = Game::BuildUnderwaterIceField({"seabed-main"}, 0.0F);
+    const auto second = Game::BuildUnderwaterIceField({"seabed-main"}, 0.0F);
+    if (!first || !second || first->formations.size() != Game::M3UnderwaterIceFormationCount ||
+        first->collisionBoxes.size() != Game::M3UnderwaterIceCollisionCount ||
+        first->renderGeometry.id.Value() != "environment/ice/seabed-main.field" ||
+        first->renderGeometry.materials.size() != 1U || first->renderGeometry.primitives.size() != 1U ||
+        first->renderGeometry.nodes.size() != 1U || first->collisionBoxes != second->collisionBoxes)
+    {
+        return false;
+    }
+
+    const Assets::ModelAsset& model = first->renderGeometry;
+    const Assets::MeshPrimitiveData& primitive = model.primitives.front();
+    const auto layout = Render::BuildIndexedGeometryLayout(model);
+    const auto draws = Render::PrepareModelDraws(model);
+    if (!layout || !draws || draws->size() != 1U || layout->totals.primitiveCount != 1U ||
+        primitive.vertices.size() != 126U || primitive.indices.size() != 240U ||
+        primitive.indices.size() % 3U != 0U || primitive.indices.size() / 3U != 80U ||
+        primitive.indices.size() / 3U > Game::M3UnderwaterIceTriangleBudget ||
+        layout->totals.vertexCount != primitive.vertices.size() || layout->totals.indexCount != primitive.indices.size() ||
+        !primitive.hasNormals || primitive.materialIndex != 0U ||
+        model.nodes.front().primitiveIndices != std::vector<std::size_t>{0U})
+    {
+        return false;
+    }
+    const Assets::ModelMaterialData& material = model.materials.front();
+    if (material.baseColorFactor != std::array<float, 4>{0.24F, 0.46F, 0.54F, 1.0F} ||
+        material.metallicFactor != 0.0F || material.roughnessFactor != 0.82F ||
+        !Game::IsSceneLinearBaseColor(material))
+    {
+        return false;
+    }
+
+    const auto inBounds = [&](const Assets::ModelVector3& position) {
+        return position.x >= model.bounds.minimum.x && position.x <= model.bounds.maximum.x &&
+               position.y >= model.bounds.minimum.y && position.y <= model.bounds.maximum.y &&
+               position.z >= model.bounds.minimum.z && position.z <= model.bounds.maximum.z;
+    };
+    for (const Assets::MeshVertex& vertex : primitive.vertices)
+    {
+        const float normalLengthSquared = vertex.normal.x * vertex.normal.x + vertex.normal.y * vertex.normal.y +
+                                          vertex.normal.z * vertex.normal.z;
+        if (!std::isfinite(vertex.position.x) || !std::isfinite(vertex.position.y) || !std::isfinite(vertex.position.z) ||
+            !std::isfinite(vertex.normal.x) || !std::isfinite(vertex.normal.y) || !std::isfinite(vertex.normal.z) ||
+            std::abs(normalLengthSquared - 1.0F) > 1.0e-5F || !inBounds(vertex.position))
+        {
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index < primitive.indices.size(); index += 3U)
+    {
+        const std::uint32_t ia = primitive.indices[index];
+        const std::uint32_t ib = primitive.indices[index + 1U];
+        const std::uint32_t ic = primitive.indices[index + 2U];
+        if (ia >= primitive.vertices.size() || ib >= primitive.vertices.size() || ic >= primitive.vertices.size())
+        {
+            return false;
+        }
+        const auto& a = primitive.vertices[ia].position;
+        const auto& b = primitive.vertices[ib].position;
+        const auto& c = primitive.vertices[ic].position;
+        const double ux = static_cast<double>(b.x) - a.x;
+        const double uy = static_cast<double>(b.y) - a.y;
+        const double uz = static_cast<double>(b.z) - a.z;
+        const double vx = static_cast<double>(c.x) - a.x;
+        const double vy = static_cast<double>(c.y) - a.y;
+        const double vz = static_cast<double>(c.z) - a.z;
+        const double areaSquared = (uy * vz - uz * vy) * (uy * vz - uz * vy) +
+                                   (uz * vx - ux * vz) * (uz * vx - ux * vz) +
+                                   (ux * vy - uy * vx) * (ux * vy - uy * vx);
+        if (!std::isfinite(areaSquared) || !(areaSquared > 0.0))
+        {
+            return false;
+        }
+    }
+
+    struct ExpectedFormation final
+    {
+        std::string_view id;
+        Game::UnderwaterIceFormationType type;
+        Assets::ModelVector3 position;
+        Assets::ModelVector3 renderHalfExtents;
+        bool hasCoarseCollision;
+    };
+    constexpr std::array<ExpectedFormation, 3> expected{
+        ExpectedFormation{"surface-shelf-west", Game::UnderwaterIceFormationType::SurfaceShelf,
+                          {-225.0F, -14.0F, 0.0F}, {44.0F, 15.0F, 4.0F}, true},
+        ExpectedFormation{"hanging-formation-central", Game::UnderwaterIceFormationType::HangingFormation,
+                          {-85.0F, -30.0F, 0.0F}, {18.0F, 30.0F, 3.5F}, false},
+        ExpectedFormation{"iceberg-keel-east", Game::UnderwaterIceFormationType::IcebergKeel,
+                          {230.0F, -42.0F, 0.0F}, {25.0F, 34.0F, 4.5F}, true}};
+    std::size_t collidableCount = 0U;
+    for (std::size_t index = 0U; index < expected.size(); ++index)
+    {
+        const Game::UnderwaterIceInstance& formation = first->formations[index];
+        const Game::UnderwaterIceInstance& duplicate = second->formations[index];
+        const ExpectedFormation& wanted = expected[index];
+        if (formation.id != wanted.id || formation.type != wanted.type || formation.position.x != wanted.position.x ||
+            formation.position.y != wanted.position.y || formation.position.z != wanted.position.z ||
+            formation.renderHalfExtents.x != wanted.renderHalfExtents.x ||
+            formation.renderHalfExtents.y != wanted.renderHalfExtents.y ||
+            formation.renderHalfExtents.z != wanted.renderHalfExtents.z || formation.rotationRadians != 0.0F ||
+            formation.hasCoarseCollision != wanted.hasCoarseCollision || formation.id != duplicate.id ||
+            formation.type != duplicate.type || formation.position.x != duplicate.position.x ||
+            formation.position.y != duplicate.position.y || formation.position.z != duplicate.position.z ||
+            formation.renderHalfExtents.x != duplicate.renderHalfExtents.x ||
+            formation.renderHalfExtents.y != duplicate.renderHalfExtents.y ||
+            formation.renderHalfExtents.z != duplicate.renderHalfExtents.z ||
+            formation.coarseCollision != duplicate.coarseCollision)
+        {
+            return false;
+        }
+        collidableCount += formation.hasCoarseCollision ? 1U : 0U;
+    }
+    if (collidableCount != Game::M3UnderwaterIceCollisionCount || model.bounds.minimum.y >= 0.0F ||
+        Game::BuildUnderwaterIceField({"bad/id"}, 0.0F) ||
+        Game::BuildUnderwaterIceField({"seabed-main"}, std::numeric_limits<float>::infinity()))
+    {
+        return false;
+    }
+
+    const auto& duplicatePrimitive = second->renderGeometry.primitives.front();
+    if (primitive.indices != duplicatePrimitive.indices || primitive.vertices.size() != duplicatePrimitive.vertices.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0U; index < primitive.vertices.size(); ++index)
+    {
+        const Assets::MeshVertex& a = primitive.vertices[index];
+        const Assets::MeshVertex& b = duplicatePrimitive.vertices[index];
+        if (a.position.x != b.position.x || a.position.y != b.position.y || a.position.z != b.position.z ||
+            a.normal.x != b.normal.x || a.normal.y != b.normal.y || a.normal.z != b.normal.z)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool M3HIceRenderAndCollisionRepresentationsAreIndependent()
+{
+    const auto field = DeepRun::Game::BuildUnderwaterIceField({"seabed-main"}, 0.0F);
+    if (!field || field->formations.size() != DeepRun::Game::M3UnderwaterIceFormationCount ||
+        field->collisionBoxes.size() != DeepRun::Game::M3UnderwaterIceCollisionCount)
+    {
+        return false;
+    }
+    std::size_t collisionIndex = 0U;
+    for (const DeepRun::Game::UnderwaterIceInstance& formation : field->formations)
+    {
+        if (!formation.hasCoarseCollision)
+        {
+            if (formation.coarseCollision != DeepRun::Physics::StaticBoxBodyCreateInfo{}) return false;
+            continue;
+        }
+        if (collisionIndex >= field->collisionBoxes.size() ||
+            field->collisionBoxes[collisionIndex] != formation.coarseCollision ||
+            formation.coarseCollision.position.x != formation.position.x ||
+            formation.coarseCollision.position.y != formation.position.y ||
+            formation.coarseCollision.position.z != formation.position.z ||
+            (formation.coarseCollision.halfExtents.x == formation.renderHalfExtents.x &&
+             formation.coarseCollision.halfExtents.y == formation.renderHalfExtents.y &&
+             formation.coarseCollision.halfExtents.z == formation.renderHalfExtents.z))
+        {
+            return false;
+        }
+        ++collisionIndex;
+    }
+    return collisionIndex == field->collisionBoxes.size();
+}
+
+bool M3HIceCoarseCollisionStopsDynamicBox()
+{
+    using namespace DeepRun::Physics;
+    const auto field = DeepRun::Game::BuildUnderwaterIceField({"seabed-main"}, 0.0F);
+    if (!field || field->collisionBoxes.size() != 2U) return false;
+    DeepRun::Diagnostics::Logger logger;
+    PhysicsWorld world(logger);
+    if (!world.Initialize()) return false;
+    for (const StaticBoxBodyCreateInfo& box : field->collisionBoxes)
+    {
+        if (!world.CreateStaticBoxBody(box).IsValid()) return false;
+    }
+    const PhysicsBodyHandle falling = world.CreateDynamicBoxBody({
+        .halfExtents = {1.0F, 1.0F, 1.0F}, .mass = 10.0F, .position = {-225.0F, 20.0F, 0.0F}});
+    if (!falling.IsValid()) return false;
+    for (int step = 0; step < 600; ++step) world.Step(1.0F / 60.0F);
+    const auto state = world.GetBodyState(falling);
+    return state && state->position.IsFinite() && state->linearVelocity.IsFinite() &&
+           std::abs(state->position.x + 225.0F) < 0.1F && state->position.y > 0.75F && state->position.y < 1.5F &&
+           std::abs(state->linearVelocity.y) < 0.1F;
+}
+
 // ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
@@ -8521,6 +8718,39 @@ bool M3GFloraStaysPresentationOnly()
     const std::array<std::string_view, 10> forbidden{{
         "physicsworld", "physicsbodyhandle", "physicsbodystate", "createstaticboxbody", "createdynamicboxbody",
         "addforceatworldposition", "waterbody", "samplewavesurface", "engine/render/", "d3d12"}};
+    for (const std::filesystem::path& file : files)
+    {
+        std::ifstream input(file, std::ios::binary);
+        if (!input)
+        {
+            return false;
+        }
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool M3HIceStaysGameOwnedAndStatic()
+{
+    // M3-H may carry ModelAsset and StaticBoxBodyCreateInfo values, but the field itself must not acquire
+    // renderer, water/wave, clock, simulation, or PhysicsWorld lifecycle dependencies.
+    const std::filesystem::path iceRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game" / "Environment";
+    const std::array<std::filesystem::path, 2> files{{
+        iceRoot / "UnderwaterIceField.h", iceRoot / "UnderwaterIceField.cpp"}};
+    const std::array<std::string_view, 11> forbidden{{
+        "d3d12renderer", "engine/render/", "waterbody", "samplewavesurface", "presentationtime",
+        "simulationtime", "simulation/marine", "physicsworld", "createstaticboxbody",
+        "createdynamicboxbody", "addforceatworldposition"}};
     for (const std::filesystem::path& file : files)
     {
         std::ifstream input(file, std::ios::binary);
@@ -9014,6 +9244,9 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-F explicit local wave buoyancy", M3FWaveBuoyancyIsExplicitAndLocal},
         {"M3-F representative float wave physics integration", M3FSurfaceFloatWavePhysicsIntegration},
         {"M3-G bounded underwater flora field", M3GBoundedUnderwaterFloraFieldContract},
+        {"M3-H bounded underwater ice field", M3HBoundedUnderwaterIceFieldContract},
+        {"M3-H ice render and collision representations are independent", M3HIceRenderAndCollisionRepresentationsAreIndependent},
+        {"M3-H coarse ice collision stops dynamic box", M3HIceCoarseCollisionStopsDynamicBox},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
@@ -9052,6 +9285,7 @@ int main(const int argumentCount, const char* const* arguments)
          SimulationHasNoGerstnerRenderPresentationDependency},
         {"M3-F wave buoyancy has no render dependency", M3FWaveBuoyancyHasNoRenderDependency},
         {"M3-G flora stays presentation-only", M3GFloraStaysPresentationOnly},
+        {"M3-H ice stays Game-owned and static", M3HIceStaysGameOwnedAndStatic},
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"G1 Propulsion files have only pure Marine dependencies",
          PropulsionFilesHaveOnlyPureMarineDependencies},

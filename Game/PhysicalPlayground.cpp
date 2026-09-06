@@ -11,6 +11,7 @@
 #include "Game/PropulsionPresentation.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/Environment/UnderwaterFloraField.h"
+#include "Game/Environment/UnderwaterIceField.h"
 #include "Game/WaterPresentation.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/ControlSurfaceSystem.h"
@@ -169,6 +170,17 @@ Assets::ModelBounds CombineBounds(const Assets::ModelBounds& first, const Assets
             (std::max)(first.maximum.x, second.maximum.x),
             (std::max)(first.maximum.y, second.maximum.y),
             (std::max)(first.maximum.z, second.maximum.z)}};
+}
+
+bool AxisAlignedBoxesOverlap(
+    const Physics::PhysicsVector3& firstPosition,
+    const Physics::PhysicsVector3& firstHalfExtents,
+    const Physics::PhysicsVector3& secondPosition,
+    const Physics::PhysicsVector3& secondHalfExtents) noexcept
+{
+    return std::abs(firstPosition.x - secondPosition.x) < firstHalfExtents.x + secondHalfExtents.x &&
+           std::abs(firstPosition.y - secondPosition.y) < firstHalfExtents.y + secondHalfExtents.y &&
+           std::abs(firstPosition.z - secondPosition.z) < firstHalfExtents.z + secondHalfExtents.z;
 }
 
 bool NearlyEqualRelative(const double actual, const double expected, const double relativeTolerance)
@@ -393,6 +405,37 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                                 !floraDraws ? ": " + floraDraws.error() : std::string{}));
     }
 
+    // M3-H uses the same fixed Game reference level only as authored composition input. Its immutable field
+    // owns both faceted render geometry and independent coarse-box descriptions; neither is derived from the
+    // other or from the water/visual-wave presentation.
+    auto ice = BuildUnderwaterIceField(seabed->id, M2SeaSurfaceLevelMeters);
+    if (!ice)
+    {
+        return std::unexpected("physical playground underwater ice construction failed: " + ice.error());
+    }
+    const auto iceUpload = renderer.UploadModel(ice->renderGeometry);
+    const auto iceDraws = Render::PrepareModelDraws(ice->renderGeometry);
+    const std::size_t iceVertexCount = ice->renderGeometry.primitives.empty()
+                                           ? 0U
+                                           : ice->renderGeometry.primitives.front().vertices.size();
+    const std::size_t iceIndexCount = ice->renderGeometry.primitives.empty()
+                                          ? 0U
+                                          : ice->renderGeometry.primitives.front().indices.size();
+    if (!iceUpload || !iceDraws || ice->formations.size() != M3UnderwaterIceFormationCount ||
+        ice->collisionBoxes.size() != M3UnderwaterIceCollisionCount || ice->renderGeometry.materials.size() != 1U ||
+        ice->renderGeometry.primitives.size() != 1U || ice->renderGeometry.nodes.size() != 1U ||
+        iceDraws->size() != 1U || iceVertexCount != 126U || iceIndexCount != 240U ||
+        iceIndexCount / 3U > M3UnderwaterIceTriangleBudget || !iceUpload->stats.uploadCompleted ||
+        !iceUpload->handle.IsValid() || !renderer.IsGpuModelValid(iceUpload->handle) ||
+        iceUpload->stats.primitiveCount != 1U || iceUpload->stats.vertexCount != iceVertexCount ||
+        iceUpload->stats.indexCount != iceIndexCount ||
+        iceDraws->front().modelToWorld.values != Assets::ModelTransform{}.values)
+    {
+        return std::unexpected("physical playground underwater ice presentation initialization validation failed" +
+                               (!iceUpload ? ": " + iceUpload.error() :
+                                !iceDraws ? ": " + iceDraws.error() : std::string{}));
+    }
+
     const auto seabedUpload = renderer.UploadModel(seabed->renderGeometry);
     if (!seabedUpload)
     {
@@ -463,6 +506,15 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         if (std::abs(initialBodyWorldCenter.x - box.position.x) < halfExtents.x + box.halfExtents.x &&
             initialBodyWorldCenter.y - halfExtents.y <= box.position.y + box.halfExtents.y)
             return std::unexpected("canonical submarine starts penetrating seabed collision");
+    }
+    // M3-H coarse ice is deliberately authored well above the canonical vessel. Validate the real static
+    // proxy descriptions before creating the submarine body; no mesh/GPU bounds participate in this test.
+    for (const auto& box : ice->collisionBoxes)
+    {
+        if (AxisAlignedBoxesOverlap(initialBodyWorldCenter, halfExtents, box.position, box.halfExtents))
+        {
+            return std::unexpected("canonical submarine starts penetrating underwater ice collision");
+        }
     }
 
     Physics::DynamicBoxBodyCreateInfo bodyInfo;
@@ -581,10 +633,25 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         }
         seabedBodies.push_back(handle);
     }
+    std::vector<Physics::PhysicsBodyHandle> iceBodies;
+    iceBodies.reserve(ice->collisionBoxes.size());
+    for (const auto& box : ice->collisionBoxes)
+    {
+        const auto handle = physics.CreateStaticBoxBody(box, &physicsError);
+        if (!handle.IsValid())
+        {
+            for (const auto previous : iceBodies) (void)physics.DestroyBody(previous);
+            for (const auto previous : seabedBodies) (void)physics.DestroyBody(previous);
+            (void)physics.DestroyBody(body);
+            return std::unexpected("underwater ice static collision creation failed: " + physicsError.message);
+        }
+        iceBodies.push_back(handle);
+    }
     seabedBodies_ = std::move(seabedBodies);
+    iceBodies_ = std::move(iceBodies);
     PlaygroundLog().Info(Diagnostics::LogCategory::Physics,
-        "Environment collision ready: " + seabed->id.value + ", static bodies " +
-        std::to_string(seabedBodies_.size()));
+        "Environment collision ready: " + seabed->id.value + ", seabed static bodies " +
+        std::to_string(seabedBodies_.size()) + ", ice static bodies " + std::to_string(iceBodies_.size()));
 
     // M3-F presentation is one Game-owned indexed box whose model origin intentionally matches its Jolt
     // body origin. It uses the existing opaque model path; there is no specialized primitive renderer.
@@ -631,6 +698,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         .initialLinearVelocity = {},
         .initialAngularVelocity = {},
         .degreesOfFreedom = m3FloatDof};
+    for (const auto& box : ice->collisionBoxes)
+    {
+        if (AxisAlignedBoxesOverlap(
+                surfaceFloatInfo.position, surfaceFloatInfo.halfExtents, box.position, box.halfExtents))
+        {
+            return std::unexpected("M3-F surface float starts penetrating underwater ice collision");
+        }
+    }
     const Physics::PhysicsBodyHandle surfaceFloatBody = physics.CreateDynamicBoxBody(surfaceFloatInfo, &physicsError);
     if (!surfaceFloatBody.IsValid())
     {
@@ -697,6 +772,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     floraField_ = std::move(*flora);
     floraModel_ = floraUpload->handle;
     floraDraws_ = std::move(*floraDraws);
+    iceField_ = std::move(*ice);
+    iceModel_ = iceUpload->handle;
+    iceDraws_ = std::move(*iceDraws);
     physicsBody_ = body;
     surfaceFloatModel_ = std::move(surfaceFloatModel);
     surfaceFloatModelGpu_ = surfaceFloatUpload->handle;
@@ -748,7 +826,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             std::to_string(rockVertexCount) + ", rock triangles " + std::to_string(rockIndexCount / 3U) +
             ", rocks " + std::to_string(seabedSection_->rocks.size()) + ", environment draws " +
             std::to_string(seabedDraws_.size()) + ", flora plants " + std::to_string(floraField_->plants.size()) +
-            ", flora triangles " + std::to_string(floraIndexCount / 3U) + ", GPU upload success");
+            ", flora triangles " + std::to_string(floraIndexCount / 3U) + ", ice formations " +
+            std::to_string(iceField_->formations.size()) + ", ice triangles " + std::to_string(iceIndexCount / 3U) +
+            ", GPU upload success");
     return {};
 }
 
@@ -1112,7 +1192,9 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
         !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || !floraField_.has_value() ||
         floraField_->renderGeometry.primitives.size() != 1U || !renderer.IsGpuModelValid(floraModel_) ||
-        floraDraws_.size() != 1U || physics_ == nullptr ||
+        floraDraws_.size() != 1U || !iceField_.has_value() || iceField_->renderGeometry.primitives.size() != 1U ||
+        iceBodies_.size() != M3UnderwaterIceCollisionCount || !renderer.IsGpuModelValid(iceModel_) ||
+        iceDraws_.size() != 1U || physics_ == nullptr ||
         !physicsBody_.IsValid() || !surfaceFloatModel_.has_value() || surfaceFloatModel_->primitives.size() != 1U ||
         !renderer.IsGpuModelValid(surfaceFloatModelGpu_) || !surfaceFloatBody_.IsValid() || !water_.has_value())
     {
@@ -1195,7 +1277,10 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     const Assets::ModelVector3 target{initialBodyWorldCenter_.x, initialBodyWorldCenter_.y,
                                       initialBodyWorldCenter_.z};
     const Assets::ModelBounds cameraDepthBounds = CombineBounds(
-        CombineBounds(CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds), floraField_->renderGeometry.bounds),
+        CombineBounds(
+            CombineBounds(
+                CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds), floraField_->renderGeometry.bounds),
+            iceField_->renderGeometry.bounds),
         *surfaceFloatWorldBounds);
     const auto camera = Render::BuildFixedWorldSideViewCamera(
         target,
@@ -1204,6 +1289,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         cameraDepthBounds);
     if (!camera || !Render::BoundsFitInCamera(*worldBounds, *camera) ||
         !Render::BoundsFitInCamera(floraField_->renderGeometry.bounds, *camera) ||
+        !Render::BoundsFitInCamera(iceField_->renderGeometry.bounds, *camera) ||
         !Render::BoundsFitInCamera(*surfaceFloatWorldBounds, *camera))
     {
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
@@ -1253,6 +1339,11 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return floraStats;
     }
+    const auto iceStats = renderer.DrawModel(iceModel_, iceDraws_, *camera);
+    if (!iceStats)
+    {
+        return iceStats;
+    }
     const auto submarineStats = renderer.DrawModel(submarineModel_, *draws, *camera);
     if (!submarineStats)
     {
@@ -1291,15 +1382,16 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
     return Render::ModelDrawStats{
-        .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + floraStats->drawCalls + submarineStats->drawCalls +
-                     surfaceFloatStats->drawCalls + particleStats->drawCalls,
+        .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + floraStats->drawCalls + iceStats->drawCalls +
+                     submarineStats->drawCalls + surfaceFloatStats->drawCalls + particleStats->drawCalls,
         // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The Gerstner surface
         // and suspended field are non-model batches, so retain this established model-only diagnostic rather
         // than inventing model primitive values for presentation passes.
-        .submittedPrimitives = seabedStats->submittedPrimitives + floraStats->submittedPrimitives + submarineStats->submittedPrimitives +
-                              surfaceFloatStats->submittedPrimitives,
-        .submittedIndices = gerstnerStats->indexCount + seabedStats->submittedIndices + floraStats->submittedIndices + submarineStats->submittedIndices +
-                            surfaceFloatStats->submittedIndices + particleStats->indexCount};
+        .submittedPrimitives = seabedStats->submittedPrimitives + floraStats->submittedPrimitives + iceStats->submittedPrimitives +
+                              submarineStats->submittedPrimitives + surfaceFloatStats->submittedPrimitives,
+        .submittedIndices = gerstnerStats->indexCount + seabedStats->submittedIndices + floraStats->submittedIndices +
+                            iceStats->submittedIndices + submarineStats->submittedIndices + surfaceFloatStats->submittedIndices +
+                            particleStats->indexCount};
 }
 
 Render::GpuModelHandle PhysicalPlayground::SubmarineModel() const noexcept

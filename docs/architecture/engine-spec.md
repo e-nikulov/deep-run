@@ -1388,6 +1388,12 @@ render vertices nor introduces a water, wave, Simulation, physics, collision, fo
 The 60 deterministic plants remain one immutable opaque model draw, and do not alter the canonical submarine
 or M3-F float contracts.
 
+M3-H adds a separate fixed Game-owned ice field. Three stable authored records independently produce one
+faceted render model and two deliberate coarse static-box descriptions; render vertices and backend collision
+never supply the other representation's authority. A plain mean/reference surface value is composition input
+only. Ice has no wave query, clock input, motion, buoyancy, acoustics, destruction, or Simulation entity, and
+the canonical submarine and M3-F float retain their existing behavior.
+
 Canonical signed-depth contract:
 
 ```text

@@ -7,6 +7,7 @@
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Environment/EnvironmentSection.h"
 #include "Game/Environment/UnderwaterFloraField.h"
+#include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
@@ -105,6 +106,12 @@ private:
     std::optional<UnderwaterFloraField> floraField_;
     Render::GpuModelHandle floraModel_;
     std::vector<Render::ModelDrawInstance> floraDraws_;
+    // M3-H static authored environment: one Game-owned ice field supplies independent faceted presentation
+    // and two deliberately coarse static-box descriptions. PhysicsWorld owns only the resulting body handles.
+    std::optional<UnderwaterIceField> iceField_;
+    std::vector<Physics::PhysicsBodyHandle> iceBodies_;
+    Render::GpuModelHandle iceModel_;
+    std::vector<Render::ModelDrawInstance> iceDraws_;
     Physics::PhysicsBodyHandle physicsBody_;
     // M3-F representative surface float: Game owns the small model, opaque physics handle and explicit
     // wave-aware buoyancy configuration. It is separate from every canonical submarine member.

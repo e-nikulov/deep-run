@@ -218,6 +218,16 @@ the canonical scene totals to 10 draws, 8 model primitives, and 10,524 submitted
 `WaterBody` query, wave authority, Simulation state, physics body, collision, force, entity, animation,
 spawning, instancing framework, or per-frame geometry work.
 
+M3-H adds one fixed Game-owned authored ice field as a separate environment representation. Its three stable
+formations — surface shelf, hanging formation, and iceberg keel — share one opaque faceted model material,
+primitive, immutable upload, and draw (126 vertices, 240 indices, 80 triangles). Game passes only a plain
+mean/reference surface Y for static composition; the field has no wave sample, presentation/simulation-time
+input, motion, buoyancy, or render-to-environment feedback. Two authored coarse static boxes for the shelf and
+keel are independent consumers of the same records, not bounds derived from render vertices. The existing
+indexed-model shader/PSO supplies M3-C depth lighting and M3-C.1 fog/depth behavior. Ice renders after flora
+and before the submarine, M3-F float, and particles, bringing the canonical scene totals to 11 draws, 9 model
+primitives, and 10,764 submitted indices.
+
 Presentation fauna does not create sensor truth. Gameplay-relevant biological
 emissions and contacts enter through the A1 signature/observation/contact/track
 pipeline.

@@ -453,6 +453,7 @@ Implementation status:
 | E.1 | Authoritative CPU wave-query / WaterBody bridge | ACCEPTED |
 | F | Floating-body wave response | ACCEPTED |
 | G | Bounded underwater flora presentation | ACCEPTED |
+| H | Bounded underwater ice geometry | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -567,9 +568,17 @@ fog/depth behavior. The field has no `WaterBody`, wave, Simulation, physics, col
 animation, instancing, spawning, or per-frame geometry responsibility. Terrain draws before flora, then the
 submarine, M3-F float, and particles; scene totals are 10 draws / 8 model primitives / 10,524 indices.
 
+M3-H adds one fixed Game-owned authored ice field with three stable upper-water formations: a west
+surface-attached shelf, a central hanging formation, and an east iceberg keel. One opaque faceted model
+contains 126 vertices, 240 indices, and 80 triangles in one material, primitive, upload, and draw. The same
+three authored records separately supply two deliberately coarse axis-aligned static-box descriptions for the
+shelf and keel; the decorative hanging formation has no collision. The field receives a plain mean/reference
+surface Y only for fixed composition and has no wave query, time input, motion, buoyancy, acoustics, sonar,
+destruction, or Simulation entity. Terrain, flora, and ice draw before the submarine, M3-F float, and
+particles; scene totals are 11 draws / 9 model primitives / 10,764 indices.
+
 Future work:
 
-- basic underwater ice / ice-shelf / iceberg geometry where appropriate
 - world/environment data with independent render, coarse-collision, navigation,
   and future acoustic-query representations
 - stable chunk-compatible environment IDs/bounds without requiring production

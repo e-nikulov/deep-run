@@ -191,6 +191,7 @@ add_executable(DeepRun
     DeepRun/Main.cpp
     Game/Environment/EnvironmentSection.cpp
     Game/Environment/UnderwaterFloraField.cpp
+    Game/Environment/UnderwaterIceField.cpp
     Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
@@ -237,6 +238,7 @@ add_executable(DeepRunTests
     Tests/TestMain.cpp
     Game/Environment/EnvironmentSection.cpp
     Game/Environment/UnderwaterFloraField.cpp
+    Game/Environment/UnderwaterIceField.cpp
     Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
