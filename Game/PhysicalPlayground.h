@@ -6,6 +6,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Environment/EnvironmentSection.h"
+#include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
@@ -99,6 +100,11 @@ private:
     std::vector<Physics::PhysicsBodyHandle> seabedBodies_;
     Render::GpuModelHandle seabedModel_;
     std::vector<Render::ModelDrawInstance> seabedDraws_;
+    // M3-G immutable presentation-only vegetation. Its profile-derived roots and ModelAsset stay Game-owned;
+    // the renderer owns only this opaque GPU upload and does not feed environment truth back into Game.
+    std::optional<UnderwaterFloraField> floraField_;
+    Render::GpuModelHandle floraModel_;
+    std::vector<Render::ModelDrawInstance> floraDraws_;
     Physics::PhysicsBodyHandle physicsBody_;
     // M3-F representative surface float: Game owns the small model, opaque physics handle and explicit
     // wave-aware buoyancy configuration. It is separate from every canonical submarine member.

@@ -207,9 +207,16 @@ the canonical submarine remains flat/reference-plane based. The additional draw 
 fluid velocity, current, waterline clipping, or general floating-object system is introduced. See
 [ADR-0011](../adr/0011-authoritative-wave-query.md) and [ADR-0012](../adr/0012-opt-in-wave-buoyancy.md).
 
-Initial flora is presentation-first. It should be batchable/instanced and must
-not create thousands of rigid bodies. Only authored large or gameplay-relevant
-flora may opt into coarse collision/query representation.
+M3-G implements the initial flora as one fixed Game-owned presentation field, never as an ecosystem or
+gameplay authority. It samples the same authored `SeabedProfileConfig` through `SampleSeabedProfileY`, placing
+60 deterministic plants in three bounded patches with roots lifted 0.02 m above the terrain. Four opaque
+segmented-ribbon quads per plant become one dark-green material, one primitive, one immutable model upload,
+and one draw: 960 vertices, 1,440 indices, and 480 triangles. The field uses the existing indexed-model
+shader/PSO, so its opaque fragments receive M3-C depth lighting and M3-C.1 view-path fog/depth behavior without
+a shader or PSO change. It renders after terrain and before the submarine, M3-F float, and particles, bringing
+the canonical scene totals to 10 draws, 8 model primitives, and 10,524 submitted indices. It creates no
+`WaterBody` query, wave authority, Simulation state, physics body, collision, force, entity, animation,
+spawning, instancing framework, or per-frame geometry work.
 
 Presentation fauna does not create sensor truth. Gameplay-relevant biological
 emissions and contacts enter through the A1 signature/observation/contact/track

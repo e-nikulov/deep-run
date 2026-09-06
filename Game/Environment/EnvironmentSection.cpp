@@ -30,6 +30,63 @@ void ExtendBounds(
     max_.y = std::max(max_.y, point.y);
     max_.z = std::max(max_.z, point.z);
 }
+
+std::expected<void, std::string> ValidateSeabedProfile(const DeepRun::Game::SeabedProfileConfig& profile)
+{
+    std::ostringstream err;
+    const bool finite = std::isfinite(profile.minX) && std::isfinite(profile.maxX) &&
+                        std::isfinite(profile.fillBottomYMeters) && std::isfinite(profile.zThicknessMeters);
+    if (!finite || profile.maxX <= profile.minX || profile.sampleCount < 2 ||
+        profile.sampleCount > MaxSeabedSamples || profile.zThicknessMeters <= 0.0F ||
+        profile.controlPoints.size() < 2U || profile.controlPoints.size() > 128U)
+    {
+        err << "seabed profile config is invalid (minX=" << profile.minX << ", maxX=" << profile.maxX
+            << ", samples=" << profile.sampleCount << ", knots=" << profile.controlPoints.size()
+            << ", fillBottomY=" << profile.fillBottomYMeters << ')';
+        return std::unexpected(err.str());
+    }
+    if (profile.controlPoints.front().xMeters != profile.minX ||
+        profile.controlPoints.back().xMeters != profile.maxX)
+    {
+        return std::unexpected("seabed profile knots must begin at minX and end at maxX");
+    }
+    for (std::size_t index = 0; index < profile.controlPoints.size(); ++index)
+    {
+        const auto& knot = profile.controlPoints[index];
+        if (!std::isfinite(knot.xMeters) || !std::isfinite(knot.yMeters) ||
+            knot.yMeters <= profile.fillBottomYMeters ||
+            (index > 0U && !(knot.xMeters > profile.controlPoints[index - 1U].xMeters)))
+        {
+            return std::unexpected("seabed profile knots must be finite, ordered, and above fillBottomY");
+        }
+    }
+
+    const float spanX = profile.maxX - profile.minX;
+    const float zMax = 0.5F * profile.zThicknessMeters;
+    const float sampleStep = spanX / static_cast<float>(profile.sampleCount - 1);
+    if (!std::isfinite(spanX) || !std::isfinite(zMax) || zMax <= 0.0F || !std::isfinite(sampleStep) ||
+        sampleStep <= 0.0F || !(profile.minX + sampleStep > profile.minX))
+    {
+        return std::unexpected("seabed profile derived values are invalid or not representable");
+    }
+    return {};
+}
+
+float SampleSeabedProfileYUnchecked(
+    const DeepRun::Game::SeabedProfileConfig& profile,
+    const float worldXMeters) noexcept
+{
+    const auto right = std::upper_bound(
+        profile.controlPoints.begin(), profile.controlPoints.end(), worldXMeters,
+        [](const float value, const DeepRun::Game::SeabedProfileControlPoint& knot) {
+            return value < knot.xMeters;
+        });
+    if (right == profile.controlPoints.begin()) return right->yMeters;
+    if (right == profile.controlPoints.end()) return profile.controlPoints.back().yMeters;
+    const auto left = right - 1;
+    const float t = (worldXMeters - left->xMeters) / (right->xMeters - left->xMeters);
+    return left->yMeters + (right->yMeters - left->yMeters) * t;
+}
 } // namespace
 
 namespace DeepRun::Game
@@ -78,65 +135,43 @@ bool IsSceneLinearBaseColor(const Assets::ModelMaterialData& material) noexcept
            material.baseColorFactor[3] <= 1.0F;
 }
 
+std::expected<float, std::string> SampleSeabedProfileY(
+    const SeabedProfileConfig& profile,
+    const float worldXMeters)
+{
+    if (const auto valid = ValidateSeabedProfile(profile); !valid)
+    {
+        return std::unexpected(valid.error());
+    }
+    if (!std::isfinite(worldXMeters) || worldXMeters < profile.minX || worldXMeters > profile.maxX)
+    {
+        return std::unexpected("seabed profile query X must be finite and inside the authored extent");
+    }
+    const float result = SampleSeabedProfileYUnchecked(profile, worldXMeters);
+    if (!std::isfinite(result))
+    {
+        return std::unexpected("seabed profile query produced a non-finite height");
+    }
+    return result;
+}
+
 std::expected<EnvironmentSection, std::string> BuildSeabedSection(
     const EnvironmentSectionId& id,
     const SeabedProfileConfig& profile)
 {
-    std::ostringstream err;
     if (!id.IsValid())
     {
         return std::unexpected("environment section id must be non-empty and contain only letters, digits, '-' or '_'");
     }
-    const bool finite = std::isfinite(profile.minX) && std::isfinite(profile.maxX) &&
-                        std::isfinite(profile.fillBottomYMeters) && std::isfinite(profile.zThicknessMeters);
-    if (!finite || profile.maxX <= profile.minX || profile.sampleCount < 2 ||
-        profile.sampleCount > MaxSeabedSamples || profile.zThicknessMeters <= 0.0F ||
-        profile.controlPoints.size() < 2U || profile.controlPoints.size() > 128U)
+    if (const auto valid = ValidateSeabedProfile(profile); !valid)
     {
-        err << "seabed profile config is invalid (minX=" << profile.minX << ", maxX=" << profile.maxX
-            << ", samples=" << profile.sampleCount << ", knots=" << profile.controlPoints.size()
-            << ", fillBottomY=" << profile.fillBottomYMeters << ")";
-        return std::unexpected(err.str());
-    }
-    if (profile.controlPoints.front().xMeters != profile.minX ||
-        profile.controlPoints.back().xMeters != profile.maxX)
-    {
-        return std::unexpected("seabed profile knots must begin at minX and end at maxX");
-    }
-    for (std::size_t index = 0; index < profile.controlPoints.size(); ++index)
-    {
-        const auto& knot = profile.controlPoints[index];
-        if (!std::isfinite(knot.xMeters) || !std::isfinite(knot.yMeters) ||
-            knot.yMeters <= profile.fillBottomYMeters ||
-            (index > 0U && !(knot.xMeters > profile.controlPoints[index - 1U].xMeters)))
-        {
-            return std::unexpected("seabed profile knots must be finite, ordered, and above fillBottomY");
-        }
+        return std::unexpected(valid.error());
     }
 
     const int sampleCount = profile.sampleCount;
     const float spanX = profile.maxX - profile.minX;
     const float zMax = 0.5F * profile.zThicknessMeters;
     const float zMin = -zMax;
-    const float sampleStep = spanX / static_cast<float>(sampleCount - 1);
-    if (!std::isfinite(spanX) || !std::isfinite(zMax) || zMax <= 0.0F || !std::isfinite(sampleStep) ||
-        sampleStep <= 0.0F || !(profile.minX + sampleStep > profile.minX))
-    {
-        return std::unexpected("seabed profile derived values are invalid or not representable");
-    }
-
-    // Deterministic piecewise-linear interpolation through explicit authored knots. This remains a pure
-    // environment-data query; neither render topology nor GPU data participates.
-    const auto surfaceYAt = [&](const float x) {
-        const auto right = std::upper_bound(
-            profile.controlPoints.begin(), profile.controlPoints.end(), x,
-            [](const float value, const SeabedProfileControlPoint& knot) { return value < knot.xMeters; });
-        if (right == profile.controlPoints.begin()) return right->yMeters;
-        if (right == profile.controlPoints.end()) return profile.controlPoints.back().yMeters;
-        const auto left = right - 1;
-        const float t = (x - left->xMeters) / (right->xMeters - left->xMeters);
-        return left->yMeters + (right->yMeters - left->yMeters) * t;
-    };
 
     auto assetId = Assets::AssetId::FromPath(std::string("environment/seabed/") + id.value + ".section");
     if (!assetId)
@@ -229,8 +264,8 @@ std::expected<EnvironmentSection, std::string> BuildSeabedSection(
     {
         const float x0 = profile.minX + (spanX * static_cast<float>(cell)) / static_cast<float>(sampleCount - 1);
         const float x1 = profile.minX + (spanX * static_cast<float>(cell + 1)) / static_cast<float>(sampleCount - 1);
-        const float y0 = surfaceYAt(x0);
-        const float y1 = surfaceYAt(x1);
+        const float y0 = SampleSeabedProfileYUnchecked(profile, x0);
+        const float y1 = SampleSeabedProfileYUnchecked(profile, x1);
         if (!std::isfinite(x0) || !std::isfinite(x1) || !std::isfinite(y0) || !std::isfinite(y1) || !(x1 > x0))
         {
             return std::unexpected("seabed section sample positions are invalid or not representable");
@@ -312,7 +347,7 @@ std::expected<EnvironmentSection, std::string> BuildSeabedSection(
     {
         rocks.push_back(EnvironmentRockInstance{
             .id = std::string(authored.id),
-            .position = {authored.xMeters, surfaceYAt(authored.xMeters), 0.0F},
+            .position = {authored.xMeters, SampleSeabedProfileYUnchecked(profile, authored.xMeters), 0.0F},
             .halfExtents = authored.halfExtents,
             .rotationRadians = authored.rotationRadians,
             .hasCoarseCollision = authored.hasCoarseCollision});
@@ -480,7 +515,8 @@ std::expected<EnvironmentSection, std::string> BuildSeabedSection(
                               (static_cast<float>(column) / static_cast<float>(columns));
             const float x1 = left.xMeters + (right.xMeters - left.xMeters) *
                               (static_cast<float>(column + 1) / static_cast<float>(columns));
-            const float top = std::max(surfaceYAt(x0), surfaceYAt(x1));
+            const float top = std::max(
+                SampleSeabedProfileYUnchecked(profile, x0), SampleSeabedProfileYUnchecked(profile, x1));
             const float halfHeight = (top - profile.fillBottomYMeters) * 0.5F;
             Physics::StaticBoxBodyCreateInfo box{
                 .halfExtents = {(x1 - x0) * 0.5F, halfHeight, zMax},

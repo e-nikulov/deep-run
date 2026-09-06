@@ -25,6 +25,7 @@
 #include "Engine/Render/ViewPathFog.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/Environment/EnvironmentSection.h"
+#include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
@@ -8257,6 +8258,137 @@ bool M3BSeabedSectionRejectsMalformedInput()
            rejects(fillAtSurface) && rejects(unrepresentableSpan);
 }
 
+bool M3GBoundedUnderwaterFloraFieldContract()
+{
+    using namespace DeepRun;
+    Game::SeabedProfileConfig profile;
+    const auto first = Game::BuildUnderwaterFloraField({"seabed-main"}, profile, 0.0F);
+    const auto second = Game::BuildUnderwaterFloraField({"seabed-main"}, profile, 0.0F);
+    if (!first || !second || first->patchCount != Game::M3UnderwaterFloraPatchCount ||
+        first->plants.size() != Game::M3UnderwaterFloraPlantCount ||
+        first->renderGeometry.id.Value() != "environment/flora/seabed-main.field" ||
+        first->renderGeometry.materials.size() != 1U || first->renderGeometry.primitives.size() != 1U ||
+        first->renderGeometry.nodes.size() != 1U)
+    {
+        return false;
+    }
+
+    const Assets::ModelAsset& model = first->renderGeometry;
+    const Assets::MeshPrimitiveData& primitive = model.primitives.front();
+    const auto layout = Render::BuildIndexedGeometryLayout(model);
+    const auto draws = Render::PrepareModelDraws(model);
+    if (!layout || !draws || draws->size() != 1U || layout->totals.primitiveCount != 1U ||
+        primitive.vertices.size() != 960U || primitive.indices.size() != 1'440U ||
+        primitive.indices.size() % 3U != 0U || primitive.indices.size() / 3U != 480U ||
+        primitive.indices.size() / 3U > Game::M3UnderwaterFloraTriangleBudget ||
+        layout->totals.vertexCount != primitive.vertices.size() || layout->totals.indexCount != primitive.indices.size() ||
+        !primitive.hasNormals || primitive.materialIndex != 0U ||
+        model.nodes.front().primitiveIndices != std::vector<std::size_t>{0U} ||
+        model.bounds.minimum.x != primitive.localBounds.minimum.x || model.bounds.minimum.y != primitive.localBounds.minimum.y ||
+        model.bounds.minimum.z != primitive.localBounds.minimum.z || model.bounds.maximum.x != primitive.localBounds.maximum.x ||
+        model.bounds.maximum.y != primitive.localBounds.maximum.y || model.bounds.maximum.z != primitive.localBounds.maximum.z)
+    {
+        return false;
+    }
+    const Assets::ModelMaterialData& material = model.materials.front();
+    if (material.metallicFactor != 0.0F || material.roughnessFactor != 0.95F || material.baseColorFactor[3] != 1.0F ||
+        !Game::IsSceneLinearBaseColor(material))
+    {
+        return false;
+    }
+
+    const auto inBounds = [&](const Assets::ModelVector3& position) {
+        return position.x >= model.bounds.minimum.x && position.x <= model.bounds.maximum.x &&
+               position.y >= model.bounds.minimum.y && position.y <= model.bounds.maximum.y &&
+               position.z >= model.bounds.minimum.z && position.z <= model.bounds.maximum.z;
+    };
+    for (const Assets::MeshVertex& vertex : primitive.vertices)
+    {
+        const float normalLengthSquared = vertex.normal.x * vertex.normal.x + vertex.normal.y * vertex.normal.y +
+                                          vertex.normal.z * vertex.normal.z;
+        if (!std::isfinite(vertex.position.x) || !std::isfinite(vertex.position.y) || !std::isfinite(vertex.position.z) ||
+            !std::isfinite(vertex.normal.x) || !std::isfinite(vertex.normal.y) || !std::isfinite(vertex.normal.z) ||
+            std::abs(normalLengthSquared - 1.0F) > 1.0e-6F || vertex.normal.z != 1.0F || !inBounds(vertex.position))
+        {
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index < primitive.indices.size(); index += 3U)
+    {
+        const std::uint32_t ia = primitive.indices[index];
+        const std::uint32_t ib = primitive.indices[index + 1U];
+        const std::uint32_t ic = primitive.indices[index + 2U];
+        if (ia >= primitive.vertices.size() || ib >= primitive.vertices.size() || ic >= primitive.vertices.size())
+        {
+            return false;
+        }
+        const auto& a = primitive.vertices[ia].position;
+        const auto& b = primitive.vertices[ib].position;
+        const auto& c = primitive.vertices[ic].position;
+        const double ux = static_cast<double>(b.x) - a.x;
+        const double uy = static_cast<double>(b.y) - a.y;
+        const double vx = static_cast<double>(c.x) - a.x;
+        const double vy = static_cast<double>(c.y) - a.y;
+        const double crossZ = ux * vy - uy * vx;
+        if (!std::isfinite(crossZ) || !(crossZ > 0.0))
+        {
+            return false;
+        }
+    }
+
+    std::array<std::uint32_t, Game::M3UnderwaterFloraPatchCount> patchCounts{};
+    bool sawHeightVariation = false;
+    bool sawWidthVariation = false;
+    for (std::size_t index = 0U; index < first->plants.size(); ++index)
+    {
+        const Game::UnderwaterFloraPlant& plant = first->plants[index];
+        const Game::UnderwaterFloraPlant& duplicate = second->plants[index];
+        const auto profileY = Game::SampleSeabedProfileY(profile, plant.rootPosition.x);
+        if (!profileY || plant.patchIndex >= patchCounts.size() || plant.segmentCount != Game::M3UnderwaterFloraSegmentsPerPlant ||
+            !std::isfinite(plant.rootPosition.x) || !std::isfinite(plant.rootPosition.y) || !std::isfinite(plant.rootPosition.z) ||
+            std::abs(plant.rootPosition.y - *profileY) > Game::M3UnderwaterFloraRootContactToleranceMeters ||
+            plant.rootPosition.y >= 0.0F || plant.rootPosition.y + plant.heightMeters >= 0.0F ||
+            plant.heightMeters < 2.5F || plant.heightMeters > 7.0F ||
+            plant.halfWidthMeters < 0.18F || plant.halfWidthMeters > 0.45F ||
+            plant.rootPosition.x < profile.minX || plant.rootPosition.x > profile.maxX ||
+            plant.rootPosition.z <= 0.5F * profile.zThicknessMeters ||
+            plant.rootPosition.z > 0.5F * profile.zThicknessMeters + 0.41F ||
+            plant.rootPosition.x != duplicate.rootPosition.x || plant.rootPosition.y != duplicate.rootPosition.y ||
+            plant.rootPosition.z != duplicate.rootPosition.z || plant.heightMeters != duplicate.heightMeters ||
+            plant.halfWidthMeters != duplicate.halfWidthMeters || plant.bendMeters != duplicate.bendMeters ||
+            plant.patchIndex != duplicate.patchIndex || plant.segmentCount != duplicate.segmentCount)
+        {
+            return false;
+        }
+        ++patchCounts[plant.patchIndex];
+        sawHeightVariation = sawHeightVariation || plant.heightMeters != first->plants.front().heightMeters;
+        sawWidthVariation = sawWidthVariation || plant.halfWidthMeters != first->plants.front().halfWidthMeters;
+    }
+    if (patchCounts != std::array<std::uint32_t, 3>{18U, 22U, 20U} || !sawHeightVariation || !sawWidthVariation ||
+        Game::SampleSeabedProfileY(profile, profile.minX - 0.01F) ||
+        Game::BuildUnderwaterFloraField({"seabed-main"}, profile, std::numeric_limits<float>::infinity()))
+    {
+        return false;
+    }
+
+    const auto& duplicatePrimitive = second->renderGeometry.primitives.front();
+    if (primitive.indices != duplicatePrimitive.indices || primitive.vertices.size() != duplicatePrimitive.vertices.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0U; index < primitive.vertices.size(); ++index)
+    {
+        const Assets::MeshVertex& a = primitive.vertices[index];
+        const Assets::MeshVertex& b = duplicatePrimitive.vertices[index];
+        if (a.position.x != b.position.x || a.position.y != b.position.y || a.position.z != b.position.z ||
+            a.normal.x != b.normal.x || a.normal.y != b.normal.y || a.normal.z != b.normal.z)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
@@ -8377,6 +8509,38 @@ bool M3FWaveBuoyancyHasNoRenderDependency()
     return ScanSourceDirectoryForForbiddenPatterns(
         marineRoot,
         {"engine/render/", "d3d12", "gerstner", "presentationtime"});
+}
+
+bool M3GFloraStaysPresentationOnly()
+{
+    // M3-G's pure Game field may consume the authored profile and ModelAsset values, but it must never gain
+    // physics lifecycle, surface-query, simulation, or GPU-renderer authority.
+    const std::filesystem::path floraRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game" / "Environment";
+    const std::array<std::filesystem::path, 2> files{{
+        floraRoot / "UnderwaterFloraField.h", floraRoot / "UnderwaterFloraField.cpp"}};
+    const std::array<std::string_view, 10> forbidden{{
+        "physicsworld", "physicsbodyhandle", "physicsbodystate", "createstaticboxbody", "createdynamicboxbody",
+        "addforceatworldposition", "waterbody", "samplewavesurface", "engine/render/", "d3d12"}};
+    for (const std::filesystem::path& file : files)
+    {
+        std::ifstream input(file, std::ios::binary);
+        if (!input)
+        {
+            return false;
+        }
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool HydroDragFilesHaveOnlyPureMarineDependencies()
@@ -8849,6 +9013,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-F representative surface-float model", M3FSurfaceFloatModelContract},
         {"M3-F explicit local wave buoyancy", M3FWaveBuoyancyIsExplicitAndLocal},
         {"M3-F representative float wave physics integration", M3FSurfaceFloatWavePhysicsIntegration},
+        {"M3-G bounded underwater flora field", M3GBoundedUnderwaterFloraFieldContract},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
@@ -8886,6 +9051,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"Simulation has no Gerstner render-presentation dependency",
          SimulationHasNoGerstnerRenderPresentationDependency},
         {"M3-F wave buoyancy has no render dependency", M3FWaveBuoyancyHasNoRenderDependency},
+        {"M3-G flora stays presentation-only", M3GFloraStaysPresentationOnly},
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"G1 Propulsion files have only pure Marine dependencies",
          PropulsionFilesHaveOnlyPureMarineDependencies},

@@ -381,10 +381,11 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                // Bounded M3-F visual validation: one frame near the start and one later frame makes the
-                // completed-step surface profile and actual Jolt float response observable. The smoke run resizes at engine frame 30
-                // from 16:9 to 16:10 (1280x720 -> 1024x640), so the later capture also proves the fixed
-                // 600 m view is covered through a changed projection. Capture failure never fails the run.
+                // Bounded M3-G visual validation: one frame near the start and one later frame makes the
+                // immutable profile-rooted flora, completed-step surface profile, and actual Jolt float
+                // response observable. The smoke run resizes at engine frame 30 from 16:9 to 16:10
+                // (1280x720 -> 1024x640), so the later capture also proves the fixed 600 m view is covered
+                // through a changed projection. Capture failure never fails the run.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;
@@ -392,7 +393,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_f_frame_004.bmp");
+                        const auto path = std::filesystem::path("m3_g_frame_004.bmp");
                         capturedInitial = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }
@@ -404,17 +405,17 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_f_frame_091.bmp");
+                        const auto path = std::filesystem::path("m3_g_frame_091.bmp");
                         capturedLater = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured later visual frame to " << path.string() << '\n';
                     }
                 }
 
                 ++renderFrames;
-                // M3-F adds the single 24-vertex/36-index opaque representative float to the accepted
-                // Gerstner, terrain, submarine and particle totals. Model primitives remain model draws only.
-                return rendered->drawCalls == 9 && rendered->submittedPrimitives == 7 &&
-                       rendered->submittedIndices == 9084;
+                // M3-G adds one combined opaque flora field (60 plants / 480 triangles) through the existing
+                // model path. Model primitives remain model draws only.
+                return rendered->drawCalls == 10 && rendered->submittedPrimitives == 8 &&
+                       rendered->submittedIndices == 10524;
             });
         return application.Run();
     }

@@ -1382,6 +1382,12 @@ collision, lighting/fog and acoustics do not become wave-aware. There is no flui
 pressure or generic floating-body manager. See [ADR-0011](../adr/0011-authoritative-wave-query.md) and
 [ADR-0012](../adr/0012-opt-in-wave-buoyancy.md).
 
+M3-G adds a separate fixed Game-owned underwater-flora presentation field. It obtains its terrain contact only
+from the existing authored `SeabedProfileConfig` through `SampleSeabedProfileY`; it neither reads generated
+render vertices nor introduces a water, wave, Simulation, physics, collision, force, or entity authority.
+The 60 deterministic plants remain one immutable opaque model draw, and do not alter the canonical submarine
+or M3-F float contracts.
+
 Canonical signed-depth contract:
 
 ```text

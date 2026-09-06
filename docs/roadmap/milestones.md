@@ -452,6 +452,7 @@ Implementation status:
 | E | Gerstner ocean surface presentation | ACCEPTED |
 | E.1 | Authoritative CPU wave-query / WaterBody bridge | ACCEPTED |
 | F | Floating-body wave response | ACCEPTED |
+| G | Bounded underwater flora presentation | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -554,8 +555,17 @@ Z rotation only, begins at the local M3-E.1 free surface near X=140 m, and uses 
 displacement so reference-plane half-submersion is neutral. The float is represented by one 24-vertex,
 36-index opaque model draw. `BuoyancySystem::Calculate`, submarine buoyancy, submarine placement, drag and
 control surfaces remain flat/reference-plane behavior. No fluid velocity, wave pressure, current, ship
-physics, many-body manager, foam, spray, waterline shader, or further M3 slice is started. Scene totals are
+physics, many-body manager, foam, spray, or waterline shader is started. Scene totals are
 9 draws / 7 model primitives / 9,084 indices. See [ADR-0012](../adr/0012-opt-in-wave-buoyancy.md).
+
+M3-G adds one immutable Game-owned presentation field built from the existing authored `SeabedProfileConfig`
+through `SampleSeabedProfileY`. Its 60 deterministic plants occupy three deliberately separated profile
+patches; roots are sampled from the authored profile and lifted 0.02 m above it. Four opaque segmented-ribbon
+quads per plant form one material, one primitive, one model upload and one draw: 960 vertices, 1,440 indices,
+and 480 triangles. The existing model pass provides the established M3-C depth lighting and M3-C.1 view-path
+fog/depth behavior. The field has no `WaterBody`, wave, Simulation, physics, collision, force, entity,
+animation, instancing, spawning, or per-frame geometry responsibility. Terrain draws before flora, then the
+submarine, M3-F float, and particles; scene totals are 10 draws / 8 model primitives / 10,524 indices.
 
 Future work:
 
@@ -564,11 +574,8 @@ Future work:
   and future acoustic-query representations
 - stable chunk-compatible environment IDs/bounds without requiring production
   streaming
-- minimal instanced/batched presentation flora such as kelp, seaweed,
-  environmentally appropriate seagrass, and benthic growth
 - optional cheap presentation fauna such as fish schools or surface birds when
   useful to the environment slice
-- floating body wave response
 <!-- deeprun-m3-command-boundary:start -->
 
 Design boundary:

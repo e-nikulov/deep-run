@@ -137,6 +137,14 @@ struct EnvironmentSection final
 // values must not be authored directly into the scene-linear color).
 [[nodiscard]] bool IsSceneLinearBaseColor(const Assets::ModelMaterialData& material) noexcept;
 
+// Pure Game-owned query of the authored piecewise-linear seabed profile. It is the one profile sampling
+// rule used by both section construction and bounded presentation consumers such as M3-G flora; it never
+// reads generated vertices, GPU state, or collision. The query rejects malformed profiles and positions
+// outside the authored X extent instead of extrapolating another terrain approximation.
+[[nodiscard]] std::expected<float, std::string> SampleSeabedProfileY(
+    const SeabedProfileConfig& profile,
+    float worldXMeters);
+
 // Deterministically builds the first representative seabed section from an authored profile.
 // Fully pure and renderer-neutral (no D3D12, no filesystem): safe to call headless and in unit
 // tests. The result is stable — the same config always produces the same section (id, bounds,
