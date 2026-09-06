@@ -228,6 +228,15 @@ indexed-model shader/PSO supplies M3-C depth lighting and M3-C.1 fog/depth behav
 and before the submarine, M3-F float, and particles, bringing the canonical scene totals to 11 draws, 9 model
 primitives, and 10,764 submitted indices.
 
+M3-H.1 adds one bounded Game-owned presentation fish school through the same opaque indexed-model path. Its
+24 fish are deterministic local low-poly geometry (168 vertices, 216 indices, 72 triangles) in one material,
+primitive, immutable upload, and draw. Game evaluates one school translation from the Engine's existing
+`PresentationTime` each frame: a bounded horizontal wrap and slow vertical oscillation keep the mid-water field
+moving without per-fish runtime transforms, geometry regeneration, or allocations. The field does not query
+water or participate in gameplay, physics, entities, acoustics, or sensor state. It renders after ice and before
+the submarine, M3-F float, and particles, bringing the canonical scene totals to 12 draws, 10 model primitives,
+and 10,980 submitted indices. This is presentation policy only; M3-I remains unstarted.
+
 Presentation fauna does not create sensor truth. Gameplay-relevant biological
 emissions and contacts enter through the A1 signature/observation/contact/track
 pipeline.

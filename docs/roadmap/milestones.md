@@ -454,6 +454,7 @@ Implementation status:
 | F | Floating-body wave response | ACCEPTED |
 | G | Bounded underwater flora presentation | ACCEPTED |
 | H | Bounded underwater ice geometry | ACCEPTED |
+| H.1 | Cheap presentation fish school | ACCEPTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -577,14 +578,22 @@ surface Y only for fixed composition and has no wave query, time input, motion, 
 destruction, or Simulation entity. Terrain, flora, and ice draw before the submarine, M3-F float, and
 particles; scene totals are 11 draws / 9 model primitives / 10,764 indices.
 
+M3-H.1 adds one bounded Game-owned presentation fish school. Twenty-four deterministic low-poly fish are
+baked into one opaque 168-vertex, 216-index, 72-triangle model with one material, primitive, upload, and draw.
+The field computes one horizontal wrap and slow vertical oscillation from the existing Engine
+`PresentationTime`; it keeps a fixed mid-water route and performs no per-fish runtime update, geometry rebuild,
+entity/physics body, acoustic or gameplay work. It renders through the existing model path after ice and before
+the submarine, M3-F float, and particles. Canonical scene totals are 12 draws / 10 model primitives /
+10,980 submitted indices. M3-H remains accepted; H.1 is the only current review item.
+
 Future work:
 
 - world/environment data with independent render, coarse-collision, navigation,
   and future acoustic-query representations
 - stable chunk-compatible environment IDs/bounds without requiring production
   streaming
-- optional cheap presentation fauna such as fish schools or surface birds when
-  useful to the environment slice
+- optional additional cheap presentation fauna variants, such as surface birds,
+  when useful to a later environment slice
 <!-- deeprun-m3-command-boundary:start -->
 
 Design boundary:

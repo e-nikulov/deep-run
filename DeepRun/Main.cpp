@@ -374,15 +374,18 @@ int main(const int argumentCount, char** argumentValues)
             [&playground, &frameCapture, &captureEnabled, &options, &renderFrames, &capturedInitial,
              &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
-                const auto rendered = playground.Render(renderer, engineServices->SimulationTimeSeconds());
+                const auto rendered = playground.Render(
+                    renderer,
+                    engineServices->SimulationTimeSeconds(),
+                    engineServices->CurrentFrame().elapsedSeconds);
                 if (!rendered)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
                     return false;
                 }
 
-                // Bounded M3-H visual validation: one frame near the start and one later frame makes the
-                // static authored ice, immutable profile-rooted flora, completed-step surface profile, and
+                // Bounded M3-H.1 visual validation: one frame near the start and one later frame makes the
+                // static authored ice/flora, moving presentation school, completed-step surface profile, and
                 // actual Jolt float response observable. The smoke run resizes at engine frame 30 from 16:9
                 // to 16:10 (1280x720 -> 1024x640), so the later capture also proves the fixed 600 m view is
                 // covered through a changed projection. Capture failure never fails the run.
@@ -393,7 +396,7 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_h_frame_004.bmp");
+                        const auto path = std::filesystem::path("m3_h1_frame_004.bmp");
                         capturedInitial = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }
@@ -405,17 +408,17 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_h_frame_091.bmp");
+                        const auto path = std::filesystem::path("m3_h1_frame_091.bmp");
                         capturedLater = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured later visual frame to " << path.string() << '\n';
                     }
                 }
 
                 ++renderFrames;
-                // M3-H adds one combined opaque ice field (3 formations / 80 triangles) through the existing
-                // model path. Model primitives remain model draws only.
-                return rendered->drawCalls == 11 && rendered->submittedPrimitives == 9 &&
-                       rendered->submittedIndices == 10764;
+                // M3-H.1 adds one combined opaque fish school (24 fish / 72 triangles / 216 indices) through
+                // the existing model path. Model primitives remain model draws only.
+                return rendered->drawCalls == 12 && rendered->submittedPrimitives == 10 &&
+                       rendered->submittedIndices == 10980;
             });
         return application.Run();
     }

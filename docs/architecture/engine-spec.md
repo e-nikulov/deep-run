@@ -1394,6 +1394,13 @@ never supply the other representation's authority. A plain mean/reference surfac
 only. Ice has no wave query, clock input, motion, buoyancy, acoustics, destruction, or Simulation entity, and
 the canonical submarine and M3-F float retain their existing behavior.
 
+M3-H.1 adds one separate Game-owned presentation fauna field. Twenty-four deterministic fish are baked into
+one opaque 168-vertex, 216-index model primitive and uploaded once. Render evaluates one bounded school
+translation from the existing Engine `PresentationTime`; the local layout is immutable and no per-fish runtime
+state, geometry rebuild, world query, physics body, entity, acoustic state, or gameplay decision is introduced.
+The model draw is ordered after ice and before the submarine, M3-F float, and particles. This remains a
+presentation-only environment detail; M3-I is not started.
+
 Canonical signed-depth contract:
 
 ```text

@@ -25,6 +25,7 @@
 #include "Engine/Render/ViewPathFog.h"
 #include "Engine/Scene/Scene.h"
 #include "Game/Environment/EnvironmentSection.h"
+#include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
@@ -8586,6 +8587,180 @@ bool M3HIceCoarseCollisionStopsDynamicBox()
            std::abs(state->linearVelocity.y) < 0.1F;
 }
 
+bool SimulationHasNoGerstnerRenderPresentationDependency();
+
+bool M3H1BoundedUnderwaterFaunaFieldContract()
+{
+    using namespace DeepRun;
+    const auto first = Game::BuildUnderwaterFaunaField({"seabed-main"}, 0.0F);
+    const auto second = Game::BuildUnderwaterFaunaField({"seabed-main"}, 0.0F);
+    if (!first || !second || first->fish.size() != Game::M3UnderwaterFishCount ||
+        first->renderGeometry.id.Value() != "environment/fauna/seabed-main.fish-school" ||
+        first->renderGeometry.materials.size() != 1U || first->renderGeometry.primitives.size() != 1U ||
+        first->renderGeometry.nodes.size() != 1U ||
+        first->presentation.travelMinimumX != -160.0F || first->presentation.travelMaximumX != 160.0F ||
+        first->presentation.centerY != -75.0F || first->presentation.horizontalSpeedMetersPerSecond != 5.0F)
+    {
+        return false;
+    }
+
+    const Assets::ModelAsset& model = first->renderGeometry;
+    const Assets::MeshPrimitiveData& primitive = model.primitives.front();
+    const auto layout = Render::BuildIndexedGeometryLayout(model);
+    const auto draws = Render::PrepareModelDraws(model);
+    if (!layout || !draws || draws->size() != 1U || layout->totals.primitiveCount != 1U ||
+        primitive.vertices.size() != 168U || primitive.indices.size() != 216U ||
+        primitive.indices.size() / 3U != Game::M3UnderwaterFishCount * Game::M3UnderwaterFishTrianglesPerFish ||
+        primitive.indices.size() / 3U > Game::M3UnderwaterFishTriangleBudget || !primitive.hasNormals ||
+        primitive.materialIndex != 0U || model.nodes.front().primitiveIndices != std::vector<std::size_t>{0U} ||
+        !std::isfinite(model.bounds.minimum.x) || !std::isfinite(model.bounds.minimum.y) ||
+        !std::isfinite(model.bounds.minimum.z) || !std::isfinite(model.bounds.maximum.x) ||
+        !std::isfinite(model.bounds.maximum.y) || !std::isfinite(model.bounds.maximum.z) ||
+        model.bounds.minimum.x >= model.bounds.maximum.x ||
+        model.bounds.minimum.y >= model.bounds.maximum.y || model.bounds.minimum.z >= model.bounds.maximum.z ||
+        model.bounds.minimum.z < Game::M3UnderwaterFishMinimumLocalZ ||
+        model.bounds.maximum.z > Game::M3UnderwaterFishMaximumLocalZ || model.bounds.minimum.y >= model.bounds.maximum.y)
+    {
+        return false;
+    }
+    const Assets::ModelMaterialData& material = model.materials.front();
+    if (material.baseColorFactor != std::array<float, 4>{0.22F, 0.34F, 0.38F, 1.0F} ||
+        material.metallicFactor != 0.0F || material.roughnessFactor != 0.88F ||
+        !Game::IsSceneLinearBaseColor(material))
+    {
+        return false;
+    }
+
+    for (const Game::UnderwaterFish& fish : first->fish)
+    {
+        if (!std::isfinite(fish.localPosition.x) || !std::isfinite(fish.localPosition.y) ||
+            !std::isfinite(fish.localPosition.z) || fish.localPosition.z < Game::M3UnderwaterFishMinimumLocalZ ||
+            fish.localPosition.z > Game::M3UnderwaterFishMaximumLocalZ ||
+            fish.bodyLengthMeters < Game::M3UnderwaterFishMinimumBodyLengthMeters ||
+            fish.bodyLengthMeters > Game::M3UnderwaterFishMaximumBodyLengthMeters ||
+            fish.bodyHeightMeters < Game::M3UnderwaterFishMinimumBodyHeightMeters ||
+            fish.bodyHeightMeters > Game::M3UnderwaterFishMaximumBodyHeightMeters ||
+            !std::isfinite(fish.headingRadians))
+        {
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index < first->fish.size(); ++index)
+    {
+        const Game::UnderwaterFish& a = first->fish[index];
+        const Game::UnderwaterFish& b = second->fish[index];
+        if (a.localPosition.x != b.localPosition.x || a.localPosition.y != b.localPosition.y ||
+            a.localPosition.z != b.localPosition.z || a.bodyLengthMeters != b.bodyLengthMeters ||
+            a.bodyHeightMeters != b.bodyHeightMeters || a.headingRadians != b.headingRadians)
+        {
+            return false;
+        }
+    }
+    for (const Assets::MeshVertex& vertex : primitive.vertices)
+    {
+        const float normalLengthSquared = vertex.normal.x * vertex.normal.x + vertex.normal.y * vertex.normal.y +
+                                          vertex.normal.z * vertex.normal.z;
+        if (!std::isfinite(vertex.position.x) || !std::isfinite(vertex.position.y) ||
+            !std::isfinite(vertex.position.z) || std::abs(normalLengthSquared - 1.0F) > 1.0e-5F ||
+            vertex.normal.z != 1.0F || vertex.position.x < model.bounds.minimum.x ||
+            vertex.position.x > model.bounds.maximum.x || vertex.position.y < model.bounds.minimum.y ||
+            vertex.position.y > model.bounds.maximum.y || vertex.position.z < model.bounds.minimum.z ||
+            vertex.position.z > model.bounds.maximum.z)
+        {
+            return false;
+        }
+    }
+    for (std::size_t index = 0U; index < primitive.indices.size(); index += 3U)
+    {
+        const std::uint32_t ia = primitive.indices[index];
+        const std::uint32_t ib = primitive.indices[index + 1U];
+        const std::uint32_t ic = primitive.indices[index + 2U];
+        if (ia >= primitive.vertices.size() || ib >= primitive.vertices.size() || ic >= primitive.vertices.size())
+        {
+            return false;
+        }
+        const auto& a = primitive.vertices[ia].position;
+        const auto& b = primitive.vertices[ib].position;
+        const auto& c = primitive.vertices[ic].position;
+        const double ux = static_cast<double>(b.x) - a.x;
+        const double uy = static_cast<double>(b.y) - a.y;
+        const double vx = static_cast<double>(c.x) - a.x;
+        const double vy = static_cast<double>(c.y) - a.y;
+        if (!std::isfinite(ux * vy - uy * vx) || std::abs(ux * vy - uy * vx) <= 1.0e-6)
+        {
+            return false;
+        }
+    }
+    return primitive.indices == second->renderGeometry.primitives.front().indices &&
+           primitive.vertices.size() == second->renderGeometry.primitives.front().vertices.size();
+}
+
+bool M3H1UnderwaterFaunaPresentationMotion()
+{
+    const auto field = DeepRun::Game::BuildUnderwaterFaunaField({"seabed-main"}, 0.0F);
+    if (!field)
+    {
+        return false;
+    }
+    const auto atStart = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(field->presentation, 0.0);
+    const auto atStartAgain = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(field->presentation, 0.0);
+    const auto atOneSecond = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(field->presentation, 1.0);
+    const auto justBeforeWrap = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(field->presentation, 63.999);
+    const auto atWrap = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(field->presentation, 64.0);
+    const auto atLargeFiniteTime = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(
+        field->presentation, 1.0e300);
+    if (!atStart || !atStartAgain || !atOneSecond || !justBeforeWrap || !atWrap || !atLargeFiniteTime ||
+        atStart->values != atStartAgain->values || atStart->values[12] != -160.0F ||
+        atStart->values[13] != -75.0F || atOneSecond->values[12] <= atStart->values[12] ||
+        atOneSecond->values[13] == atStart->values[13] || atStart->values[14] != 0.0F ||
+        justBeforeWrap->values[12] < -160.0F || justBeforeWrap->values[12] >= 160.0F ||
+        atWrap->values[12] != -160.0F || justBeforeWrap->values[13] < -76.5F ||
+        justBeforeWrap->values[13] > -73.5F ||
+        !std::ranges::all_of(atLargeFiniteTime->values, [](const float value) { return std::isfinite(value); }))
+    {
+        return false;
+    }
+    const auto invalidTime = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(
+        field->presentation, std::numeric_limits<double>::infinity());
+    const auto negativeTime = DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(field->presentation, -1.0);
+    auto invalidParameters = field->presentation;
+    invalidParameters.travelMaximumX = invalidParameters.travelMinimumX;
+    return !invalidTime && !negativeTime && !DeepRun::Game::EvaluateUnderwaterFishSchoolPresentation(
+                                  invalidParameters, 0.0);
+}
+
+bool M3H1FaunaStaysPresentationOnly()
+{
+    const std::filesystem::path faunaRoot =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game" / "Environment";
+    const std::array<std::filesystem::path, 2> files{{
+        faunaRoot / "UnderwaterFaunaField.h", faunaRoot / "UnderwaterFaunaField.cpp"}};
+    const std::array<std::string_view, 12> forbidden{{
+        "simulation/", "simulationtime", "waterbody", "waterwavefield", "buoyancysystem", "physicsworld",
+        "acoustics", "<jolt/", "jph::", "engine/render", "d3d12", "addforceatworldposition"}};
+    for (const auto& file : files)
+    {
+        std::ifstream input(file, std::ios::binary);
+        if (!input)
+        {
+            return false;
+        }
+        std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        std::ranges::transform(contents, contents.begin(), [](const unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        for (const std::string_view pattern : forbidden)
+        {
+            if (contents.find(pattern) != std::string::npos)
+            {
+                return false;
+            }
+        }
+    }
+    // Keep the repository-wide Simulation -> Render/Gerstner guard active for this presentation slice too.
+    return SimulationHasNoGerstnerRenderPresentationDependency();
+}
+
 // ---------------------------------------------------------------------------
 // M2 Slice C2: architecture boundary scans
 // ---------------------------------------------------------------------------
@@ -8686,7 +8861,8 @@ bool SimulationMarineHasNoPhysicsOrRenderDependency()
 
 bool SimulationHasNoGerstnerRenderPresentationDependency()
 {
-    // M3-E.1 has a separate Marine-owned contract; Simulation must never acquire Render's validation API.
+    // M3-E.1 and M3-H.1 have separate Game/Marine contracts; Simulation must never acquire Render's
+    // validation API or the presentation fish field's visual formula.
     const std::filesystem::path simulationRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation";
     return ScanSourceDirectoryForForbiddenPatterns(
         simulationRoot,
@@ -9247,6 +9423,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-H bounded underwater ice field", M3HBoundedUnderwaterIceFieldContract},
         {"M3-H ice render and collision representations are independent", M3HIceRenderAndCollisionRepresentationsAreIndependent},
         {"M3-H coarse ice collision stops dynamic box", M3HIceCoarseCollisionStopsDynamicBox},
+        {"M3-H.1 bounded underwater fauna field", M3H1BoundedUnderwaterFaunaFieldContract},
+        {"M3-H.1 fauna presentation motion", M3H1UnderwaterFaunaPresentationMotion},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},
@@ -9286,6 +9464,7 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-F wave buoyancy has no render dependency", M3FWaveBuoyancyHasNoRenderDependency},
         {"M3-G flora stays presentation-only", M3GFloraStaysPresentationOnly},
         {"M3-H ice stays Game-owned and static", M3HIceStaysGameOwnedAndStatic},
+        {"M3-H.1 fauna stays presentation-only", M3H1FaunaStaysPresentationOnly},
         {"F1 HydroDrag files have only pure Marine dependencies", HydroDragFilesHaveOnlyPureMarineDependencies},
         {"G1 Propulsion files have only pure Marine dependencies",
          PropulsionFilesHaveOnlyPureMarineDependencies},

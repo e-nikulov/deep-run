@@ -190,6 +190,7 @@ target_link_libraries(DeepRunEngine
 add_executable(DeepRun
     DeepRun/Main.cpp
     Game/Environment/EnvironmentSection.cpp
+    Game/Environment/UnderwaterFaunaField.cpp
     Game/Environment/UnderwaterFloraField.cpp
     Game/Environment/UnderwaterIceField.cpp
     Game/Haptics/HapticFeedbackSystem.cpp
@@ -237,6 +238,7 @@ enable_testing()
 add_executable(DeepRunTests
     Tests/TestMain.cpp
     Game/Environment/EnvironmentSection.cpp
+    Game/Environment/UnderwaterFaunaField.cpp
     Game/Environment/UnderwaterFloraField.cpp
     Game/Environment/UnderwaterIceField.cpp
     Game/Haptics/HapticFeedbackSystem.cpp

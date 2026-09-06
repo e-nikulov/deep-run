@@ -6,6 +6,7 @@
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Environment/EnvironmentSection.h"
+#include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Haptics/HapticEvent.h"
@@ -84,10 +85,12 @@ public:
         const HapticEventSink& hapticEventSink = {});
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
-    // fixed-step update for the frame; never steps physics itself. It draws the M3-E displaced presentation
-    // backdrop before opaque geometry without changing the authoritative WaterBody state.
+    // fixed-step update for the frame; never steps physics itself. presentationTimeSeconds is the Engine's
+    // existing frame clock supplied for presentation-only motion; it is not simulation time.
     [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
-        Render::D3D12Renderer& renderer, double simulationTimeSeconds) const;
+        Render::D3D12Renderer& renderer,
+        double simulationTimeSeconds,
+        double presentationTimeSeconds) const;
 
     [[nodiscard]] Render::GpuModelHandle SubmarineModel() const noexcept;
 
@@ -112,6 +115,11 @@ private:
     std::vector<Physics::PhysicsBodyHandle> iceBodies_;
     Render::GpuModelHandle iceModel_;
     std::vector<Render::ModelDrawInstance> iceDraws_;
+    // M3-H.1 immutable fish layout and one prepared opaque model draw. The per-frame school transform is a
+    // stack value, so rendering does not regenerate geometry or allocate per-fish state.
+    std::optional<UnderwaterFaunaField> faunaField_;
+    Render::GpuModelHandle faunaModel_;
+    Render::ModelDrawInstance faunaBaseDraw_{};
     Physics::PhysicsBodyHandle physicsBody_;
     // M3-F representative surface float: Game owns the small model, opaque physics handle and explicit
     // wave-aware buoyancy configuration. It is separate from every canonical submarine member.

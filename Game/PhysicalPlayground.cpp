@@ -10,6 +10,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
 #include "Game/SurfaceFloatModel.h"
+#include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/WaterPresentation.h"
@@ -24,6 +25,7 @@
 #include <exception>
 #include <limits>
 #include <sstream>
+#include <span>
 #include <string_view>
 
 namespace DeepRun::Game
@@ -436,6 +438,36 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                                 !iceDraws ? ": " + iceDraws.error() : std::string{}));
     }
 
+    // M3-H.1 is one immutable, local low-poly school. Its only animated value is one presentation-time
+    // translation computed in Render; no per-fish transforms, geometry rebuild, or world query is involved.
+    auto fauna = BuildUnderwaterFaunaField(seabed->id, M2SeaSurfaceLevelMeters);
+    if (!fauna)
+    {
+        return std::unexpected("physical playground underwater fauna construction failed: " + fauna.error());
+    }
+    const auto faunaUpload = renderer.UploadModel(fauna->renderGeometry);
+    const auto faunaDraws = Render::PrepareModelDraws(fauna->renderGeometry);
+    const std::size_t faunaVertexCount = fauna->renderGeometry.primitives.empty()
+                                             ? 0U
+                                             : fauna->renderGeometry.primitives.front().vertices.size();
+    const std::size_t faunaIndexCount = fauna->renderGeometry.primitives.empty()
+                                            ? 0U
+                                            : fauna->renderGeometry.primitives.front().indices.size();
+    if (!faunaUpload || !faunaDraws || fauna->fish.size() != M3UnderwaterFishCount ||
+        fauna->renderGeometry.materials.size() != 1U || fauna->renderGeometry.primitives.size() != 1U ||
+        fauna->renderGeometry.nodes.size() != 1U || faunaDraws->size() != 1U || faunaVertexCount != 168U ||
+        faunaIndexCount != 216U || faunaIndexCount / 3U != M3UnderwaterFishCount * M3UnderwaterFishTrianglesPerFish ||
+        faunaIndexCount / 3U > M3UnderwaterFishTriangleBudget || !faunaUpload->stats.uploadCompleted ||
+        !faunaUpload->handle.IsValid() || !renderer.IsGpuModelValid(faunaUpload->handle) ||
+        faunaUpload->stats.primitiveCount != 1U || faunaUpload->stats.vertexCount != faunaVertexCount ||
+        faunaUpload->stats.indexCount != faunaIndexCount ||
+        faunaDraws->front().modelToWorld.values != Assets::ModelTransform{}.values)
+    {
+        return std::unexpected("physical playground underwater fauna presentation initialization validation failed" +
+                               (!faunaUpload ? ": " + faunaUpload.error() :
+                                !faunaDraws ? ": " + faunaDraws.error() : std::string{}));
+    }
+
     const auto seabedUpload = renderer.UploadModel(seabed->renderGeometry);
     if (!seabedUpload)
     {
@@ -775,6 +807,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     iceField_ = std::move(*ice);
     iceModel_ = iceUpload->handle;
     iceDraws_ = std::move(*iceDraws);
+    faunaField_ = std::move(*fauna);
+    faunaModel_ = faunaUpload->handle;
+    faunaBaseDraw_ = faunaDraws->front();
     physicsBody_ = body;
     surfaceFloatModel_ = std::move(surfaceFloatModel);
     surfaceFloatModelGpu_ = surfaceFloatUpload->handle;
@@ -1187,14 +1222,18 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
 }
 
 std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
-    Render::D3D12Renderer& renderer, const double simulationTimeSeconds) const
+    Render::D3D12Renderer& renderer,
+    const double simulationTimeSeconds,
+    const double presentationTimeSeconds) const
 {
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
         !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || !floraField_.has_value() ||
         floraField_->renderGeometry.primitives.size() != 1U || !renderer.IsGpuModelValid(floraModel_) ||
         floraDraws_.size() != 1U || !iceField_.has_value() || iceField_->renderGeometry.primitives.size() != 1U ||
         iceBodies_.size() != M3UnderwaterIceCollisionCount || !renderer.IsGpuModelValid(iceModel_) ||
-        iceDraws_.size() != 1U || physics_ == nullptr ||
+        iceDraws_.size() != 1U || !faunaField_.has_value() || faunaField_->fish.size() != M3UnderwaterFishCount ||
+        faunaField_->renderGeometry.primitives.size() != 1U || !renderer.IsGpuModelValid(faunaModel_) ||
+        faunaBaseDraw_.primitiveIndex != 0U || physics_ == nullptr ||
         !physicsBody_.IsValid() || !surfaceFloatModel_.has_value() || surfaceFloatModel_->primitives.size() != 1U ||
         !renderer.IsGpuModelValid(surfaceFloatModelGpu_) || !surfaceFloatBody_.IsValid() || !water_.has_value())
     {
@@ -1231,6 +1270,13 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return std::unexpected("physical playground M3-F float transform failed: " +
                                surfaceFloatModelToWorld.error());
+    }
+    const auto faunaModelToWorld = EvaluateUnderwaterFishSchoolPresentation(
+        faunaField_->presentation, presentationTimeSeconds);
+    if (!faunaModelToWorld)
+    {
+        return std::unexpected("physical playground underwater fauna presentation transform failed: " +
+                               faunaModelToWorld.error());
     }
     const auto surfaceFloatDraws = Render::PrepareModelDraws(*surfaceFloatModel_, *surfaceFloatModelToWorld);
     if (!surfaceFloatDraws || surfaceFloatDraws->size() != 1U)
@@ -1274,13 +1320,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground M3-F float bounds transform failed: " +
                                surfaceFloatWorldBounds.error());
     }
+    const auto faunaWorldBounds = TransformBounds(faunaField_->renderGeometry.bounds, *faunaModelToWorld);
+    if (!faunaWorldBounds)
+    {
+        return std::unexpected("physical playground underwater fauna bounds transform failed: " +
+                               faunaWorldBounds.error());
+    }
     const Assets::ModelVector3 target{initialBodyWorldCenter_.x, initialBodyWorldCenter_.y,
                                       initialBodyWorldCenter_.z};
     const Assets::ModelBounds cameraDepthBounds = CombineBounds(
         CombineBounds(
             CombineBounds(
-                CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds), floraField_->renderGeometry.bounds),
-            iceField_->renderGeometry.bounds),
+                CombineBounds(
+                    CombineBounds(*worldBounds, seabedSection_->renderGeometry.bounds),
+                    floraField_->renderGeometry.bounds),
+                iceField_->renderGeometry.bounds),
+            *faunaWorldBounds),
         *surfaceFloatWorldBounds);
     const auto camera = Render::BuildFixedWorldSideViewCamera(
         target,
@@ -1290,6 +1345,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     if (!camera || !Render::BoundsFitInCamera(*worldBounds, *camera) ||
         !Render::BoundsFitInCamera(floraField_->renderGeometry.bounds, *camera) ||
         !Render::BoundsFitInCamera(iceField_->renderGeometry.bounds, *camera) ||
+        !Render::BoundsFitInCamera(*faunaWorldBounds, *camera) ||
         !Render::BoundsFitInCamera(*surfaceFloatWorldBounds, *camera))
     {
         return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
@@ -1344,6 +1400,14 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return iceStats;
     }
+    Render::ModelDrawInstance faunaDraw = faunaBaseDraw_;
+    faunaDraw.modelToWorld = *faunaModelToWorld;
+    const auto faunaStats = renderer.DrawModel(
+        faunaModel_, std::span<const Render::ModelDrawInstance>(&faunaDraw, 1U), *camera);
+    if (!faunaStats)
+    {
+        return faunaStats;
+    }
     const auto submarineStats = renderer.DrawModel(submarineModel_, *draws, *camera);
     if (!submarineStats)
     {
@@ -1383,15 +1447,17 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     return Render::ModelDrawStats{
         .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + floraStats->drawCalls + iceStats->drawCalls +
-                     submarineStats->drawCalls + surfaceFloatStats->drawCalls + particleStats->drawCalls,
+                     faunaStats->drawCalls + submarineStats->drawCalls + surfaceFloatStats->drawCalls +
+                     particleStats->drawCalls,
         // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The Gerstner surface
-        // and suspended field are non-model batches, so retain this established model-only diagnostic rather
-        // than inventing model primitive values for presentation passes.
+        // and suspended field are non-model batches. The fauna field is an ordinary one-primitive model draw,
+        // so include that submitted model primitive in the established model-only diagnostic.
         .submittedPrimitives = seabedStats->submittedPrimitives + floraStats->submittedPrimitives + iceStats->submittedPrimitives +
-                              submarineStats->submittedPrimitives + surfaceFloatStats->submittedPrimitives,
+                              faunaStats->submittedPrimitives + submarineStats->submittedPrimitives +
+                              surfaceFloatStats->submittedPrimitives,
         .submittedIndices = gerstnerStats->indexCount + seabedStats->submittedIndices + floraStats->submittedIndices +
                             iceStats->submittedIndices + submarineStats->submittedIndices + surfaceFloatStats->submittedIndices +
-                            particleStats->indexCount};
+                            faunaStats->submittedIndices + particleStats->indexCount};
 }
 
 Render::GpuModelHandle PhysicalPlayground::SubmarineModel() const noexcept

@@ -31,7 +31,7 @@ environment:       no test-specific environment variables
 the canonical prototype asset to `Assets/submarines/prototype/` there after
 each test-target build. CTest therefore reports one registered test (`1/1`),
 while `DeepRunTests` reports its individual assertion count (currently
-`245/245`).
+`248/248`).
 
 Do not assume a bare `DeepRunTests.exe` launch is equivalent to CTest. A
 supported direct invocation is:
