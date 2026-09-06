@@ -264,8 +264,22 @@ authoritative simulation state
 ```
 
 Detailed render meshes are not Jolt collision meshes by default. Raw vertex
-positions are not permanent gameplay identifiers. Gameplay binds to stable
-authored nodes, markers, hardpoints, metadata, and definition identifiers.
+positions and GLB node names are not permanent gameplay identifiers. Gameplay
+binds only to stable semantic records, metadata, and definition identifiers;
+the Assets/import layer may use production GLB internals once to resolve an
+authored node, marker, or hardpoint into an opaque runtime render binding or
+model-node index before data crosses the runtime boundary:
+
+```text
+production semantic record + GLB/import internals
+    -> Assets layer resolves
+    -> opaque runtime render binding / model node index
+    -> presentation
+```
+
+Game and Simulation retain semantic identity, transforms, and authoritative
+state only; they neither retain nor look up raw GLB node names. Production
+sidecar node references remain permitted private production/import details.
 
 Source/high-detail Blender data, production LOD0, LOD1, LOD2, optional LOD3 or
 impostors, baked material/normal assets, collision proxies, gameplay markers,

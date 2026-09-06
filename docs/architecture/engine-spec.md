@@ -1246,6 +1246,81 @@ For generated 3D content, `.blend` files under `Content/` are editable sources a
 under `Engine/Assets/` are runtime-ready outputs. The canonical generation and coordinate contract is
 defined in `docs/content/asset-pipeline.md`.
 
+## Production submarine content-to-runtime boundary
+
+IG1 -- Production Antey Runtime Integration establishes the minimum production
+vessel boundary required before M4. The canonical C0 content details remain in
+`docs/content/antey-asset.md`; this section owns only the runtime boundary:
+
+```text
+Content/submarines/Antey/
+    canonical source-first / accepted production package
+    -> bounded deterministic IG1 runtime staging / promotion
+    -> Engine/Assets/submarines/Antey/
+       runtime-ready GLB + required semantic metadata
+    -> AssetManager / content loader
+    -> submarine asset definition
+    -> submarine runtime entity
+    -> future acoustic gameplay / systems
+```
+
+Source asset, production asset, and runtime entity are distinct architectural
+entities. `Antey_Source.blend`, Blender APIs, derivation scripts, source mesh
+hierarchy, and Blender object names exist only on the offline/content-authoring
+side. `Antey_Source.blend` is never staged as a runtime asset. Runtime never
+loads arbitrary authoring files directly from `Content/`; it consumes only the
+staged, already validated production outputs. IG1 creates neither an
+`AssetCooker` nor a second authoring truth. Existing production schemas define
+the required staged sidecars, rather than a duplicate runtime schema. A source
+or GLB node rename is not a gameplay API change when the production semantic
+contract is preserved. Runtime and production tooling must not introduce a
+dependency on legacy `HP_Antey_*` marker names.
+
+The production submarine asset definition carries a render asset family and
+semantic metadata. Its family identity covers LOD0, LOD1, LOD2, and LOD3 even
+when an initial runtime path selects only one loaded render variant. Each
+registered variant must be independently loadable and validatable. Render-LOD
+selection is presentation policy; it cannot alter physics, gameplay, or
+simulation state.
+
+The semantic boundary is deliberately small and vessel-specific. It must
+represent propeller anchors, torpedo launch anchors, P-700 cells or launcher
+geometry, compartments, collision representation, buoyancy representation,
+and LOD identity as semantic records. These records are not an implementation
+of weapons, flooding, damage, interiors, or sonar. Their identifiers and
+transforms survive source mesh-hierarchy changes; raw Blender names and GLB
+node names do not cross the runtime boundary as gameplay contracts.
+
+The Assets/import layer may use production GLB internals once to resolve a
+semantic record into an opaque runtime render binding or model-node index for
+presentation. Game and Simulation retain only the semantic identity and
+transform (for example, a propeller semantic ID and anchor transform) plus
+authoritative state such as shaft RPM; they neither retain nor look up raw GLB
+node names. Existing production-side node-reference fields, if any, remain
+private production/import detail and need not be renamed for IG1.
+
+A runtime submarine composes independent transform/motion state, visual asset,
+collision representation, buoyancy representation, semantic anchors/metadata,
+and submarine physics/gameplay state. This does not prescribe a C++ API, ECS,
+or general-purpose asset system. The render model is presentation data, never
+authoritative collision geometry. Collision and buoyancy use their separate,
+bounded production/runtime representations, so M2/M3 physics never depends on
+production visual-mesh detail or selected render LOD.
+
+The existing propulsion state may drive presentation-only propeller rotation
+through resolved semantic anchors. Cavitation, acoustic noise, wake VFX,
+propeller damage, weapon operation, and other gameplay remain outside IG1.
+
+M4 depends on this boundary rather than asset internals. Future acoustic
+systems may receive the submarine transform, velocity, propulsion state,
+propeller positions, compartment world positions, and separately defined
+sonar-related anchors, but not Blender names, GLB node names, or source
+hierarchy:
+
+```text
+Production Content -> Runtime Submarine Representation -> Acoustic Gameplay/System
+```
+
 В production позже можно добавить Asset Cooker:
 
 ```text
@@ -1399,7 +1474,7 @@ one opaque 168-vertex, 216-index model primitive and uploaded once. Render evalu
 translation from the existing Engine `PresentationTime`; the local layout is immutable and no per-fish runtime
 state, geometry rebuild, world query, physics body, entity, acoustic state, or gameplay decision is introduced.
 The model draw is ordered after ice and before the submarine, M3-F float, and particles. This remains a
-presentation-only environment detail; M3-I is not started.
+presentation-only environment detail; accepted M3-I closes M3 without changing this boundary.
 
 Canonical signed-depth contract:
 
@@ -3677,6 +3752,10 @@ combat, tactical AI, weapon runtime, crew, flooding, or system management.
 ---
 
 # 92. Milestone 4 — Acoustic Playground
+
+M4 is preceded by IG1 -- Production Antey Runtime Integration. IG1 supplies the
+production runtime representation; it does not move asset migration or content
+authoring cleanup into the acoustic milestone.
 
 Добавить:
 

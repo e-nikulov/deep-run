@@ -614,6 +614,85 @@ Design boundary:
 
 <!-- deeprun-m3-command-boundary:end -->
 
+### Post-M3 Integration Gate IG1 - Production Antey Runtime Integration
+
+Status: NOT STARTED
+
+IG1 is a bounded integration gate between completed M3 and M4, not a milestone
+or a new M/A/D/C specification axis. It connects the canonical C0 source-first
+Antey production asset and its runtime metadata contract to the existing playground runtime,
+replacing the prototype visual path before acoustic work begins. The canonical
+content contract remains [Antey Production Asset Contract](../content/antey-asset.md)
+and [C0 Asset Pipeline](../content/asset-pipeline.md); IG1 does not regenerate
+or redefine either asset.
+
+#### In scope
+
+- Load the production GLB plus production metadata/sidecars through the runtime
+  asset path; `Antey_Source.blend` and Blender tooling remain offline-only.
+- Perform only bounded deterministic staging/promotion of already validated
+  production outputs from `Content/submarines/Antey/` to
+  `Engine/Assets/submarines/Antey/` before `AssetManager` loading. Do not load
+  arbitrary authoring files from `Content/`, copy Blender sources/helpers, add
+  an AssetCooker, or create a second authoring truth.
+- Make production Antey the normal runtime/playground submarine visual, with
+  the canonical metre scale, orientation, dimensions, and existing M3
+  underwater rendering path. The M2 prototype may remain a test fixture,
+  development asset, or historical tooling input, but is not the normal path.
+  It and any legacy C0 generation path are not a second production truth.
+- Establish one production runtime asset family whose render variants are
+  identified as LOD0, LOD1, LOD2, and LOD3. Registered variants must be
+  loadable and validatable; final screen-space selection is deferred. Physics
+  and gameplay must not depend on the selected render LOD.
+- Load semantic production records for propellers, torpedo launch anchors,
+  P-700 cells/launcher geometry, compartments, collision, buoyancy, and LOD
+  identity. Runtime code consumes those records, never Blender object identity,
+  source hierarchy, or legacy `HP_Antey_*` marker names.
+- Keep transform/motion state, visual asset, collision representation,
+  buoyancy representation, semantic anchors/metadata, and submarine
+  physics/gameplay state as independent aspects of the runtime submarine.
+  This is a focused composition boundary, not a new ECS or universal asset
+  framework.
+- Replace the M2 bounds-derived visual collision input with the bounded
+  production collision contract, and source buoyancy from its separate
+  production/runtime contract. Render geometry is never authoritative collision
+  geometry; existing M2/M3 physics behaviour remains the authority to preserve.
+- Resolve production propeller semantic anchors. A presentation-only rotation
+  driven by existing propulsion state is permitted; it must not feed state back
+  into simulation.
+- Add validation/regression checks that reject a normal runtime dependency on
+  the prototype visual mesh or `HP_Antey_*` legacy markers, while preserving
+  useful prototype-only tests.
+
+#### Explicitly out of scope
+
+IG1 does not implement M4 sonar, acoustic propagation/signatures, hydrophone
+arrays, active/passive sonar gameplay, cavitation, wake, new VFX, or new audio
+gameplay systems. It also does not implement P-700 launch, launcher-hatch or
+deployment gameplay, torpedo/Shkval launch, weapon simulation, missile flight,
+damage, compartment damage, flooding, crew simulation, interior rendering,
+destruction, a final material/texturing overhaul, or a final general-purpose
+LOD system. It does not add generic Blender integration or content-authoring
+cleanup.
+
+#### Completion criteria
+
+- The normal runtime/playground loads canonical production Antey and no longer
+  uses the prototype submarine visual mesh.
+- Production scale, orientation, canonical dimensions, and the M3 underwater
+  render path are verified; no material performance regression exceeds the
+  existing A0 world/render budgets.
+- M2/M3 submarine physics regressions remain green. Render geometry is not the
+  authoritative collision mesh, and collision and buoyancy have independently
+  validated runtime contracts.
+- Production propeller anchors resolve without `HP_Antey_*`; semantic metadata
+  for P-700, torpedoes, compartments, collision, and buoyancy loads or
+  validates even where gameplay does not yet consume it.
+- LOD0--LOD3 resolve as one production asset family and neither gameplay nor
+  physics depends on render-LOD selection.
+- Existing M2/M3 tests remain green and new regression checks prevent a return
+  to prototype normal-path rendering or legacy Antey-marker dependencies.
+
 ## Future milestones
 
 ### Milestone 4 - Acoustic Playground
@@ -622,6 +701,10 @@ Status: NOT STARTED
 
 Milestone 4 remains a bounded playground for proving the first acoustic
 perception vertical slice.
+It starts only after IG1 has established the production submarine runtime
+representation. M4 consumes runtime transform, velocity, propulsion state and
+semantic anchors where its own acoustic contract requires them; it must not
+consume Blender names, GLB node names, or source hierarchy as gameplay API.
 <!-- deeprun-m4-command-note:start -->
 
 Command-layer relevance:

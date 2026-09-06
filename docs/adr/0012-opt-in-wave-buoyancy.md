@@ -1,6 +1,6 @@
 # ADR-0012: Opt-in wave-aware buoyancy for one representative float
 
-Status: Implemented; M3-F acceptance review pending
+Status: Accepted (M3-F)
 
 ## Context
 

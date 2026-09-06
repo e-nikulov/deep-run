@@ -117,5 +117,30 @@ and review helpers never enter GLB. Animation export is explicit: use
 exporter does not include every Blender Action implicitly. Future
 `P700CoverState_*` interpolation remains owned by LauncherSystem/Simulation.
 `validate_runtime_glb.py` imports the GLB into a factory-empty scene and
-rejects missing runtime geometry or leaked helpers. Runtime integration
-remains deferred until human art and legal gates are closed.
+rejects missing runtime geometry or leaked helpers.
+
+## IG1 runtime staging and promotion
+
+The canonical source-first and accepted production package remains under
+`Content/submarines/Antey/`. IG1 performs one bounded deterministic staging /
+promotion step from already validated production outputs:
+
+```text
+Content/submarines/Antey/
+    canonical source-first / accepted production package
+        -> bounded deterministic IG1 runtime staging / promotion
+        -> Engine/Assets/submarines/Antey/
+           runtime-ready GLB + required semantic metadata
+        -> AssetManager
+```
+
+`Antey_Source.blend`, other Blender authoring files, and helpers are never
+staged to runtime assets. Runtime does not load arbitrary authoring files from
+`Content/`; it consumes only staged production outputs. IG1 does not add a
+generic AssetCooker or a second authoring truth. The staged sidecars are
+selected by the existing validated production schemas, not a duplicate schema.
+
+Technical/runtime integration and legal shipping clearance are independent
+gates: IG1 may validate development runtime use of the technically accepted
+source-first contract, while the recorded legal shipping block remains in
+force.
