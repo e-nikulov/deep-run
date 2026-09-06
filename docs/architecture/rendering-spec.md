@@ -167,25 +167,36 @@ the size-dependent scene/depth targets. This is not arbitrary transparent sortin
 physics, sonar/acoustic state, bubbles, sediment physics, or volumetric rendering.
 
 M3-E adds one bounded 2.5D Gerstner surface presentation pass before opaque terrain, vessel, and M3-D particle
-draws. Game owns three fixed components (amplitude/wavelength/angular-frequency/phase/steepness:
+draws. Marine now owns three fixed components, copied by Game (amplitude/wavelength/angular-frequency/phase/steepness:
 `1.75 m / 100 m / 0.28 rad s^-1 / 0.20 rad / 0.55`,
 `0.80 m / 45 m / 0.48 rad s^-1 / 1.40 rad / 0.40`, and
 `0.35 m / 20 m / 0.82 rad s^-1 / 2.30 rad / 0.20`). Their maximum summed vertical amplitude is `2.90 m`;
 the conservative horizontal-slope bound is below `0.5`, which prevents a folded visual profile. The immutable
 base mesh has 257 horizontal samples over X `[-340, 340]`, two vertices per sample, and a fixed bottom at
 Y `-600`: 514 vertices, 1,536 indices, 512 triangles, and one draw. The vertex shader analytically applies
-the three-component displacement from Engine `PresentationTime`; no CPU mesh update, per-frame allocation,
-or simulation clock is used. The dedicated opaque backdrop PSO disables depth testing and depth writes, so
+the three-component displacement from explicit fixed-step `SimulationTime` supplied by Game (M3-E.1
+supersedes M3-E's `PresentationTime` input); no CPU mesh update or per-frame allocation is used.
+The dedicated opaque backdrop PSO disables depth testing and depth writes, so
 later terrain and vessel geometry naturally draws over it. Its deep fill begins with the accepted M2 linear
 underwater clear RGB `(0.00309598, 0.03954624, 0.11953843)` and blends only a narrow restrained linear
 surface tint RGB `(0.0065, 0.075, 0.18)` at the moving edge.
 
-This visual surface is not `WaterBody` truth. `WaterBody::Config().surfaceLevelY` remains the flat
-authoritative simulation level; `WaterBody::Sample()`, signed depth, buoyancy, hydro drag, collision,
+The renderer is a consumer, never wave authority. `WaterBody::Config().surfaceLevelY` remains the mean/reference
+simulation level; `WaterBody::Sample()`, its signed depth, buoyancy, hydro drag, collision,
 sonar/acoustics, gameplay visibility, M3-C depth lighting, and M3-C.1 fog remain unchanged and do not use an
 instantaneous visual crest or trough. The M3-E visual mesh replaces only the canonical M2 rectangular
-underwater clear below the retained full-viewport above-water clear. M3-E.1 must define an authoritative
-CPU/Simulation query contract before waves can affect floating bodies; no such query exists in M3-E.
+underwater clear below the retained full-viewport above-water clear.
+
+M3-E.1 adds optional Marine-owned `WaterWaveFieldDefinition` to `WaterBody`. The explicit
+`SampleWaveSurface(worldPosition, simulationTimeSeconds)` returns local Y, signed local depth and an upward
+normal. It inverts displaced X with 48 fixed double-precision bisection iterations in `worldX +/- sum(Q*A)`;
+the normal is normalized `(-dY/du, dX/du, 0)`. Disabled waves reproduce the flat query. No existing physical
+consumer switches to this API. Game's `BuildGerstnerSurfacePresentation` copies components/reference level;
+only mesh bounds/colors remain Game tuning. Engine accumulates completed fixed-step seconds and Game passes
+that value to `DrawGerstnerSurface`; particles retain `PresentationTime`. No GPU readback, synchronization,
+mesh regeneration or new draw is introduced. CPU-query/Render-helper parity allows 0.0001 m for float
+publication/phase constants over the tested mesh/time domain; it is not a cross-device bitwise guarantee.
+See [ADR-0011](../adr/0011-authoritative-wave-query.md). Floating-body response remains M3-F, not started.
 
 Initial flora is presentation-first. It should be batchable/instanced and must
 not create thousands of rigid bodies. Only authored large or gameplay-relevant

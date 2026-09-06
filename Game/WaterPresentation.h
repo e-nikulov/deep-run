@@ -4,6 +4,8 @@
 #include "Engine/Physics/PhysicsTypes.h"
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ClearRect.h"
+#include "Engine/Render/GerstnerSurface.h"
+#include "Simulation/Marine/WaterBody.h"
 
 #include <expected>
 #include <optional>
@@ -11,6 +13,10 @@
 
 namespace DeepRun::Game
 {
+// Game adapter: Marine owns components/reference level; Game owns only mesh bounds and colors.
+// Configure the surface draw only for a wave-enabled body; no waves yields an inactive (zero-component) snapshot.
+[[nodiscard]] Render::GerstnerSurfacePresentationParameters BuildGerstnerSurfacePresentation(
+    const Marine::WaterBody& water);
 // M2 Slice D2 presentation tuning (Game-owned). M3-E retains the above-water color for the generic full
 // viewport clear and retains the underwater color as its deep Gerstner-fill source; the canonical playground
 // no longer uses the flat underwater clear rectangle. The renderer's BeginFrame default clear is only a

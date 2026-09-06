@@ -3812,16 +3812,27 @@ bool FixedUpdateHookRunsBeforePhysicsStep()
     const auto initial = engine.Physics()->GetBodyState(handle);
     int invocationCount = 0;
     float observedFixedDelta = 0.0F;
+    const auto wave = WaterBody::Create({.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1025.0F,
+                                        .waves = DeepRun::Marine::M3WaterWaveField});
+    if (!wave || engine.SimulationTimeSeconds() != 0.0) return false;
+    const auto beforeRender = wave->SampleWaveSurface({37.5F, 0.0F, 0.0F}, engine.SimulationTimeSeconds());
+    static_cast<void>(engine.Render()); // Headless render cannot advance fixed-step authority.
+    const auto afterRender = wave->SampleWaveSurface({37.5F, 0.0F, 0.0F}, engine.SimulationTimeSeconds());
+    if (!beforeRender || !afterRender || beforeRender->surfaceLevelY != afterRender->surfaceLevelY ||
+        engine.SimulationTimeSeconds() != 0.0) return false;
     const bool updateReturned = engine.Update([&](const float fixedDeltaSeconds) {
         ++invocationCount;
         observedFixedDelta = fixedDeltaSeconds;
         const auto beforeStep = engine.Physics()->GetBodyState(handle);
-        return beforeStep && beforeStep->linearVelocity.x == 0.0F &&
+        return engine.SimulationTimeSeconds() == 0.0 && beforeStep && beforeStep->linearVelocity.x == 0.0F &&
                engine.Physics()->AddForceAtWorldPosition(
                    handle, {60.0F, 0.0F, 0.0F}, beforeStep->position);
     });
     const auto after = engine.Physics()->GetBodyState(handle);
+    const auto advancedWave = wave->SampleWaveSurface({37.5F, 0.0F, 0.0F}, engine.SimulationTimeSeconds());
     const bool passed = initial && after && !updateReturned && invocationCount == 1 &&
+                        engine.SimulationTimeSeconds() == static_cast<double>(observedFixedDelta) &&
+                        advancedWave && advancedWave->surfaceLevelY != beforeRender->surfaceLevelY &&
                         std::abs(observedFixedDelta - E3FixedDeltaSeconds) < 1.0e-6F &&
                         after->linearVelocity.x > 0.5F && after->position.x > initial->position.x &&
                         engine.ExitCode() == 0 &&
@@ -3861,6 +3872,7 @@ bool FixedUpdateHookFailurePreventsPhysicsStep()
                            after->orientation == initial->orientation &&
                            after->angularVelocity == initial->angularVelocity;
     const bool passed = !updateReturned && invocationCount == 1 && unchanged && engine.ExitCode() == 11 &&
+                        engine.SimulationTimeSeconds() == 0.0 &&
                         engine.Lifecycle() == DeepRun::Core::EngineLifecycle::ShutdownRequested;
     engine.Shutdown();
     return passed;
@@ -7339,6 +7351,163 @@ bool M3DUnderwaterParticleFieldProperties()
            !EvaluateSuspendedParticlePosition(parameters, first->front(), -1.0F);
 }
 
+bool M3E1WaveDefinitionValidation()
+{
+    using namespace DeepRun::Marine;
+    WaterBodyConfig config{.surfaceLevelY = 0.0F, .densityKgPerCubicMeter = 1025.0F,
+                           .waves = M3WaterWaveField};
+    if (!WaterBody::Create(config)) return false;
+    // Each scalar rejects both NaN and infinity; invalid finite domain values are also rejected.
+    const float invalid[] = {std::numeric_limits<float>::quiet_NaN(),
+                            std::numeric_limits<float>::infinity()};
+    for (const float value : invalid)
+    {
+        for (int field = 0; field < 5; ++field)
+        {
+            auto changed = config;
+            auto& wave = changed.waves->components[0];
+            float* fields[] = {&wave.amplitudeMeters, &wave.wavelengthMeters,
+                              &wave.angularFrequencyRadiansPerSecond, &wave.phaseOffsetRadians,
+                              &wave.horizontalSteepness};
+            *fields[field] = value;
+            if (WaterBody::Create(changed)) return false;
+        }
+    }
+    for (const float value : {0.0F, -1.0F})
+    {
+        for (int field = 0; field < 3; ++field)
+        {
+            auto changed = config;
+            auto& wave = changed.waves->components[0];
+            float* fields[] = {&wave.amplitudeMeters, &wave.wavelengthMeters,
+                              &wave.angularFrequencyRadiansPerSecond};
+            *fields[field] = value;
+            if (WaterBody::Create(changed)) return false;
+        }
+    }
+    for (const float q : {-0.1F, 1.1F})
+    {
+        auto changed = config;
+        changed.waves->components[0].horizontalSteepness = q;
+        if (WaterBody::Create(changed)) return false;
+    }
+    auto tooLarge = config;
+    tooLarge.waves->components[0].amplitudeMeters = 3.1F;
+    auto combined = config;
+    for (auto& wave : combined.waves->components) wave.amplitudeMeters = 1.5F;
+    auto folding = config;
+    folding.waves->components[0].wavelengthMeters = 1.0F;
+    return !WaterBody::Create(tooLarge) && !WaterBody::Create(combined) && !WaterBody::Create(folding);
+}
+
+bool M3E1WaveQueryAndAdapterParity()
+{
+    using namespace DeepRun::Marine;
+    const auto water = WaterBody::Create({.surfaceLevelY = 7.0F, .densityKgPerCubicMeter = 1025.0F,
+                                         .waves = M3WaterWaveField});
+    const auto flat = WaterBody::Create({.surfaceLevelY = 7.0F, .densityKgPerCubicMeter = 1025.0F});
+    if (!water || !flat) return false;
+    const auto render = DeepRun::Game::BuildGerstnerSurfacePresentation(*water);
+    if (!DeepRun::Render::ValidateGerstnerSurfacePresentationParameters(render) ||
+        render.referenceLevelY != water->Config().surfaceLevelY) return false;
+    float amplitude = 0.0F;
+    for (std::size_t i = 0; i < render.components.size(); ++i)
+    {
+        const auto& a = water->Config().waves->components[i];
+        const auto& b = render.components[i];
+        if (a.amplitudeMeters != b.amplitudeMeters || a.wavelengthMeters != b.wavelengthMeters ||
+            a.angularFrequencyRadiansPerSecond != b.angularFrequencyRadiansPerSecond ||
+            a.phaseOffsetRadians != b.phaseOffsetRadians || a.horizontalSteepness != b.horizontalSteepness)
+            return false;
+        amplitude += a.amplitudeMeters;
+    }
+    if (std::abs(amplitude - 2.90F) > 1.0e-6F) return false;
+    bool distinguishesNaiveQuery = false;
+    // Covers the whole bounded mesh, including neighborhoods of extrema, at several phase times.
+    // 1e-4 m allows published float X rounding and Render's float 2*pi versus Marine double phase math.
+    for (const float time : {0.0F, 1.0F, 6.0F, 60.0F})
+    {
+        for (int step = -680; step <= 680; ++step)
+        {
+            const float u = static_cast<float>(step) * 0.5F;
+            const auto visual = DeepRun::Render::EvaluateGerstnerSurfacePresentation(render, u, time);
+            if (!visual) return false;
+            const DeepRun::Physics::PhysicsVector3 position{visual->x, 3.0F, 9.0F};
+            const auto sample = water->SampleWaveSurface(position, time);
+            const auto repeated = water->SampleWaveSurface(position, time);
+            const auto naive = DeepRun::Render::EvaluateGerstnerSurfacePresentation(render, visual->x, time);
+            if (!sample || !repeated || !naive || !sample->surfaceNormal.IsFinite()) return false;
+            const auto n = sample->surfaceNormal;
+            if (std::abs(sample->surfaceLevelY - visual->y) > 1.0e-4F ||
+                sample->surfaceLevelY != repeated->surfaceLevelY || n != repeated->surfaceNormal ||
+                sample->signedDepthMeters != repeated->signedDepthMeters ||
+                std::abs(sample->surfaceLevelY - 7.0F) > 2.90001F ||
+                std::abs(sample->signedDepthMeters - (sample->surfaceLevelY - position.y)) > 1.0e-6F ||
+                std::abs(n.x * n.x + n.y * n.y + n.z * n.z - 1.0F) > 1.0e-6F || n.y <= 0.0F || n.z != 0.0F)
+                return false;
+            distinguishesNaiveQuery |= std::abs(sample->surfaceLevelY - naive->y) > 0.01F;
+            if (step % 40 == 0)
+            {
+                const auto left = DeepRun::Render::EvaluateGerstnerSurfacePresentation(render, u - 0.05F, time);
+                const auto right = DeepRun::Render::EvaluateGerstnerSurfacePresentation(render, u + 0.05F, time);
+                if (!left || !right) return false;
+                const float dx = right->x - left->x;
+                const float dy = right->y - left->y;
+                const float length = std::hypot(dx, dy);
+                if (std::abs(n.x + dy / length) > 0.001F || std::abs(n.y - dx / length) > 0.001F)
+                    return false;
+            }
+        }
+    }
+    for (const float y : {-20.0F, 7.0F, 20.0F})
+    {
+        const DeepRun::Physics::PhysicsVector3 position{37.5F, y, -12.0F};
+        const auto a = flat->Sample(position);
+        const auto b = flat->SampleWaveSurface(position, 6.0);
+        const auto c = water->Sample(position);
+        if (!a || !b || !c || a->surfaceLevelY != b->surfaceLevelY || a->surfaceLevelY != c->surfaceLevelY ||
+            a->surfaceNormal != b->surfaceNormal || a->surfaceNormal != c->surfaceNormal ||
+            a->signedDepthMeters != b->signedDepthMeters || a->signedDepthMeters != c->signedDepthMeters)
+            return false;
+    }
+    const auto buoyancy = E3NeutralBuoyancy(2000.0F, 1025.0F);
+    const BuoyancyPose pose{.worldPositionMeters = {37.5F, 7.0F, 0.0F}};
+    const auto flatForce = BuoyancySystem::Calculate(*flat, buoyancy, pose, 9.81F);
+    const auto waveForce = BuoyancySystem::Calculate(*water, buoyancy, pose, 9.81F);
+    if (!flatForce || !waveForce || flatForce->totalForceNewtons != waveForce->totalForceNewtons ||
+        flatForce->totalSubmergedVolumeCubicMeters != waveForce->totalSubmergedVolumeCubicMeters) return false;
+    for (std::size_t i = 0; i < flatForce->points.size(); ++i)
+        if (flatForce->points[i].signedDepthMeters != waveForce->points[i].signedDepthMeters ||
+            flatForce->points[i].forceNewtons != waveForce->points[i].forceNewtons) return false;
+    const auto first = water->SampleWaveSurface({37.5F, 0.0F, 0.0F}, 0.0);
+    const auto later = water->SampleWaveSurface({37.5F, 0.0F, 0.0F}, 6.0);
+    // Aligned test phases give known crest/trough at u=0 (and world X approximately zero).
+    for (const float sign : {-1.0F, 1.0F})
+    {
+        auto extremeConfig = water->Config();
+        for (auto& component : extremeConfig.waves->components)
+            component.phaseOffsetRadians = sign * 1.57079632679F;
+        const auto extreme = WaterBody::Create(extremeConfig);
+        if (!extreme) return false;
+        for (const float x : {-0.001F, 0.0F, 0.001F})
+        {
+            const auto sample = extreme->SampleWaveSurface({x, 0.0F, 0.0F}, 0.0);
+            if (!sample || std::abs(sample->surfaceLevelY - (7.0F + sign * amplitude)) > 1.0e-5F ||
+                !sample->surfaceNormal.IsFinite() || sample->surfaceNormal.y < 0.999F) return false;
+        }
+    }
+    auto overflowConfig = water->Config();
+    overflowConfig.surfaceLevelY = (std::numeric_limits<float>::max)();
+    const auto overflow = WaterBody::Create(overflowConfig);
+    if (!overflow || overflow->SampleWaveSurface({0.0F, -(std::numeric_limits<float>::max)(), 0.0F}, 0.0))
+        return false;
+    return distinguishesNaiveQuery && first && later && first->surfaceLevelY != later->surfaceLevelY &&
+           !water->SampleWaveSurface({}, -1.0) &&
+           !water->SampleWaveSurface({}, std::numeric_limits<double>::infinity()) &&
+           !water->SampleWaveSurface({}, std::numeric_limits<double>::quiet_NaN()) &&
+           !water->SampleWaveSurface({std::numeric_limits<float>::infinity(), 0.0F, 0.0F}, 0.0);
+}
+
 bool M3EGerstnerSurfacePresentationProperties()
 {
     using DeepRun::Render::EvaluateGerstnerSurfacePresentation;
@@ -7947,13 +8116,15 @@ bool SimulationMarineHasNoPhysicsOrRenderDependency()
 
 bool SimulationHasNoGerstnerRenderPresentationDependency()
 {
-    // M3-E is renderer presentation only. Simulation must not acquire this visual parameter/evaluation API;
-    // M3-E.1 will define a separate Simulation-owned contract if authoritative waves become necessary.
+    // M3-E.1 has a separate Marine-owned contract; Simulation must never acquire Render's validation API.
     const std::filesystem::path simulationRoot = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Simulation";
     return ScanSourceDirectoryForForbiddenPatterns(
         simulationRoot,
         {"engine/render/gerstnersurface.h", "gerstnersurfacepresentationparameters",
-         "evaluategerstnersurfacepresentation"});
+         "evaluategerstnersurfacepresentation"}) &&
+           ScanSourceDirectoryForForbiddenPatterns(
+               std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Engine" / "Render",
+               {"simulation/", "marine::", "waterwavefielddefinition", "waterwavecomponent"});
 }
 
 bool HydroDragFilesHaveOnlyPureMarineDependencies()
@@ -8421,6 +8592,8 @@ int main(const int argumentCount, const char* const* arguments)
         {"M3-C.1 view-path fog properties", M3C1ViewPathFogProperties},
         {"M3-D suspended underwater particle field properties", M3DUnderwaterParticleFieldProperties},
         {"M3-E Gerstner surface presentation properties", M3EGerstnerSurfacePresentationProperties},
+        {"M3-E.1 wave definition validation", M3E1WaveDefinitionValidation},
+        {"M3-E.1 world-X wave query and adapter parity", M3E1WaveQueryAndAdapterParity},
         {"M3-B.2 representative authored terrain geometry", M3BSeabedSectionGeometryContract},
         {"M3-B.1 static body validation lifetime and contact", M3B1StaticBodyContract},
         {"M3-B.1 static bodies reject force and torque mutation", M3B1StaticBodyRejectsMutation},

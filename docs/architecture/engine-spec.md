@@ -650,6 +650,11 @@ DeepRun distinguishes three clocks:
 | `PresentationTime` | Non-authoritative visual, UI, audio, and haptic presentation where deterministic simulation timing is not required |
 | `SimulationTime` | Authoritative gameplay time advanced only by the fixed-step simulation scheduler |
 
+M3-E.1 exposes `Engine::SimulationTimeSeconds()`: a double accumulator incremented only after each
+completed fixed physics step by its actual float dt. Failed fixed hooks, render-only frames and minimized
+suspension do not advance it. Game explicitly supplies this time to Gerstner rendering and Marine CPU
+queries; M3-D particles retain the presentation clock. Tactical pause/compression controls are not added.
+
 At normal speed, one simulation second is approximately one real second. Future
 player-controlled compression may expose authored choices such as `1x`, `2x`,
 `4x`, and `8x`, with a possible higher travel/strategic rate later. Exact rates
@@ -1364,8 +1369,13 @@ Simulation/Marine/
 `WaterBody` (M2 Slice D1) — authoritative flat infinite horizontal water body and the source of truth for
 buoyancy, depth, pressure and hydrodynamic systems. Rendering is never the source of this state; `WaterBody`
 has no knowledge of renderers, physics bodies or submarines. The D1 surface is exactly flat (no time, waves
-or currents), so a future M3 ocean presentation must evolve without changing how authoritative depth is
-sampled.
+or currents). M3-E.1 preserves `Sample()` exactly as this flat/reference-plane query even when an optional
+Marine `WaterWaveFieldDefinition` is configured. `Config().surfaceLevelY` always means mean/reference Y.
+The separate `SampleWaveSurface(position, simulationTimeSeconds)` inverts the horizontally displaced
+Gerstner profile and publishes local Y, signed local depth and normalized upward normal. Marine owns the
+canonical three components; Game copies them to Render, which never supplies authoritative state.
+No buoyancy, drag, collision, lighting/fog or acoustic consumer migrates to wave-aware behavior in E.1.
+See [ADR-0011](../adr/0011-authoritative-wave-query.md).
 
 Canonical signed-depth contract:
 

@@ -71,40 +71,6 @@ constexpr Render::SuspendedParticleFieldParameters M3UnderwaterParticleField{
     .lateralOscillationAmplitudeMeters = 1.4F,
     .lateralOscillationAngularFrequency = 0.23F};
 
-// M3-E Game-owned visual tuning. The three restrained components are a presentation backdrop around the
-// authoritative flat WaterBody level; this helper deliberately creates no Game/Simulation wave-query API.
-[[nodiscard]] Render::GerstnerSurfacePresentationParameters BuildM3EGerstnerSurface(
-    const float referenceLevelY) noexcept
-{
-    return Render::GerstnerSurfacePresentationParameters{
-        .minimumX = -340.0F,
-        .maximumX = 340.0F,
-        .referenceLevelY = referenceLevelY,
-        .bottomFillY = -600.0F,
-        .horizontalSampleCount = 257U,
-        .components = {{
-            {.amplitudeMeters = 1.75F,
-             .wavelengthMeters = 100.0F,
-             .angularFrequencyRadiansPerSecond = 0.28F,
-             .phaseOffsetRadians = 0.20F,
-             .horizontalSteepness = 0.55F},
-            {.amplitudeMeters = 0.80F,
-             .wavelengthMeters = 45.0F,
-             .angularFrequencyRadiansPerSecond = 0.48F,
-             .phaseOffsetRadians = 1.40F,
-             .horizontalSteepness = 0.40F},
-            {.amplitudeMeters = 0.35F,
-             .wavelengthMeters = 20.0F,
-             .angularFrequencyRadiansPerSecond = 0.82F,
-             .phaseOffsetRadians = 2.30F,
-             .horizontalSteepness = 0.20F}}},
-        .deepFillRgb = {
-            M2UnderwaterBackgroundColor.r,
-            M2UnderwaterBackgroundColor.g,
-            M2UnderwaterBackgroundColor.b},
-        .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};
-}
-
 // E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
 // points distribute force along the prototype length without deriving hydrostatics from mesh/collision
 // geometry or claiming CFD fidelity. The +2 m vertical offset creates a small restoring pitch moment.
@@ -322,13 +288,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     // camera or submarine; it only answers surface/depth queries.
     const auto water = Marine::WaterBody::Create(
         {.surfaceLevelY = M2SeaSurfaceLevelMeters,
-         .densityKgPerCubicMeter = M2SeaWaterDensityKgPerCubicMeter});
+         .densityKgPerCubicMeter = M2SeaWaterDensityKgPerCubicMeter,
+         .waves = Marine::M3WaterWaveField});
     if (!water)
     {
         return std::unexpected("physical playground water body creation failed: " + water.error().message);
     }
     const Render::GerstnerSurfacePresentationParameters gerstnerSurface =
-        BuildM3EGerstnerSurface(water->Config().surfaceLevelY);
+        BuildGerstnerSurfacePresentation(*water);
     if (const auto configured = renderer.ConfigureGerstnerSurface(gerstnerSurface); !configured)
     {
         return std::unexpected("physical playground Gerstner surface configuration failed: " + configured.error());
@@ -914,7 +881,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
 }
 
 std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
-    Render::D3D12Renderer& renderer) const
+    Render::D3D12Renderer& renderer, const double simulationTimeSeconds) const
 {
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
         !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || physics_ == nullptr ||
@@ -1011,7 +978,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(aboveWaterCleared.error());
     }
 
-    const auto gerstnerStats = renderer.DrawGerstnerSurface(*camera);
+    const auto gerstnerStats = renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
     if (!gerstnerStats)
     {
         return std::unexpected("physical playground Gerstner surface draw failed: " + gerstnerStats.error());

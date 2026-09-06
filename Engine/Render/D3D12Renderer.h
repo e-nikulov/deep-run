@@ -73,7 +73,7 @@ public:
     [[nodiscard]] std::expected<void, std::string> ConfigureGerstnerSurface(
         const GerstnerSurfacePresentationParameters& parameters);
     [[nodiscard]] std::expected<GerstnerSurfaceDrawStats, std::string> DrawGerstnerSurface(
-        const OrthographicCamera& camera);
+        const OrthographicCamera& camera, double simulationTimeSeconds);
 
     // Engine supplies its existing elapsed frame clock; this is PresentationTime only and is never simulation time.
     void SetPresentationTime(float elapsedSeconds) noexcept;

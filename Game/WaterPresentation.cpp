@@ -5,6 +5,26 @@
 
 namespace DeepRun::Game
 {
+Render::GerstnerSurfacePresentationParameters BuildGerstnerSurfacePresentation(const Marine::WaterBody& water)
+{
+    Render::GerstnerSurfacePresentationParameters result{
+        .minimumX = -340.0F, .maximumX = 340.0F,
+        .referenceLevelY = water.Config().surfaceLevelY, .bottomFillY = -600.0F,
+        .horizontalSampleCount = 257U,
+        .deepFillRgb = {M2UnderwaterBackgroundColor.r, M2UnderwaterBackgroundColor.g, M2UnderwaterBackgroundColor.b},
+        .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};
+    if (water.Config().waves)
+    {
+        for (std::size_t i = 0; i < result.components.size(); ++i)
+        {
+            const auto& wave = water.Config().waves->components[i];
+            result.components[i] = {wave.amplitudeMeters, wave.wavelengthMeters,
+                wave.angularFrequencyRadiansPerSecond, wave.phaseOffsetRadians, wave.horizontalSteepness};
+        }
+    }
+    return result;
+}
+
 Physics::PhysicsVector3 ComputeInitialBodyWorldCenter(
     const float surfaceLevelY,
     const float desiredDepthMeters,

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Engine/Physics/PhysicsTypes.h"
+#include "Simulation/Marine/WaterWaveField.h"
 
 #include <expected>
+#include <optional>
 #include <string>
 
 namespace DeepRun::Marine
@@ -13,6 +15,8 @@ enum class WaterBodyErrorCode
 {
     InvalidConfiguration,
     InvalidQueryPosition,
+    InvalidQueryTime,
+    NonFiniteResult,
 };
 
 struct WaterBodyError final
@@ -21,24 +25,25 @@ struct WaterBodyError final
     std::string message;
 };
 
-// Configuration for a flat infinite horizontal water body (M2 Slice D1).
-// Both values are runtime/configuration data: the generic WaterBody must not hard-code any specific M2
+// Reference-plane configuration with an optional M3-E.1 free-surface definition.
+// Values are runtime/configuration data: the generic WaterBody must not hard-code any specific M2
 // sea level or ocean scenario. Validation is exact — no silent correction of invalid values.
 struct WaterBodyConfig final
 {
-    // World-space Y of the flat water surface (meters, DeepRun world convention: +Y up). Must be finite.
+    // Mean/reference sea level (+Y up), never instantaneous crest/trough height. Must be finite.
     float surfaceLevelY = 0.0F;
 
     // Bulk density of the water in kg/m^3. Must be finite and strictly positive. Stored for the marine
     // physics systems that consume it (buoyancy is a later slice); D1 performs no force calculation.
     float densityKgPerCubicMeter = 0.0F;
+    std::optional<WaterWaveFieldDefinition> waves{};
 };
 
-// One coherent surface query result: every field derives from the same canonical flat-water definition, so
+// One coherent surface query result: every field derives from the same queried surface, so
 // callers can never combine values that silently disagree with each other.
 struct WaterSurfaceSample final
 {
-    // The constant world-space Y of the water surface (meters).
+    // World-space surface Y (meters): reference plane for Sample, local surface for SampleWaveSurface.
     float surfaceLevelY = 0.0F;
 
     // Outward surface normal: always +Y for a flat horizontal water body.
@@ -52,15 +57,14 @@ struct WaterSurfaceSample final
     float signedDepthMeters = 0.0F;
 };
 
-// Authoritative flat infinite horizontal water body (M2 Slice D1).
+// Authoritative reference-plane water body with optional explicit free-surface queries (M3-E.1).
 //
 // The first marine-environment primitive in Simulation/Marine: the source of truth for future buoyancy,
 // depth, pressure and hydrodynamic systems. Rendering is never the source of gameplay state — this type has
 // no knowledge of renderers, cameras, physics bodies or submarines; it only exposes environmental queries.
 //
-// D1 scope: exactly flat surface (no time, waves, currents or displacement), no Jolt collision body, and no
-// force equations. The query contract is intentionally stable so a future M3 ocean presentation can evolve
-// without changing how authoritative depth is sampled.
+// Sample retains the D1 flat hydrostatic contract. Only SampleWaveSurface evaluates waves and time.
+// Neither query owns collision bodies or force equations; existing consumers remain reference-plane based.
 class WaterBody final
 {
 public:
@@ -76,6 +80,13 @@ public:
     // X/Z never affect the surface level, normal or signed depth.
     [[nodiscard]] std::expected<WaterSurfaceSample, WaterBodyError> Sample(
         const Physics::PhysicsVector3& worldPosition) const;
+
+    // Explicit instantaneous free-surface query at WORLD X and fixed-step SimulationTime. Inverts horizontal
+    // displacement; returns local surface Y, upward normal and local signed depth. Without waves, equals
+    // Sample(). Sample() itself stays reference-plane hydrostatics even when waves are enabled: existing
+    // buoyancy and depth consumers are intentionally not migrated in M3-E.1.
+    [[nodiscard]] std::expected<WaterSurfaceSample, WaterBodyError> SampleWaveSurface(
+        const Physics::PhysicsVector3& worldPosition, double simulationTimeSeconds) const;
 
 private:
     explicit WaterBody(WaterBodyConfig config);

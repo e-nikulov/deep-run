@@ -450,7 +450,8 @@ Implementation status:
 | C.1 | Underwater fog | ACCEPTED |
 | D | Suspended underwater particulate presentation | ACCEPTED |
 | E | Gerstner ocean surface presentation | ACCEPTED |
-| E.1 | Authoritative CPU wave-query / WaterBody bridge | NOT STARTED |
+| E.1 | Authoritative CPU wave-query / WaterBody bridge | ACCEPTED |
+| F | Floating-body wave response | NOT STARTED |
 
 M3-A uses a renderer-owned `R16G16B16A16_FLOAT` `SceneColorHDR` target. Scene draws write linear values;
 a fullscreen renderer pass applies a fixed-exposure (1.0), per-channel Reinhard shoulder and the one manual
@@ -523,7 +524,7 @@ transparent-mesh sorting, a generic particle system, a physics/acoustic/sonar en
 volumetrics, or an additional environment authority. Resize retains the immutable field buffers and uses the
 new orthographic projection on the next draw.
 
-M3-E replaces the canonical M2 rectangular underwater clear with one Game-tuned, presentation-only 2.5D
+M3-E replaced the canonical M2 rectangular underwater clear with one Game-tuned, presentation-only 2.5D
 Gerstner fill. The persistent mesh spans X `[-340, 340]` with 257 samples, 514 vertices, 1,536 indices, and
 one pre-opaque draw; its bottom is fixed at Y `-600`. The vertex shader analytically displaces only the top
 edge from existing Engine `PresentationTime`, using three restrained components: `(1.75 m, 100 m, 0.28 rad/s,
@@ -534,8 +535,17 @@ underwater clear RGB `(0.00309598, 0.03954624, 0.11953843)` with a narrow linear
 `(0.0065, 0.075, 0.18)`; there is no foam, reflection, refraction, or new color system. It uses no
 per-frame geometry allocation, CPU tessellation, SimulationTime, or authoritative query. `WaterBody` Y=0,
 `WaterBody::Sample()`, buoyancy, depth lighting, fog, collision, particles, gameplay visibility, sonar, and
-acoustics stay flat and unchanged. M3-E.1 remains the explicit not-started CPU/Simulation wave-query bridge
-required before any visual crest/trough can affect floating bodies.
+acoustics stayed flat and unchanged in M3-E.
+
+M3-E.1 supersedes only component/time authority: `Simulation/Marine/WaterWaveField.h` now holds the one
+canonical definition, optionally configured in `WaterBody`. Game copies it and the mean/reference Y to the
+unchanged render snapshot. Gerstner phase now uses explicit completed fixed-step `SimulationTime`, not
+`PresentationTime`; particles retain `PresentationTime`. `WaterBody::Sample()` remains exactly flat.
+The new `SampleWaveSurface` inverts world X with 48 fixed double-precision bisection steps and returns local
+Y, signed local depth and an upward normalized normal. Existing submarine buoyancy, drag, collision,
+lighting/fog and other consumers do not use it. Geometry and scene totals remain 514/1,536/one surface draw
+and 8 scene draws / 6 model primitives / 9,048 indices. See
+[ADR-0011](../adr/0011-authoritative-wave-query.md). M3-F floating response is **NOT STARTED**.
 
 Future work:
 

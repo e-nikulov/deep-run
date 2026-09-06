@@ -17,7 +17,7 @@ struct GerstnerWaveComponent final
     float horizontalSteepness = 0.0F;
 };
 
-// Renderer-neutral, Game-owned tuning for the bounded M3-E backdrop. It describes visual presentation only;
+// Renderer-neutral, Game-supplied snapshot for the bounded M3-E backdrop. It describes visual presentation only;
 // it is not a world-state, physics, or simulation interface.
 struct GerstnerSurfacePresentationParameters final
 {
@@ -65,11 +65,12 @@ struct GerstnerSurfaceDrawStats final
     const GerstnerSurfacePresentationParameters& parameters);
 [[nodiscard]] std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseMesh(
     const GerstnerSurfacePresentationParameters& parameters);
-// Evaluates only the M3-E visual presentation formula from PresentationTime for renderer validation/tests.
+// Evaluates only the M3-E visual presentation formula at caller-supplied phase time for validation/tests.
+// M3-E.1 supplies SimulationTime explicitly, not the global particle PresentationTime clock.
 // This API supplies no authoritative state and must not drive Simulation, force/rigid-body, sonar, or gameplay
-// depth consumers. M3-E.1 will introduce a separate Simulation-owned wave-definition/query contract.
+// depth consumers. M3-E.1 owns a separate authoritative definition/query contract outside Render.
 [[nodiscard]] std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
     const GerstnerSurfacePresentationParameters& parameters,
     float x,
-    float presentationTimeSeconds);
+    float phaseTimeSeconds);
 }

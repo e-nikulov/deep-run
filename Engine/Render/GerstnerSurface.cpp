@@ -145,13 +145,13 @@ std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseM
 std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
     const GerstnerSurfacePresentationParameters& parameters,
     const float x,
-    const float presentationTimeSeconds)
+    const float phaseTimeSeconds)
 {
     if (const auto valid = ValidateGerstnerSurfacePresentationParameters(parameters); !valid)
     {
         return std::unexpected(valid.error());
     }
-    if (!std::isfinite(x) || !std::isfinite(presentationTimeSeconds) || presentationTimeSeconds < 0.0F)
+    if (!std::isfinite(x) || !std::isfinite(phaseTimeSeconds) || phaseTimeSeconds < 0.0F)
     {
         return std::unexpected("Gerstner surface presentation input must be finite and non-negative in time");
     }
@@ -163,7 +163,7 @@ std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstner
         const double waveNumber = static_cast<double>(TwoPi) / static_cast<double>(component.wavelengthMeters);
         const double theta = waveNumber * static_cast<double>(x) -
                              static_cast<double>(component.angularFrequencyRadiansPerSecond) *
-                                 static_cast<double>(presentationTimeSeconds) +
+                                 static_cast<double>(phaseTimeSeconds) +
                              static_cast<double>(component.phaseOffsetRadians);
         displacedX += static_cast<double>(component.horizontalSteepness) *
                       static_cast<double>(component.amplitudeMeters) * std::cos(theta);

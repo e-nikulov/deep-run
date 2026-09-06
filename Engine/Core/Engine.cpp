@@ -39,6 +39,7 @@ public:
 
         exitCode = 0;
         fixedStepAccumulator.Reset();
+        simulationTimeSeconds = 0.0;
         hapticMixer.Reset();
         hapticFailureLogged = false;
         audioReady = false;
@@ -256,6 +257,7 @@ public:
         // Force producers run immediately before the exact physics step that consumes their transient
         // forces. A failed hook returns above, so that fixed tick is never integrated.
         physics->Step(stepSeconds);
+        simulationTimeSeconds += static_cast<double>(stepSeconds);
         return true;
     }
 
@@ -368,6 +370,7 @@ public:
     std::unique_ptr<Diagnostics::DebugOverlay> debugOverlay;
     EngineLifecycle lifecycle = EngineLifecycle::Stopped;
     FixedStepAccumulator fixedStepAccumulator;
+    double simulationTimeSeconds = 0.0;
     Input::HapticMixer hapticMixer;
     int exitCode = 0;
     bool audioReady = false;
@@ -417,6 +420,11 @@ EngineLifecycle Engine::Lifecycle() const noexcept
 const FrameState& Engine::CurrentFrame() const noexcept
 {
     return impl_->timer.State();
+}
+
+double Engine::SimulationTimeSeconds() const noexcept
+{
+    return impl_->simulationTimeSeconds;
 }
 
 Scene::Scene& Engine::ActiveScene() noexcept

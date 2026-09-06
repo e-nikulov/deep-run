@@ -83,7 +83,7 @@ public:
     // fixed-step update for the frame; never steps physics itself. It draws the M3-E displaced presentation
     // backdrop before opaque geometry without changing the authoritative WaterBody state.
     [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
-        Render::D3D12Renderer& renderer) const;
+        Render::D3D12Renderer& renderer, double simulationTimeSeconds) const;
 
     [[nodiscard]] Render::GpuModelHandle SubmarineModel() const noexcept;
 

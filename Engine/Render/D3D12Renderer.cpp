@@ -1778,8 +1778,14 @@ public:
         }
     }
 
-    std::expected<GerstnerSurfaceDrawStats, std::string> DrawGerstnerSurface(const OrthographicCamera& camera)
+    std::expected<GerstnerSurfaceDrawStats, std::string> DrawGerstnerSurface(
+        const OrthographicCamera& camera, const double simulationTimeSeconds)
     {
+        if (!std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0 ||
+            simulationTimeSeconds > (std::numeric_limits<float>::max)())
+        {
+            return std::unexpected("Gerstner phase time must be finite, non-negative and representable");
+        }
         if (!frameOpen)
         {
             return std::unexpected("Gerstner surface draw is only valid between BeginFrame and EndFrame");
@@ -1806,7 +1812,7 @@ public:
         };
         const GerstnerDrawConstants constants{
             .viewProjection = camera.viewProjection.values,
-            .referenceLevelAndTime = {parameters.referenceLevelY, presentationTimeSeconds, 0.0F, 0.0F},
+            .referenceLevelAndTime = {parameters.referenceLevelY, static_cast<float>(simulationTimeSeconds), 0.0F, 0.0F},
             .wave0 = asConstants(parameters.components[0]),
             .wave1 = asConstants(parameters.components[1]),
             .wave2 = asConstants(parameters.components[2]),
@@ -2217,9 +2223,9 @@ std::expected<void, std::string> D3D12Renderer::ConfigureGerstnerSurface(
 }
 
 std::expected<GerstnerSurfaceDrawStats, std::string> D3D12Renderer::DrawGerstnerSurface(
-    const OrthographicCamera& camera)
+    const OrthographicCamera& camera, const double simulationTimeSeconds)
 {
-    return impl_->DrawGerstnerSurface(camera);
+    return impl_->DrawGerstnerSurface(camera, simulationTimeSeconds);
 }
 
 void D3D12Renderer::SetPresentationTime(const float elapsedSeconds) noexcept

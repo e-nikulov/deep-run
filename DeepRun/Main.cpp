@@ -371,9 +371,9 @@ int main(const int argumentCount, char** argumentValues)
                 return true;
             },
             [&playground, &frameCapture, &captureEnabled, &options, &renderFrames, &capturedInitial,
-             &capturedLater](DeepRun::Render::D3D12Renderer& renderer)
+             &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
-                const auto rendered = playground.Render(renderer);
+                const auto rendered = playground.Render(renderer, engineServices->SimulationTimeSeconds());
                 if (!rendered)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
@@ -381,7 +381,7 @@ int main(const int argumentCount, char** argumentValues)
                 }
 
                 // Bounded M3-E visual validation: one frame near the start and one later frame makes the
-                // analytic PresentationTime profile observable. The smoke run resizes at engine frame 30
+                // analytic SimulationTime profile observable. The smoke run resizes at engine frame 30
                 // from 16:9 to 16:10 (1280x720 -> 1024x640), so the later capture also proves the fixed
                 // 600 m view is covered through a changed projection. Capture failure never fails the run.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)

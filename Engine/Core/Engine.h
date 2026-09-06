@@ -73,6 +73,8 @@ public:
 
     [[nodiscard]] EngineLifecycle Lifecycle() const noexcept;
     [[nodiscard]] const FrameState& CurrentFrame() const noexcept;
+    // Completed fixed-step time; render-only frames and rejected fixed hooks do not advance it.
+    [[nodiscard]] double SimulationTimeSeconds() const noexcept;
     [[nodiscard]] Scene::Scene& ActiveScene() noexcept;
     [[nodiscard]] Assets::AssetManager& Assets() noexcept;
     [[nodiscard]] Render::D3D12Renderer* Renderer() noexcept;
