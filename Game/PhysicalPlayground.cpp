@@ -33,19 +33,15 @@ namespace DeepRun::Game
 {
 namespace
 {
-// Temporary IG1-B bridge: the accepted M2 prototype bounds remain a physics-only C2 box proxy until IG1-C
-// composes the independent production collision contract. This asset is never uploaded or drawn normally.
-constexpr std::string_view M2PhysicsProxyModelPath = "submarines/prototype/submarine_prototype.glb";
 constexpr float IG1BProductionLengthMinimumMeters = 150.0F;
 constexpr float IG1BProductionLengthMaximumMeters = 158.0F;
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
 
-// Game-owned M2 prototype tuning (ADR-0008). This is gameplay/prototype tuning only, not classified or
-// precise real-vessel hydrostatic data. Collision bounds configure only the collision proxy; displaced-water
-// volume is derived independently from mass / water density below. These values never move into Marine or
-// generic PhysicsWorld.
-constexpr float M2PrototypeMassKg = 12'000'000.0F;
+// Temporary Game-owned Antey playground tuning (ADR-0008). This is not production mass authoring and is
+// not a claim about Project 949A hydrostatics. Production collision/buoyancy proxies provide spatial
+// authority only; effective neutral displacement remains mass / water density for this accepted M2/M3 scenario.
+constexpr float M2GameAnteyMassTuningKg = 12'000'000.0F;
 
 // Game-owned M2 environment tuning (Slice D2). These are scenario values for this concrete playground, not
 // properties of the generic WaterBody: they stay here and never move into Simulation/Marine.
@@ -93,11 +89,12 @@ constexpr float M3SurfaceFloatLinearDamping = 0.9F;
 constexpr float M3SurfaceFloatAngularDamping = 2.0F;
 constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 
-// E3 prototype buoyancy layout, in BODY-LOCAL meters relative to the rigid-body origin/COM. Four explicit
-// points distribute force along the prototype length without deriving hydrostatics from mesh/collision
-// geometry or claiming CFD fidelity. The +2 m vertical offset creates a small restoring pitch moment.
-constexpr std::array<float, 4> M2BuoyancyPointXMeters = {36.0F, 12.0F, -12.0F, -36.0F};
-constexpr float M2BuoyancyPointYMeters = 2.0F;
+// IG1-C Game policy: sample the production buoyancy BOX at four deterministic normalized longitudinal
+// positions. The fractions preserve the accepted M2 spacing while removing prototype/world-space metres.
+constexpr std::array<float, 4> M2BuoyancyLongitudinalFractions = {0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
+// Production COB is spatial authority. This explicit Game-owned offset preserves the accepted M2 pitch
+// stability behaviour; it is not a fabricated historical metacentric height.
+constexpr float M2GameBuoyancyStabilityOffsetMeters = 2.0F;
 constexpr float M2BuoyancySubmersionHalfHeightMeters = 6.0F;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
@@ -124,12 +121,9 @@ constexpr Marine::PropulsionComponent M2Propulsion{
 // source of requested drive in I1; this value must not become an M6 power-management system early.
 constexpr float M2AvailablePropulsionPowerFraction = 1.0F;
 
-// Authoritative physics tuning relative to the rigid-body origin/COM. The asset only validates alignment.
+// Authoritative Game tuning relative to the production collision body origin/COM. The asset only validates
+// the production semantic contract; these points are not derived from render bounds.
 constexpr Physics::PhysicsVector3 M2PropulsorBodyLocalPositionMeters{-50.0F, 0.0F, 0.0F};
-// The AABB-center body origin is 1.7 m above the authored hub because the sail raises the model bounds.
-// Two meters is still a narrow content-alignment gate for this approximately 100 m prototype, while the
-// simulation point remains the explicit centerline tuning above rather than being mesh-derived.
-constexpr float M2PropulsorAlignmentToleranceMeters = 2.0F;
 
 // H2 Game-owned prototype tuning for exactly two independently evaluated diving-plane groups. These values
 // are not measured/classified vessel data, mesh- or collision-derived, or universal submarine constants.
@@ -244,17 +238,55 @@ std::expected<float, std::string> GravityMagnitudeForWater(
     return static_cast<float>(magnitude);
 }
 
-Marine::BuoyancyComponent BuildM2Buoyancy(const Marine::WaterBody& water)
+Physics::PhysicsVector3 ToPhysicsVector(const Assets::ModelVector3& value) noexcept
 {
-    const float totalDisplacedVolume = M2PrototypeMassKg / water.Config().densityKgPerCubicMeter;
-    const float pointVolume = totalDisplacedVolume / static_cast<float>(M2BuoyancyPointXMeters.size());
+    return {.x = value.x, .y = value.y, .z = value.z};
+}
+
+Physics::PhysicsQuaternion ToPhysicsQuaternionWxyz(const std::array<float, 4>& value) noexcept
+{
+    return {.x = value[1], .y = value[2], .z = value[3], .w = value[0]};
+}
+
+bool IsIdentityQuaternion(const std::array<float, 4>& value) noexcept
+{
+    return std::abs(value[0] - 1.0F) <= 1.0e-5F &&
+           std::abs(value[1]) <= 1.0e-5F &&
+           std::abs(value[2]) <= 1.0e-5F &&
+           std::abs(value[3]) <= 1.0e-5F;
+}
+
+Physics::PhysicsVector3 ShiftProductionPointToBodyLocal(
+    const Physics::PhysicsVector3& productionPoint,
+    const Physics::PhysicsVector3& collisionCenter) noexcept
+{
+    return {
+        .x = productionPoint.x - collisionCenter.x,
+        .y = productionPoint.y - collisionCenter.y,
+        .z = productionPoint.z - collisionCenter.z};
+}
+
+Marine::BuoyancyComponent BuildM2Buoyancy(
+    const Marine::WaterBody& water,
+    const Submarine::ProductionBuoyancyDefinition& productionBuoyancy,
+    const Submarine::ProductionCollisionDefinition& collision)
+{
+    const float totalDisplacedVolume = M2GameAnteyMassTuningKg / water.Config().densityKgPerCubicMeter;
+    const float pointVolume = totalDisplacedVolume / static_cast<float>(M2BuoyancyLongitudinalFractions.size());
 
     Marine::BuoyancyComponent component;
-    component.points.reserve(M2BuoyancyPointXMeters.size());
-    for (const float x : M2BuoyancyPointXMeters)
+    component.points.reserve(M2BuoyancyLongitudinalFractions.size());
+    for (const float fraction : M2BuoyancyLongitudinalFractions)
     {
+        const Assets::ModelVector3 sourcePoint{
+            .x = productionBuoyancy.localCenter.x + fraction * productionBuoyancy.halfExtents.x,
+            .y = productionBuoyancy.centerOfBuoyancy.y + M2GameBuoyancyStabilityOffsetMeters,
+            .z = productionBuoyancy.centerOfBuoyancy.z};
         component.points.push_back(Marine::BuoyancyPoint{
-            .bodyLocalPositionMeters = {x, M2BuoyancyPointYMeters, 0.0F},
+            .bodyLocalPositionMeters = {
+                sourcePoint.x - collision.localCenter.x,
+                sourcePoint.y - collision.localCenter.y,
+                sourcePoint.z - collision.localCenter.z},
             .displacedVolumeCubicMeters = pointVolume,
             .submersionHalfHeightMeters = M2BuoyancySubmersionHalfHeightMeters});
     }
@@ -314,7 +346,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
     const Assets::ModelBounds& visualBounds = (*model)->bounds;
     std::string validationMessage;
-    if (!ValidateCollisionBounds(visualBounds, validationMessage))
+    if (!ValidateProductionVisualBounds(visualBounds, validationMessage))
     {
         return std::unexpected("physical playground production Antey visual bounds rejected: " + validationMessage);
     }
@@ -332,8 +364,6 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             return std::unexpected("physical playground production Antey has a non-renderable primitive");
         }
     }
-    const Assets::ModelVector3 assetBoundsCenter = BoundsCenter(visualBounds);
-
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides;
     submergedSailDeviceOverrides.reserve(productionDefinition->retractableSailDevices.size());
     for (const Submarine::ProductionRetractableSailDevice& device : productionDefinition->retractableSailDevices)
@@ -352,17 +382,44 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
     }
 
-    const auto physicsProxyModel = assets.LoadModel(M2PhysicsProxyModelPath);
-    if (!physicsProxyModel)
+    if (productionDefinition->collisionProxies.size() != 1U)
     {
-        return std::unexpected("physical playground M2 physics bridge load failed: " + physicsProxyModel.error().message);
+        return std::unexpected("physical playground requires exactly one production Antey collision BOX proxy");
     }
-    const Assets::ModelBounds& physicsBounds = (*physicsProxyModel)->bounds;
-    if (!ValidateCollisionBounds(physicsBounds, validationMessage))
+    const Submarine::ProductionCollisionDefinition& collisionProxy = productionDefinition->collisionProxies.front();
+    const Submarine::ProductionBuoyancyDefinition& buoyancyProxy = productionDefinition->buoyancyProxy;
+    if (collisionProxy.shape != Submarine::ProductionProxyShape::Box ||
+        buoyancyProxy.shape != Submarine::ProductionProxyShape::Box ||
+        collisionProxy.semanticId != "collision.primary" ||
+        buoyancyProxy.semanticId != "buoyancy.primary")
     {
-        return std::unexpected("physical playground M2 physics bridge bounds rejected: " + validationMessage);
+        return std::unexpected("physical playground production Antey physics proxy semantic contract is invalid");
     }
-    const Assets::ModelVector3 physicsBoundsCenter = BoundsCenter(physicsBounds);
+    // The current Engine box contract has no separate local-shape orientation field. Canonical production
+    // proxies are axis-aligned; reject a rotated content proxy clearly instead of silently changing the
+    // accepted environment/non-penetration checks.
+    if (!IsIdentityQuaternion(collisionProxy.orientationQuaternionWxyz) ||
+        !IsIdentityQuaternion(buoyancyProxy.orientationQuaternionWxyz))
+    {
+        return std::unexpected("physical playground production Antey BOX proxy rotation is unsupported");
+    }
+    const Physics::PhysicsQuaternion collisionProxyOrientation =
+        ToPhysicsQuaternionWxyz(collisionProxy.orientationQuaternionWxyz);
+    const Physics::PhysicsQuaternion buoyancyProxyOrientation =
+        ToPhysicsQuaternionWxyz(buoyancyProxy.orientationQuaternionWxyz);
+    if (!collisionProxyOrientation.IsFinite() || !buoyancyProxyOrientation.IsFinite() ||
+        std::abs(collisionProxyOrientation.LengthSquared() - 1.0F) > 1.0e-4F ||
+        std::abs(buoyancyProxyOrientation.LengthSquared() - 1.0F) > 1.0e-4F)
+    {
+        return std::unexpected("physical playground production Antey BOX proxy orientation is invalid");
+    }
+    const Physics::PhysicsVector3 collisionCenter = ToPhysicsVector(collisionProxy.localCenter);
+    const Physics::PhysicsVector3 collisionHalfExtents = ToPhysicsVector(collisionProxy.halfExtents);
+    if (!collisionCenter.IsFinite() || !collisionHalfExtents.IsFinite() ||
+        collisionHalfExtents.x <= 0.0F || collisionHalfExtents.y <= 0.0F || collisionHalfExtents.z <= 0.0F)
+    {
+        return std::unexpected("physical playground production Antey collision BOX values are invalid");
+    }
 
     const auto upload = renderer.UploadModel(**model);
     if (!upload)
@@ -552,19 +609,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground seabed presentation initialization validation failed");
     }
 
-    // Asset-space pivot (ADR-0008): the C1 box shape is centered on the body origin, so modelToBody =
-    // T(-assetBoundsCenter). The asset bounds center is used ONLY for this pivot correction — it must never
-    // double as a world position or camera target.
-    const Physics::PhysicsVector3 halfExtents{
-        (physicsBounds.maximum.x - physicsBounds.minimum.x) * 0.5F,
-        (physicsBounds.maximum.y - physicsBounds.minimum.y) * 0.5F,
-        (physicsBounds.maximum.z - physicsBounds.minimum.z) * 0.5F};
+    // IG1-C body origin follows the production collision contract. The render bounds center is not used for
+    // collision size, center, initial placement, or model-to-body composition.
+    const Assets::ModelVector3 collisionCenterModel = collisionProxy.localCenter;
 
-    // D2 world placement: the body's model-space bounds center starts exactly M2InitialSubmarineDepthMeters
-    // below the authoritative surface level; X/Z come from the asset bounds center, Y comes exclusively from
-    // WaterBody truth (never from the asset Y center). For the canonical prototype this is ~(1, -100, 0).
+    // D2 world placement: the authoritative collision/reference point starts exactly M2InitialSubmarineDepthMeters
+    // below the WaterBody surface. X/Z come from the production collision center; Y comes exclusively from WaterBody.
     const Physics::PhysicsVector3 initialBodyWorldCenter = ComputeInitialBodyWorldCenter(
-        water->Config().surfaceLevelY, M2InitialSubmarineDepthMeters, physicsBoundsCenter);
+        water->Config().surfaceLevelY, M2InitialSubmarineDepthMeters, collisionCenterModel);
 
     // Verify placement against the authoritative water body before any physics/render work: sampling the
     // initial world center must report exactly the desired signed depth.
@@ -589,28 +641,37 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     m2VesselDof.rotationY = false;
     m2VesselDof.rotationZ = true;
 
+    std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces = M2ControlSurfaces;
+    for (auto& control : controlSurfaces)
+    {
+        control.bodyLocalPositionMeters = ShiftProductionPointToBodyLocal(
+            control.bodyLocalPositionMeters, collisionCenter);
+    }
+    const Physics::PhysicsVector3 propulsorBodyLocalPosition =
+        ShiftProductionPointToBodyLocal(M2PropulsorBodyLocalPositionMeters, collisionCenter);
+
     // The canonical identity-oriented vessel must start above every coarse column it overlaps.
     for (const auto& box : seabed->collisionBoxes)
     {
-        if (std::abs(initialBodyWorldCenter.x - box.position.x) < halfExtents.x + box.halfExtents.x &&
-            initialBodyWorldCenter.y - halfExtents.y <= box.position.y + box.halfExtents.y)
+        if (std::abs(initialBodyWorldCenter.x - box.position.x) < collisionHalfExtents.x + box.halfExtents.x &&
+            initialBodyWorldCenter.y - collisionHalfExtents.y <= box.position.y + box.halfExtents.y)
             return std::unexpected("canonical submarine starts penetrating seabed collision");
     }
     // M3-H coarse ice is deliberately authored well above the canonical vessel. Validate the real static
     // proxy descriptions before creating the submarine body; no mesh/GPU bounds participate in this test.
     for (const auto& box : ice->collisionBoxes)
     {
-        if (AxisAlignedBoxesOverlap(initialBodyWorldCenter, halfExtents, box.position, box.halfExtents))
+        if (AxisAlignedBoxesOverlap(initialBodyWorldCenter, collisionHalfExtents, box.position, box.halfExtents))
         {
             return std::unexpected("canonical submarine starts penetrating underwater ice collision");
         }
     }
 
     Physics::DynamicBoxBodyCreateInfo bodyInfo;
-    bodyInfo.halfExtents = halfExtents;
-    bodyInfo.mass = M2PrototypeMassKg; // gameplay/prototype tuning, see constant comment
+    bodyInfo.halfExtents = collisionHalfExtents;
+    bodyInfo.mass = M2GameAnteyMassTuningKg; // temporary Game-owned neutral-mass tuning
     bodyInfo.position = initialBodyWorldCenter;
-    bodyInfo.orientation = {}; // identity
+    bodyInfo.orientation = {}; // canonical production BOX orientation is identity
     bodyInfo.gravityEnabled = true;
     bodyInfo.linearDamping = 0.0F;
     bodyInfo.angularDamping = 0.0F;
@@ -633,10 +694,40 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground initial body state is unavailable");
     }
 
-    // E3 displaced-water model: total potential displacement is derived from Game-owned prototype mass and
-    // authoritative water density, then split equally across four explicit body-local points. It is never
-    // derived from the render mesh, asset bounds, or the collision box dimensions.
-    Marine::BuoyancyComponent buoyancy = BuildM2Buoyancy(*water);
+    // IG1-C: production buoyancy proxy supplies spatial extent/COB only. Effective neutral displacement
+    // remains the accepted Game-owned mass / density policy and is split across four bounded points.
+    Marine::BuoyancyComponent buoyancy = BuildM2Buoyancy(*water, buoyancyProxy, collisionProxy);
+    const double expectedVolume = static_cast<double>(M2GameAnteyMassTuningKg) /
+                                  static_cast<double>(water->Config().densityKgPerCubicMeter);
+    double configuredPotentialVolume = 0.0;
+    const Physics::PhysicsVector3 proxyCenter = ToPhysicsVector(buoyancyProxy.localCenter);
+    const Physics::PhysicsVector3 proxyHalfExtents = ToPhysicsVector(buoyancyProxy.halfExtents);
+    for (const Marine::BuoyancyPoint& point : buoyancy.points)
+    {
+        if (!point.bodyLocalPositionMeters.IsFinite() || !std::isfinite(point.displacedVolumeCubicMeters) ||
+            point.displacedVolumeCubicMeters <= 0.0F)
+        {
+            (void)physics.DestroyBody(body, &physicsError);
+            return std::unexpected("physical playground production buoyancy point is invalid");
+        }
+        const Physics::PhysicsVector3 productionPoint{
+            point.bodyLocalPositionMeters.x + collisionCenter.x,
+            point.bodyLocalPositionMeters.y + collisionCenter.y,
+            point.bodyLocalPositionMeters.z + collisionCenter.z};
+        if (std::abs(productionPoint.x - proxyCenter.x) > proxyHalfExtents.x + 1.0e-4F ||
+            std::abs(productionPoint.y - proxyCenter.y) > proxyHalfExtents.y + 1.0e-4F ||
+            std::abs(productionPoint.z - proxyCenter.z) > proxyHalfExtents.z + 1.0e-4F)
+        {
+            (void)physics.DestroyBody(body, &physicsError);
+            return std::unexpected("physical playground production buoyancy point is outside its BOX proxy");
+        }
+        configuredPotentialVolume += static_cast<double>(point.displacedVolumeCubicMeters);
+    }
+    if (!NearlyEqualRelative(configuredPotentialVolume, expectedVolume, M2InitialBalanceRelativeTolerance))
+    {
+        (void)physics.DestroyBody(body, &physicsError);
+        return std::unexpected("physical playground production buoyancy potential volume violates Game policy");
+    }
     const auto gravityMagnitude = GravityMagnitudeForWater(physics, *water, initialState->position);
     if (!gravityMagnitude)
     {
@@ -658,14 +749,12 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                                initialBuoyancy.error().message);
     }
 
-    const double expectedVolume = static_cast<double>(M2PrototypeMassKg) /
-                                  static_cast<double>(water->Config().densityKgPerCubicMeter);
-    const double expectedWeight = static_cast<double>(M2PrototypeMassKg) * *gravityMagnitude;
+    const double expectedWeight = static_cast<double>(M2GameAnteyMassTuningKg) * *gravityMagnitude;
     const Physics::PhysicsVector3& initialForce = initialBuoyancy->totalForceNewtons;
     const bool allFullySubmerged = std::ranges::all_of(initialBuoyancy->points, [](const auto& point) {
         return std::abs(point.submergedFraction - 1.0F) <= M2InitialBalanceRelativeTolerance;
     });
-    if (initialBuoyancy->points.size() != M2BuoyancyPointXMeters.size() || !allFullySubmerged ||
+    if (initialBuoyancy->points.size() != M2BuoyancyLongitudinalFractions.size() || !allFullySubmerged ||
         !NearlyEqualRelative(initialBuoyancy->totalSubmergedVolumeCubicMeters,
                              expectedVolume,
                              M2InitialBalanceRelativeTolerance) ||
@@ -694,10 +783,10 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         .bodyWorldPositionMeters = initialState->position,
         .worldOrientation = initialState->orientation,
         .worldLinearVelocityMetersPerSecond = initialState->linearVelocity};
-    for (std::size_t index = 0; index < M2ControlSurfaces.size(); ++index)
+    for (std::size_t index = 0; index < controlSurfaces.size(); ++index)
     {
         const auto control = Marine::ControlSurfaceSystem::Calculate(
-            *water, M2ControlSurfaces[index], initialControlKinematics, 0.0F);
+            *water, controlSurfaces[index], initialControlKinematics, 0.0F);
         if (!control || !control->worldPositionMeters.IsFinite() ||
             control->forceNewtons != Physics::PhysicsVector3{})
         {
@@ -880,12 +969,12 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     hydroDrag_ = BuildM2HydroDrag();
     propulsion_ = M2Propulsion;
     propulsionState_ = {};
-    controlSurfaces_ = M2ControlSurfaces;
+    controlSurfaces_ = std::move(controlSurfaces);
     propellerPresentationAngleRadians_ = 0.0F;
-    assetBoundsCenter_ = assetBoundsCenter;
+    propulsorBodyLocalPosition_ = propulsorBodyLocalPosition;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
     modelToBody_ = TranslationTransform(
-        {-assetBoundsCenter.x, -assetBoundsCenter.y, -assetBoundsCenter.z});
+        {-collisionCenter.x, -collisionCenter.y, -collisionCenter.z});
     submergedSailDeviceOverrides_ = std::move(submergedSailDeviceOverrides);
 
     if (verifyDistinctUploads)
@@ -905,11 +994,13 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
     PlaygroundLog().Info(
         Diagnostics::LogCategory::Physics,
-        "Physical playground body ready: box half extents (" + FormatVector(halfExtents) +
-            "), temporary M2 physics bridge mass " + std::to_string(M2PrototypeMassKg) + " kg, initial position " +
-            FormatVector(initialState->position) + ", displaced volume " +
-            std::to_string(initialBuoyancy->totalSubmergedVolumeCubicMeters) + " m^3, gravity " +
-            std::to_string(*gravityMagnitude) + " m/s^2, buoyancy " +
+        "IG1-C production physics ready: collision center " + FormatVector(collisionCenter) +
+            ", collision half extents " + FormatVector(collisionHalfExtents) +
+            ", buoyancy center " + FormatVector(ToPhysicsVector(buoyancyProxy.localCenter)) +
+            ", buoyancy half extents " + FormatVector(ToPhysicsVector(buoyancyProxy.halfExtents)) +
+            ", COB " + FormatVector(ToPhysicsVector(buoyancyProxy.centerOfBuoyancy)) +
+            ", effective Game displacement " + std::to_string(expectedVolume) + " m^3, mass " +
+            std::to_string(M2GameAnteyMassTuningKg) + " kg, initial buoyancy " +
             std::to_string(initialForce.y) + " N, weight " + std::to_string(expectedWeight) + " N");
     PlaygroundLog().Info(
         Diagnostics::LogCategory::Render,
@@ -1080,7 +1171,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                propulsionForceWorld.error());
     }
     const auto propulsorWorldPosition = TransformBodyLocalPointToWorld(
-        state->position, state->orientation, M2PropulsorBodyLocalPositionMeters);
+        state->position, state->orientation, propulsorBodyLocalPosition_);
     if (!propulsorWorldPosition)
     {
         return std::unexpected("physical playground propulsor position transform failed: " +
@@ -1234,7 +1325,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
             minimumFraction = (std::min)(minimumFraction, point.submergedFraction);
             maximumFraction = (std::max)(maximumFraction, point.submergedFraction);
         }
-        const double weightMagnitude = static_cast<double>(M2PrototypeMassKg) * *gravityMagnitude;
+        const double weightMagnitude = static_cast<double>(M2GameAnteyMassTuningKg) * *gravityMagnitude;
         const float pitchDegrees = 2.0F * std::atan2(state->orientation.z, state->orientation.w) *
                                    (180.0F / 3.14159265358979323846F);
         const bool first = !loggedFirstFixedSample_;

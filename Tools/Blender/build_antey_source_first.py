@@ -1192,6 +1192,9 @@ def add_physics_proxies() -> None:
         obj.hide_render = True
         obj.hide_viewport = True
         obj["physics_proxy_role"] = role
+        obj["physics_proxy_shape"] = "BOX"
+        obj["physics_proxy_coordinate_space"] = "SOURCE_LOCAL"
+        obj["physics_proxy_render_independent"] = True
 
 
 def _make_hidden_volume(name: str, location: tuple[float, float, float], dimensions: tuple[float, float, float], collection: bpy.types.Collection) -> bpy.types.Object:

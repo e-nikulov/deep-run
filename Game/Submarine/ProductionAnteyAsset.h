@@ -78,6 +78,34 @@ struct ProductionCompartment final
     Assets::ModelVector3 halfExtents{};
 };
 
+enum class ProductionProxyShape
+{
+    Box,
+};
+
+// Physics proxy metadata is a bounded production contract, not render geometry.
+// Quaternion values are stored in authoring/runtime sidecar WXYZ order to match
+// the existing semantic sidecar convention; the Game composition boundary
+// converts them to Physics::PhysicsQuaternion (XYZW) when creating a body.
+struct ProductionCollisionDefinition final
+{
+    std::string semanticId;
+    ProductionProxyShape shape = ProductionProxyShape::Box;
+    Assets::ModelVector3 localCenter{};
+    std::array<float, 4> orientationQuaternionWxyz{1.0F, 0.0F, 0.0F, 0.0F};
+    Assets::ModelVector3 halfExtents{};
+};
+
+struct ProductionBuoyancyDefinition final
+{
+    std::string semanticId;
+    ProductionProxyShape shape = ProductionProxyShape::Box;
+    Assets::ModelVector3 localCenter{};
+    std::array<float, 4> orientationQuaternionWxyz{1.0F, 0.0F, 0.0F, 0.0F};
+    Assets::ModelVector3 halfExtents{};
+    Assets::ModelVector3 centerOfBuoyancy{};
+};
+
 struct ProductionSubmarineAssetDefinition final
 {
     std::string assetFamilyId;
@@ -88,8 +116,8 @@ struct ProductionSubmarineAssetDefinition final
     std::vector<ProductionLaunchAnchor> torpedoLaunchAnchors;
     std::vector<ProductionLaunchAnchor> p700LaunchAnchors;
     std::vector<ProductionCompartment> compartments;
-    std::vector<std::string> collisionSemanticIds;
-    std::string buoyancySemanticId;
+    std::vector<ProductionCollisionDefinition> collisionProxies;
+    ProductionBuoyancyDefinition buoyancyProxy;
 };
 
 // Selects the sole staged render asset available during IG1-B. LOD selection

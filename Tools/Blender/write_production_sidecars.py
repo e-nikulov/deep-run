@@ -297,6 +297,93 @@ def source_first_authoring_objects(objects: dict[str, bpy.types.Object], role: s
     )
 
 
+def physics_proxy_metadata(obj: bpy.types.Object, semantic_id: str, role: str, cob: Vector | None = None) -> dict:
+    """Serialize a bounded source-local BOX proxy, never render geometry.
+
+    The current production contract intentionally emits axis-aligned boxes. The
+    runtime still receives orientation metadata so the sidecar is explicit, but
+    a rotated/sheared authoring object is rejected until that contract is
+    deliberately reviewed. A proxy must be an independent hidden mesh and must
+    never be one of the runtime-exported render meshes.
+    """
+    if obj.type != "MESH" or obj.data is None:
+        raise RuntimeError(f"{role} physics proxy must be a MESH: {obj.name}")
+    if any(not math.isfinite(float(value)) for row in obj.matrix_world for value in row):
+        raise RuntimeError(f"{role} physics proxy transform is non-finite: {obj.name}")
+    if obj.get("physics_proxy_role") != role:
+        raise RuntimeError(f"{role} physics proxy role metadata is missing: {obj.name}")
+    if bool(obj.get("runtime_export", False)):
+        raise RuntimeError(f"{role} physics proxy accidentally points at render geometry: {obj.name}")
+    if not obj.hide_render or not obj.hide_viewport:
+        raise RuntimeError(f"{role} physics proxy must be hidden and independent from presentation: {obj.name}")
+    if len(obj.data.vertices) != 8 or len(obj.data.polygons) != 6:
+        raise RuntimeError(f"{role} physics proxy must remain a simple BOX mesh: {obj.name}")
+
+    scale = obj.matrix_world.to_scale()
+    if any(not math.isfinite(float(value)) or not math.isclose(float(value), 1.0, abs_tol=1.0e-6) for value in scale):
+        raise RuntimeError(f"{role} physics proxy must have applied unit scale: {obj.name}")
+    quaternion = obj.matrix_world.to_quaternion()
+    if any(not math.isfinite(float(value)) for value in quaternion):
+        raise RuntimeError(f"{role} physics proxy orientation is non-finite: {obj.name}")
+    if not math.isclose(float(quaternion.w), 1.0, abs_tol=1.0e-6) or any(
+        not math.isclose(float(value), 0.0, abs_tol=1.0e-6) for value in (quaternion.x, quaternion.y, quaternion.z)
+    ):
+        raise RuntimeError(f"{role} physics proxy rotation is unsupported for the current BOX contract: {obj.name}")
+
+    local_points = [Vector(corner) for corner in obj.bound_box]
+    local_minimum = Vector(tuple(min(point[index] for point in local_points) for index in range(3)))
+    local_maximum = Vector(tuple(max(point[index] for point in local_points) for index in range(3)))
+    local_center = (local_minimum + local_maximum) * 0.5
+    half_extents = (local_maximum - local_minimum) * 0.5
+    source_center = obj.matrix_world @ local_center
+    if any(not math.isfinite(float(value)) for value in (*source_center, *half_extents)) or any(
+        float(value) <= 0.0 for value in half_extents
+    ):
+        raise RuntimeError(f"{role} physics proxy has invalid source-local bounds: {obj.name}")
+
+    record = {
+        "semanticId": semantic_id,
+        "shapeType": "BOX",
+        "center": list(source_center),
+        "dimensions": list(half_extents * 2.0),
+        "halfExtents": list(half_extents),
+        "orientationQuaternionWXYZ": [float(quaternion.w), float(quaternion.x), float(quaternion.y), float(quaternion.z)],
+    }
+    if cob is not None:
+        if not all(math.isfinite(float(value)) for value in cob):
+            raise RuntimeError(f"Buoyancy center of buoyancy is non-finite: {obj.name}")
+        if any(abs(float(cob[index] - source_center[index])) > float(half_extents[index]) * 1.25 for index in range(3)):
+            raise RuntimeError(f"Buoyancy center of buoyancy is not inside or associated with proxy: {obj.name}")
+        record["centerOfBuoyancy"] = list(cob)
+    return record
+
+
+def production_physics_proxies(objects: dict[str, bpy.types.Object]) -> tuple[list[dict], dict]:
+    collision_objects = sorted(
+        (obj for obj in objects.values() if obj.get("physics_proxy_role") == "COLLISION"),
+        key=lambda obj: obj.name,
+    )
+    buoyancy_objects = sorted(
+        (obj for obj in objects.values() if obj.get("physics_proxy_role") == "BUOYANCY"),
+        key=lambda obj: obj.name,
+    )
+    if len(collision_objects) != 1:
+        raise RuntimeError(f"Production Antey requires exactly one COLLISION proxy, found {len(collision_objects)}")
+    if len(buoyancy_objects) != 1:
+        raise RuntimeError(f"Production Antey requires exactly one BUOYANCY proxy, found {len(buoyancy_objects)}")
+
+    buoyancy = buoyancy_objects[0]
+    if buoyancy.type != "MESH" or buoyancy.data is None:
+        raise RuntimeError(f"BUOYANCY physics proxy must be a MESH: {buoyancy.name}")
+    proxy_points = [buoyancy.matrix_world @ Vector(vertex.co) for vertex in buoyancy.data.vertices]
+    if not proxy_points:
+        raise RuntimeError("Production Antey buoyancy proxy has no vertices")
+    cob = sum(proxy_points, Vector()) / len(proxy_points)
+    collision = physics_proxy_metadata(collision_objects[0], "collision.primary", "COLLISION")
+    buoyancy_record = physics_proxy_metadata(buoyancy, "buoyancy.primary", "BUOYANCY", cob)
+    return [collision], buoyancy_record
+
+
 def source_first_launcher_identity(name: str) -> tuple[str, int]:
     match = re.fullmatch(r"P700_(Port|Starboard)_(\d{2})", name)
     if match is None:
@@ -388,6 +475,7 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         obj = objects.get(name)
         props.append(propeller_metadata(obj, semantic_id))
     validate_semantic_spatial_metadata(props, compartments, hull_min, hull_max)
+    collision_proxies, buoyancy_proxy = production_physics_proxies(objects)
     rows = {}
     for side in ("PORT", "STARBOARD"):
         rows[side] = {}
@@ -458,8 +546,8 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         "propellers": props,
         "compartments": compartments,
         "retractableSailDevices": sail_devices,
-        "collision": [obj.name for obj in objects.values() if obj.get("physics_proxy_role") == "COLLISION"] or [name for name in ("COL_Antey_Bow", "COL_Antey_Main", "COL_Antey_Aft", "COL_Antey_Sail") if name in objects],
-        "buoyancyProxy": next((obj.name for obj in objects.values() if obj.get("physics_proxy_role") == "BUOYANCY"), "PHY_Antey_BuoyancyVolume" if "PHY_Antey_BuoyancyVolume" in objects else None),
+        "collision": collision_proxies,
+        "buoyancyProxy": buoyancy_proxy,
         "semanticRegions": [main_bow_sonar_region()],
         "runtimeBoundary": "Spatial authoring only; Simulation owns loading, damage, flooding, fire, crew, hatch state, and propeller RPM",
     }

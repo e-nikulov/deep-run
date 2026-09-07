@@ -11,8 +11,7 @@ bool IsFinite(const Assets::ModelVector3& value) noexcept
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
-// The C2 box proxy is derived from ModelAsset::bounds: size = max - min, halfExtents = size * 0.5.
-bool ValidateCollisionBounds(const Assets::ModelBounds& bounds, std::string& message)
+bool ValidateProductionVisualBounds(const Assets::ModelBounds& bounds, std::string& message)
 {
     if (!IsFinite(bounds.minimum) || !IsFinite(bounds.maximum))
     {
@@ -31,6 +30,13 @@ bool ValidateCollisionBounds(const Assets::ModelBounds& bounds, std::string& mes
     }
     message.clear();
     return true;
+}
+
+bool ValidateCollisionBounds(const Assets::ModelBounds& bounds, std::string& message)
+{
+    // Compatibility entry point for older bounds-unit tests. Production runtime physics no longer calls
+    // this function and never derives a body shape from ModelAsset::bounds.
+    return ValidateProductionVisualBounds(bounds, message);
 }
 
 Assets::ModelVector3 BoundsCenter(const Assets::ModelBounds& bounds) noexcept
@@ -74,8 +80,8 @@ std::expected<Assets::ModelTransform, std::string> BuildBodyToWorld(
 
     Assets::ModelTransform result{};
     // Rotation part from a unit quaternion (x, y, z, w), stored column-major like ModelTransform. The body
-    // origin is the bounds center and the model-to-body correction T(-boundsCenter) is applied by the caller
-    // through Multiply(bodyToWorld, modelToBody), so this matrix only maps body space to world space:
+    // origin and any visual model-to-body correction are independent inputs; this matrix only maps body space
+    // to world space, and the caller composes the visual correction separately:
     // world = R * bodyLocal + position.
     // Column-major storage: values[column * 4 + row]. The matrix implements v' = q v q^-1, so a positive
     // angle around +Z maps +X to +Y (right-handed world per ADR-0006).

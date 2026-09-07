@@ -219,6 +219,72 @@ void Require(const bool condition, const std::string_view message)
         throw std::runtime_error(std::string(message));
     }
 }
+
+[[nodiscard]] ProductionProxyShape ReadProxyShape(const Json& value, const std::string_view label)
+{
+    Require(value.is_string() && value.get<std::string>() == "BOX",
+            std::format("Antey {} shapeType must be BOX", label));
+    return ProductionProxyShape::Box;
+}
+
+[[nodiscard]] ProductionCollisionDefinition ReadCollisionProxy(const Json& value, const std::size_t ordinal)
+{
+    Require(value.is_object(), "Antey collision proxy must be an object");
+    const std::string label = std::format("collision proxy {}", ordinal);
+    const std::string semanticId = value.at("semanticId").get<std::string>();
+    Require(!semanticId.empty(), std::format("{} semanticId must be non-empty", label));
+    const Assets::ModelVector3 sourceDimensions = ReadVector3(value.at("dimensions"), label + " dimensions");
+    const Assets::ModelVector3 sourceHalfExtents = ReadVector3(value.at("halfExtents"), label + " halfExtents");
+    Require(sourceHalfExtents.x > 0.0F && sourceHalfExtents.y > 0.0F && sourceHalfExtents.z > 0.0F,
+            std::format("{} halfExtents must be positive", label));
+    Require(std::abs(sourceDimensions.x - 2.0F * sourceHalfExtents.x) <= 1.0e-4F &&
+                std::abs(sourceDimensions.y - 2.0F * sourceHalfExtents.y) <= 1.0e-4F &&
+                std::abs(sourceDimensions.z - 2.0F * sourceHalfExtents.z) <= 1.0e-4F,
+            std::format("{} dimensions and halfExtents disagree", label));
+    const auto orientation = ConvertAnteyAuthoringQuaternionWxyz(
+        ReadQuaternion(value.at("orientationQuaternionWXYZ"), label + " orientation"));
+    return {
+        .semanticId = semanticId,
+        .shape = ReadProxyShape(value.at("shapeType"), label),
+        .localCenter = ConvertAnteyAuthoringVector(ReadVector3(value.at("center"), label + " center")),
+        .orientationQuaternionWxyz = orientation,
+        .halfExtents = ConvertAnteyAuthoringExtent(sourceHalfExtents)};
+}
+
+[[nodiscard]] ProductionBuoyancyDefinition ReadBuoyancyProxy(const Json& value)
+{
+    Require(value.is_object(), "Antey buoyancy proxy must be an object");
+    const std::string semanticId = value.at("semanticId").get<std::string>();
+    Require(!semanticId.empty(), "buoyancy proxy semanticId must be non-empty");
+    const Assets::ModelVector3 sourceDimensions = ReadVector3(value.at("dimensions"), "buoyancy proxy dimensions");
+    const Assets::ModelVector3 sourceHalfExtents = ReadVector3(value.at("halfExtents"), "buoyancy proxy halfExtents");
+    Require(sourceHalfExtents.x > 0.0F && sourceHalfExtents.y > 0.0F && sourceHalfExtents.z > 0.0F,
+            "buoyancy proxy halfExtents must be positive");
+    Require(std::abs(sourceDimensions.x - 2.0F * sourceHalfExtents.x) <= 1.0e-4F &&
+                std::abs(sourceDimensions.y - 2.0F * sourceHalfExtents.y) <= 1.0e-4F &&
+                std::abs(sourceDimensions.z - 2.0F * sourceHalfExtents.z) <= 1.0e-4F,
+            "buoyancy proxy dimensions and halfExtents disagree");
+    const Assets::ModelVector3 sourceCenter = ReadVector3(value.at("center"), "buoyancy proxy center");
+    const Assets::ModelVector3 sourceCob = ReadVector3(value.at("centerOfBuoyancy"), "buoyancy proxy COB");
+    const Assets::ModelVector3 runtimeCenter = ConvertAnteyAuthoringVector(sourceCenter);
+    const Assets::ModelVector3 runtimeHalfExtents = ConvertAnteyAuthoringExtent(sourceHalfExtents);
+    const Assets::ModelVector3 runtimeCob = ConvertAnteyAuthoringVector(sourceCob);
+    const auto associated = [runtimeCenter, runtimeHalfExtents](const Assets::ModelVector3& point)
+    {
+        return std::abs(point.x - runtimeCenter.x) <= runtimeHalfExtents.x * 1.25F &&
+               std::abs(point.y - runtimeCenter.y) <= runtimeHalfExtents.y * 1.25F &&
+               std::abs(point.z - runtimeCenter.z) <= runtimeHalfExtents.z * 1.25F;
+    };
+    Require(associated(runtimeCob), "buoyancy proxy COB is not inside or plausibly associated with the proxy");
+    return {
+        .semanticId = semanticId,
+        .shape = ReadProxyShape(value.at("shapeType"), "buoyancy proxy"),
+        .localCenter = runtimeCenter,
+        .orientationQuaternionWxyz = ConvertAnteyAuthoringQuaternionWxyz(
+            ReadQuaternion(value.at("orientationQuaternionWXYZ"), "buoyancy proxy orientation")),
+        .halfExtents = runtimeHalfExtents,
+        .centerOfBuoyancy = runtimeCob};
+}
 }
 
 std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnteyAssetDefinition(
@@ -273,8 +339,8 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             .torpedoLaunchAnchors = {},
             .p700LaunchAnchors = {},
             .compartments = {},
-            .collisionSemanticIds = {},
-            .buoyancySemanticId = "buoyancy.primary"};
+            .collisionProxies = {},
+            .buoyancyProxy = {}};
 
         for (std::size_t index = 0; index < definition.renderLods.size(); ++index)
         {
@@ -407,15 +473,18 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
         Require(hasDistinctCompartmentCenters, "Antey compartment centers must not collapse to one point");
 
         const Json& collision = authoring.at("collision");
-        Require(collision.is_array() && !collision.empty(), "Antey must have collision records");
+        Require(collision.is_array() && !collision.empty(), "Antey collision records must be present");
+        std::unordered_set<std::string> collisionSemanticIds;
         for (std::size_t index = 0; index < collision.size(); ++index)
         {
-            Require(collision[index].is_string() && !collision[index].get<std::string>().empty(),
-                    "Antey collision record must be a non-empty identifier");
-            definition.collisionSemanticIds.push_back(std::format("collision.{:02}", index + 1U));
+            ProductionCollisionDefinition proxy = ReadCollisionProxy(collision[index], index + 1U);
+            Require(collisionSemanticIds.insert(proxy.semanticId).second,
+                    "Antey collision proxy semantic IDs must be unique");
+            definition.collisionProxies.push_back(std::move(proxy));
         }
-        Require(authoring.at("buoyancyProxy").is_string() && !authoring.at("buoyancyProxy").get<std::string>().empty(),
-                "Antey buoyancy record must be a non-empty identifier");
+        definition.buoyancyProxy = ReadBuoyancyProxy(authoring.at("buoyancyProxy"));
+        Require(collisionSemanticIds.find(definition.buoyancyProxy.semanticId) == collisionSemanticIds.end(),
+                "Antey collision and buoyancy proxy semantic IDs must be unique across physics roles");
 
         return definition;
     }

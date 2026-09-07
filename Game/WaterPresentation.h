@@ -26,15 +26,14 @@ namespace DeepRun::Game
 constexpr Render::RgbaColor M2AboveWaterBackgroundColor{0.00116099F, 0.00444609F, 0.00657139F, 1.0F};
 constexpr Render::RgbaColor M2UnderwaterBackgroundColor{0.00309598F, 0.03954624F, 0.11953843F, 1.0F};
 
-// World placement of a body whose model-space bounds center must sit at the given depth below the water
-// surface (M2 Slice D2). The asset Y center is deliberately NOT used as a depth: only X/Z come from the
-// asset-space bounds center; world Y derives exclusively from the authoritative surface level and the
-// desired depth. Pure function, no WaterBody dependency, so placement can be tested against arbitrary
-// surfaces (the integration helper must not assume sea level at world Y=0).
+// World placement of a body whose authoritative local reference point must sit at the given depth below the
+// water surface (M2 Slice D2). The reference-point Y is deliberately NOT used as a depth: only X/Z come from
+// the local reference point; world Y derives exclusively from the authoritative surface level and desired
+// depth. Pure function, no WaterBody dependency, so placement can be tested against arbitrary surfaces.
 [[nodiscard]] Physics::PhysicsVector3 ComputeInitialBodyWorldCenter(
     const float surfaceLevelY,
     const float desiredDepthMeters,
-    const Assets::ModelVector3& assetBoundsCenter) noexcept;
+    const Assets::ModelVector3& referencePoint) noexcept;
 
 // Projects the authoritative flat water surface (world-space Y) through the actual gameplay camera into a
 // normalized viewport coordinate: 0 = top edge, 1 = bottom edge of the current render target. The world

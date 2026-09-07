@@ -28,14 +28,14 @@ Render::GerstnerSurfacePresentationParameters BuildGerstnerSurfacePresentation(c
 Physics::PhysicsVector3 ComputeInitialBodyWorldCenter(
     const float surfaceLevelY,
     const float desiredDepthMeters,
-    const Assets::ModelVector3& assetBoundsCenter) noexcept
+    const Assets::ModelVector3& referencePoint) noexcept
 {
     return {
-        .x = assetBoundsCenter.x,
+        .x = referencePoint.x,
         // Depth is measured from the authoritative surface level, never from world Y=0 and never from the
         // asset-space Y center: signedDepthMeters = surfaceLevelY - bodyWorldY.
         .y = surfaceLevelY - desiredDepthMeters,
-        .z = assetBoundsCenter.z};
+        .z = referencePoint.z};
 }
 
 std::expected<float, std::string> ProjectWorldSurfaceToViewportY(

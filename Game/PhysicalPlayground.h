@@ -133,7 +133,8 @@ private:
     // M2 scenario composition (D2): the authoritative water body, owned by value as part of this concrete
     // scenario. No MarineEnvironment/global/singleton — just a member of the playground that composes it.
     std::optional<Marine::WaterBody> water_;
-    // Explicit Game-owned M2 prototype tuning. Marine owns only the generic point/component data types.
+    // Explicit Game-owned M2 Antey playground tuning. Marine owns only the generic point/component data types;
+    // production proxy geometry supplies spatial layout, not displaced volume or mass.
     Marine::BuoyancyComponent buoyancy_;
     Marine::BuoyancyComponent surfaceFloatBuoyancy_;
     // Pre-reserved at initialization; CalculateWaveSurface reuses this storage in every fixed tick.
@@ -143,12 +144,13 @@ private:
     Marine::PropulsionState propulsionState_{};
     std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
 
-    // Asset-space pivot: (bounds.min + bounds.max) * 0.5. Used ONLY for modelToBody = T(-assetBoundsCenter).
-    Assets::ModelVector3 assetBoundsCenter_{};
-    // World-space initial body center: X/Z from the asset bounds center, Y from WaterBody surface level and
-    // M2InitialSubmarineDepthMeters (never from the asset Y center). Also the fixed B2.1 camera target.
+    // World-space initial body center: X/Z from the production collision reference point, Y from WaterBody
+    // surface level and M2InitialSubmarineDepthMeters. Also the fixed B2.1 camera target.
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     Assets::ModelTransform modelToBody_{};
+    // Game tuning points are authored in the production vessel frame and shifted once into the production
+    // collision body's local frame. The canonical collision center is source origin, so this is unchanged.
+    Physics::PhysicsVector3 propulsorBodyLocalPosition_{};
     // IG1-B.1 fixed submerged presentation state. These per-node post transforms are built from opaque
     // IG1 production bindings once at initialization and never mutate ModelAsset or physics.
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides_;

@@ -616,7 +616,7 @@ Design boundary:
 
 ### Post-M3 Integration Gate IG1 - Production Antey Runtime Integration
 
-Status: IN PROGRESS (IG1-A complete; gate not complete)
+Status: IN PROGRESS (IG1-C complete; IG1-D not started; gate not complete)
 
 IG1 is a bounded integration gate between completed M3 and M4, not a milestone
 or a new M/A/D/C specification axis. It connects the canonical C0 source-first
@@ -636,12 +636,23 @@ contract can be verified before it changes the existing playground visual path:
 | IG1-B | Replace the normal playground prototype visual path | COMPLETE |
 | IG1-B.1 | Correct submerged sail-device presentation | COMPLETE |
 | IG1-B.2 | Remaining submerged sail-device classification audit | COMPLETE |
-| IG1-C | Production collision/buoyancy runtime composition | NOT STARTED |
+| IG1-C | Production collision/buoyancy runtime composition | COMPLETE |
 | IG1-D | Production LOD validation/selection policy | NOT STARTED |
 
 IG1-A stages the currently accepted LOD0 GLB and retains the declared
 LOD0--LOD3 family metadata without fabricating absent LOD files. Availability
 and selection of additional source-supplied render variants belong to IG1-D.
+
+IG1-C completion establishes the normal runtime composition as production
+Antey visual LOD0 plus independent production collision and buoyancy BOX
+contracts. The collision proxy supplies Jolt body center and half-extents;
+the buoyancy proxy supplies bounded spatial extent and COB. The accepted
+Game-owned playground mass remains 12,000,000 kg and effective neutral
+displacement remains `mass / water density`; the buoyancy BOX geometric volume
+is not used as Project 949A displaced volume. The four bounded buoyancy points
+are deterministic samples inside the production proxy, with the existing
+2 m Game-owned stability offset retained explicitly. No prototype GLB is
+loaded by the normal playground physics path.
 
 #### In scope
 

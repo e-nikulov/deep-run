@@ -302,8 +302,9 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
         definition->metadataAssetId.Value() != "submarines/Antey/Antey.asset.json" || definition->propellers.size() != 2U ||
         definition->retractableSailDevices.size() != 9U || definition->torpedoLaunchAnchors.size() != 6U ||
         definition->p700LaunchAnchors.size() != 24U ||
-        definition->compartments.size() != 10U || definition->collisionSemanticIds.size() != 1U ||
-        definition->buoyancySemanticId != "buoyancy.primary")
+        definition->compartments.size() != 10U || definition->collisionProxies.size() != 1U ||
+        definition->collisionProxies.front().semanticId != "collision.primary" ||
+        definition->buoyancyProxy.semanticId != "buoyancy.primary")
     {
         return false;
     }
@@ -425,15 +426,77 @@ bool IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge()
     const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
     const std::size_t productionSelection = source.find("SelectProductionAnteyLod0Asset");
     const std::size_t productionLoad = source.find("assets.LoadModel(std::filesystem::path(productionLod0->Value()))");
-    const std::size_t physicsBridge = source.find("M2PhysicsProxyModelPath");
-    const std::size_t physicsBounds = source.find("const Assets::ModelBounds& physicsBounds");
-    const std::size_t bodyHalfExtents = source.find("bodyInfo.halfExtents = halfExtents");
+    const std::size_t prototypeBridge = source.find("M2PhysicsProxyModelPath");
+    const std::size_t productionCollision = source.find("collisionProxy.halfExtents");
+    const std::size_t bodyHalfExtents = source.find("bodyInfo.halfExtents = collisionHalfExtents");
     return productionSelection != std::string::npos && productionLoad != std::string::npos &&
-           physicsBridge != std::string::npos && physicsBounds != std::string::npos &&
-           bodyHalfExtents != std::string::npos &&
-           source.find("(physicsBounds.maximum.x - physicsBounds.minimum.x) * 0.5F") != std::string::npos &&
+           prototypeBridge == std::string::npos && productionCollision != std::string::npos &&
+           bodyHalfExtents != std::string::npos && source.find("assets.LoadModel(M2PhysicsProxyModelPath)") == std::string::npos &&
            source.find("SubmarineModelPath") == std::string::npos &&
            source.find("Render::PrepareModelDraws(*modelAsset_, modelToWorld, submergedSailDeviceOverrides_)") != std::string::npos;
+}
+
+bool IG1CProductionProxyContractsAreLoadedAndIndependentFromVisualBounds()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto definition = DeepRun::Game::Submarine::LoadProductionAnteyAssetDefinition(assets);
+    if (!definition || definition->collisionProxies.size() != 1U ||
+        definition->collisionProxies.front().shape != DeepRun::Game::Submarine::ProductionProxyShape::Box ||
+        definition->buoyancyProxy.shape != DeepRun::Game::Submarine::ProductionProxyShape::Box)
+    {
+        return false;
+    }
+
+    const auto& collision = definition->collisionProxies.front();
+    const auto& buoyancy = definition->buoyancyProxy;
+    const auto near = [](float actual, float expected) { return std::abs(actual - expected) <= 1.0e-4F; };
+    const bool collisionContract = near(collision.halfExtents.x, 77.0F) && near(collision.halfExtents.y, 5.0F) &&
+        near(collision.halfExtents.z, 8.9F) && near(collision.localCenter.x, 0.0F) &&
+        near(collision.localCenter.y, 0.0F) && near(collision.localCenter.z, 0.0F);
+    const bool buoyancyContract = near(buoyancy.halfExtents.x, 72.5F) && near(buoyancy.halfExtents.y, 3.75F) &&
+        near(buoyancy.halfExtents.z, 8.0F) && near(buoyancy.centerOfBuoyancy.x, 0.0F) &&
+        near(buoyancy.centerOfBuoyancy.y, 0.0F) && near(buoyancy.centerOfBuoyancy.z, 0.0F);
+    const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
+    const bool noVisualPhysicsBridge = source.find("physicsProxyModel") == std::string::npos &&
+        source.find("physicsBounds") == std::string::npos && source.find("M2PhysicsProxyModelPath") == std::string::npos &&
+        source.find("BoundsCenter(visualBounds)") == std::string::npos &&
+        source.find("bodyInfo.halfExtents = collisionHalfExtents") != std::string::npos;
+    return collisionContract && buoyancyContract && noVisualPhysicsBridge;
+}
+
+bool IG1CProductionBuoyancyLayoutIsBoundedAndGameTuned()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto definition = DeepRun::Game::Submarine::LoadProductionAnteyAssetDefinition(assets);
+    if (!definition || definition->buoyancyProxy.halfExtents.x <= 0.0F ||
+        definition->buoyancyProxy.halfExtents.y <= 0.0F || definition->buoyancyProxy.halfExtents.z <= 0.0F)
+    {
+        return false;
+    }
+
+    constexpr std::array<float, 4> Fractions{0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
+    std::array<float, 4> longitudinalPositions{};
+    for (std::size_t index = 0; index < Fractions.size(); ++index)
+    {
+        longitudinalPositions[index] = definition->buoyancyProxy.localCenter.x +
+            Fractions[index] * definition->buoyancyProxy.halfExtents.x;
+        if (std::abs(longitudinalPositions[index] - definition->buoyancyProxy.localCenter.x) >
+                definition->buoyancyProxy.halfExtents.x + 1.0e-4F ||
+            !std::isfinite(longitudinalPositions[index]))
+        {
+            return false;
+        }
+    }
+    const bool symmetric = std::abs(longitudinalPositions[0] + longitudinalPositions[3] -
+                                    2.0F * definition->buoyancyProxy.localCenter.x) <= 1.0e-4F &&
+        std::abs(longitudinalPositions[1] + longitudinalPositions[2] -
+                 2.0F * definition->buoyancyProxy.localCenter.x) <= 1.0e-4F;
+    const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
+    const bool productionSpatialPolicy = source.find("productionBuoyancy.halfExtents.x") != std::string::npos &&
+        source.find("M2GameBuoyancyStabilityOffsetMeters") != std::string::npos &&
+        source.find("M2GameAnteyMassTuningKg / water.Config().densityKgPerCubicMeter") != std::string::npos &&
+        source.find("17'400") == std::string::npos;
+    return symmetric && productionSpatialPolicy;
 }
 
 bool IG1B1SubmergedSailDevicesUseOnlyOpaquePostTransforms()
@@ -557,8 +620,8 @@ bool IG1A2ProductionSemanticSpatialMetadataIsGeometryDerived()
     const auto model = assets.LoadModel(AnteyModelPath);
     if (!definition || !model || definition->propellers.size() != 2U || definition->compartments.size() != 10U ||
         definition->p700LaunchAnchors.size() != 24U || definition->torpedoLaunchAnchors.size() != 6U ||
-        definition->retractableSailDevices.size() != 9U || definition->collisionSemanticIds.empty() ||
-        definition->buoyancySemanticId.empty())
+        definition->retractableSailDevices.size() != 9U || definition->collisionProxies.empty() ||
+        definition->buoyancyProxy.semanticId.empty())
     {
         return false;
     }
@@ -9662,7 +9725,9 @@ int main(const int argumentCount, const char* const* arguments)
         {"IG1-A staged Antey definition loads headlessly", IG1AStagedProductionDefinitionLoadsHeadlessly},
         {"IG1-A.1 authoring transform conversion preserves affine invariant", IG1A1AuthoringTransformConversionPreservesAffineInvariant},
         {"IG1-B selects staged production visual and validates runtime geometry", IG1BProductionVisualSelectionAndRuntimeGeometry},
-        {"IG1-B keeps production visual separate from M2 physics bridge", IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge},
+        {"IG1-C removes the prototype physics bridge from normal runtime", IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge},
+        {"IG1-C production proxy contracts are loaded independently from visual bounds", IG1CProductionProxyContractsAreLoadedAndIndependentFromVisualBounds},
+        {"IG1-C production buoyancy layout stays bounded and Game-tuned", IG1CProductionBuoyancyLayoutIsBoundedAndGameTuned},
         {"IG1-B.1 stows only classified sail devices through opaque post transforms", IG1B1SubmergedSailDevicesUseOnlyOpaquePostTransforms},
         {"IG1-A.2 production semantic spatial metadata is geometry-derived", IG1A2ProductionSemanticSpatialMetadataIsGeometryDerived},
         {"IG1-A public semantic definition hides raw node names", IG1APublicSemanticDefinitionHasNoRawNodeNames},

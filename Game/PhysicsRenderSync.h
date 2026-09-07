@@ -14,7 +14,12 @@ namespace DeepRun::Game
 
 [[nodiscard]] bool IsFinite(const Assets::ModelVector3& value) noexcept;
 
-// Validates the source bounds for the C2 box collision proxy: finite and strictly positive size on every axis.
+// Validates render-model bounds for the production visual presentation only. These bounds are not a
+// collision or buoyancy authority; production physics proxies are loaded from semantic sidecar data.
+[[nodiscard]] bool ValidateProductionVisualBounds(const Assets::ModelBounds& bounds, std::string& message);
+
+// Legacy bounds validator retained for focused historical tests. Normal production physics must not call
+// this function or derive a body shape from ModelAsset::bounds.
 [[nodiscard]] bool ValidateCollisionBounds(const Assets::ModelBounds& bounds, std::string& message);
 
 // (minimum + maximum) * 0.5 per axis. The asset origin is NOT assumed to coincide with this center.
@@ -27,8 +32,8 @@ namespace DeepRun::Game
 // +Y up, and +Z toward camera (ADR-0006). The result is column-major like ModelTransform. Malformed input
 // (non-finite position or a zero/non-finite quaternion) is rejected instead of producing NaN.
 //
-// M2 Slice C2.1: the body-to-world matrix depends only on the physics pose, never on asset bounds. The asset
-// pivot correction stays explicitly separate in the caller: modelToWorld = BuildBodyToWorld(state) * modelToBody.
+// M2 Slice C2.1: the body-to-world matrix depends only on the physics pose, never on render bounds. The visual
+// model-to-body correction stays explicitly separate in the caller: modelToWorld = bodyToWorld * modelToBody.
 [[nodiscard]] std::expected<Assets::ModelTransform, std::string> BuildBodyToWorld(
     const Physics::PhysicsBodyState& state);
 
