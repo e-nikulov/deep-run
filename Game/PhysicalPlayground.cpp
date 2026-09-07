@@ -9,6 +9,7 @@
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
+#include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
@@ -32,7 +33,11 @@ namespace DeepRun::Game
 {
 namespace
 {
-constexpr std::string_view SubmarineModelPath = "submarines/prototype/submarine_prototype.glb";
+// Temporary IG1-B bridge: the accepted M2 prototype bounds remain a physics-only C2 box proxy until IG1-C
+// composes the independent production collision contract. This asset is never uploaded or drawn normally.
+constexpr std::string_view M2PhysicsProxyModelPath = "submarines/prototype/submarine_prototype.glb";
+constexpr float IG1BProductionLengthMinimumMeters = 150.0F;
+constexpr float IG1BProductionLengthMaximumMeters = 158.0F;
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
 
@@ -161,6 +166,14 @@ std::string FormatBounds(const EnvironmentBounds& bounds)
     return stream.str();
 }
 
+std::string FormatBounds(const Assets::ModelBounds& bounds)
+{
+    std::ostringstream stream;
+    stream << "min(" << bounds.minimum.x << ", " << bounds.minimum.y << ", " << bounds.minimum.z
+           << "), max(" << bounds.maximum.x << ", " << bounds.maximum.y << ", " << bounds.maximum.z << ')';
+    return stream.str();
+}
+
 Assets::ModelBounds CombineBounds(const Assets::ModelBounds& first, const Assets::ModelBounds& second) noexcept
 {
     return Assets::ModelBounds{
@@ -279,33 +292,77 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     Render::D3D12Renderer& renderer,
     const bool verifyDistinctUploads)
 {
-    const auto model = assets.LoadModel(SubmarineModelPath);
+    const auto productionDefinition = Submarine::LoadProductionAnteyAssetDefinition(assets);
+    if (!productionDefinition)
+    {
+        return std::unexpected("physical playground production Antey definition load failed: " +
+                               productionDefinition.error());
+    }
+    const auto productionLod0 = Submarine::SelectProductionAnteyLod0Asset(*productionDefinition);
+    if (!productionLod0)
+    {
+        return std::unexpected("physical playground production Antey visual selection failed: " + productionLod0.error());
+    }
+    const auto model = assets.LoadModel(std::filesystem::path(productionLod0->Value()));
     if (!model)
     {
         std::ostringstream message;
-        message << "Physical playground model load failed: " << model.error().message
+        message << "Physical playground production Antey visual load failed: " << model.error().message
                 << " (" << model.error().path.string() << ')';
         return std::unexpected(message.str());
     }
 
-    const Assets::ModelBounds& bounds = (*model)->bounds;
+    const Assets::ModelBounds& visualBounds = (*model)->bounds;
     std::string validationMessage;
-    if (!ValidateCollisionBounds(bounds, validationMessage))
+    if (!ValidateCollisionBounds(visualBounds, validationMessage))
     {
-        return std::unexpected("physical playground collision proxy rejected: " + validationMessage);
+        return std::unexpected("physical playground production Antey visual bounds rejected: " + validationMessage);
+    }
+    const float productionLengthMeters = visualBounds.maximum.x - visualBounds.minimum.x;
+    if (productionLengthMeters < IG1BProductionLengthMinimumMeters ||
+        productionLengthMeters > IG1BProductionLengthMaximumMeters || (*model)->nodes.empty() ||
+        (*model)->primitives.empty() || (*model)->materials.size() != 2U)
+    {
+        return std::unexpected("physical playground production Antey visual contract validation failed");
+    }
+    for (const Assets::MeshPrimitiveData& primitive : (*model)->primitives)
+    {
+        if (primitive.vertices.empty() || primitive.indices.empty() || !primitive.hasNormals)
+        {
+            return std::unexpected("physical playground production Antey has a non-renderable primitive");
+        }
+    }
+    const Assets::ModelVector3 assetBoundsCenter = BoundsCenter(visualBounds);
+
+    std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides;
+    submergedSailDeviceOverrides.reserve(productionDefinition->retractableSailDevices.size());
+    for (const Submarine::ProductionRetractableSailDevice& device : productionDefinition->retractableSailDevices)
+    {
+        if (device.defaultState != Submarine::RetractableSailDeviceState::Stowed ||
+            device.presentationNodeBindingIndex >= (*model)->nodeBindings.size())
+        {
+            return std::unexpected("physical playground production sail-device state is invalid");
+        }
+        const auto meshNodeIndex = (*model)->nodeBindings[device.presentationNodeBindingIndex].meshNodeIndex;
+        if (!meshNodeIndex.has_value())
+        {
+            return std::unexpected("physical playground production sail-device binding is not drawable");
+        }
+        submergedSailDeviceOverrides.push_back(
+            {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
     }
 
-    const Assets::ModelVector3 assetBoundsCenter = BoundsCenter(bounds);
-    const auto propellerNodeIndex = ResolveM2PrototypePropellerNode(
-        **model,
-        assetBoundsCenter,
-        M2PropulsorBodyLocalPositionMeters,
-        M2PropulsorAlignmentToleranceMeters);
-    if (!propellerNodeIndex)
+    const auto physicsProxyModel = assets.LoadModel(M2PhysicsProxyModelPath);
+    if (!physicsProxyModel)
     {
-        return std::unexpected("physical playground propeller node validation failed: " +
-                               propellerNodeIndex.error());
+        return std::unexpected("physical playground M2 physics bridge load failed: " + physicsProxyModel.error().message);
     }
+    const Assets::ModelBounds& physicsBounds = (*physicsProxyModel)->bounds;
+    if (!ValidateCollisionBounds(physicsBounds, validationMessage))
+    {
+        return std::unexpected("physical playground M2 physics bridge bounds rejected: " + validationMessage);
+    }
+    const Assets::ModelVector3 physicsBoundsCenter = BoundsCenter(physicsBounds);
 
     const auto upload = renderer.UploadModel(**model);
     if (!upload)
@@ -499,15 +556,15 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     // T(-assetBoundsCenter). The asset bounds center is used ONLY for this pivot correction — it must never
     // double as a world position or camera target.
     const Physics::PhysicsVector3 halfExtents{
-        (bounds.maximum.x - bounds.minimum.x) * 0.5F,
-        (bounds.maximum.y - bounds.minimum.y) * 0.5F,
-        (bounds.maximum.z - bounds.minimum.z) * 0.5F};
+        (physicsBounds.maximum.x - physicsBounds.minimum.x) * 0.5F,
+        (physicsBounds.maximum.y - physicsBounds.minimum.y) * 0.5F,
+        (physicsBounds.maximum.z - physicsBounds.minimum.z) * 0.5F};
 
     // D2 world placement: the body's model-space bounds center starts exactly M2InitialSubmarineDepthMeters
     // below the authoritative surface level; X/Z come from the asset bounds center, Y comes exclusively from
     // WaterBody truth (never from the asset Y center). For the canonical prototype this is ~(1, -100, 0).
     const Physics::PhysicsVector3 initialBodyWorldCenter = ComputeInitialBodyWorldCenter(
-        water->Config().surfaceLevelY, M2InitialSubmarineDepthMeters, assetBoundsCenter);
+        water->Config().surfaceLevelY, M2InitialSubmarineDepthMeters, physicsBoundsCenter);
 
     // Verify placement against the authoritative water body before any physics/render work: sampling the
     // initial world center must report exactly the desired signed depth.
@@ -825,11 +882,11 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     propulsionState_ = {};
     controlSurfaces_ = M2ControlSurfaces;
     propellerPresentationAngleRadians_ = 0.0F;
-    propellerNodeIndex_ = *propellerNodeIndex;
     assetBoundsCenter_ = assetBoundsCenter;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
     modelToBody_ = TranslationTransform(
         {-assetBoundsCenter.x, -assetBoundsCenter.y, -assetBoundsCenter.z});
+    submergedSailDeviceOverrides_ = std::move(submergedSailDeviceOverrides);
 
     if (verifyDistinctUploads)
     {
@@ -849,11 +906,19 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     PlaygroundLog().Info(
         Diagnostics::LogCategory::Physics,
         "Physical playground body ready: box half extents (" + FormatVector(halfExtents) +
-            "), prototype mass " + std::to_string(M2PrototypeMassKg) + " kg, initial position " +
+            "), temporary M2 physics bridge mass " + std::to_string(M2PrototypeMassKg) + " kg, initial position " +
             FormatVector(initialState->position) + ", displaced volume " +
             std::to_string(initialBuoyancy->totalSubmergedVolumeCubicMeters) + " m^3, gravity " +
             std::to_string(*gravityMagnitude) + " m/s^2, buoyancy " +
             std::to_string(initialForce.y) + " N, weight " + std::to_string(expectedWeight) + " N");
+    PlaygroundLog().Info(
+        Diagnostics::LogCategory::Render,
+        "IG1-B production Antey visual ready: LOD0 " + std::string(productionLod0->Value()) +
+            ", bounds " + FormatBounds(visualBounds) + ", length " + std::to_string(productionLengthMeters) +
+            " m, nodes " + std::to_string((*model)->nodes.size()) + ", primitives " +
+            std::to_string((*model)->primitives.size()) + ", materials " + std::to_string((*model)->materials.size()) +
+            ", vertices " + std::to_string(upload->stats.vertexCount) + ", indices " +
+            std::to_string(upload->stats.indexCount));
     PlaygroundLog().Info(
         Diagnostics::LogCategory::Render,
         "Environment section ready: " + seabedSection_->id.value + ", bounds " +
@@ -1288,20 +1353,9 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     surfaceFloatDraw.normalToWorld = *surfaceFloatNormal;
 
-    if (!propellerNodeIndex_.has_value())
-    {
-        return std::unexpected("physical playground propeller node index is unavailable");
-    }
-    const auto propellerRotation = RotationXTransform(propellerPresentationAngleRadians_);
-    if (!propellerRotation)
-    {
-        return std::unexpected("physical playground propeller rotation failed: " + propellerRotation.error());
-    }
-    const std::array<Render::ModelNodeTransformOverride, 1> nodeOverrides{{
-        {.nodeIndex = *propellerNodeIndex_, .nodeLocalPostTransform = *propellerRotation}}};
-
-    // The generic post-transform preserves the authored hub translation and mutates no ModelAsset/GPU data.
-    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, nodeOverrides);
+    // IG1-B deliberately leaves production propellers static. Their semantic anchors resolve through IG1-A,
+    // but the existing M2 override addresses a prototype mesh node and must not leak raw GLB names into Game.
+    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, submergedSailDeviceOverrides_);
     if (!draws)
     {
         return std::unexpected(draws.error());
@@ -1345,13 +1399,20 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         renderer.AspectRatio(),
         M2GameplayCameraHorizontalSpanMeters,
         cameraDepthBounds);
-    if (!camera || !Render::BoundsFitInCamera(*worldBounds, *camera) ||
-        !Render::BoundsFitInCamera(floraField_->renderGeometry.bounds, *camera) ||
+    if (!camera)
+    {
+        return std::unexpected(camera.error());
+    }
+    if (!Render::BoundsFitInCamera(*worldBounds, *camera))
+    {
+        return std::unexpected("physical playground production Antey bounds do not fit the fixed camera");
+    }
+    if (!Render::BoundsFitInCamera(floraField_->renderGeometry.bounds, *camera) ||
         !Render::BoundsFitInCamera(iceField_->renderGeometry.bounds, *camera) ||
         !Render::BoundsFitInCamera(*faunaWorldBounds, *camera) ||
         !Render::BoundsFitInCamera(*surfaceFloatWorldBounds, *camera))
     {
-        return std::unexpected(camera ? "physical playground bounds do not fit the camera" : camera.error());
+        return std::unexpected("physical playground existing environment bounds do not fit the fixed camera");
     }
 
     // M3-C/C.1 authority boundary: WaterBody remains in Game/Simulation. Game derives only the authoritative

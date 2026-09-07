@@ -612,11 +612,12 @@ private:
                 AssetErrorCode::InvalidData, path_, id_, "mesh node transform is non-finite or non-affine"));
         }
 
-        output_.nodeBindings.push_back(
-            {.name = std::string(sourceNode.name), .localToModel = ToModelTransform(localToModel)});
+        ModelNodeBindingData binding{
+            .name = std::string(sourceNode.name), .localToModel = ToModelTransform(localToModel)};
 
         if (sourceNode.meshIndex.has_value())
         {
+            binding.meshNodeIndex = output_.nodes.size();
             auto primitiveIndices = ImportMesh(*sourceNode.meshIndex);
             if (!primitiveIndices)
             {
@@ -645,6 +646,7 @@ private:
             }
             output_.nodes.push_back(std::move(node));
         }
+        output_.nodeBindings.push_back(std::move(binding));
 
         for (const std::size_t childIndex : sourceNode.children)
         {

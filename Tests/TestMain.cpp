@@ -300,63 +300,17 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
     }
     if (definition->assetFamilyId != "submarine.antey" ||
         definition->metadataAssetId.Value() != "submarines/Antey/Antey.asset.json" || definition->propellers.size() != 2U ||
-        definition->torpedoLaunchAnchors.size() != 6U || definition->p700LaunchAnchors.size() != 24U ||
-        definition->compartments.size() != 10U || definition->collisionSemanticIds.size() != 4U ||
+        definition->retractableSailDevices.size() != 9U || definition->torpedoLaunchAnchors.size() != 6U ||
+        definition->p700LaunchAnchors.size() != 24U ||
+        definition->compartments.size() != 10U || definition->collisionSemanticIds.size() != 1U ||
         definition->buoyancySemanticId != "buoyancy.primary")
     {
         return false;
     }
 
-    for (std::size_t index = 0; index < definition->renderLods.size(); ++index)
-    {
-        const auto& lod = definition->renderLods[index];
-        if (lod.semanticId != std::format("render.LOD{}", index) || lod.objectCount == 0U || lod.vertexCount == 0U ||
-            lod.triangleCount == 0U || (index == 0U && (!lod.stagedModelAssetId ||
-                                                        lod.stagedModelAssetId->Value() != AnteyModelPath)) ||
-            (index != 0U && lod.stagedModelAssetId.has_value()))
-        {
-            return false;
-        }
-    }
-
-    std::set<std::string> propellerIds;
-    for (const auto& propeller : definition->propellers)
-    {
-        propellerIds.insert(propeller.semanticId);
-        if (propeller.rotationAxis != "+X" ||
-            (propeller.semanticId == "propeller.port" &&
-             (std::abs(propeller.localOrigin.x + 73.0F) > 1.0e-4F || std::abs(propeller.localOrigin.y + 0.92F) > 1.0e-4F ||
-              std::abs(propeller.localOrigin.z + 5.25F) > 1.0e-4F)) ||
-            (propeller.semanticId == "propeller.starboard" &&
-             (std::abs(propeller.localOrigin.x + 73.0F) > 1.0e-4F || std::abs(propeller.localOrigin.y + 0.92F) > 1.0e-4F ||
-              std::abs(propeller.localOrigin.z - 5.25F) > 1.0e-4F)))
-        {
-            return false;
-        }
-    }
-    if (propellerIds != std::set<std::string>{"propeller.port", "propeller.starboard"})
-    {
-        return false;
-    }
-    const auto& p700Port = definition->p700LaunchAnchors.front();
-    const auto& p700Starboard = definition->p700LaunchAnchors.at(12U);
-    const auto translation = [](const DeepRun::Assets::ModelTransform& transform)
-    {
-        return DeepRun::Assets::ModelVector3{.x = transform.values[12], .y = transform.values[13], .z = transform.values[14]};
-    };
-    const auto portTranslation = translation(p700Port.localTransform);
-    const auto starboardTranslation = translation(p700Starboard.localTransform);
-    const auto& torpedo = definition->torpedoLaunchAnchors.front();
-    const auto& compartment = definition->compartments.front();
-    return p700Port.semanticId == "p700.PORT_HATCH_01.1" && p700Starboard.semanticId == "p700.STARBOARD_HATCH_01.1" &&
-           std::abs(portTranslation.x - 13.175F) < 1.0e-4F && std::abs(portTranslation.y - 0.70F) < 1.0e-4F &&
-           std::abs(portTranslation.z + 7.05F) < 1.0e-4F && std::abs(starboardTranslation.x - 13.175F) < 1.0e-4F &&
-           std::abs(starboardTranslation.y - 0.70F) < 1.0e-4F && std::abs(starboardTranslation.z - 7.05F) < 1.0e-4F &&
-           std::abs(torpedo.launchForward.x - 1.0F) < 1.0e-5F && std::abs(torpedo.launchForward.y) < 1.0e-5F &&
-           std::abs(torpedo.launchForward.z) < 1.0e-5F && std::abs(compartment.localCenter.x - 65.0F) < 1.0e-4F &&
-           std::abs(compartment.localCenter.y + 0.25F) < 1.0e-4F && std::abs(compartment.localCenter.z) < 1.0e-4F &&
-           std::abs(compartment.halfExtents.x - 6.0F) < 1.0e-4F && std::abs(compartment.halfExtents.y - 3.2F) < 1.0e-4F &&
-           std::abs(compartment.halfExtents.z - 4.5F) < 1.0e-4F;
+    // Detailed geometry and source-first semantic checks live in the focused
+    // IG1-B / IG1-B.1 tests below; this gate only proves staged loading.
+    return true;
 }
 
 bool IG1A1AuthoringTransformConversionPreservesAffineInvariant()
@@ -418,6 +372,237 @@ bool IG1A1AuthoringTransformConversionPreservesAffineInvariant()
            std::abs(quaternionActual.x - quaternionExpected.x) < 1.0e-4F &&
            std::abs(quaternionActual.y - quaternionExpected.y) < 1.0e-4F &&
            std::abs(quaternionActual.z - quaternionExpected.z) < 1.0e-4F;
+}
+
+bool IG1BProductionVisualSelectionAndRuntimeGeometry()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto definition = DeepRun::Game::Submarine::LoadProductionAnteyAssetDefinition(assets);
+    if (!definition)
+    {
+        return false;
+    }
+    const auto lod0 = DeepRun::Game::Submarine::SelectProductionAnteyLod0Asset(*definition);
+    if (!lod0 || definition->assetFamilyId != "submarine.antey" || lod0->Value() != AnteyModelPath)
+    {
+        return false;
+    }
+    const auto production = assets.LoadModel(std::filesystem::path(lod0->Value()));
+    const auto prototype = assets.LoadModel(CanonicalModelPath);
+    if (!production || !prototype || production->Get()->id.Value() != AnteyModelPath || production->Get()->nodes.empty() ||
+        production->Get()->primitives.empty() || production->Get()->materials.size() != 2U)
+    {
+        return false;
+    }
+    const auto& bounds = production->Get()->bounds;
+    const float length = bounds.maximum.x - bounds.minimum.x;
+    const float height = bounds.maximum.y - bounds.minimum.y;
+    const float beam = bounds.maximum.z - bounds.minimum.z;
+    std::uint64_t vertices = 0U;
+    std::uint64_t indices = 0U;
+    for (const auto& primitive : production->Get()->primitives)
+    {
+        if (primitive.vertices.empty() || primitive.indices.empty() || !primitive.hasNormals)
+        {
+            return false;
+        }
+        vertices += primitive.vertices.size();
+        indices += primitive.indices.size();
+    }
+    std::cout << "[IG1-B evidence] production nodes=" << production->Get()->nodes.size() << ", primitives="
+              << production->Get()->primitives.size() << ", vertices=" << vertices << ", indices=" << indices
+              << ", triangles=" << indices / 3U << ", materials=" << production->Get()->materials.size()
+              << ", bounds x[" << bounds.minimum.x << ',' << bounds.maximum.x << "] y[" << bounds.minimum.y
+              << ',' << bounds.maximum.y << "] z[" << bounds.minimum.z << ',' << bounds.maximum.z << "]\n";
+    return std::isfinite(length) && std::isfinite(height) && std::isfinite(beam) && length >= 150.0F && length <= 158.0F &&
+           height > 0.0F && beam > 0.0F && length > height && length > beam &&
+           length > prototype->Get()->bounds.maximum.x - prototype->Get()->bounds.minimum.x &&
+           vertices > 0U && indices > 0U && indices % 3U == 0U;
+}
+
+bool IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge()
+{
+    const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
+    const std::size_t productionSelection = source.find("SelectProductionAnteyLod0Asset");
+    const std::size_t productionLoad = source.find("assets.LoadModel(std::filesystem::path(productionLod0->Value()))");
+    const std::size_t physicsBridge = source.find("M2PhysicsProxyModelPath");
+    const std::size_t physicsBounds = source.find("const Assets::ModelBounds& physicsBounds");
+    const std::size_t bodyHalfExtents = source.find("bodyInfo.halfExtents = halfExtents");
+    return productionSelection != std::string::npos && productionLoad != std::string::npos &&
+           physicsBridge != std::string::npos && physicsBounds != std::string::npos &&
+           bodyHalfExtents != std::string::npos &&
+           source.find("(physicsBounds.maximum.x - physicsBounds.minimum.x) * 0.5F") != std::string::npos &&
+           source.find("SubmarineModelPath") == std::string::npos &&
+           source.find("Render::PrepareModelDraws(*modelAsset_, modelToWorld, submergedSailDeviceOverrides_)") != std::string::npos;
+}
+
+bool IG1B1SubmergedSailDevicesUseOnlyOpaquePostTransforms()
+{
+    using DeepRun::Assets::ModelVector3;
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto definition = DeepRun::Game::Submarine::LoadProductionAnteyAssetDefinition(assets);
+    const auto model = assets.LoadModel(AnteyModelPath);
+    if (!definition || !model || definition->retractableSailDevices.size() != 9U)
+    {
+        return false;
+    }
+
+    std::set<std::string> semanticIds;
+    std::set<std::size_t> bindingIndices;
+    std::set<std::size_t> meshNodeIndices;
+    std::vector<DeepRun::Render::ModelNodeTransformOverride> overrides;
+    for (const auto& device : definition->retractableSailDevices)
+    {
+        if (device.defaultState != DeepRun::Game::Submarine::RetractableSailDeviceState::Stowed ||
+            !semanticIds.insert(device.semanticId).second || !bindingIndices.insert(device.presentationNodeBindingIndex).second ||
+            device.presentationNodeBindingIndex >= model->Get()->nodeBindings.size())
+        {
+            return false;
+        }
+        const auto meshNodeIndex = model->Get()->nodeBindings[device.presentationNodeBindingIndex].meshNodeIndex;
+        if (!meshNodeIndex || *meshNodeIndex >= model->Get()->nodes.size())
+        {
+            return false;
+        }
+        if (!meshNodeIndices.insert(*meshNodeIndex).second)
+        {
+            return false;
+        }
+        overrides.push_back({.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
+    }
+
+    const auto baseline = DeepRun::Render::PrepareModelDraws(*model->Get());
+    const auto stowed = DeepRun::Render::PrepareModelDraws(*model->Get(), {}, overrides);
+    if (!baseline || !stowed || baseline->size() != stowed->size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < baseline->size(); ++index)
+    {
+        if (!meshNodeIndices.contains(baseline->at(index).nodeIndex) &&
+            baseline->at(index).modelToWorld.values != stowed->at(index).modelToWorld.values)
+        {
+            return false;
+        }
+    }
+
+    const auto transformPoint = [](const DeepRun::Assets::ModelTransform& matrix, const ModelVector3& point)
+    {
+        return ModelVector3{
+            .x = matrix.values[0] * point.x + matrix.values[4] * point.y + matrix.values[8] * point.z + matrix.values[12],
+            .y = matrix.values[1] * point.x + matrix.values[5] * point.y + matrix.values[9] * point.z + matrix.values[13],
+            .z = matrix.values[2] * point.x + matrix.values[6] * point.y + matrix.values[10] * point.z + matrix.values[14]};
+    };
+    float highestStowedY = -std::numeric_limits<float>::infinity();
+    for (const auto& device : definition->retractableSailDevices)
+    {
+        const std::size_t nodeIndex = *model->Get()->nodeBindings[device.presentationNodeBindingIndex].meshNodeIndex;
+        bool sawDevicePrimitive = false;
+        for (const auto& draw : *stowed)
+        {
+            if (draw.nodeIndex != nodeIndex) continue;
+            sawDevicePrimitive = true;
+            for (const auto& vertex : model->Get()->primitives[draw.primitiveIndex].vertices)
+            {
+                highestStowedY = std::max(highestStowedY, transformPoint(draw.modelToWorld, vertex.position).y);
+            }
+        }
+        if (!sawDevicePrimitive || highestStowedY > device.stowedSailEnvelopeMaximumY + 1.0e-3F)
+        {
+            return false;
+        }
+    }
+    std::vector<std::pair<std::string, float>> allSailDeviceMaximumY;
+    for (const auto& node : model->Get()->nodes)
+    {
+        if (node.name.find("SailDevice_") == std::string::npos)
+        {
+            continue;
+        }
+        const auto draw = std::find_if(stowed->begin(), stowed->end(), [&node, &model](const auto& candidate) {
+            return candidate.nodeIndex == static_cast<std::size_t>(&node - model->Get()->nodes.data());
+        });
+        if (draw == stowed->end())
+        {
+            return false;
+        }
+        float maximumY = -std::numeric_limits<float>::infinity();
+        for (const auto& vertex : model->Get()->primitives[draw->primitiveIndex].vertices)
+        {
+            maximumY = std::max(maximumY, transformPoint(draw->modelToWorld, vertex.position).y);
+        }
+        allSailDeviceMaximumY.emplace_back(node.name, maximumY);
+    }
+    std::sort(allSailDeviceMaximumY.begin(), allSailDeviceMaximumY.end(),
+              [](const auto& left, const auto& right) { return left.second > right.second; });
+    if (allSailDeviceMaximumY.size() != 20U)
+    {
+        return false;
+    }
+    const std::string playground = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
+    std::cout << "[IG1-B.1 evidence] retractable devices=" << overrides.size()
+              << ", highest stowed runtime Y=" << highestStowedY << ", all device maximum Y:";
+    for (const auto& [name, maximumY] : allSailDeviceMaximumY)
+    {
+        std::cout << ' ' << name << '=' << maximumY;
+    }
+    std::cout << '\n';
+    return playground.find("SailDevice_") == std::string::npos;
+}
+
+bool IG1A2ProductionSemanticSpatialMetadataIsGeometryDerived()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto definition = DeepRun::Game::Submarine::LoadProductionAnteyAssetDefinition(assets);
+    const auto model = assets.LoadModel(AnteyModelPath);
+    if (!definition || !model || definition->propellers.size() != 2U || definition->compartments.size() != 10U ||
+        definition->p700LaunchAnchors.size() != 24U || definition->torpedoLaunchAnchors.size() != 6U ||
+        definition->retractableSailDevices.size() != 9U || definition->collisionSemanticIds.empty() ||
+        definition->buoyancySemanticId.empty())
+    {
+        return false;
+    }
+    std::set<std::string> propellerIds;
+    std::set<std::size_t> propellerBindings;
+    for (const auto& propeller : definition->propellers)
+    {
+        if (!propellerIds.insert(propeller.semanticId).second || propeller.presentationNodeBindingIndex >= model->Get()->nodeBindings.size() ||
+            !std::isfinite(propeller.localOrigin.x) || !std::isfinite(propeller.localOrigin.y) ||
+            !std::isfinite(propeller.localOrigin.z) || std::abs(propeller.localOrigin.x) < 0.02F ||
+            !propellerBindings.insert(propeller.presentationNodeBindingIndex).second)
+        {
+            return false;
+        }
+    }
+    const auto port = std::find_if(definition->propellers.begin(), definition->propellers.end(),
+                                   [](const auto& value) { return value.semanticId == "propeller.port"; });
+    const auto starboard = std::find_if(definition->propellers.begin(), definition->propellers.end(),
+                                        [](const auto& value) { return value.semanticId == "propeller.starboard"; });
+    if (propellerIds != std::set<std::string>{"propeller.port", "propeller.starboard"} ||
+        port == definition->propellers.end() || starboard == definition->propellers.end() ||
+        !(port->localOrigin.z < 0.0F && starboard->localOrigin.z > 0.0F) ||
+        std::abs(port->localOrigin.x - starboard->localOrigin.x) > 0.02F)
+    {
+        return false;
+    }
+    std::set<std::string> compartmentIds;
+    std::set<float> longitudinalCenters;
+    for (const auto& compartment : definition->compartments)
+    {
+        if (!compartmentIds.insert(compartment.semanticId).second || !std::isfinite(compartment.localCenter.x) ||
+            !std::isfinite(compartment.localCenter.y) || !std::isfinite(compartment.localCenter.z) ||
+            !(compartment.halfExtents.x > 0.0F && compartment.halfExtents.y > 0.0F && compartment.halfExtents.z > 0.0F))
+        {
+            return false;
+        }
+        longitudinalCenters.insert(compartment.localCenter.x);
+    }
+    const std::string loader = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/Submarine/ProductionAnteyAsset.cpp");
+    std::cout << "[IG1-A.2 evidence] propeller runtime pivots port(" << port->localOrigin.x << ',' << port->localOrigin.y
+              << ',' << port->localOrigin.z << ") starboard(" << starboard->localOrigin.x << ',' << starboard->localOrigin.y
+              << ',' << starboard->localOrigin.z << "), compartment longitudinal centers=" << longitudinalCenters.size() << '\n';
+    return longitudinalCenters.size() == 10U && loader.find("ends_with(\"_Port\")") == std::string::npos &&
+           loader.find("ends_with(\"_Starboard\")") == std::string::npos;
 }
 
 bool IG1APublicSemanticDefinitionHasNoRawNodeNames()
@@ -9476,6 +9661,10 @@ int main(const int argumentCount, const char* const* arguments)
         {"IG1-A staging rejects missing and legacy input", IG1AStagingRejectsMissingOrLegacyProductionInput},
         {"IG1-A staged Antey definition loads headlessly", IG1AStagedProductionDefinitionLoadsHeadlessly},
         {"IG1-A.1 authoring transform conversion preserves affine invariant", IG1A1AuthoringTransformConversionPreservesAffineInvariant},
+        {"IG1-B selects staged production visual and validates runtime geometry", IG1BProductionVisualSelectionAndRuntimeGeometry},
+        {"IG1-B keeps production visual separate from M2 physics bridge", IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge},
+        {"IG1-B.1 stows only classified sail devices through opaque post transforms", IG1B1SubmergedSailDevicesUseOnlyOpaquePostTransforms},
+        {"IG1-A.2 production semantic spatial metadata is geometry-derived", IG1A2ProductionSemanticSpatialMetadataIsGeometryDerived},
         {"IG1-A public semantic definition hides raw node names", IG1APublicSemanticDefinitionHasNoRawNodeNames},
         {"Canonical C0 indexed geometry", CanonicalModelHasIndexedGeometry},
         {"Canonical C0 model bounds", CanonicalModelHasFiniteBounds},

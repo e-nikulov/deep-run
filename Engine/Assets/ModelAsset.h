@@ -71,6 +71,10 @@ struct ModelNodeBindingData final
 {
     std::string name;
     ModelTransform localToModel{};
+    // Present only when this imported node contributes a drawable mesh node.
+    // This remains an Assets-layer resolution detail; semantic consumers retain
+    // only the opaque nodeBindings index.
+    std::optional<std::size_t> meshNodeIndex;
 };
 
 struct ModelAsset final

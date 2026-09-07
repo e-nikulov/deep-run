@@ -45,6 +45,24 @@ struct ProductionPropellerAnchor final
     std::size_t presentationNodeBindingIndex = 0;
 };
 
+enum class RetractableSailDeviceState
+{
+    Stowed,
+    Deployed,
+};
+
+struct ProductionRetractableSailDevice final
+{
+    std::string semanticId;
+    // Opaque Assets-layer binding index; never a GLB node name contract.
+    std::size_t presentationNodeBindingIndex = 0;
+    ProductionLocalTransform deployedLocalPostTransform{};
+    ProductionLocalTransform stowedLocalPostTransform{};
+    RetractableSailDeviceState defaultState = RetractableSailDeviceState::Stowed;
+    // Runtime +Y envelope derived from the production sail's authored +Z top.
+    float stowedSailEnvelopeMaximumY = 0.0F;
+};
+
 struct ProductionLaunchAnchor final
 {
     std::string semanticId;
@@ -66,12 +84,18 @@ struct ProductionSubmarineAssetDefinition final
     Assets::AssetId metadataAssetId;
     std::array<ProductionRenderLod, 4> renderLods;
     std::vector<ProductionPropellerAnchor> propellers;
+    std::vector<ProductionRetractableSailDevice> retractableSailDevices;
     std::vector<ProductionLaunchAnchor> torpedoLaunchAnchors;
     std::vector<ProductionLaunchAnchor> p700LaunchAnchors;
     std::vector<ProductionCompartment> compartments;
     std::vector<std::string> collisionSemanticIds;
     std::string buoyancySemanticId;
 };
+
+// Selects the sole staged render asset available during IG1-B. LOD selection
+// policy remains deferred to IG1-D.
+[[nodiscard]] std::expected<Assets::AssetId, std::string> SelectProductionAnteyLod0Asset(
+    const ProductionSubmarineAssetDefinition& definition);
 
 [[nodiscard]] std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnteyAssetDefinition(
     Assets::AssetManager& assets);

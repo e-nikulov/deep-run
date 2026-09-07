@@ -4,7 +4,7 @@
   "name": "Antey",
   "identity": "neutral Project 949A-inspired production asset",
   "blend": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Antey_GameReady.blend",
-  "blendSha256": "5E401E91CE37005271D07E2BF1C29B7C0ECB1E1ED1AC5F205699FF1B67AC58B6",
+  "blendSha256": "B225513DF07FAEA481DA915963927CB6698AE5E5CC5BEE282B52B16436197EFB",
   "glb": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Antey.glb",
   "glbSha256": "5B8EED5CB1695F182B72F66E280DDBEDCD3BB8F9716C14EE5E8E8EBC2A61B853",
   "source": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Source\\Antey_Source.blend",
@@ -13,32 +13,32 @@
   "dimensionsMeters": {
     "length": 154.0,
     "maximumBeam": 18.200000762939453,
-    "maximumExteriorSpan": 19.0,
+    "maximumExteriorSpan": 18.200000762939453,
     "mainHullMaximumBeam": 18.200000762939453,
-    "mainHullExteriorHeight": 11.369999885559082,
-    "sailHeight": 4.399999618530273,
-    "overallHeight": 19.619999408721924
+    "mainHullExteriorHeight": 8.446431875228882,
+    "sailHeight": 3.571788787841797,
+    "overallHeight": 19.01602792739868
   },
   "lods": {
     "LOD0": {
-      "objects": 34,
-      "vertices": 37218,
-      "triangles": 74244
+      "objects": 66,
+      "vertices": 65423,
+      "triangles": 118346
     },
     "LOD1": {
-      "objects": 34,
-      "vertices": 29374,
-      "triangles": 58556
+      "objects": 66,
+      "vertices": 38283,
+      "triangles": 65009
     },
     "LOD2": {
-      "objects": 34,
-      "vertices": 14388,
-      "triangles": 28584
+      "objects": 66,
+      "vertices": 23197,
+      "triangles": 35442
     },
     "LOD3": {
-      "objects": 12,
-      "vertices": 4610,
-      "triangles": 9116
+      "objects": 66,
+      "vertices": 12227,
+      "triangles": 14311
     }
   },
   "materials": [
@@ -72,18 +72,38 @@
     "stateDuringLauncherExit": "STOWED"
   },
   "controlSurfaceAuthoring": {
-    "bowPlanes": ["BowPlane_Port", "BowPlane_Starboard"],
-    "sternPlanes": ["SternPlane_Port", "SternPlane_Starboard"],
-    "rudders": ["Rudder_Dorsal", "Rudder_Ventral"],
-    "propellers": ["Propeller_Port", "Propeller_Starboard"]
+    "bowPlanes": [
+      "BowPlane_Port",
+      "BowPlane_Starboard"
+    ],
+    "sternPlanes": [
+      "SternPlane_Port",
+      "SternPlane_Starboard"
+    ],
+    "rudders": [
+      "Rudder_Dorsal",
+      "Rudder_Ventral"
+    ],
+    "propellers": [
+      "Propeller_Port",
+      "Propeller_Starboard"
+    ]
   },
   "compartmentAuthoring": {
     "count": 10,
     "status": "AUTHORED"
   },
   "comCobAuthoring": {
-    "com": [-6.13971996307373, 0.0, -0.0844455063343048],
-    "cob": [0.0, 0.0, 0.0],
+    "com": [
+      -6.13971996307373,
+      0.0,
+      -0.0844455063343048
+    ],
+    "cob": [
+      0.0,
+      0.0,
+      0.0
+    ],
     "status": "AUTHORED"
   },
   "runtimeOwnershipBoundary": "Engine runtime consumes canonical GLB geometry and articulation; future WeaponSystem owns P700 deployment phase/state, Simulation owns damage, flooding, fire, crew, hatch state, and propeller RPM",

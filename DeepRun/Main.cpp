@@ -423,10 +423,11 @@ int main(const int argumentCount, char** argumentValues)
                               << " submitted_triangles=" << rendered->submittedIndices / 3U << '\n';
                 }
                 ++renderFrames;
-                // M3-H.1 adds one combined opaque fish school (24 fish / 72 triangles / 216 indices) through
-                // the existing model path. Model primitives remain model draws only.
-                return rendered->drawCalls == 12 && rendered->submittedPrimitives == 10 &&
-                       rendered->submittedIndices == 10980;
+                // IG1-B replaces the four-primitive prototype submarine with the actual 66-primitive staged
+                // Antey LOD0. Model primitives remain model draws only; the Gerstner surface and particles
+                // remain their existing non-model batches.
+                return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
+                       rendered->submittedIndices == 364380;
             });
         return application.Run();
     }

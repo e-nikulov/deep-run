@@ -632,7 +632,10 @@ contract can be verified before it changes the existing playground visual path:
 | Slice | Scope | Status |
 |---|---|---|
 | IG1-A | Runtime staging and production metadata loading | COMPLETE (including IG1-A.1 authoring-to-runtime coordinate correction) |
-| IG1-B | Replace the normal playground prototype visual path | NOT STARTED |
+| IG1-A.2 | Production semantic spatial metadata integrity | COMPLETE |
+| IG1-B | Replace the normal playground prototype visual path | COMPLETE |
+| IG1-B.1 | Correct submerged sail-device presentation | COMPLETE |
+| IG1-B.2 | Remaining submerged sail-device classification audit | COMPLETE |
 | IG1-C | Production collision/buoyancy runtime composition | NOT STARTED |
 | IG1-D | Production LOD validation/selection policy | NOT STARTED |
 

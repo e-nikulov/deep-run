@@ -149,6 +149,9 @@ private:
     // M2InitialSubmarineDepthMeters (never from the asset Y center). Also the fixed B2.1 camera target.
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     Assets::ModelTransform modelToBody_{};
+    // IG1-B.1 fixed submerged presentation state. These per-node post transforms are built from opaque
+    // IG1 production bindings once at initialization and never mutate ModelAsset or physics.
+    std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides_;
 
     // Bounded H2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.
     std::uint64_t fixedTickCount_ = 0;
@@ -157,8 +160,8 @@ private:
     bool loggedHapticFailure_ = false;
     mutable bool loggedRenderPresentation_ = false;
 
-    // Presentation state derived only from authoritative shaft RPM. It is not Marine/save/physics authority.
+    // Presentation state derived only from authoritative shaft RPM. Production propeller hierarchy animation
+    // is intentionally deferred beyond IG1-B; this state remains M2 simulation-compatible but is not drawn.
     float propellerPresentationAngleRadians_ = 0.0F;
-    std::optional<std::size_t> propellerNodeIndex_;
 };
 }

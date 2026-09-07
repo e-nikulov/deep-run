@@ -66,6 +66,11 @@ P700_CONTINUOUS_ROW_ORIGINAL_X_M = (15.45, 18.55, 22.55, 25.65, 29.65, 32.75, 36
 P700_CONTINUOUS_ROW_Y_M = 6.05
 P700_CONTINUOUS_ROW_Z_M = 4.05
 
+# Reviewed source-component identities are the production truth for LOD0 sail
+# deployment. Geometry audit validates this table; it never infers state.
+RETRACTABLE_SAIL_DEVICE_COMPONENTS = frozenset({5, 7, 8, 9, 10, 11, 12, 15, 17})
+STATIC_SAIL_DEVICE_COMPONENTS = frozenset({6, 16, 18, 19, 22, 26, 27, 28, 29, 30, 31})
+
 
 def args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -184,28 +189,6 @@ def create_component(name: str, source_mesh: bpy.types.Mesh, indices: list[int],
     obj["lod"] = 0
     obj["source_face_fingerprint"] = face_fingerprint(faces)
     obj["source_boundary_edge_fingerprint"] = boundary_edge_fingerprint(faces)
-    if role == "SAIL_DEVICE":
-        dimensions = [max(vertex.co[i] for vertex in obj.data.vertices) - min(vertex.co[i] for vertex in obj.data.vertices) for i in range(3)]
-        triangles = sum(len(face) - 2 for face in faces)
-        major = dimensions[2] >= 3.0 and triangles >= 500
-        if major:
-            obj["DEVICE_DEPLOYMENT"] = "RETRACTABLE"
-            obj["MOTION"] = "TRANSLATION"
-            obj["AXIS"] = "LOCAL_Z"
-            obj["SIMULATION_OWNS_STATE"] = True
-            obj["DEVICE_TYPE"] = "PERISCOPE_LIKE" if dimensions[2] >= 4.0 else "MAST_LIKE"
-            obj["DEVICE_CONFIDENCE"] = 0.72 if dimensions[2] >= 4.0 else 0.61
-            pivot = Vector((sum(vertex.co.x for vertex in obj.data.vertices) / len(obj.data.vertices), sum(vertex.co.y for vertex in obj.data.vertices) / len(obj.data.vertices), min(vertex.co.z for vertex in obj.data.vertices)))
-            obj.data.transform(Matrix.Translation(-pivot))
-            obj.location = pivot
-            obj["DEPLOYMENT_PIVOT"] = "BASE_LOCAL_Z"
-        else:
-            obj["DEVICE_DEPLOYMENT"] = "STATIC"
-            obj["MOTION"] = "NONE"
-            obj["AXIS"] = "NONE"
-            obj["SIMULATION_OWNS_STATE"] = False
-            obj["DEVICE_TYPE"] = "STATIC_SAIL_DETAIL" if triangles < 500 else "SENSOR_LIKE"
-            obj["DEVICE_CONFIDENCE"] = 0.66 if triangles < 500 else 0.48
     return obj
 
 
@@ -703,6 +686,52 @@ def source_role(source_name: str, component_index: int, points: list[Vector]) ->
     if source_name == "Bridge" and maximum[2] > 6.0 and abs(centre[0]) < 50.0:
         return f"SM_Antey_LOD0_SailDevice_{component_index:02d}", "SAIL_DEVICE"
     return f"SM_Antey_LOD0_SourceDetail_{source_name}_{component_index:02d}", "SMALL_STATIC_DETAIL"
+
+
+def apply_explicit_sail_device_contract(obj: bpy.types.Object, component_index: int) -> None:
+    if component_index not in RETRACTABLE_SAIL_DEVICE_COMPONENTS | STATIC_SAIL_DEVICE_COMPONENTS:
+        raise RuntimeError(f"Unreviewed LOD0 sail-device component: {component_index}")
+    for key in ("DEVICE_TYPE", "DEVICE_CONFIDENCE", "DEPLOYMENT_PIVOT", "DEVICE_CLASSIFICATION_BASIS"):
+        if key in obj:
+            del obj[key]
+    if component_index in RETRACTABLE_SAIL_DEVICE_COMPONENTS:
+        obj["DEVICE_DEPLOYMENT"] = "RETRACTABLE"
+        obj["MOTION"] = "TRANSLATION"
+        obj["AXIS"] = "LOCAL_Z"
+        obj["SIMULATION_OWNS_STATE"] = True
+    else:
+        obj["DEVICE_DEPLOYMENT"] = "STATIC"
+        obj["MOTION"] = "NONE"
+        obj["AXIS"] = "NONE"
+        obj["SIMULATION_OWNS_STATE"] = False
+
+
+def audit_sail_device_deployment(lod0: list[bpy.types.Object]) -> None:
+    """Validate explicit sail-device deployment contracts against production geometry."""
+    sail = bpy.data.objects.get("SM_Antey_LOD0_Sail")
+    if sail is None:
+        raise RuntimeError("Sail-device audit requires the LOD0 sail")
+    sail_top = max((sail.matrix_world @ vertex.co).z for vertex in sail.data.vertices)
+    for obj in (item for item in lod0 if item.get("source_first_role") == "SAIL_DEVICE"):
+        world_points = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+        lower = min(point.z for point in world_points)
+        upper = max(point.z for point in world_points)
+        component_index = int(obj.get("source_component", -1))
+        if component_index not in RETRACTABLE_SAIL_DEVICE_COMPONENTS | STATIC_SAIL_DEVICE_COMPONENTS:
+            raise RuntimeError(f"Unclassified LOD0 sail device: {obj.name}")
+        expected_retractable = component_index in RETRACTABLE_SAIL_DEVICE_COMPONENTS
+        if expected_retractable:
+            if (obj.get("DEVICE_DEPLOYMENT"), obj.get("MOTION"), obj.get("AXIS"), obj.get("SIMULATION_OWNS_STATE")) != ("RETRACTABLE", "TRANSLATION", "LOCAL_Z", True):
+                raise RuntimeError(f"Retractable sail-device contract is inconsistent: {obj.name}")
+            stowed_top = sail_top - 0.02
+            stow_translation = stowed_top - upper
+            if not math.isfinite(stow_translation) or stow_translation > 0.0 or upper + stow_translation > sail_top:
+                raise RuntimeError(f"Retractable sail device cannot produce a valid stowed pose: {obj.name}")
+        else:
+            if (obj.get("DEVICE_DEPLOYMENT"), obj.get("MOTION"), obj.get("AXIS"), obj.get("SIMULATION_OWNS_STATE")) != ("STATIC", "NONE", "NONE", False):
+                raise RuntimeError(f"Static sail-device contract is inconsistent: {obj.name}")
+            if upper > sail_top + 0.25 and upper - lower >= 2.0:
+                raise RuntimeError(f"Static sail device forms suspicious raised geometry: {obj.name}")
 
 
 def set_pivot(obj: bpy.types.Object, role: str) -> None:
@@ -2347,6 +2376,8 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
                 # components; grouping is represented by the side/role metadata.
                 obj = create_component(name, mesh, indices, faces, source_name, role, hull_mat, prop_mat, articulated=articulated)
                 obj["source_component"] = component_index
+                if role == "SAIL_DEVICE":
+                    apply_explicit_sail_device_contract(obj, component_index)
                 set_pivot(obj, role)
                 if role.startswith("PROPELLER_"):
                     prop_objects[role].append(obj)
@@ -2421,6 +2452,7 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
     add_physics_proxies()
     if mechanical:
         add_compartment_and_mass_contract()
+    audit_sail_device_deployment(lod0)
     make_lods(lod0)
     restore_articulated_lod_transforms(lod0)
     if mechanical:

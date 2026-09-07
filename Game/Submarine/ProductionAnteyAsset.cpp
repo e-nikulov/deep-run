@@ -7,6 +7,7 @@
 #include <format>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 namespace DeepRun::Game::Submarine
@@ -211,22 +212,6 @@ namespace
     throw std::runtime_error(std::format("Antey GLB has no node for a required propeller presentation binding"));
 }
 
-[[nodiscard]] std::string PropellerSemanticId(const Assets::ModelVector3& localOrigin)
-{
-    // The canonical coordinate contract defines +Y as port. This derives the
-    // gameplay-facing semantic identity from production geometry, not from a
-    // private GLB node-reference spelling.
-    if (localOrigin.y > 0.0F)
-    {
-        return "propeller.port";
-    }
-    if (localOrigin.y < 0.0F)
-    {
-        return "propeller.starboard";
-    }
-    throw std::runtime_error("Antey propeller semantic anchor must be on the port or starboard side");
-}
-
 void Require(const bool condition, const std::string_view message)
 {
     if (!condition)
@@ -284,6 +269,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             .metadataAssetId = std::move(*metadataAssetId),
             .renderLods = {},
             .propellers = {},
+            .retractableSailDevices = {},
             .torpedoLaunchAnchors = {},
             .p700LaunchAnchors = {},
             .compartments = {},
@@ -307,15 +293,54 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
 
         const Json& propellers = authoring.at("propellers");
         Require(propellers.is_array() && propellers.size() == 2U, "Antey must have two propeller records");
+        std::unordered_set<std::string> propellerSemanticIds;
         for (const Json& propeller : propellers)
         {
-            const std::string privateNodeReference = propeller.at("name").get<std::string>();
+            const std::string privateNodeReference = propeller.at("nodeReference").get<std::string>();
             const Assets::ModelVector3 localOrigin = ReadVector3(propeller.at("origin"), "propeller origin");
+            const std::string semanticId = propeller.at("semanticId").get<std::string>();
+            Require(semanticId == "propeller.port" || semanticId == "propeller.starboard",
+                    "Antey propeller semantic ID is unexpected");
+            Require(propellerSemanticIds.insert(semanticId).second,
+                    "Antey propeller semantic IDs must be unique");
             definition.propellers.push_back({
-                .semanticId = PropellerSemanticId(localOrigin),
+                .semanticId = semanticId,
                 .localOrigin = ConvertAnteyAuthoringVector(localOrigin),
                 .rotationAxis = propeller.at("axis").get<std::string>(),
                 .presentationNodeBindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference)});
+        }
+
+        const Json& retractableSailDevices = authoring.at("retractableSailDevices");
+        Require(retractableSailDevices.is_array() && !retractableSailDevices.empty(),
+                "Antey must have retractable sail-device records");
+        std::unordered_set<std::string> sailDeviceSemanticIds;
+        std::unordered_set<std::size_t> sailDeviceBindingIndices;
+        for (const Json& device : retractableSailDevices)
+        {
+            const std::string privateNodeReference = device.at("nodeReference").get<std::string>();
+            const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
+            Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value(),
+                    "Antey retractable sail-device binding must resolve to a mesh node");
+            Require(device.at("classification").get<std::string>() == "RETRACTABLE",
+                    "Antey sail-device classification is unexpected");
+            Require(device.at("defaultState").get<std::string>() == "STOWED",
+                    "Antey submerged sail-device default must be stowed");
+            const std::string semanticId = device.at("semanticId").get<std::string>();
+            Require(sailDeviceSemanticIds.insert(semanticId).second,
+                    "Antey retractable sail-device semantic IDs must be unique");
+            Require(sailDeviceBindingIndices.insert(bindingIndex).second,
+                    "Antey retractable sail-device bindings must be unique");
+            const Assets::ModelVector3 sourceEnvelopeTop = ReadVector3(
+                device.at("stowedSailEnvelopeMaximumSource"), "sail-device stowed envelope maximum");
+            definition.retractableSailDevices.push_back({
+                .semanticId = std::move(semanticId),
+                .presentationNodeBindingIndex = bindingIndex,
+                .deployedLocalPostTransform = ReadTransform(
+                    device.at("deployedLocalPostTransform"), "sail-device deployed transform"),
+                .stowedLocalPostTransform = ReadTransform(
+                    device.at("stowedLocalPostTransform"), "sail-device stowed transform"),
+                .defaultState = RetractableSailDeviceState::Stowed,
+                .stowedSailEnvelopeMaximumY = ConvertAnteyAuthoringVector(sourceEnvelopeTop).y});
         }
 
         const Json& torpedoes = authoring.at("torpedoTubes");
@@ -345,22 +370,44 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
         const Json& compartments = authoring.at("compartments");
         Require(compartments.is_array() && compartments.size() == 10U, "Antey must have ten compartment records");
         std::size_t compartmentOrdinal = 0;
+        std::unordered_set<std::string> compartmentReferences;
+        std::vector<Assets::ModelVector3> compartmentCenters;
         for (const Json& compartment : compartments)
         {
             ++compartmentOrdinal;
+            const std::string privateReference = compartment.at("name").get<std::string>();
+            Require(compartmentReferences.insert(privateReference).second,
+                    "Antey compartment source references must be unique");
+            const Assets::ModelVector3 sourceCenter = ReadVector3(compartment.at("center"), "compartment center");
             const Assets::ModelVector3 halfExtents = ReadVector3(compartment.at("halfExtents"), "compartment half extents");
-            Require(halfExtents.x >= 0.0F && halfExtents.y >= 0.0F && halfExtents.z >= 0.0F,
-                    "Antey compartment half extents must be non-negative");
+            Require(halfExtents.x > 0.0F && halfExtents.y > 0.0F && halfExtents.z > 0.0F,
+                    "Antey compartment half extents must be positive");
+            const Assets::ModelVector3 runtimeCenter = ConvertAnteyAuthoringVector(sourceCenter);
+            compartmentCenters.push_back(runtimeCenter);
             definition.compartments.push_back({
                 .semanticId = std::format("compartment.{:02}", compartmentOrdinal),
-                .localCenter = ConvertAnteyAuthoringVector(ReadVector3(compartment.at("center"), "compartment center")),
+                .localCenter = runtimeCenter,
                 .orientationQuaternionWxyz = ConvertAnteyAuthoringQuaternionWxyz(
                     ReadQuaternion(compartment.at("orientationQuaternionWXYZ"), "compartment orientation")),
                 .halfExtents = ConvertAnteyAuthoringExtent(halfExtents)});
         }
+        bool hasDistinctCompartmentCenters = false;
+        for (std::size_t left = 0; left < compartmentCenters.size(); ++left)
+        {
+            for (std::size_t right = left + 1U; right < compartmentCenters.size(); ++right)
+            {
+                const Assets::ModelVector3 delta{
+                    .x = compartmentCenters[left].x - compartmentCenters[right].x,
+                    .y = compartmentCenters[left].y - compartmentCenters[right].y,
+                    .z = compartmentCenters[left].z - compartmentCenters[right].z};
+                hasDistinctCompartmentCenters = hasDistinctCompartmentCenters ||
+                    delta.x * delta.x + delta.y * delta.y + delta.z * delta.z > 1.0e-6F;
+            }
+        }
+        Require(hasDistinctCompartmentCenters, "Antey compartment centers must not collapse to one point");
 
         const Json& collision = authoring.at("collision");
-        Require(collision.is_array() && collision.size() == 4U, "Antey must have four collision records");
+        Require(collision.is_array() && !collision.empty(), "Antey must have collision records");
         for (std::size_t index = 0; index < collision.size(); ++index)
         {
             Require(collision[index].is_string() && !collision[index].get<std::string>().empty(),
@@ -376,5 +423,20 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
     {
         return std::unexpected(std::format("invalid staged Antey metadata: {}", exception.what()));
     }
+}
+
+std::expected<Assets::AssetId, std::string> SelectProductionAnteyLod0Asset(
+    const ProductionSubmarineAssetDefinition& definition)
+{
+    if (definition.assetFamilyId != "submarine.antey")
+    {
+        return std::unexpected("production Antey visual selection received an unexpected asset family");
+    }
+    const ProductionRenderLod& lod0 = definition.renderLods.front();
+    if (lod0.semanticId != "render.LOD0" || !lod0.stagedModelAssetId.has_value())
+    {
+        return std::unexpected("production Antey LOD0 staged model is unavailable");
+    }
+    return *lod0.stagedModelAssetId;
 }
 }

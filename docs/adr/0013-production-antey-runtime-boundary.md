@@ -2,8 +2,10 @@
 
 ## Status
 
-Accepted for post-M3 Integration Gate IG1; IG1-A runtime staging and metadata
-loading complete, remaining gate work not started
+Accepted for post-M3 Integration Gate IG1; IG1-A runtime staging/metadata and
+IG1-B production visual replacement complete, collision/buoyancy composition
+and LOD selection remain deferred. IG1-B.1 keeps explicitly classified
+retractable sail devices stowed in the normal submerged presentation.
 
 ## Decision
 
@@ -33,6 +35,20 @@ after IG1. The Assets/import layer may resolve a production semantic record
 against GLB internals into an opaque presentation binding; Game and Simulation
 retain semantic identity, transforms, and authoritative state, never raw GLB
 node names.
+
+The normal submerged presentation applies a source-first, geometry-derived
+local post-transform only to explicitly `RETRACTABLE` sail-device records.
+Their private authoring node references resolve at the Assets boundary to
+opaque drawable bindings; `STATIC` sail geometry, vessel pose, and M2 physics
+bridge remain unchanged.
+
+Sail-device deployment metadata is an explicit source-first contract. The
+completed sail-envelope audit validates that contract and rejects inconsistent
+motion metadata or suspicious raised `STATIC` geometry; it never derives state.
+
+Production semantic anchors must be derived from the authoritative source
+metadata or geometry. A zero authoring object origin is not a valid spatial
+anchor when the corresponding production geometry is baked in model space.
 
 Authoring-side spatial records cross this boundary once using the C0 basis
 conversion `(X, Y, Z) -> (X, Z, -Y)`. Runtime vectors, transforms, and

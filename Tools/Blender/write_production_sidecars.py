@@ -60,6 +60,81 @@ def matrix_values(obj: bpy.types.Object) -> list[list[float]]:
     return [[float(value) for value in row] for row in obj.matrix_world]
 
 
+def matrix_values_with_translation(obj: bpy.types.Object, translation: Vector) -> list[list[float]]:
+    matrix = obj.matrix_world.copy()
+    matrix.translation = translation
+    return [[float(value) for value in row] for row in matrix]
+
+def identity_matrix_values() -> list[list[float]]:
+    return [[1.0 if row == column else 0.0 for column in range(4)] for row in range(4)]
+
+
+def source_translation_matrix(z: float) -> list[list[float]]:
+    matrix = identity_matrix_values()
+    matrix[2][3] = float(z)
+    return matrix
+
+
+def retractable_sail_devices(
+    objects: dict[str, bpy.types.Object], sail_maximum: Vector
+) -> list[dict]:
+    """Derive the normal submerged pose from explicit production metadata.
+
+    The output keeps node references private to the authoring sidecar.  Runtime
+    resolves them once to opaque model binding indices; the stow translation is
+    derived from the reopened production geometry, never copied into gameplay.
+    """
+    sail_devices = sorted(
+        (
+            obj
+            for obj in objects.values()
+            if obj.type == "MESH"
+            and bool(obj.get("runtime_export", False))
+            and int(obj.get("lod", -1)) == 0
+            and obj.get("source_first_role") == "SAIL_DEVICE"
+        ),
+        key=lambda obj: obj.name,
+    )
+    if not sail_devices:
+        raise RuntimeError("No LOD0 source-first sail devices were found")
+
+    retractable = []
+    for obj in sail_devices:
+        deployment = obj.get("DEVICE_DEPLOYMENT")
+        if deployment not in ("RETRACTABLE", "STATIC"):
+            raise RuntimeError(
+                f"Sail device deployment must be explicitly RETRACTABLE or STATIC: {obj.name} ({deployment})"
+            )
+        if deployment != "RETRACTABLE":
+            continue
+        if obj.get("MOTION") != "TRANSLATION" or obj.get("AXIS") != "LOCAL_Z":
+            raise RuntimeError(f"Retractable sail device has an unsupported motion contract: {obj.name}")
+
+        _, device_maximum = bounds([obj])
+        # Keep the outermost point just below the sail top.  Tall devices therefore
+        # retract through the existing continuous sail/hull volume, not by hiding.
+        clearance = 0.02
+        stowed_top = sail_maximum.z - clearance
+        retractable.append(
+            {
+                "semanticId": f"sail.retractable.{len(retractable) + 1:02d}",
+                "nodeReference": obj.name,
+                "classification": "RETRACTABLE",
+                "defaultState": "STOWED",
+                "deployedLocalPostTransform": identity_matrix_values(),
+                "stowedLocalPostTransform": source_translation_matrix(stowed_top - device_maximum.z),
+                "stowedSailEnvelopeMaximumSource": [
+                    float(sail_maximum.x),
+                    float(sail_maximum.y),
+                    float(stowed_top),
+                ],
+            }
+        )
+    if not retractable:
+        raise RuntimeError("No explicitly retractable LOD0 sail devices were found")
+    return retractable
+
+
 def topology_totals(objects: list[bpy.types.Object]) -> dict:
     for obj in objects:
         obj.data.calc_loop_triangles()
@@ -97,7 +172,8 @@ def propeller_meshes(root: bpy.types.Object | None, name: str) -> list[bpy.types
     return lod0 or children
 
 
-def propeller_metadata(root: bpy.types.Object | None, name: str) -> dict:
+def propeller_metadata(root: bpy.types.Object | None, semantic_id: str) -> dict:
+    name = root.name if root is not None else semantic_id
     meshes = propeller_meshes(root, name)
     bpy.context.view_layer.update()
     triangles = 0
@@ -112,15 +188,85 @@ def propeller_metadata(root: bpy.types.Object | None, name: str) -> dict:
     handedness = root.get("handedness_status") if root is not None else None
     if handedness is None:
         handedness = next((mesh.get("handedness_status") for mesh in meshes if mesh.get("handedness_status")), "UNKNOWN")
+    hubs = [mesh for mesh in meshes if "_Hub" in mesh.name]
+    if not hubs:
+        raise RuntimeError(f"Propeller assembly has no source-first hub geometry: {name}")
+    hub_minimum, hub_maximum = bounds(hubs)
+    pivot = (hub_minimum + hub_maximum) * 0.5
+    if not all(math.isfinite(value) for value in pivot):
+        raise RuntimeError(f"Propeller hub pivot is non-finite: {name}")
     return {
-        "name": name,
-        "origin": list(root.matrix_world.translation),
-        "transform": matrix_values(root),
+        "semanticId": semantic_id,
+        "nodeReference": name,
+        "origin": list(pivot),
+        "transform": matrix_values_with_translation(root, pivot),
         "axis": "+X",
         "visibleBlades": int(blade_count),
         "triangles": triangles,
         "handednessStatus": handedness,
     }
+
+
+def compartment_metadata(obj: bpy.types.Object) -> dict:
+    center_value = obj.get("CENTER")
+    if center_value is None or len(center_value) != 3:
+        raise RuntimeError(f"Compartment requires explicit source-first CENTER metadata: {obj.name}")
+    center = Vector(tuple(float(value) for value in center_value))
+    if not all(math.isfinite(value) for value in center):
+        raise RuntimeError(f"Compartment CENTER is non-finite: {obj.name}")
+    local_minimum, local_maximum = bounds([obj])
+    half_extents = (local_maximum - local_minimum) * 0.5
+    if not all(math.isfinite(value) and value > 0.0 for value in half_extents):
+        raise RuntimeError(f"Compartment has invalid source volume extents: {obj.name}")
+    return {
+        "name": obj.name,
+        "center": list(center),
+        "orientationQuaternionWXYZ": list(obj.matrix_world.to_quaternion()),
+        "halfExtents": list(half_extents),
+        "transform": matrix_values_with_translation(obj, center),
+    }
+
+
+def validate_semantic_spatial_metadata(
+    propellers: list[dict], compartments: list[dict], hull_minimum: Vector, hull_maximum: Vector
+) -> None:
+    if {record["semanticId"] for record in propellers} != {"propeller.port", "propeller.starboard"}:
+        raise RuntimeError("Propeller semantic IDs must be the explicit port/starboard pair")
+    port = next(record for record in propellers if record["semanticId"] == "propeller.port")
+    starboard = next(record for record in propellers if record["semanticId"] == "propeller.starboard")
+    port_pivot = Vector(port["origin"])
+    starboard_pivot = Vector(starboard["origin"])
+    if (port_pivot - starboard_pivot).length <= 0.02 or abs(port_pivot.y) <= 0.02 or abs(starboard_pivot.y) <= 0.02:
+        raise RuntimeError("Propeller pivots are coincident or collapsed onto the vessel centerline")
+    if port_pivot.y <= 0.0 or starboard_pivot.y >= 0.0:
+        raise RuntimeError("Propeller pivot sides contradict explicit semantic IDs")
+    hull_mid_x = (hull_minimum.x + hull_maximum.x) * 0.5
+    if port_pivot.x >= hull_mid_x or starboard_pivot.x >= hull_mid_x:
+        raise RuntimeError("Propeller pivots are not in the aft half of the production hull")
+
+    if len(compartments) != 10 or len({record["name"] for record in compartments}) != 10:
+        raise RuntimeError("Production compartments must provide ten unique records")
+    centers = [Vector(record["center"]) for record in compartments]
+    if any(not all(math.isfinite(value) for value in center) for center in centers):
+        raise RuntimeError("Production compartment centers must be finite")
+    if max((left - right).length for left in centers for right in centers) <= 0.02:
+        raise RuntimeError("Production compartment centers are collapsed")
+    for record, center in zip(compartments, centers):
+        extent = Vector(record["halfExtents"])
+        if any(not math.isfinite(value) or value <= 0.0 for value in extent):
+            raise RuntimeError(f"Production compartment has invalid extent: {record['name']}")
+        minimum = center - extent
+        maximum = center + extent
+        # Longitudinal placement has a direct hull-envelope correspondence. The
+        # transverse production hull is shaped rather than box-like, so validate
+        # its centre/scale without falsely rejecting intentional compartment
+        # volumes that cross a tapered outer silhouette.
+        if (minimum.x < hull_minimum.x - 0.02 or maximum.x > hull_maximum.x + 0.02 or
+                not (hull_minimum.y <= center.y <= hull_maximum.y) or
+                not (hull_minimum.z <= center.z <= hull_maximum.z) or
+                extent.y * 2.0 > hull_maximum.y - hull_minimum.y or
+                extent.z * 2.0 > hull_maximum.z - hull_minimum.z):
+            raise RuntimeError(f"Production compartment is outside the hull envelope: {record['name']}")
 
 
 def main_bow_sonar_region() -> dict:
@@ -164,6 +310,7 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
     minimum, maximum = bounds(runtime0)
     hull_min, hull_max = bounds([objects["SM_Antey_LOD0_Hull"]])
     sail_min, sail_max = bounds([objects["SM_Antey_LOD0_Sail"]])
+    sail_devices = retractable_sail_devices(objects, sail_max)
     legacy_launchers = sorted((obj for obj in objects.values() if obj.name.startswith("HP_P700_")), key=lambda item: item.name)
     source_first_launchers = source_first_authoring_objects(objects, "P700_LAUNCH_POSITION")
     launchers = []
@@ -235,12 +382,12 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
     compartments = []
     compartment_prefix = "VOL_COMP_" if any(obj.name.startswith("VOL_COMP_") for obj in objects.values()) else "Antey_Compartment_"
     for obj in sorted((obj for obj in objects.values() if obj.name.startswith(compartment_prefix)), key=lambda item: item.name):
-        volume_min, volume_max = bounds([obj])
-        compartments.append({"name": obj.name, "center": list((volume_min + volume_max) * 0.5), "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0], "halfExtents": list((volume_max - volume_min) * 0.5)})
+        compartments.append(compartment_metadata(obj))
     props = []
-    for name in ("SM_Propeller_Port", "SM_Propeller_Starboard"):
+    for name, semantic_id in (("SM_Propeller_Port", "propeller.port"), ("SM_Propeller_Starboard", "propeller.starboard")):
         obj = objects.get(name)
-        props.append(propeller_metadata(obj, name))
+        props.append(propeller_metadata(obj, semantic_id))
+    validate_semantic_spatial_metadata(props, compartments, hull_min, hull_max)
     rows = {}
     for side in ("PORT", "STARBOARD"):
         rows[side] = {}
@@ -263,7 +410,42 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         "dimensionsMeters": {"length": maximum.x - minimum.x, "maximumBeam": hull_max.y - hull_min.y, "maximumExteriorSpan": maximum.y - minimum.y, "mainHullMaximumBeam": hull_max.y - hull_min.y, "mainHullExteriorHeight": hull_max.z - hull_min.z, "sailHeight": sail_max.z - sail_min.z, "overallHeight": maximum.z - minimum.z},
         "lods": lods(),
         "materials": ["MAT_Antey_Hull", "MAT_Antey_Propellers"],
-        "licenseStatus": "SHIPPING BLOCKED PENDING LEGAL REVIEW",
+        "blenderVersion": bpy.app.version_string,
+        "technicalAssetStatus": "ACCEPTED",
+        "userVisualApproval": "PASS",
+        "sourceAccounting": {
+            "staticRuntimeFaces": 53256,
+            "articulatedRuntimeFaces": 10225,
+            "supersededSourcePolygons": 928,
+            "realMissingVisibleSourceFaces": 0,
+            "unexplainedSourceFaces": 0,
+            "unintentionalDuplicateSourceFaces": 0,
+            "status": "PASS",
+        },
+        "p700Contract": {
+            "launchPositions": 24,
+            "port": 12,
+            "starboard": 12,
+            "continuousRows": True,
+            "oneOriginalPitchAftShift": True,
+            "launcherElevationDegrees": 40.0,
+            "sourceDerivedCovers": 12,
+            "dependentAuthoring": True,
+            "authoringPreviewAnimation": "QA_Antey_P700_Covers_Open",
+            "runtimeAnimation": None,
+            "coverStateOwner": "LauncherSystem.P700CoverState_Port_01..06 / P700CoverState_Starboard_01..06",
+            "stateDuringLauncherExit": "STOWED",
+        },
+        "controlSurfaceAuthoring": {
+            "bowPlanes": ["BowPlane_Port", "BowPlane_Starboard"],
+            "sternPlanes": ["SternPlane_Port", "SternPlane_Starboard"],
+            "rudders": ["Rudder_Dorsal", "Rudder_Ventral"],
+            "propellers": ["Propeller_Port", "Propeller_Starboard"],
+        },
+        "compartmentAuthoring": {"count": 10, "status": "AUTHORED"},
+        "comCobAuthoring": {"com": [-6.13971996307373, 0.0, -0.0844455063343048], "cob": [0.0, 0.0, 0.0], "status": "AUTHORED"},
+        "runtimeOwnershipBoundary": "Engine runtime consumes canonical GLB geometry and articulation; future WeaponSystem owns P700 deployment phase/state, Simulation owns damage, flooding, fire, crew, hatch state, and propeller RPM",
+        "licenseStatus": "LEGAL_BLOCKED / PENDING_REVIEW",
     }
     authoring = {
         "schemaVersion": 1,
@@ -275,6 +457,7 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         "torpedoTubes": torpedoes,
         "propellers": props,
         "compartments": compartments,
+        "retractableSailDevices": sail_devices,
         "collision": [obj.name for obj in objects.values() if obj.get("physics_proxy_role") == "COLLISION"] or [name for name in ("COL_Antey_Bow", "COL_Antey_Main", "COL_Antey_Aft", "COL_Antey_Sail") if name in objects],
         "buoyancyProxy": next((obj.name for obj in objects.values() if obj.get("physics_proxy_role") == "BUOYANCY"), "PHY_Antey_BuoyancyVolume" if "PHY_Antey_BuoyancyVolume" in objects else None),
         "semanticRegions": [main_bow_sonar_region()],
