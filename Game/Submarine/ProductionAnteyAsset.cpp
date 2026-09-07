@@ -1,0 +1,380 @@
+#include "Game/Submarine/ProductionAnteyAsset.h"
+
+#include <nlohmann/json.hpp>
+
+#include <cmath>
+#include <cstdint>
+#include <format>
+#include <stdexcept>
+#include <string_view>
+#include <utility>
+
+namespace DeepRun::Game::Submarine
+{
+namespace
+{
+using Json = nlohmann::json;
+
+constexpr std::string_view AnteyMetadataPath = "submarines/Antey/Antey.asset.json";
+constexpr std::string_view AnteyAuthoringPath = "submarines/Antey/Antey.authoring.json";
+constexpr std::string_view AnteyLod0ModelPath = "submarines/Antey/Antey.glb";
+constexpr std::string_view CoordinateContract = "+X bow; +Y port; +Z up; 1 BU = 1 m";
+
+[[nodiscard]] bool IsFinite(const float value)
+{
+    return std::isfinite(value);
+}
+
+[[nodiscard]] float ReadFiniteFloat(const Json& value, const std::string_view label)
+{
+    const float result = value.get<float>();
+    if (!IsFinite(result))
+    {
+        throw std::runtime_error(std::format("Antey metadata {} must be finite", label));
+    }
+    return result;
+}
+
+[[nodiscard]] Assets::ModelVector3 ReadVector3(const Json& value, const std::string_view label)
+{
+    if (!value.is_array() || value.size() != 3U)
+    {
+        throw std::runtime_error(std::format("Antey metadata {} must be a three-component vector", label));
+    }
+    return {.x = ReadFiniteFloat(value[0], label), .y = ReadFiniteFloat(value[1], label),
+            .z = ReadFiniteFloat(value[2], label)};
+}
+
+[[nodiscard]] ProductionLocalTransform ReadTransform(const Json& value, const std::string_view label)
+{
+    if (!value.is_array() || value.size() != 4U)
+    {
+        throw std::runtime_error(std::format("Antey metadata {} must be a 4x4 transform", label));
+    }
+
+    std::array<float, 16> sourceRowMajor{};
+    for (std::size_t row = 0; row < 4U; ++row)
+    {
+        if (!value[row].is_array() || value[row].size() != 4U)
+        {
+            throw std::runtime_error(std::format("Antey metadata {} must be a 4x4 transform", label));
+        }
+        for (std::size_t column = 0; column < 4U; ++column)
+        {
+            sourceRowMajor[row * 4U + column] = ReadFiniteFloat(value[row][column], label);
+        }
+    }
+    return ConvertAnteyAuthoringTransform(sourceRowMajor);
+}
+
+} // namespace
+
+Assets::ModelVector3 ConvertAnteyAuthoringVector(const Assets::ModelVector3& source) noexcept
+{
+    return {.x = source.x, .y = source.z, .z = -source.y};
+}
+
+Assets::ModelVector3 ConvertAnteyAuthoringExtent(const Assets::ModelVector3& source) noexcept
+{
+    return {.x = source.x, .y = source.z, .z = source.y};
+}
+
+ProductionLocalTransform ConvertAnteyAuthoringTransform(const std::array<float, 16>& sourceRowMajor) noexcept
+{
+    // C maps authoring vectors (X, Y, Z) to runtime vectors (X, Z, -Y).
+    constexpr std::array<float, 16> basis{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, -1.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F};
+    constexpr std::array<float, 16> inverseBasis{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, -1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F};
+
+    ProductionLocalTransform source{};
+    for (std::size_t row = 0; row < 4U; ++row)
+    {
+        for (std::size_t column = 0; column < 4U; ++column)
+        {
+            source.values[column * 4U + row] = sourceRowMajor[row * 4U + column];
+        }
+    }
+    const auto multiply = [](const std::array<float, 16>& left, const std::array<float, 16>& right)
+    {
+        std::array<float, 16> result{};
+        for (std::size_t row = 0; row < 4U; ++row)
+        {
+            for (std::size_t column = 0; column < 4U; ++column)
+            {
+                for (std::size_t inner = 0; inner < 4U; ++inner)
+                {
+                    result[column * 4U + row] += left[inner * 4U + row] * right[column * 4U + inner];
+                }
+            }
+        }
+        return result;
+    };
+    return {.values = multiply(multiply(basis, source.values), inverseBasis)};
+}
+
+std::array<float, 4> ConvertAnteyAuthoringQuaternionWxyz(const std::array<float, 4>& sourceWxyz)
+{
+    const float lengthSquared = sourceWxyz[0] * sourceWxyz[0] + sourceWxyz[1] * sourceWxyz[1] +
+                                sourceWxyz[2] * sourceWxyz[2] + sourceWxyz[3] * sourceWxyz[3];
+    if (!std::isfinite(lengthSquared) || lengthSquared <= 0.0F)
+    {
+        throw std::runtime_error("Antey compartment orientation must be a finite non-zero quaternion");
+    }
+    const float inverseLength = 1.0F / std::sqrt(lengthSquared);
+    const float w = sourceWxyz[0] * inverseLength;
+    const float x = sourceWxyz[1] * inverseLength;
+    const float y = sourceWxyz[2] * inverseLength;
+    const float z = sourceWxyz[3] * inverseLength;
+    const std::array<float, 16> sourceRotationRowMajor{
+        1.0F - 2.0F * (y * y + z * z), 2.0F * (x * y - z * w), 2.0F * (x * z + y * w), 0.0F,
+        2.0F * (x * y + z * w), 1.0F - 2.0F * (x * x + z * z), 2.0F * (y * z - x * w), 0.0F,
+        2.0F * (x * z - y * w), 2.0F * (y * z + x * w), 1.0F - 2.0F * (x * x + y * y), 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F};
+    const ProductionLocalTransform runtime = ConvertAnteyAuthoringTransform(sourceRotationRowMajor);
+    const auto element = [&runtime](const std::size_t row, const std::size_t column)
+    {
+        return runtime.values[column * 4U + row];
+    };
+    const float trace = element(0U, 0U) + element(1U, 1U) + element(2U, 2U);
+    std::array<float, 4> result{};
+    if (trace > 0.0F)
+    {
+        const float s = 2.0F * std::sqrt(trace + 1.0F);
+        result = {0.25F * s, (element(2U, 1U) - element(1U, 2U)) / s,
+                  (element(0U, 2U) - element(2U, 0U)) / s, (element(1U, 0U) - element(0U, 1U)) / s};
+    }
+    else if (element(0U, 0U) > element(1U, 1U) && element(0U, 0U) > element(2U, 2U))
+    {
+        const float s = 2.0F * std::sqrt(1.0F + element(0U, 0U) - element(1U, 1U) - element(2U, 2U));
+        result = {(element(2U, 1U) - element(1U, 2U)) / s, 0.25F * s,
+                  (element(0U, 1U) + element(1U, 0U)) / s, (element(0U, 2U) + element(2U, 0U)) / s};
+    }
+    else if (element(1U, 1U) > element(2U, 2U))
+    {
+        const float s = 2.0F * std::sqrt(1.0F + element(1U, 1U) - element(0U, 0U) - element(2U, 2U));
+        result = {(element(0U, 2U) - element(2U, 0U)) / s, (element(0U, 1U) + element(1U, 0U)) / s,
+                  0.25F * s, (element(1U, 2U) + element(2U, 1U)) / s};
+    }
+    else
+    {
+        const float s = 2.0F * std::sqrt(1.0F + element(2U, 2U) - element(0U, 0U) - element(1U, 1U));
+        result = {(element(1U, 0U) - element(0U, 1U)) / s, (element(0U, 2U) + element(2U, 0U)) / s,
+                  (element(1U, 2U) + element(2U, 1U)) / s, 0.25F * s};
+    }
+    return result;
+}
+
+namespace
+{
+
+[[nodiscard]] std::array<float, 4> ReadQuaternion(const Json& value, const std::string_view label)
+{
+    if (!value.is_array() || value.size() != 4U)
+    {
+        throw std::runtime_error(std::format("Antey metadata {} must be a quaternion", label));
+    }
+    return {ReadFiniteFloat(value[0], label), ReadFiniteFloat(value[1], label), ReadFiniteFloat(value[2], label),
+            ReadFiniteFloat(value[3], label)};
+}
+
+[[nodiscard]] std::size_t ReadCount(const Json& value, const std::string_view label)
+{
+    const std::int64_t result = value.get<std::int64_t>();
+    if (result < 0)
+    {
+        throw std::runtime_error(std::format("Antey metadata {} must be non-negative", label));
+    }
+    return static_cast<std::size_t>(result);
+}
+
+// The production sidecar's node-reference field is private import metadata.
+// It is resolved once into an opaque binding index and never reaches the
+// public semantic definition as a raw GLB name.
+[[nodiscard]] std::size_t ResolvePresentationNodeBindingIndex(
+    const Assets::ModelAsset& model,
+    const std::string_view privateNodeReference)
+{
+    for (std::size_t index = 0; index < model.nodeBindings.size(); ++index)
+    {
+        if (model.nodeBindings[index].name == privateNodeReference)
+        {
+            return index;
+        }
+    }
+    throw std::runtime_error(std::format("Antey GLB has no node for a required propeller presentation binding"));
+}
+
+[[nodiscard]] std::string PropellerSemanticId(const Assets::ModelVector3& localOrigin)
+{
+    // The canonical coordinate contract defines +Y as port. This derives the
+    // gameplay-facing semantic identity from production geometry, not from a
+    // private GLB node-reference spelling.
+    if (localOrigin.y > 0.0F)
+    {
+        return "propeller.port";
+    }
+    if (localOrigin.y < 0.0F)
+    {
+        return "propeller.starboard";
+    }
+    throw std::runtime_error("Antey propeller semantic anchor must be on the port or starboard side");
+}
+
+void Require(const bool condition, const std::string_view message)
+{
+    if (!condition)
+    {
+        throw std::runtime_error(std::string(message));
+    }
+}
+}
+
+std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnteyAssetDefinition(
+    Assets::AssetManager& assets)
+{
+    const auto metadataText = assets.LoadText(AnteyMetadataPath);
+    if (!metadataText)
+    {
+        return std::unexpected(std::format("unable to load staged Antey metadata: {}", metadataText.error().message));
+    }
+    const auto authoringText = assets.LoadText(AnteyAuthoringPath);
+    if (!authoringText)
+    {
+        return std::unexpected(std::format("unable to load staged Antey semantic metadata: {}", authoringText.error().message));
+    }
+    const auto model = assets.LoadModel(AnteyLod0ModelPath);
+    if (!model)
+    {
+        return std::unexpected(std::format("unable to load staged Antey LOD0 model: {}", model.error().message));
+    }
+
+    try
+    {
+        const Json metadata = Json::parse((*metadataText)->text);
+        const Json authoring = Json::parse((*authoringText)->text);
+        Require(metadata.at("schemaVersion").get<int>() == 1, "Antey metadata schemaVersion must be 1");
+        Require(metadata.at("assetId").get<std::string>() == "C0 Player Submarine", "Antey assetId is unexpected");
+        Require(metadata.at("name").get<std::string>() == "Antey", "Antey name is unexpected");
+        Require(metadata.at("coordinateContract").get<std::string>() == CoordinateContract,
+                "Antey coordinate contract is unexpected");
+        Require(metadata.at("technicalAssetStatus").get<std::string>() == "ACCEPTED",
+                "Antey technical asset status is not accepted");
+        Require(metadata.at("userVisualApproval").get<std::string>() == "PASS",
+                "Antey visual approval is not pass");
+        Require(authoring.at("schemaVersion").get<int>() == 1, "Antey authoring schemaVersion must be 1");
+        Require(authoring.at("coordinateContract").get<std::string>() == CoordinateContract,
+                "Antey authoring coordinate contract is unexpected");
+
+        auto metadataAssetId = Assets::AssetId::FromPath(AnteyMetadataPath);
+        auto lod0AssetId = Assets::AssetId::FromPath(AnteyLod0ModelPath);
+        if (!metadataAssetId || !lod0AssetId)
+        {
+            return std::unexpected("Antey runtime asset paths are invalid");
+        }
+
+        ProductionSubmarineAssetDefinition definition{
+            .assetFamilyId = "submarine.antey",
+            .metadataAssetId = std::move(*metadataAssetId),
+            .renderLods = {},
+            .propellers = {},
+            .torpedoLaunchAnchors = {},
+            .p700LaunchAnchors = {},
+            .compartments = {},
+            .collisionSemanticIds = {},
+            .buoyancySemanticId = "buoyancy.primary"};
+
+        for (std::size_t index = 0; index < definition.renderLods.size(); ++index)
+        {
+            const std::string lodName = std::format("LOD{}", index);
+            const Json& lod = metadata.at("lods").at(lodName);
+            ProductionRenderLod& output = definition.renderLods[index];
+            output.semanticId = std::string("render.") + lodName;
+            output.objectCount = ReadCount(lod.at("objects"), lodName);
+            output.vertexCount = ReadCount(lod.at("vertices"), lodName);
+            output.triangleCount = ReadCount(lod.at("triangles"), lodName);
+            if (index == 0U)
+            {
+                output.stagedModelAssetId = *lod0AssetId;
+            }
+        }
+
+        const Json& propellers = authoring.at("propellers");
+        Require(propellers.is_array() && propellers.size() == 2U, "Antey must have two propeller records");
+        for (const Json& propeller : propellers)
+        {
+            const std::string privateNodeReference = propeller.at("name").get<std::string>();
+            const Assets::ModelVector3 localOrigin = ReadVector3(propeller.at("origin"), "propeller origin");
+            definition.propellers.push_back({
+                .semanticId = PropellerSemanticId(localOrigin),
+                .localOrigin = ConvertAnteyAuthoringVector(localOrigin),
+                .rotationAxis = propeller.at("axis").get<std::string>(),
+                .presentationNodeBindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference)});
+        }
+
+        const Json& torpedoes = authoring.at("torpedoTubes");
+        Require(torpedoes.is_array() && torpedoes.size() == 6U, "Antey must have six torpedo records");
+        std::size_t torpedoOrdinal = 0;
+        for (const Json& torpedo : torpedoes)
+        {
+            ++torpedoOrdinal;
+            definition.torpedoLaunchAnchors.push_back({
+                .semanticId = std::format("torpedo.{}.{}", torpedo.at("tubeClass").get<std::string>(), torpedoOrdinal),
+                .localTransform = ReadTransform(torpedo.at("transform"), "torpedo transform"),
+                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(torpedo.at("launchForward"), "torpedo launch forward"))});
+        }
+
+        const Json& p700Launchers = authoring.at("p700Launchers");
+        Require(p700Launchers.is_array() && p700Launchers.size() == 24U, "Antey must have 24 P700 launcher records");
+        for (const Json& launcher : p700Launchers)
+        {
+            const std::string hatchGroup = launcher.at("hatchGroup").get<std::string>();
+            const std::size_t pairIndex = ReadCount(launcher.at("pairIndex"), "P700 pair index");
+            definition.p700LaunchAnchors.push_back({
+                .semanticId = std::format("p700.{}.{}", hatchGroup, pairIndex),
+                .localTransform = ReadTransform(launcher.at("transform"), "P700 transform"),
+                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(launcher.at("launchForward"), "P700 launch forward"))});
+        }
+
+        const Json& compartments = authoring.at("compartments");
+        Require(compartments.is_array() && compartments.size() == 10U, "Antey must have ten compartment records");
+        std::size_t compartmentOrdinal = 0;
+        for (const Json& compartment : compartments)
+        {
+            ++compartmentOrdinal;
+            const Assets::ModelVector3 halfExtents = ReadVector3(compartment.at("halfExtents"), "compartment half extents");
+            Require(halfExtents.x >= 0.0F && halfExtents.y >= 0.0F && halfExtents.z >= 0.0F,
+                    "Antey compartment half extents must be non-negative");
+            definition.compartments.push_back({
+                .semanticId = std::format("compartment.{:02}", compartmentOrdinal),
+                .localCenter = ConvertAnteyAuthoringVector(ReadVector3(compartment.at("center"), "compartment center")),
+                .orientationQuaternionWxyz = ConvertAnteyAuthoringQuaternionWxyz(
+                    ReadQuaternion(compartment.at("orientationQuaternionWXYZ"), "compartment orientation")),
+                .halfExtents = ConvertAnteyAuthoringExtent(halfExtents)});
+        }
+
+        const Json& collision = authoring.at("collision");
+        Require(collision.is_array() && collision.size() == 4U, "Antey must have four collision records");
+        for (std::size_t index = 0; index < collision.size(); ++index)
+        {
+            Require(collision[index].is_string() && !collision[index].get<std::string>().empty(),
+                    "Antey collision record must be a non-empty identifier");
+            definition.collisionSemanticIds.push_back(std::format("collision.{:02}", index + 1U));
+        }
+        Require(authoring.at("buoyancyProxy").is_string() && !authoring.at("buoyancyProxy").get<std::string>().empty(),
+                "Antey buoyancy record must be a non-empty identifier");
+
+        return definition;
+    }
+    catch (const std::exception& exception)
+    {
+        return std::unexpected(std::format("invalid staged Antey metadata: {}", exception.what()));
+    }
+}
+}

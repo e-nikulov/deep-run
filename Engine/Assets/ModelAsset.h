@@ -64,12 +64,22 @@ struct MeshNodeData final
     std::vector<std::size_t> primitiveIndices;
 };
 
+// Imported scene-node data available to the asset/import layer. Unlike
+// MeshNodeData, this retains transform-only hierarchy nodes without making
+// them render draws or a gameplay-facing naming contract.
+struct ModelNodeBindingData final
+{
+    std::string name;
+    ModelTransform localToModel{};
+};
+
 struct ModelAsset final
 {
     AssetId id;
     std::vector<ModelMaterialData> materials;
     std::vector<MeshPrimitiveData> primitives;
     std::vector<MeshNodeData> nodes;
+    std::vector<ModelNodeBindingData> nodeBindings;
     ModelBounds bounds{};
 };
 }

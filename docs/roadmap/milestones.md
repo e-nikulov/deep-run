@@ -616,7 +616,7 @@ Design boundary:
 
 ### Post-M3 Integration Gate IG1 - Production Antey Runtime Integration
 
-Status: NOT STARTED
+Status: IN PROGRESS (IG1-A complete; gate not complete)
 
 IG1 is a bounded integration gate between completed M3 and M4, not a milestone
 or a new M/A/D/C specification axis. It connects the canonical C0 source-first
@@ -625,6 +625,20 @@ replacing the prototype visual path before acoustic work begins. The canonical
 content contract remains [Antey Production Asset Contract](../content/antey-asset.md)
 and [C0 Asset Pipeline](../content/asset-pipeline.md); IG1 does not regenerate
 or redefine either asset.
+
+Implementation is deliberately sliced so the bounded staging and metadata
+contract can be verified before it changes the existing playground visual path:
+
+| Slice | Scope | Status |
+|---|---|---|
+| IG1-A | Runtime staging and production metadata loading | COMPLETE (including IG1-A.1 authoring-to-runtime coordinate correction) |
+| IG1-B | Replace the normal playground prototype visual path | NOT STARTED |
+| IG1-C | Production collision/buoyancy runtime composition | NOT STARTED |
+| IG1-D | Production LOD validation/selection policy | NOT STARTED |
+
+IG1-A stages the currently accepted LOD0 GLB and retains the declared
+LOD0--LOD3 family metadata without fabricating absent LOD files. Availability
+and selection of additional source-supplied render variants belong to IG1-D.
 
 #### In scope
 

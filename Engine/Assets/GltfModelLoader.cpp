@@ -360,7 +360,7 @@ public:
         const fastgltf::Asset& source,
         const AssetId& id,
         const std::filesystem::path& path)
-        : source_(source), id_(id), path_(path), output_{id, {}, {}, {}, {}},
+        : source_(source), id_(id), path_(path), output_{id, {}, {}, {}, {}, {}},
           meshPrimitiveCache_(source.meshes.size()), nodeVisitState_(source.nodes.size(), 0)
     {
     }
@@ -611,6 +611,9 @@ private:
             return std::unexpected(MakeError(
                 AssetErrorCode::InvalidData, path_, id_, "mesh node transform is non-finite or non-affine"));
         }
+
+        output_.nodeBindings.push_back(
+            {.name = std::string(sourceNode.name), .localToModel = ToModelTransform(localToModel)});
 
         if (sourceNode.meshIndex.has_value())
         {

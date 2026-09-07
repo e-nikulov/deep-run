@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for post-M3 Integration Gate IG1; implementation not started
+Accepted for post-M3 Integration Gate IG1; IG1-A runtime staging and metadata
+loading complete, remaining gate work not started
 
 ## Decision
 
@@ -32,6 +33,11 @@ after IG1. The Assets/import layer may resolve a production semantic record
 against GLB internals into an opaque presentation binding; Game and Simulation
 retain semantic identity, transforms, and authoritative state, never raw GLB
 node names.
+
+Authoring-side spatial records cross this boundary once using the C0 basis
+conversion `(X, Y, Z) -> (X, Z, -Y)`. Runtime vectors, transforms, and
+compartment orientations are consequently in DeepRun coordinates before Game
+or Simulation consume them; extent magnitudes map as `(X, Y, Z) -> (X, Z, Y)`.
 
 ## Consequences
 

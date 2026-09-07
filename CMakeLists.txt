@@ -124,6 +124,28 @@ add_custom_target(DeepRunShaders ALL
         "${DEEPRUN_TONE_MAP_HDR_PIXEL_SHADER}"
 )
 
+set(DEEPRUN_ANTEY_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Content/submarines/Antey")
+set(DEEPRUN_ANTEY_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/submarines/Antey")
+set(DEEPRUN_ANTEY_RUNTIME_FILES
+    "${DEEPRUN_ANTEY_RUNTIME_DIR}/Antey.glb"
+    "${DEEPRUN_ANTEY_RUNTIME_DIR}/Antey.asset.json"
+    "${DEEPRUN_ANTEY_RUNTIME_DIR}/Antey.authoring.json"
+)
+add_custom_command(
+    OUTPUT ${DEEPRUN_ANTEY_RUNTIME_FILES}
+    COMMAND ${CMAKE_COMMAND}
+        -DDEEPRUN_ANTEY_SOURCE_DIR=${DEEPRUN_ANTEY_SOURCE_DIR}
+        -DDEEPRUN_ANTEY_DESTINATION_DIR=${DEEPRUN_ANTEY_RUNTIME_DIR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageAnteyRuntime.cmake"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageAnteyRuntime.cmake"
+        "${DEEPRUN_ANTEY_SOURCE_DIR}/Antey.glb"
+        "${DEEPRUN_ANTEY_SOURCE_DIR}/Antey.asset.json"
+        "${DEEPRUN_ANTEY_SOURCE_DIR}/Antey.authoring.json"
+    VERBATIM
+)
+add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})
+
 add_library(DeepRunEngine STATIC
     Engine/Assets/AssetManager.cpp
     Engine/Assets/GltfModelLoader.cpp
@@ -197,6 +219,7 @@ add_executable(DeepRun
     Game/PhysicalPlayground.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
+    Game/Submarine/ProductionAnteyAsset.cpp
     Game/SurfaceFloatModel.cpp
     Game/Submarine/VesselCommandState.cpp
     Game/WaterPresentation.cpp
@@ -204,7 +227,7 @@ add_executable(DeepRun
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
 # user32/gdi32 are used only by the M2 Slice C2 window frame capture (PrintWindow/BitBlt) in Main.cpp.
-target_link_libraries(DeepRun PRIVATE DeepRunEngine user32 gdi32)
+target_link_libraries(DeepRun PRIVATE DeepRunEngine nlohmann_json::nlohmann_json user32 gdi32)
 add_custom_target(DeepRunConfig ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -213,12 +236,16 @@ add_custom_target(DeepRunConfig ALL
 )
 add_dependencies(DeepRun DeepRunConfig)
 add_dependencies(DeepRun DeepRunShaders)
+add_dependencies(DeepRun DeepRunAnteyRuntimeAssets)
 add_custom_command(TARGET DeepRun POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/prototype"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/submarines/prototype/submarine_prototype.glb"
         "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/prototype/submarine_prototype.glb"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${DEEPRUN_ANTEY_RUNTIME_DIR}"
+        "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/Antey"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Shaders"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${DEEPRUN_MODEL_VERTEX_SHADER}"
@@ -244,6 +271,7 @@ add_executable(DeepRunTests
     Game/Haptics/HapticFeedbackSystem.cpp
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
+    Game/Submarine/ProductionAnteyAsset.cpp
     Game/SurfaceFloatModel.cpp
     Game/Submarine/VesselCommandState.cpp
     Game/WaterPresentation.cpp
@@ -255,13 +283,17 @@ target_compile_definitions(DeepRunTests PRIVATE
     DEEPRUN_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
 )
 deeprun_set_project_warnings(DeepRunTests)
-target_link_libraries(DeepRunTests PRIVATE DeepRunEngine)
+target_link_libraries(DeepRunTests PRIVATE DeepRunEngine nlohmann_json::nlohmann_json)
+add_dependencies(DeepRunTests DeepRunAnteyRuntimeAssets)
 add_custom_command(TARGET DeepRunTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:DeepRunTests>/Assets/submarines/prototype"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/submarines/prototype/submarine_prototype.glb"
         "$<TARGET_FILE_DIR:DeepRunTests>/Assets/submarines/prototype/submarine_prototype.glb"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${DEEPRUN_ANTEY_RUNTIME_DIR}"
+        "$<TARGET_FILE_DIR:DeepRunTests>/Assets/submarines/Antey"
 )
 
 add_test(NAME DeepRunTests COMMAND DeepRunTests --asset-root Assets)

@@ -32,6 +32,7 @@
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
+#include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/WaterPresentation.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -47,6 +48,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <cstdint>
 #include <cmath>
 #include <exception>
@@ -56,6 +58,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <set>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -66,6 +69,7 @@ namespace
 {
 using Test = std::pair<std::string_view, std::function<bool()>>;
 constexpr std::string_view CanonicalModelPath = "submarines/prototype/submarine_prototype.glb";
+constexpr std::string_view AnteyModelPath = "submarines/Antey/Antey.glb";
 std::filesystem::path testAssetRoot;
 
 class TemporaryDirectory final
@@ -98,6 +102,36 @@ void WriteFile(const std::filesystem::path& path, const std::string_view content
     std::filesystem::create_directories(path.parent_path());
     std::ofstream output(path, std::ios::binary);
     output << contents;
+}
+
+[[nodiscard]] std::string ReadFile(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+[[nodiscard]] int RunAnteyStaging(
+    const std::filesystem::path& sourceDirectory,
+    const std::filesystem::path& destinationDirectory)
+{
+    const std::filesystem::path script = std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "cmake/StageAnteyRuntime.cmake";
+    const std::string command = std::string{"cmake -DDEEPRUN_ANTEY_SOURCE_DIR=\""} +
+                                sourceDirectory.string() + "\" -DDEEPRUN_ANTEY_DESTINATION_DIR=\"" +
+                                destinationDirectory.string() + "\" -P \"" + script.string() + "\"";
+    return std::system(command.c_str());
+}
+
+[[nodiscard]] std::set<std::string> RelativeFiles(const std::filesystem::path& root)
+{
+    std::set<std::string> result;
+    for (const std::filesystem::directory_entry& entry : std::filesystem::recursive_directory_iterator(root))
+    {
+        if (entry.is_regular_file())
+        {
+            result.insert(std::filesystem::relative(entry.path(), root).generic_string());
+        }
+    }
+    return result;
 }
 
 void AppendUint32(std::vector<std::byte>& bytes, const std::uint32_t value)
@@ -192,6 +226,205 @@ bool CanonicalModelLoads()
     DeepRun::Assets::AssetManager assets(testAssetRoot);
     const auto loaded = assets.LoadModel(CanonicalModelPath);
     return loaded && loaded->IsValid() && loaded->Get()->id.Value() == CanonicalModelPath;
+}
+
+bool IG1AStagesValidatedProductionPackageDeterministically()
+{
+    const std::filesystem::path sourceDirectory =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Content/submarines/Antey";
+    TemporaryDirectory temporary;
+    const std::filesystem::path destinationDirectory = temporary.Path() / "Assets/submarines/Antey";
+    if (RunAnteyStaging(sourceDirectory, destinationDirectory) != 0)
+    {
+        return false;
+    }
+
+    const std::set<std::string> expectedFiles{"Antey.asset.json", "Antey.authoring.json", "Antey.glb"};
+    if (RelativeFiles(destinationDirectory) != expectedFiles ||
+        std::filesystem::exists(destinationDirectory / "Antey_Source.blend"))
+    {
+        return false;
+    }
+
+    for (const std::string& file : expectedFiles)
+    {
+        if (ReadFile(sourceDirectory / file) != ReadFile(destinationDirectory / file))
+        {
+            return false;
+        }
+    }
+
+    const std::string firstGlb = ReadFile(destinationDirectory / "Antey.glb");
+    const std::string firstAssetMetadata = ReadFile(destinationDirectory / "Antey.asset.json");
+    const std::string firstAuthoringMetadata = ReadFile(destinationDirectory / "Antey.authoring.json");
+    if (RunAnteyStaging(sourceDirectory, destinationDirectory) != 0)
+    {
+        return false;
+    }
+    return firstGlb == ReadFile(destinationDirectory / "Antey.glb") &&
+           firstAssetMetadata == ReadFile(destinationDirectory / "Antey.asset.json") &&
+           firstAuthoringMetadata == ReadFile(destinationDirectory / "Antey.authoring.json");
+}
+
+bool IG1AStagingRejectsMissingOrLegacyProductionInput()
+{
+    TemporaryDirectory temporary;
+    const std::filesystem::path missingSource = temporary.Path() / "missing";
+    if (RunAnteyStaging(missingSource, temporary.Path() / "missing-output") == 0)
+    {
+        return false;
+    }
+
+    const std::filesystem::path sourceDirectory =
+        std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Content/submarines/Antey";
+    const std::filesystem::path legacySource = temporary.Path() / "legacy";
+    std::filesystem::create_directories(legacySource);
+    for (const std::string_view file : {"Antey.glb", "Antey.asset.json", "Antey.authoring.json"})
+    {
+        std::filesystem::copy_file(sourceDirectory / file, legacySource / file);
+    }
+    std::string authoring = ReadFile(legacySource / "Antey.authoring.json");
+    authoring.replace(authoring.find("SM_Propeller_Port"), std::string_view("SM_Propeller_Port").size(), "HP_Antey_Legacy");
+    WriteFile(legacySource / "Antey.authoring.json", authoring);
+    return RunAnteyStaging(legacySource, temporary.Path() / "legacy-output") != 0;
+}
+
+bool IG1AStagedProductionDefinitionLoadsHeadlessly()
+{
+    DeepRun::Assets::AssetManager assets(testAssetRoot);
+    const auto definition = DeepRun::Game::Submarine::LoadProductionAnteyAssetDefinition(assets);
+    if (!definition)
+    {
+        std::cerr << "[IG1-A] " << definition.error() << '\n';
+        return false;
+    }
+    if (definition->assetFamilyId != "submarine.antey" ||
+        definition->metadataAssetId.Value() != "submarines/Antey/Antey.asset.json" || definition->propellers.size() != 2U ||
+        definition->torpedoLaunchAnchors.size() != 6U || definition->p700LaunchAnchors.size() != 24U ||
+        definition->compartments.size() != 10U || definition->collisionSemanticIds.size() != 4U ||
+        definition->buoyancySemanticId != "buoyancy.primary")
+    {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < definition->renderLods.size(); ++index)
+    {
+        const auto& lod = definition->renderLods[index];
+        if (lod.semanticId != std::format("render.LOD{}", index) || lod.objectCount == 0U || lod.vertexCount == 0U ||
+            lod.triangleCount == 0U || (index == 0U && (!lod.stagedModelAssetId ||
+                                                        lod.stagedModelAssetId->Value() != AnteyModelPath)) ||
+            (index != 0U && lod.stagedModelAssetId.has_value()))
+        {
+            return false;
+        }
+    }
+
+    std::set<std::string> propellerIds;
+    for (const auto& propeller : definition->propellers)
+    {
+        propellerIds.insert(propeller.semanticId);
+        if (propeller.rotationAxis != "+X" ||
+            (propeller.semanticId == "propeller.port" &&
+             (std::abs(propeller.localOrigin.x + 73.0F) > 1.0e-4F || std::abs(propeller.localOrigin.y + 0.92F) > 1.0e-4F ||
+              std::abs(propeller.localOrigin.z + 5.25F) > 1.0e-4F)) ||
+            (propeller.semanticId == "propeller.starboard" &&
+             (std::abs(propeller.localOrigin.x + 73.0F) > 1.0e-4F || std::abs(propeller.localOrigin.y + 0.92F) > 1.0e-4F ||
+              std::abs(propeller.localOrigin.z - 5.25F) > 1.0e-4F)))
+        {
+            return false;
+        }
+    }
+    if (propellerIds != std::set<std::string>{"propeller.port", "propeller.starboard"})
+    {
+        return false;
+    }
+    const auto& p700Port = definition->p700LaunchAnchors.front();
+    const auto& p700Starboard = definition->p700LaunchAnchors.at(12U);
+    const auto translation = [](const DeepRun::Assets::ModelTransform& transform)
+    {
+        return DeepRun::Assets::ModelVector3{.x = transform.values[12], .y = transform.values[13], .z = transform.values[14]};
+    };
+    const auto portTranslation = translation(p700Port.localTransform);
+    const auto starboardTranslation = translation(p700Starboard.localTransform);
+    const auto& torpedo = definition->torpedoLaunchAnchors.front();
+    const auto& compartment = definition->compartments.front();
+    return p700Port.semanticId == "p700.PORT_HATCH_01.1" && p700Starboard.semanticId == "p700.STARBOARD_HATCH_01.1" &&
+           std::abs(portTranslation.x - 13.175F) < 1.0e-4F && std::abs(portTranslation.y - 0.70F) < 1.0e-4F &&
+           std::abs(portTranslation.z + 7.05F) < 1.0e-4F && std::abs(starboardTranslation.x - 13.175F) < 1.0e-4F &&
+           std::abs(starboardTranslation.y - 0.70F) < 1.0e-4F && std::abs(starboardTranslation.z - 7.05F) < 1.0e-4F &&
+           std::abs(torpedo.launchForward.x - 1.0F) < 1.0e-5F && std::abs(torpedo.launchForward.y) < 1.0e-5F &&
+           std::abs(torpedo.launchForward.z) < 1.0e-5F && std::abs(compartment.localCenter.x - 65.0F) < 1.0e-4F &&
+           std::abs(compartment.localCenter.y + 0.25F) < 1.0e-4F && std::abs(compartment.localCenter.z) < 1.0e-4F &&
+           std::abs(compartment.halfExtents.x - 6.0F) < 1.0e-4F && std::abs(compartment.halfExtents.y - 3.2F) < 1.0e-4F &&
+           std::abs(compartment.halfExtents.z - 4.5F) < 1.0e-4F;
+}
+
+bool IG1A1AuthoringTransformConversionPreservesAffineInvariant()
+{
+    using DeepRun::Assets::ModelTransform;
+    using DeepRun::Assets::ModelVector3;
+    const std::array<float, 16> sourceRowMajor{
+        0.0F, -1.0F, 0.0F, 3.0F,
+        1.0F, 0.0F, 0.0F, -4.0F,
+        0.0F, 0.0F, 1.0F, 5.0F,
+        0.0F, 0.0F, 0.0F, 1.0F};
+    const auto applyRowMajor = [](const std::array<float, 16>& matrix, const ModelVector3 point)
+    {
+        return ModelVector3{
+            .x = matrix[0] * point.x + matrix[1] * point.y + matrix[2] * point.z + matrix[3],
+            .y = matrix[4] * point.x + matrix[5] * point.y + matrix[6] * point.z + matrix[7],
+            .z = matrix[8] * point.x + matrix[9] * point.y + matrix[10] * point.z + matrix[11]};
+    };
+    const auto applyColumnMajor = [](const ModelTransform& matrix, const ModelVector3 point)
+    {
+        return ModelVector3{
+            .x = matrix.values[0] * point.x + matrix.values[4] * point.y + matrix.values[8] * point.z + matrix.values[12],
+            .y = matrix.values[1] * point.x + matrix.values[5] * point.y + matrix.values[9] * point.z + matrix.values[13],
+            .z = matrix.values[2] * point.x + matrix.values[6] * point.y + matrix.values[10] * point.z + matrix.values[14]};
+    };
+    const ModelVector3 sourcePoint{.x = 2.0F, .y = -3.0F, .z = 4.0F};
+    const ModelVector3 expected = DeepRun::Game::Submarine::ConvertAnteyAuthoringVector(
+        applyRowMajor(sourceRowMajor, sourcePoint));
+    const ModelVector3 actual = applyColumnMajor(
+        DeepRun::Game::Submarine::ConvertAnteyAuthoringTransform(sourceRowMajor),
+        DeepRun::Game::Submarine::ConvertAnteyAuthoringVector(sourcePoint));
+    const auto runtimeQuaternion = DeepRun::Game::Submarine::ConvertAnteyAuthoringQuaternionWxyz(
+        {0.8660254F, 0.0F, 0.5F, 0.0F});
+    const auto rotateQuaternion = [](const std::array<float, 4>& quaternion, const ModelVector3 vector)
+    {
+        const ModelVector3 q{.x = quaternion[1], .y = quaternion[2], .z = quaternion[3]};
+        const ModelVector3 cross{
+            .x = q.y * vector.z - q.z * vector.y,
+            .y = q.z * vector.x - q.x * vector.z,
+            .z = q.x * vector.y - q.y * vector.x};
+        const ModelVector3 doubleCross{
+            .x = q.y * cross.z - q.z * cross.y,
+            .y = q.z * cross.x - q.x * cross.z,
+            .z = q.x * cross.y - q.y * cross.x};
+        return ModelVector3{
+            .x = vector.x + 2.0F * (quaternion[0] * cross.x + doubleCross.x),
+            .y = vector.y + 2.0F * (quaternion[0] * cross.y + doubleCross.y),
+            .z = vector.z + 2.0F * (quaternion[0] * cross.z + doubleCross.z)};
+    };
+    const ModelVector3 quaternionSourceVector{.x = 1.0F, .y = 2.0F, .z = -3.0F};
+    const ModelVector3 quaternionExpected = DeepRun::Game::Submarine::ConvertAnteyAuthoringVector(
+        rotateQuaternion({0.8660254F, 0.0F, 0.5F, 0.0F}, quaternionSourceVector));
+    const ModelVector3 quaternionActual = rotateQuaternion(
+        runtimeQuaternion, DeepRun::Game::Submarine::ConvertAnteyAuthoringVector(quaternionSourceVector));
+    const float quaternionLength = runtimeQuaternion[0] * runtimeQuaternion[0] + runtimeQuaternion[1] * runtimeQuaternion[1] +
+                                   runtimeQuaternion[2] * runtimeQuaternion[2] + runtimeQuaternion[3] * runtimeQuaternion[3];
+    return std::abs(actual.x - expected.x) < 1.0e-5F && std::abs(actual.y - expected.y) < 1.0e-5F &&
+           std::abs(actual.z - expected.z) < 1.0e-5F && std::abs(quaternionLength - 1.0F) < 1.0e-4F &&
+           std::abs(quaternionActual.x - quaternionExpected.x) < 1.0e-4F &&
+           std::abs(quaternionActual.y - quaternionExpected.y) < 1.0e-4F &&
+           std::abs(quaternionActual.z - quaternionExpected.z) < 1.0e-4F;
+}
+
+bool IG1APublicSemanticDefinitionHasNoRawNodeNames()
+{
+    const std::string header = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/Submarine/ProductionAnteyAsset.h");
+    return header.find("SM_Propeller") == std::string::npos && header.find("HP_Antey_") == std::string::npos &&
+           header.find("HP_P700") == std::string::npos && header.find("HP_TORPEDO") == std::string::npos;
 }
 
 bool CanonicalModelHasIndexedGeometry()
@@ -9239,6 +9472,11 @@ int main(const int argumentCount, const char* const* arguments)
         {"Resource identity and cache", ResourceIdentityAndCache},
         {"Asset path normalization", AssetPathNormalization},
         {"Canonical C0 model load", CanonicalModelLoads},
+        {"IG1-A deterministic Antey runtime staging", IG1AStagesValidatedProductionPackageDeterministically},
+        {"IG1-A staging rejects missing and legacy input", IG1AStagingRejectsMissingOrLegacyProductionInput},
+        {"IG1-A staged Antey definition loads headlessly", IG1AStagedProductionDefinitionLoadsHeadlessly},
+        {"IG1-A.1 authoring transform conversion preserves affine invariant", IG1A1AuthoringTransformConversionPreservesAffineInvariant},
+        {"IG1-A public semantic definition hides raw node names", IG1APublicSemanticDefinitionHasNoRawNodeNames},
         {"Canonical C0 indexed geometry", CanonicalModelHasIndexedGeometry},
         {"Canonical C0 model bounds", CanonicalModelHasFiniteBounds},
         {"Canonical C0 material transport", CanonicalModelPreservesMaterial},
