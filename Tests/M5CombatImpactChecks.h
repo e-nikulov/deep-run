@@ -6,6 +6,7 @@
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Tests/M5AcousticDecoyChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
+#include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
 #include <cmath>
 #include <iostream>
@@ -222,6 +223,10 @@ namespace M5CombatImpactDetail
     if (!RunM5SimpleDestroyerCombatChecks())
     {
         return fail("M5-F simple destroyer perceived-world combat sequencing");
+    }
+    if (!RunM5SimpleDestroyerRuntimeChecks())
+    {
+        return fail("M5-G physical destroyer runtime and Jolt combat composition");
     }
 
     return true;
