@@ -1,5 +1,6 @@
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
+#include "Tests/M5ConventionalTorpedoChecks.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -245,6 +246,9 @@ int main()
     Require(!ValidateTrackForWeapon(torpedo, agedSpatialTrack).has_value(),
             "weapon must reject spatial evidence after its uncertainty exceeds the authored budget");
 
-    std::cout << "M5 weapon/perception runtime checks passed\n";
+    Require(DeepRun::Tests::RunM5ConventionalTorpedoChecks(),
+            "M5-C conventional torpedo runtime must remain track-bound and SimulationTime deterministic");
+
+    std::cout << "M5 weapon/perception/torpedo runtime checks passed\n";
     return EXIT_SUCCESS;
 }
