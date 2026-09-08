@@ -27,8 +27,27 @@ Accepted contract:
 
 Acceptance evidence: GitHub Actions run `34220540958` on code commit `55fe776a7871611d1210b58d7483eef16f5c856b`. Both `windows-debug` and `windows-release` passed configure, full build, CTest (including `DeepRunM5WeaponRuntimeTests`), and the existing real windowed M4 acoustic smoke gate.
 
+## M5-B — ranged/spatial perceived track
+
+Status: ACCEPTED.
+
+M5-B closes the perception dependency needed by a position-requiring torpedo without granting weapons hostile ground truth.
+
+Accepted contract:
+
+- `SensorObservation` may explicitly carry the observing participant's own sensor position. This is own-platform knowledge, not observed-source truth.
+- active acoustic range evidence does not become a spatial target estimate unless own sensor position is also known.
+- `TrackManager` derives an estimated 2.5D position only from own sensor position plus perceived bearing/range evidence.
+- `Track` carries explicit `positionUncertaintyMeters`; it is not treated as an exact coordinate.
+- spatial uncertainty combines range uncertainty with bearing-derived lateral uncertainty and grows over `SimulationTime` from the last ranged estimate.
+- later passive bearing-only evidence may update bearing/confidence but does not refresh the age of the last ranged spatial estimate.
+- position-requiring weapon definitions now author a maximum accepted spatial uncertainty; missing or excessive uncertainty is rejected by the same perceived-world target-quality gate.
+- no hostile entity handle, authoritative source position, or debugger ground truth is added to `SensorObservation`, `Track`, or weapon runtime state.
+
+`DeepRunM5WeaponRuntimeTests` exercises the complete headless path `ActiveSonar echo -> SensorObservation -> TrackManager -> spatial Track -> weapon target-quality validation`. It also proves that identical ranged evidence without own sensor position remains valid evidence but does not fabricate a target position.
+
+Acceptance evidence: GitHub Actions run `34223149715` on code commit `10f6d0451ffb3ef5537f4ba43d33e1ee60676303`. Both `windows-debug` and `windows-release` passed configure, full build, full CTest, and the existing real windowed M4 acoustic smoke gate.
+
 ## Next slice
 
-M5-B should close the next concrete dependency rather than bypass it: active-sonar observations already carry bounded range evidence, while the current perceived-world track does not yet derive a spatial estimate from that evidence. M5-B should produce a targetable ranged/positioned track inside the perception layer, preserving the no-ground-truth boundary. The first conventional heavyweight torpedo movement/guidance slice follows that perception gate.
-
-Destroyer behavior, decoy interaction, mines, explosions, basic damage, and simple combat AI remain M5 work but are not part of M5-A.
+M5-C introduces the first conventional-heavyweight torpedo runtime as a bounded headless underwater movement/guidance slice. It will consume only the accepted perceived track identity and spatial estimate, advance on `SimulationTime`, and keep collision, impact, detonation, damage, destroyers, decoys, mines, explosions, and combat AI out of scope until their own slices.
