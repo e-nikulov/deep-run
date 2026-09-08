@@ -6,15 +6,16 @@ Milestone 5 begins from the accepted M4 perceived-world boundary. Combat systems
 
 ## M5-A — weapon readiness and track-constrained targeting
 
-Status: IMPLEMENTED, awaiting CI acceptance.
+Status: ACCEPTED.
 
 The first bounded slice establishes an authoritative weapon runtime without adding torpedo movement, damage, destroyers, decoys, mines, explosions, or combat AI yet.
 
-Implemented contract:
+Accepted contract:
 
 - `WeaponDefinition` owns authored preparation time and minimum targeting quality.
 - `WeaponRuntimeState` owns the authoritative phase and advances on monotonic `SimulationTime`.
 - Initial phases are deliberately bounded to `Stored -> Preparing -> Ready -> Launched` for this slice.
+- target assignment is also a `SimulationTime`-ordered authoritative state change.
 - target assignment consumes `Perception::Track` only.
 - runtime target state stores only `trackId`; no target entity handle, `Transform`, or other hostile ground-truth identity is accepted or retained.
 - the first conventional-heavyweight targeting profile can require an estimated track position, minimum confidence, bounded bearing uncertainty, and an explicitly accepted lifecycle.
@@ -24,6 +25,10 @@ Implemented contract:
 
 `DeepRunM5WeaponRuntimeTests` is a headless CTest target covering definition validation, readiness timing, SimulationTime reversal rejection, bearing-only/weak/uncertain/coasting target rejection, successful qualified-track assignment, launch gating, and the no-ground-truth target-state boundary.
 
-## Deferred after M5-A
+Acceptance evidence: GitHub Actions run `34220540958` on code commit `55fe776a7871611d1210b58d7483eef16f5c856b`. Both `windows-debug` and `windows-release` passed configure, full build, CTest (including `DeepRunM5WeaponRuntimeTests`), and the existing real windowed M4 acoustic smoke gate.
 
-The next slices may add the first conventional heavyweight torpedo runtime movement/guidance and a bounded combat target scenario. Destroyer behavior, decoy interaction, mines, explosions, basic damage, and simple combat AI remain M5 work but are not part of M5-A.
+## Next slice
+
+M5-B should close the next concrete dependency rather than bypass it: active-sonar observations already carry bounded range evidence, while the current perceived-world track does not yet derive a spatial estimate from that evidence. M5-B should produce a targetable ranged/positioned track inside the perception layer, preserving the no-ground-truth boundary. The first conventional heavyweight torpedo movement/guidance slice follows that perception gate.
+
+Destroyer behavior, decoy interaction, mines, explosions, basic damage, and simple combat AI remain M5 work but are not part of M5-A.
