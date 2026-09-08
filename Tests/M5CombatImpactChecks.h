@@ -6,6 +6,7 @@
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Tests/M5AcousticDecoyChecks.h"
 #include "Tests/M5CombatPlaygroundRuntimeChecks.h"
+#include "Tests/M5NavalMineChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -232,7 +233,11 @@ namespace M5CombatImpactDetail
     }
     if (!RunM5CombatPlaygroundRuntimeChecks(physicsWorld))
     {
-        return fail("M5-H live combat simulation composition");
+        return fail("M5-H live combat simulation composition and H.1 presentation projection");
+    }
+    if (!RunM5NavalMineChecks(physicsWorld))
+    {
+        return fail("M5-I physical contact mine composition");
     }
 
     return true;
