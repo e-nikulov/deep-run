@@ -35,11 +35,13 @@ it is not interpreted as permission for arbitrary geometry drift.
 ## Selection policy
 
 The bounded policy accepts a requested semantic LOD level and resolves only among actually staged assets.
+Because staged LOD0 is a mandatory package invariant, fallback is deliberately one-directional:
 
 1. Use the requested LOD if it is available.
-2. Otherwise search toward a more detailed available LOD first.
-3. Only if no more-detailed variant exists may a less-detailed available variant be selected.
-4. Never invent an AssetId.
+2. Otherwise walk toward the nearest more-detailed available LOD.
+3. LOD0 is the guaranteed terminal fallback.
+4. Never substitute a coarser-than-requested asset.
+5. Never invent an AssetId.
 
 For the current canonical package this yields:
 
@@ -50,8 +52,9 @@ request LOD2 -> LOD0 fallback
 request LOD3 -> LOD0 fallback
 ```
 
-This preserves geometry correctness while making the current lack of runtime LOD1-LOD3 a visible
-performance limitation rather than a hidden content substitution.
+If a future package stages LOD2 as well, a request for LOD3 resolves to LOD2 rather than jumping directly
+to LOD0. This preserves geometry correctness while making absent runtime variants an explicit performance
+limitation rather than a hidden content substitution.
 
 ## Runtime boundary
 
@@ -77,8 +80,10 @@ with the new policy until the legacy helper/test expectation is removed during c
 
 `Tests/IG1DLodPolicyTest.cpp` exercises the policy in isolation:
 
-- the current LOD0-only package resolves LOD0 directly and LOD1-LOD3 through explicit fallback;
+- the current LOD0-only package resolves LOD0 directly and LOD1-L0D3 through explicit fallback;
 - a future actually-staged requested LOD wins without fallback;
+- the nearest more-detailed staged LOD wins when the requested LOD is absent;
+- a package missing mandatory staged LOD0 is rejected;
 - invalid non-monotonic family metadata is rejected.
 
 The focused executable is registered with CMake/CTest as `DeepRunIG1DLodPolicyTests`. It intentionally has
