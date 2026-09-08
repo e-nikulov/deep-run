@@ -2,6 +2,7 @@
 
 #include <array>
 #include <iostream>
+#include <stdexcept>
 #include <string_view>
 
 namespace
@@ -10,8 +11,24 @@ using namespace DeepRun::Game::Submarine;
 
 ProductionSubmarineAssetDefinition MakeDefinition()
 {
-    ProductionSubmarineAssetDefinition definition{};
-    definition.assetFamilyId = "submarine.antey";
+    const auto metadata = DeepRun::Assets::AssetId::FromPath("submarines/Antey/Antey.asset.json");
+    const auto lod0 = DeepRun::Assets::AssetId::FromPath("submarines/Antey/Antey.glb");
+    if (!metadata || !lod0)
+    {
+        throw std::runtime_error("IG1-D test fixture asset ids are invalid");
+    }
+
+    ProductionSubmarineAssetDefinition definition{
+        .assetFamilyId = "submarine.antey",
+        .metadataAssetId = *metadata,
+        .renderLods = {},
+        .propellers = {},
+        .retractableSailDevices = {},
+        .torpedoLaunchAnchors = {},
+        .p700LaunchAnchors = {},
+        .compartments = {},
+        .collisionProxies = {},
+        .buoyancyProxy = {}};
     constexpr std::array<std::string_view, 4> ids{
         "render.LOD0", "render.LOD1", "render.LOD2", "render.LOD3"};
     constexpr std::array<std::size_t, 4> vertices{65423U, 38283U, 23197U, 12227U};
@@ -23,11 +40,7 @@ ProductionSubmarineAssetDefinition MakeDefinition()
         definition.renderLods[i].vertexCount = vertices[i];
         definition.renderLods[i].triangleCount = triangles[i];
     }
-    const auto lod0 = DeepRun::Assets::AssetId::FromPath("submarines/Antey/Antey.glb");
-    if (lod0)
-    {
-        definition.renderLods[0].stagedModelAssetId = *lod0;
-    }
+    definition.renderLods[0].stagedModelAssetId = *lod0;
     return definition;
 }
 
