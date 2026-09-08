@@ -3,6 +3,8 @@
 #include "Game/AcousticPlaygroundRuntime.h"
 #include "Tests/M4AnteyRuntimeBridgeChecks.h"
 
+#include <cmath>
+
 namespace DeepRun::Tests
 {
 [[nodiscard]] inline bool RunM4LiveAcousticRuntimeChecks()
@@ -32,6 +34,11 @@ namespace DeepRun::Tests
     {
         return false;
     }
+    const auto debuggerBeforeArrival = runtime.BuildDeveloperDebuggerSnapshot(*ownSnapshot, *beforeArrival);
+    if (!debuggerBeforeArrival || debuggerBeforeArrival->has_value())
+    {
+        return false;
+    }
 
     const auto firstArrival = runtime.Advance(*ownSnapshot, 1.0);
     if (!firstArrival || !firstArrival->passiveObservation.has_value() ||
@@ -40,6 +47,17 @@ namespace DeepRun::Tests
         !firstArrival->propagationModifiers.crossedThermocline ||
         firstArrival->contacts.size() != 1U || firstArrival->tracks.size() != 1U ||
         firstArrival->tracks.front().lifecycle != Perception::TrackLifecycleState::Tentative)
+    {
+        return false;
+    }
+
+    // Ground truth is reachable only through the explicit developer accessor. The ordinary observation and
+    // track remain bearing-only, while the debugger can compare them against the synthetic scenario source.
+    const auto debugger = runtime.BuildDeveloperDebuggerSnapshot(*ownSnapshot, *firstArrival);
+    if (!debugger || !debugger->has_value() || !debugger->value().groundTruthRangeMeters.has_value() ||
+        debugger->value().observation.estimatedRangeMeters.has_value() ||
+        !debugger->value().track.has_value() || debugger->value().track->estimatedPositionMeters.has_value() ||
+        std::abs(debugger->value().observedBearingErrorRadians) > 1.0e-5F)
     {
         return false;
     }

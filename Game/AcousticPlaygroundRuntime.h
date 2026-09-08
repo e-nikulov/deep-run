@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/Submarine/AnteyAcousticModel.h"
+#include "Simulation/Acoustics/AcousticDebugger.h"
 #include "Simulation/Acoustics/AcousticEnvironment.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
 #include "Simulation/Perception/SensorObservation.h"
@@ -147,6 +148,40 @@ public:
             .propagationModifiers = *modifiers,
             .contacts = tracks_.Contacts(),
             .tracks = tracks_.Tracks()};
+    }
+
+    // Explicit developer-only escape hatch for comparing the ordinary perceived-world result against this
+    // bounded playground's synthetic source truth. Normal AcousticPlaygroundRuntimeFrame intentionally omits
+    // the source position, so gameplay code cannot obtain ground truth by merely consuming the live frame.
+    [[nodiscard]] std::expected<std::optional<Acoustics::AcousticDebuggerSnapshot>, std::string>
+    BuildDeveloperDebuggerSnapshot(
+        const Submarine::AnteyAcousticSnapshot& ownSnapshot,
+        const AcousticPlaygroundRuntimeFrame& frame) const
+    {
+        if (!frame.passiveObservation.has_value())
+        {
+            return std::optional<Acoustics::AcousticDebuggerSnapshot>{};
+        }
+        if (!representativeEmitter_.has_value())
+        {
+            return std::unexpected("M4 developer debugger source truth is unavailable");
+        }
+
+        std::optional<Perception::Track> track{};
+        if (frame.tracks.size() == 1U)
+        {
+            track = frame.tracks.front();
+        }
+        const auto snapshot = Acoustics::BuildAcousticDebuggerSnapshot(
+            ownSnapshot.passiveReceiver.positionMeters,
+            representativeEmitter_->positionMeters,
+            *frame.passiveObservation,
+            track);
+        if (!snapshot)
+        {
+            return std::unexpected("M4 developer debugger snapshot failed: " + snapshot.error());
+        }
+        return std::optional<Acoustics::AcousticDebuggerSnapshot>{*snapshot};
     }
 
 private:
