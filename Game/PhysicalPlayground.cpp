@@ -10,6 +10,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
+#include "Game/Submarine/ProductionAnteyLodPolicy.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
@@ -25,6 +26,7 @@
 #include <cmath>
 #include <exception>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <span>
 #include <string_view>
@@ -330,11 +332,24 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground production Antey definition load failed: " +
                                productionDefinition.error());
     }
-    const auto productionLod0 = Submarine::SelectProductionAnteyLod0Asset(*productionDefinition);
-    if (!productionLod0)
+
+    const auto productionLodSelection = Submarine::SelectProductionAnteyRenderAsset(
+        *productionDefinition, Submarine::ProductionRenderLodLevel::Lod0);
+    if (!productionLodSelection)
     {
-        return std::unexpected("physical playground production Antey visual selection failed: " + productionLod0.error());
+        return std::unexpected("physical playground production Antey LOD policy rejected the render family: " +
+                               productionLodSelection.error());
     }
+
+    // Transitional compatibility invariant: the old IG1-B LOD0-only selector remains available to older tests
+    // and callers during IG1-D, but it is no longer the normal-path authority. It must agree exactly with the
+    // new production-family policy for the canonical LOD0 request until the compatibility API is removed.
+    const auto legacyLod0 = Submarine::SelectProductionAnteyLod0Asset(*productionDefinition);
+    if (!legacyLod0 || legacyLod0->Value() != productionLodSelection->assetId.Value())
+    {
+        return std::unexpected("physical playground legacy Antey LOD0 selector disagrees with IG1-D policy");
+    }
+    const std::optional<Assets::AssetId> productionLod0{productionLodSelection->assetId};
     const auto model = assets.LoadModel(std::filesystem::path(productionLod0->Value()));
     if (!model)
     {
@@ -1004,7 +1019,11 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             std::to_string(initialForce.y) + " N, weight " + std::to_string(expectedWeight) + " N");
     PlaygroundLog().Info(
         Diagnostics::LogCategory::Render,
-        "IG1-B production Antey visual ready: LOD0 " + std::string(productionLod0->Value()) +
+        "IG1-D production Antey visual ready: requested LOD " +
+            std::to_string(static_cast<std::size_t>(productionLodSelection->requested)) +
+            ", selected LOD " + std::to_string(static_cast<std::size_t>(productionLodSelection->selected)) +
+            ", fallback " + std::string(productionLodSelection->usedFallback ? "yes" : "no") +
+            ", asset " + productionLodSelection->assetId.Value() +
             ", bounds " + FormatBounds(visualBounds) + ", length " + std::to_string(productionLengthMeters) +
             " m, nodes " + std::to_string((*model)->nodes.size()) + ", primitives " +
             std::to_string((*model)->primitives.size()) + ", materials " + std::to_string((*model)->materials.size()) +
