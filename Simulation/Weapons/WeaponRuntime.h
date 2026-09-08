@@ -17,7 +17,6 @@ enum class WeaponPhase
     Preparing,
     Ready,
     Launched,
-    Spent,
 };
 
 struct WeaponTargetingRequirements final
@@ -178,11 +177,17 @@ struct WeaponRuntimeState final
 }
 
 [[nodiscard]] inline std::expected<void, std::string> AssignWeaponTarget(
-    const WeaponDefinition& definition, WeaponRuntimeState& state, const Perception::Track& track)
+    const WeaponDefinition& definition, WeaponRuntimeState& state, const Perception::Track& track,
+    const double simulationTimeSeconds)
 {
     if (state.definitionId != definition.id)
     {
         return std::unexpected("weapon runtime does not match definition");
+    }
+    const auto validTime = ValidateWeaponTime(state, simulationTimeSeconds);
+    if (!validTime)
+    {
+        return std::unexpected(validTime.error());
     }
     if (state.phase != WeaponPhase::Preparing && state.phase != WeaponPhase::Ready)
     {
@@ -196,6 +201,7 @@ struct WeaponRuntimeState final
     }
 
     state.targetTrackId = track.trackId;
+    state.lastUpdateTimeSeconds = simulationTimeSeconds;
     return {};
 }
 
