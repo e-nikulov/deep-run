@@ -216,6 +216,13 @@ namespace M5CombatImpactDetail
         return fail("spent torpedo must not produce a second impact");
     }
 
+    // The M5 test process intentionally owns exactly one initialized PhysicsWorld. Remove the D fixtures before
+    // the G scenario so the same backend authority can be reused without unrelated bodies intercepting its sweep.
+    if (!physicsWorld.DestroyBody(launchPlatformBody) || !physicsWorld.DestroyBody(targetBody))
+    {
+        return fail("M5-D fixture cleanup before shared-world composition");
+    }
+
     if (!RunM5AcousticDecoyChecks())
     {
         return fail("M5-E acoustic decoy/seeker perceived-world interaction");
@@ -224,7 +231,7 @@ namespace M5CombatImpactDetail
     {
         return fail("M5-F simple destroyer perceived-world combat sequencing");
     }
-    if (!RunM5SimpleDestroyerRuntimeChecks())
+    if (!RunM5SimpleDestroyerRuntimeChecks(physicsWorld))
     {
         return fail("M5-G physical destroyer runtime and Jolt combat composition");
     }
