@@ -301,4 +301,18 @@ set_tests_properties(DeepRunTests PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:DeepRunTests>"
 )
 
+# IG1-D is a bounded presentation-policy test. It has no renderer, physics, authoring-file, or staged-content
+# dependency: the test constructs semantic LOD-family definitions directly and verifies deterministic selection.
+add_executable(DeepRunIG1DLodPolicyTests
+    Tests/IG1DLodPolicyTest.cpp
+)
+target_compile_features(DeepRunIG1DLodPolicyTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunIG1DLodPolicyTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunIG1DLodPolicyTests)
+target_link_libraries(DeepRunIG1DLodPolicyTests PRIVATE DeepRunEngine)
+add_test(NAME DeepRunIG1DLodPolicyTests COMMAND DeepRunIG1DLodPolicyTests)
+
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)
