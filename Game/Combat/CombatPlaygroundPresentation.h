@@ -3,7 +3,6 @@
 #include "Engine/Assets/ModelAsset.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
-#include "Game/PhysicsRenderSync.h"
 
 #include <algorithm>
 #include <array>
@@ -215,6 +214,53 @@ namespace CombatPlaygroundPresentationDetail
     return transform;
 }
 
+[[nodiscard]] inline std::expected<Assets::ModelTransform, std::string> BodyPoseTransform(
+    const Physics::PhysicsVector3& position,
+    const Physics::PhysicsQuaternion& orientation)
+{
+    if (!position.IsFinite() || !orientation.IsFinite())
+    {
+        return std::unexpected("M5-H.1 presentation pose must be finite");
+    }
+    const double lengthSquared = static_cast<double>(orientation.x) * orientation.x +
+                                 static_cast<double>(orientation.y) * orientation.y +
+                                 static_cast<double>(orientation.z) * orientation.z +
+                                 static_cast<double>(orientation.w) * orientation.w;
+    if (!std::isfinite(lengthSquared) || lengthSquared <= 1.0e-12)
+    {
+        return std::unexpected("M5-H.1 presentation orientation must be non-zero");
+    }
+
+    const double inverseLength = 1.0 / std::sqrt(lengthSquared);
+    const double qx = orientation.x * inverseLength;
+    const double qy = orientation.y * inverseLength;
+    const double qz = orientation.z * inverseLength;
+    const double qw = orientation.w * inverseLength;
+
+    Assets::ModelTransform transform{};
+    transform.values[0] = static_cast<float>(1.0 - 2.0 * (qy * qy + qz * qz));
+    transform.values[1] = static_cast<float>(2.0 * (qx * qy + qw * qz));
+    transform.values[2] = static_cast<float>(2.0 * (qx * qz - qw * qy));
+    transform.values[4] = static_cast<float>(2.0 * (qx * qy - qw * qz));
+    transform.values[5] = static_cast<float>(1.0 - 2.0 * (qx * qx + qz * qz));
+    transform.values[6] = static_cast<float>(2.0 * (qy * qz + qw * qx));
+    transform.values[8] = static_cast<float>(2.0 * (qx * qz + qw * qy));
+    transform.values[9] = static_cast<float>(2.0 * (qy * qz - qw * qx));
+    transform.values[10] = static_cast<float>(1.0 - 2.0 * (qx * qx + qy * qy));
+    transform.values[12] = position.x;
+    transform.values[13] = position.y;
+    transform.values[14] = position.z;
+
+    for (const float value : transform.values)
+    {
+        if (!std::isfinite(value))
+        {
+            return std::unexpected("M5-H.1 presentation pose produced non-finite transform");
+        }
+    }
+    return transform;
+}
+
 [[nodiscard]] inline std::expected<Assets::ModelTransform, std::string> PoseScaleTransform(
     const Physics::PhysicsVector3& position,
     const Physics::PhysicsQuaternion& orientation,
@@ -226,9 +272,7 @@ namespace CombatPlaygroundPresentationDetail
     {
         return std::unexpected("M5-H.1 presentation transform input is invalid");
     }
-    const auto bodyToWorld = Game::BuildBodyToWorld(Physics::PhysicsBodyState{
-        .position = position,
-        .orientation = orientation});
+    const auto bodyToWorld = BodyPoseTransform(position, orientation);
     if (!bodyToWorld)
     {
         return std::unexpected(bodyToWorld.error());
