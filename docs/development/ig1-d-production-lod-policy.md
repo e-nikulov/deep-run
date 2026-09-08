@@ -103,9 +103,32 @@ IG1-D does not implement:
 
 Those require real staged LOD variants and representative profiling evidence.
 
-## Validation commands
+## Acceptance harness
 
-From repository root:
+Run the canonical closure harness from repository root:
+
+```powershell
+.\Tools\validate_ig1_d.ps1
+```
+
+It performs, in order:
+
+- `git diff --check patch...HEAD`;
+- canonical content LOD validation;
+- Debug configure/build;
+- Release configure/build;
+- staged runtime LOD validation;
+- Debug and Release CTest;
+- Debug and Release headless smoke;
+- Debug and Release windowed/resize smoke.
+
+A successful run ends with:
+
+```text
+IG1-D ACCEPTANCE HARNESS: PASS
+```
+
+The individual offline validators remain available when a focused content check is needed:
 
 ```powershell
 python Tools/Blender/validate_antey_runtime_lods.py --package Content/submarines/Antey
@@ -125,9 +148,6 @@ Before marking IG1-D or IG1 complete still require:
 
 ```text
 remove the temporary legacy-selector compatibility invariant and update the old source-scan expectation
-Debug + Release configure/build/CTest
-headless + windowed smoke
-both offline LOD validators
-git diff --check
+successful Tools/validate_ig1_d.ps1 run
 roadmap + ADR closure update
 ```
