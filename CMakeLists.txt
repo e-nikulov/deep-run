@@ -329,4 +329,17 @@ deeprun_set_project_warnings(DeepRunM4AcousticTests)
 target_link_libraries(DeepRunM4AcousticTests PRIVATE DeepRunEngine)
 add_test(NAME DeepRunM4AcousticTests COMMAND DeepRunM4AcousticTests)
 
+# M5-A is a headless SimulationTime/readiness and perceived-track targeting boundary test.
+add_executable(DeepRunM5WeaponRuntimeTests
+    Tests/M5WeaponRuntimeTest.cpp
+)
+target_compile_features(DeepRunM5WeaponRuntimeTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunM5WeaponRuntimeTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunM5WeaponRuntimeTests)
+target_link_libraries(DeepRunM5WeaponRuntimeTests PRIVATE DeepRunEngine)
+add_test(NAME DeepRunM5WeaponRuntimeTests COMMAND DeepRunM5WeaponRuntimeTests)
+
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)
