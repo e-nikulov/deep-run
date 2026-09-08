@@ -2,6 +2,7 @@
 
 #include "Engine/Assets/AssetManager.h"
 #include "Engine/Physics/PhysicsTypes.h"
+#include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
@@ -10,6 +11,7 @@
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Haptics/HapticEvent.h"
+#include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/BuoyancySystem.h"
@@ -83,6 +85,41 @@ public:
         double simulationTimeSeconds,
         const VesselCommandState& command,
         const HapticEventSink& hapticEventSink = {});
+
+    // M4 live read-only bridge. Call only after a successful FixedUpdate transaction: propulsionState_ then
+    // contains the committed shaft RPM, while the current Jolt body copy and WaterBody sample remain the sole
+    // position/velocity/depth authorities. Acoustics cannot write back into physics, water or propulsion.
+    [[nodiscard]] std::expected<Submarine::AnteyAcousticSnapshot, std::string> BuildAcousticSnapshot(
+        const Acoustics::AcousticSpectrum& ambientNoiseLevelDb) const
+    {
+        if (physics_ == nullptr || !physicsBody_.IsValid() || !water_.has_value())
+        {
+            return std::unexpected("physical playground live acoustic authorities are unavailable");
+        }
+        const auto bodyState = physics_->GetBodyState(physicsBody_);
+        if (!bodyState)
+        {
+            return std::unexpected("physical playground live acoustic body state is unavailable");
+        }
+        const auto waterSample = water_->Sample(bodyState->position);
+        if (!waterSample)
+        {
+            return std::unexpected("physical playground live acoustic water sample failed: " +
+                                   waterSample.error().message);
+        }
+        const auto runtimeState = Submarine::ComposeAnteyAcousticRuntimeState(
+            *bodyState, *waterSample, propulsionState_);
+        if (!runtimeState)
+        {
+            return std::unexpected("physical playground live acoustic composition failed: " + runtimeState.error());
+        }
+        const auto snapshot = Submarine::BuildAnteyAcousticSnapshot(*runtimeState, ambientNoiseLevelDb);
+        if (!snapshot)
+        {
+            return std::unexpected("physical playground live acoustic snapshot failed: " + snapshot.error());
+        }
+        return *snapshot;
+    }
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
     // fixed-step update for the frame; never steps physics itself. presentationTimeSeconds is the Engine's

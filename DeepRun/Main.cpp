@@ -2,6 +2,7 @@
 #include "Engine/Core/Engine.h"
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
+#include "Game/AcousticPlaygroundRuntime.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicalPlayground.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -15,7 +16,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -263,11 +266,14 @@ int main(const int argumentCount, char** argumentValues)
         const DeepRun::Core::ApplicationOptions options = DeepRun::Core::ApplicationOptions::Parse(arguments);
         DeepRun::Game::PhysicalPlayground playground;
         DeepRun::Game::HapticFeedbackSystem hapticFeedback;
+        std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
         bool loggedHapticSubmissionFailure = false;
+        bool loggedFirstAcousticObservation = false;
+        bool loggedConfirmedAcousticTrack = false;
         DeepRun::Core::Engine* engineServices = nullptr;
         const DeepRun::Input::InputState* inputState = nullptr;
         // Bisection aid: DR_NO_CAPTURE=1 disables window frame capture entirely so the physics/render path
@@ -282,7 +288,7 @@ int main(const int argumentCount, char** argumentValues)
 
         DeepRun::Core::Application application(
             options,
-            [&options, &playground, &inputState, &engineServices](DeepRun::Core::Engine& engine)
+            [&options, &playground, &acousticPlaygroundRuntime, &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
                 engineServices = &engine;
                 if (options.headless)
@@ -319,10 +325,19 @@ int main(const int argumentCount, char** argumentValues)
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
                     return false;
                 }
+
+                const auto acousticRuntime = DeepRun::Game::AcousticPlaygroundRuntime::Create();
+                if (!acousticRuntime)
+                {
+                    std::cerr << "[Game][ERROR] " << acousticRuntime.error() << '\n';
+                    return false;
+                }
+                acousticPlaygroundRuntime = *acousticRuntime;
                 return playground.SubmarineModel().IsValid();
             },
-            [&options, &playground, &hapticFeedback, &inputState, &engineServices,
-             &loggedHapticSubmissionFailure](const float fixedDeltaSeconds)
+            [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &inputState, &engineServices,
+             &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation,
+             &loggedConfirmedAcousticTrack](const float fixedDeltaSeconds)
             {
                 // Smoke runs deliberately consume an explicit neutral command, insulating deterministic
                 // automated validation from any live controller connected to the developer machine.
@@ -369,6 +384,52 @@ int main(const int argumentCount, char** argumentValues)
                 {
                     std::cerr << "[Game][ERROR] " << updated.error() << '\n';
                     return false;
+                }
+
+                if (!acousticPlaygroundRuntime.has_value())
+                {
+                    std::cerr << "[Game][ERROR] M4 live acoustic runtime is unavailable\n";
+                    return false;
+                }
+                const auto acousticSnapshot = playground.BuildAcousticSnapshot(
+                    DeepRun::Game::AcousticPlaygroundRuntime::AmbientNoiseLevelDb());
+                if (!acousticSnapshot)
+                {
+                    std::cerr << "[Game][ERROR] " << acousticSnapshot.error() << '\n';
+                    return false;
+                }
+                const auto acousticFrame = acousticPlaygroundRuntime->Advance(
+                    *acousticSnapshot, engineServices->SimulationTimeSeconds());
+                if (!acousticFrame)
+                {
+                    std::cerr << "[Game][ERROR] " << acousticFrame.error() << '\n';
+                    return false;
+                }
+
+                if (!loggedFirstAcousticObservation && acousticFrame->passiveObservation.has_value())
+                {
+                    loggedFirstAcousticObservation = true;
+                    const auto& observation = *acousticFrame->passiveObservation;
+                    std::cout << "[Game][Acoustics] Passive contact acquired: bearing="
+                              << observation.measuredBearingRadians << " rad, confidence="
+                              << observation.confidence << ", thermocline="
+                              << (acousticFrame->propagationModifiers.crossedThermocline ? "yes" : "no")
+                              << ", cavitation=" << acousticSnapshot->cavitationIntensity << '\n';
+                }
+                if (!loggedConfirmedAcousticTrack)
+                {
+                    for (const auto& track : acousticFrame->tracks)
+                    {
+                        if (track.lifecycle == DeepRun::Perception::TrackLifecycleState::Confirmed)
+                        {
+                            loggedConfirmedAcousticTrack = true;
+                            std::cout << "[Game][Acoustics] Track confirmed: id=" << track.trackId
+                                      << ", observations=" << track.observationCount
+                                      << ", confidence=" << track.confidence
+                                      << ", position=unknown, velocity=unknown\n";
+                            break;
+                        }
+                    }
                 }
                 return true;
             },

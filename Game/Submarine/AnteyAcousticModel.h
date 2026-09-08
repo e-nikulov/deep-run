@@ -31,6 +31,7 @@ struct AnteyAcousticSnapshot final
     Acoustics::AcousticEmitter emitter{};
     Acoustics::AcousticReceiver passiveReceiver{};
     float cavitationIntensity = 0.0F;
+    float signedDepthMeters = 0.0F;
 };
 
 // Builds the current coarse gameplay signature and passive receiver state for the production Antey runtime.
@@ -101,6 +102,7 @@ struct AnteyAcousticSnapshot final
     snapshot.passiveReceiver.sensitivityDb = passiveSensitivityDb;
     snapshot.passiveReceiver.minimumPeakSnrDb = minimumPassivePeakSnrDb;
     snapshot.cavitationIntensity = cavitationIntensity;
+    snapshot.signedDepthMeters = state.signedDepthMeters;
     return snapshot;
 }
 }

@@ -4,6 +4,7 @@
 #include "Simulation/Perception/SensorObservation.h"
 #include "Tests/M4AcousticDebuggerChecks.h"
 #include "Tests/M4CavitationChecks.h"
+#include "Tests/M4LiveAcousticRuntimeChecks.h"
 
 #include <cmath>
 
@@ -124,6 +125,7 @@ namespace M4ActiveSonarDetail
     displacedReceiver.positionMeters.x += 10.0F;
     const auto bistaticRejected = CollectMonostaticActiveEchoObservation(
         *world, pulse, reflector, displacedReceiver, 5.0);
-    return !bistaticRejected && RunM4CavitationChecks() && RunM4AcousticDebuggerChecks();
+    return !bistaticRejected && RunM4CavitationChecks() && RunM4AcousticDebuggerChecks() &&
+           RunM4LiveAcousticRuntimeChecks();
 }
 }
