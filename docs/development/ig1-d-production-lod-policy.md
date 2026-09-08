@@ -1,6 +1,6 @@
 # IG1-D — Production Antey LOD validation / selection policy
 
-Status: IN PROGRESS on `ig1-d`; runtime wiring complete, acceptance validation pending.
+Status: COMPLETE.
 
 ## Scope
 
@@ -70,11 +70,10 @@ Render LOD selection is presentation policy only. It must not change:
 
 Physics and gameplay therefore remain stable if the selected render LOD changes in a future slice.
 
-The normal `PhysicalPlayground` initialization now requests `ProductionRenderLodLevel::Lod0` through
-`SelectProductionAnteyRenderAsset` and loads the returned `assetId`. Initialization diagnostics record the
-requested level, selected level, fallback state, and selected asset. The old IG1-B LOD0-only selector is
-consulted only as a temporary compatibility invariant and is not the selected-asset authority; it must agree
-with the new policy until the legacy helper/test expectation is removed during closure cleanup.
+The normal `PhysicalPlayground` initialization requests `ProductionRenderLodLevel::Lod0` through
+`SelectProductionAnteyRenderAsset` and loads the returned `assetId` directly. Initialization diagnostics
+record the requested level, selected level, fallback state, and selected asset. There is no separate
+production LOD0 selector.
 
 ## Focused coverage
 
@@ -133,6 +132,11 @@ A successful run ends with:
 IG1-D ACCEPTANCE HARNESS: PASS
 ```
 
+IG1-D closure acceptance passed with `git diff --check`, canonical and staged
+LOD validators, Debug and Release configure/build, Debug and Release CTest
+(`2/2` each), Debug and Release headless smoke, and Debug and Release
+windowed/resize smoke. Debug D3D12 validation was clean.
+
 The individual offline validators remain available when a focused content check is needed:
 
 ```powershell
@@ -149,10 +153,7 @@ PhysicalPlayground normal selected-asset authority -> SelectProductionAnteyRende
 focused IG1-D policy test -> DeepRunIG1DLodPolicyTests -> CTest
 ```
 
-Before marking IG1-D or IG1 complete still require:
-
-```text
-remove the temporary legacy-selector compatibility invariant and update the old source-scan expectation
-successful Tools/validate_ig1_d.ps1 run
-roadmap + ADR closure update
-```
+IG1-D is complete. The current runtime remains LOD0-only; deferred work stays
+limited to real-content-driven distance/screen-space thresholds, hysteresis,
+cross-fade/dithering, runtime streaming, meshlets/GPU-driven LOD, and any
+generic Engine LOD manager.

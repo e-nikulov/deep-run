@@ -341,16 +341,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                                productionLodSelection.error());
     }
 
-    // Transitional compatibility invariant: the old IG1-B LOD0-only selector remains available to older tests
-    // and callers during IG1-D, but it is no longer the normal-path authority. It must agree exactly with the
-    // new production-family policy for the canonical LOD0 request until the compatibility API is removed.
-    const auto legacyLod0 = Submarine::SelectProductionAnteyLod0Asset(*productionDefinition);
-    if (!legacyLod0 || legacyLod0->Value() != productionLodSelection->assetId.Value())
-    {
-        return std::unexpected("physical playground legacy Antey LOD0 selector disagrees with IG1-D policy");
-    }
-    const std::optional<Assets::AssetId> productionLod0{productionLodSelection->assetId};
-    const auto model = assets.LoadModel(std::filesystem::path(productionLod0->Value()));
+    const auto model = assets.LoadModel(std::filesystem::path(productionLodSelection->assetId.Value()));
     if (!model)
     {
         std::ostringstream message;

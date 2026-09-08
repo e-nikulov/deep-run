@@ -495,14 +495,4 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
     }
 }
 
-std::expected<Assets::AssetId, std::string> SelectProductionAnteyLod0Asset(
-    const ProductionSubmarineAssetDefinition& definition)
-{
-    const auto selection = SelectProductionAnteyRenderAsset(definition, ProductionRenderLodLevel::Lod0);
-    if (!selection)
-    {
-        return std::unexpected(selection.error());
-    }
-    return selection->assetId;
-}
 }

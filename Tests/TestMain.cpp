@@ -33,6 +33,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
+#include "Game/Submarine/ProductionAnteyLodPolicy.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/WaterPresentation.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -383,12 +384,15 @@ bool IG1BProductionVisualSelectionAndRuntimeGeometry()
     {
         return false;
     }
-    const auto lod0 = DeepRun::Game::Submarine::SelectProductionAnteyLod0Asset(*definition);
-    if (!lod0 || definition->assetFamilyId != "submarine.antey" || lod0->Value() != AnteyModelPath)
+    const auto lod0 = DeepRun::Game::Submarine::SelectProductionAnteyRenderAsset(
+        *definition, DeepRun::Game::Submarine::ProductionRenderLodLevel::Lod0);
+    if (!lod0 || definition->assetFamilyId != "submarine.antey" ||
+        lod0->selected != DeepRun::Game::Submarine::ProductionRenderLodLevel::Lod0 || lod0->usedFallback ||
+        lod0->assetId.Value() != AnteyModelPath)
     {
         return false;
     }
-    const auto production = assets.LoadModel(std::filesystem::path(lod0->Value()));
+    const auto production = assets.LoadModel(std::filesystem::path(lod0->assetId.Value()));
     const auto prototype = assets.LoadModel(CanonicalModelPath);
     if (!production || !prototype || production->Get()->id.Value() != AnteyModelPath || production->Get()->nodes.empty() ||
         production->Get()->primitives.empty() || production->Get()->materials.size() != 2U)
@@ -424,12 +428,13 @@ bool IG1BProductionVisualSelectionAndRuntimeGeometry()
 bool IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge()
 {
     const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
-    const std::size_t productionSelection = source.find("SelectProductionAnteyLod0Asset");
-    const std::size_t productionLoad = source.find("assets.LoadModel(std::filesystem::path(productionLod0->Value()))");
+    const std::size_t productionSelection = source.find("SelectProductionAnteyRenderAsset(");
+    const std::size_t productionLoad = source.find("assets.LoadModel(std::filesystem::path(productionLodSelection->assetId.Value()))");
     const std::size_t prototypeBridge = source.find("M2PhysicsProxyModelPath");
     const std::size_t productionCollision = source.find("collisionProxy.halfExtents");
     const std::size_t bodyHalfExtents = source.find("bodyInfo.halfExtents = collisionHalfExtents");
     return productionSelection != std::string::npos && productionLoad != std::string::npos &&
+           source.find("legacyLod0") == std::string::npos && source.find("productionLod0") == std::string::npos &&
            prototypeBridge == std::string::npos && productionCollision != std::string::npos &&
            bodyHalfExtents != std::string::npos && source.find("assets.LoadModel(M2PhysicsProxyModelPath)") == std::string::npos &&
            source.find("SubmarineModelPath") == std::string::npos &&

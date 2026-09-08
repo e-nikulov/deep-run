@@ -616,7 +616,7 @@ Design boundary:
 
 ### Post-M3 Integration Gate IG1 - Production Antey Runtime Integration
 
-Status: IN PROGRESS (IG1-C complete; IG1-D not started; gate not complete)
+Status: COMPLETE.
 
 IG1 is a bounded integration gate between completed M3 and M4, not a milestone
 or a new M/A/D/C specification axis. It connects the canonical C0 source-first
@@ -637,11 +637,14 @@ contract can be verified before it changes the existing playground visual path:
 | IG1-B.1 | Correct submerged sail-device presentation | COMPLETE |
 | IG1-B.2 | Remaining submerged sail-device classification audit | COMPLETE |
 | IG1-C | Production collision/buoyancy runtime composition | COMPLETE |
-| IG1-D | Production LOD validation/selection policy | NOT STARTED |
+| IG1-D | Production LOD validation/selection policy | COMPLETE |
+
+IG1 gate is complete. M4 remains NOT STARTED and is READY to begin.
 
 IG1-A stages the currently accepted LOD0 GLB and retains the declared
 LOD0--LOD3 family metadata without fabricating absent LOD files. Availability
-and selection of additional source-supplied render variants belong to IG1-D.
+and selection of additional source-supplied render variants are governed by the
+completed IG1-D presentation-only policy.
 
 IG1-C completion establishes the normal runtime composition as production
 Antey visual LOD0 plus independent production collision and buoyancy BOX

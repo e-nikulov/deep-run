@@ -120,11 +120,6 @@ struct ProductionSubmarineAssetDefinition final
     ProductionBuoyancyDefinition buoyancyProxy;
 };
 
-// Selects the sole staged render asset available during IG1-B. LOD selection
-// policy remains deferred to IG1-D.
-[[nodiscard]] std::expected<Assets::AssetId, std::string> SelectProductionAnteyLod0Asset(
-    const ProductionSubmarineAssetDefinition& definition);
-
 [[nodiscard]] std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnteyAssetDefinition(
     Assets::AssetManager& assets);
 }

@@ -2,13 +2,12 @@
 
 ## Status
 
-Accepted for post-M3 Integration Gate IG1; IG1-A runtime staging/metadata,
-IG1-B production visual replacement, and IG1-C collision/buoyancy composition
-are complete. IG1-D production LOD family validation/selection policy is
-implemented and wired into the normal playground path; final Debug/Release and
-smoke acceptance remains pending before the IG1 gate is closed. IG1-B.1 keeps
-explicitly classified retractable sail devices stowed in the normal submerged
-presentation.
+Accepted. IG1 is COMPLETE: IG1-A runtime staging/metadata, IG1-B production
+visual replacement, IG1-C collision/buoyancy composition, and IG1-D production
+LOD family validation/selection have completed Debug/Release build, CTest, and
+smoke acceptance. IG1-B.1 keeps explicitly classified retractable sail devices
+stowed in the normal submerged presentation. M4 is READY to begin but remains
+NOT STARTED.
 
 ## Decision
 
@@ -28,6 +27,15 @@ collision representation, buoyancy representation, semantic anchors/metadata,
 and submarine physics/gameplay state. Render geometry and render LOD are never
 collision or gameplay authority. Collision and buoyancy consume their separate
 bounded production/runtime contracts.
+
+```text
+ProductionAnteyAssetDefinition
+  |- render family / LOD policy
+  |- collision proxy contract
+  |- buoyancy spatial proxy contract
+  |- semantic anchors
+  `- retractable sail-device presentation contract
+```
 
 IG1-C makes the production collision BOX and production buoyancy spatial BOX
 the runtime authorities for their respective representations. The accepted
