@@ -1023,7 +1023,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             std::to_string(static_cast<std::size_t>(productionLodSelection->requested)) +
             ", selected LOD " + std::to_string(static_cast<std::size_t>(productionLodSelection->selected)) +
             ", fallback " + std::string(productionLodSelection->usedFallback ? "yes" : "no") +
-            ", asset " + productionLodSelection->assetId.Value() +
+            ", asset " + std::string(productionLodSelection->assetId.Value()) +
             ", bounds " + FormatBounds(visualBounds) + ", length " + std::to_string(productionLengthMeters) +
             " m, nodes " + std::to_string((*model)->nodes.size()) + ", primitives " +
             std::to_string((*model)->primitives.size()) + ", materials " + std::to_string((*model)->materials.size()) +

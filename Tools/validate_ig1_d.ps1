@@ -1,5 +1,6 @@
 param(
-    [string]$BaseRef = "patch"
+    [string]$BaseRef = "origin/patch",
+    [string]$BuildRoot = "build/ig1-d-acceptance"
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +61,14 @@ function Resolve-BaseCommitRef {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$acceptanceBuildRoot = if ([System.IO.Path]::IsPathRooted($BuildRoot)) {
+    $BuildRoot
+}
+else {
+    Join-Path $repoRoot $BuildRoot
+}
+$debugBuildDir = Join-Path $acceptanceBuildRoot "debug"
+$releaseBuildDir = Join-Path $acceptanceBuildRoot "release"
 Push-Location $repoRoot
 try {
     $resolvedBaseRef = Resolve-BaseCommitRef $BaseRef
@@ -73,17 +82,17 @@ try {
     }
 
     Invoke-Checked "Debug configure" {
-        cmake --preset windows-debug
+        cmake --preset windows-debug -B $debugBuildDir
     }
     Invoke-Checked "Debug build" {
-        cmake --build --preset windows-debug
+        cmake --build $debugBuildDir --config Debug
     }
 
     Invoke-Checked "Release configure" {
-        cmake --preset windows-release
+        cmake --preset windows-release -B $releaseBuildDir
     }
     Invoke-Checked "Release build" {
-        cmake --build --preset windows-release
+        cmake --build $releaseBuildDir --config Release
     }
 
     Invoke-Checked "IG1-D staged runtime LOD validation" {
@@ -91,30 +100,31 @@ try {
     }
 
     Invoke-Checked "Debug CTest" {
-        ctest --preset windows-debug --output-on-failure
+        ctest --test-dir $debugBuildDir -C Debug --output-on-failure
     }
     Invoke-Checked "Release CTest" {
-        ctest --preset windows-release --output-on-failure
+        ctest --test-dir $releaseBuildDir -C Release --output-on-failure
     }
 
     Invoke-Checked "Debug headless smoke" {
-        .\build\windows-debug\Debug\DeepRun.exe --headless
+        & (Join-Path $debugBuildDir "Debug\DeepRun.exe") --headless
     }
     Invoke-Checked "Release headless smoke" {
-        .\build\windows-release\Release\DeepRun.exe --headless
+        & (Join-Path $releaseBuildDir "Release\DeepRun.exe") --headless
     }
 
     Invoke-Checked "Debug windowed/resize smoke" {
-        .\build\windows-debug\Debug\DeepRun.exe --smoke-test
+        & (Join-Path $debugBuildDir "Debug\DeepRun.exe") --smoke-test
     }
     Invoke-Checked "Release windowed/resize smoke" {
-        .\build\windows-release\Release\DeepRun.exe --smoke-test
+        & (Join-Path $releaseBuildDir "Release\DeepRun.exe") --smoke-test
     }
 
     Write-Host ""
     Write-Host "IG1-D ACCEPTANCE HARNESS: PASS"
     Write-Host "Requested base ref: $BaseRef"
     Write-Host "Resolved base ref: $resolvedBaseRef"
+    Write-Host "Build root: $acceptanceBuildRoot"
     Write-Host "Validated: diff, canonical/staged LOD metadata, Debug/Release builds, CTest, headless smoke, windowed/resize smoke."
 }
 finally {

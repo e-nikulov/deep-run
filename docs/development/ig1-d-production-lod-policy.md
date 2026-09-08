@@ -113,7 +113,7 @@ Run the canonical closure harness from repository root:
 
 It performs, in order:
 
-- `git diff --check patch...HEAD`;
+- `git diff --check origin/patch...HEAD`;
 - canonical content LOD validation;
 - Debug configure/build;
 - Release configure/build;
@@ -121,6 +121,11 @@ It performs, in order:
 - Debug and Release CTest;
 - Debug and Release headless smoke;
 - Debug and Release windowed/resize smoke.
+
+The harness configures into its own `build/ig1-d-acceptance/debug` and
+`build/ig1-d-acceptance/release` directories by default. This avoids reusing
+or modifying a developer's normal preset build cache; override with
+`-BuildRoot <path>` when needed.
 
 A successful run ends with:
 

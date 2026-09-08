@@ -449,13 +449,15 @@ bool IG1CProductionProxyContractsAreLoadedAndIndependentFromVisualBounds()
 
     const auto& collision = definition->collisionProxies.front();
     const auto& buoyancy = definition->buoyancyProxy;
-    const auto near = [](float actual, float expected) { return std::abs(actual - expected) <= 1.0e-4F; };
-    const bool collisionContract = near(collision.halfExtents.x, 77.0F) && near(collision.halfExtents.y, 5.0F) &&
-        near(collision.halfExtents.z, 8.9F) && near(collision.localCenter.x, 0.0F) &&
-        near(collision.localCenter.y, 0.0F) && near(collision.localCenter.z, 0.0F);
-    const bool buoyancyContract = near(buoyancy.halfExtents.x, 72.5F) && near(buoyancy.halfExtents.y, 3.75F) &&
-        near(buoyancy.halfExtents.z, 8.0F) && near(buoyancy.centerOfBuoyancy.x, 0.0F) &&
-        near(buoyancy.centerOfBuoyancy.y, 0.0F) && near(buoyancy.centerOfBuoyancy.z, 0.0F);
+    const auto nearlyEqual = [](float actual, float expected) { return std::abs(actual - expected) <= 1.0e-4F; };
+    const bool collisionContract = nearlyEqual(collision.halfExtents.x, 77.0F) &&
+        nearlyEqual(collision.halfExtents.y, 5.0F) && nearlyEqual(collision.halfExtents.z, 8.9F) &&
+        nearlyEqual(collision.localCenter.x, 0.0F) && nearlyEqual(collision.localCenter.y, 0.0F) &&
+        nearlyEqual(collision.localCenter.z, 0.0F);
+    const bool buoyancyContract = nearlyEqual(buoyancy.halfExtents.x, 72.5F) &&
+        nearlyEqual(buoyancy.halfExtents.y, 3.75F) && nearlyEqual(buoyancy.halfExtents.z, 8.0F) &&
+        nearlyEqual(buoyancy.centerOfBuoyancy.x, 0.0F) && nearlyEqual(buoyancy.centerOfBuoyancy.y, 0.0F) &&
+        nearlyEqual(buoyancy.centerOfBuoyancy.z, 0.0F);
     const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
     const bool noVisualPhysicsBridge = source.find("physicsProxyModel") == std::string::npos &&
         source.find("physicsBounds") == std::string::npos && source.find("M2PhysicsProxyModelPath") == std::string::npos &&
