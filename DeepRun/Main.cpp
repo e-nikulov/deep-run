@@ -411,7 +411,8 @@ int main(const int argumentCount, char** argumentValues)
                     loggedFirstAcousticObservation = true;
                     const auto& observation = *acousticFrame->passiveObservation;
                     std::cout << "[Game][Acoustics] Passive contact acquired: bearing="
-                              << observation.measuredBearingRadians << " rad, confidence="
+                              << observation.measuredBearingRadians << " rad +/- "
+                              << observation.bearingUncertaintyRadians << " rad, confidence="
                               << observation.confidence << ", thermocline="
                               << (acousticFrame->propagationModifiers.crossedThermocline ? "yes" : "no")
                               << ", cavitation=" << acousticSnapshot->cavitationIntensity << '\n';
@@ -425,7 +426,9 @@ int main(const int argumentCount, char** argumentValues)
                             loggedConfirmedAcousticTrack = true;
                             std::cout << "[Game][Acoustics] Track confirmed: id=" << track.trackId
                                       << ", observations=" << track.observationCount
-                                      << ", confidence=" << track.confidence
+                                      << ", bearing=" << track.estimatedBearingRadians << " rad +/- "
+                                      << track.bearingUncertaintyRadians << " rad, confidence="
+                                      << track.confidence
                                       << ", position=unknown, velocity=unknown\n";
                             break;
                         }
