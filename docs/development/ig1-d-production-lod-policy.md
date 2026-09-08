@@ -1,6 +1,6 @@
 # IG1-D — Production Antey LOD validation / selection policy
 
-Status: IMPLEMENTED ON `ig1-d`; integration review pending.
+Status: IN PROGRESS on `ig1-d`.
 
 ## Scope
 
@@ -21,6 +21,7 @@ Missing runtime variants are not fabricated, renamed, copied, or inferred from m
 
 The runtime family is valid when:
 
+- the asset family is exactly `submarine.antey`;
 - semantic IDs remain ordered `render.LOD0` through `render.LOD3`;
 - every metadata record has positive object/vertex/triangle counts;
 - vertex and triangle counts do not increase toward coarser LODs;
@@ -66,6 +67,18 @@ Render LOD selection is presentation policy only. It must not change:
 
 Physics and gameplay therefore remain stable if the selected render LOD changes in a future slice.
 
+## Focused coverage
+
+`Tests/IG1DLodPolicyTest.cpp` now exercises the policy in isolation:
+
+- the current LOD0-only package resolves LOD0 directly and LOD1-LOD3 through explicit fallback;
+- a future actually-staged requested LOD wins without fallback;
+- invalid non-monotonic family metadata is rejected.
+
+The focused test source is intentionally separate while the normal `PhysicalPlayground` path is being
+migrated. IG1-D is not complete until that test is wired into CMake/CTest and the normal playground calls
+`SelectProductionAnteyRenderAsset` rather than the legacy LOD0-only selector.
+
 ## Deferred
 
 IG1-D does not implement:
@@ -79,7 +92,7 @@ IG1-D does not implement:
 
 Those require real staged LOD variants and representative profiling evidence.
 
-## Validation command
+## Validation commands
 
 From repository root:
 
@@ -89,3 +102,13 @@ python Tools/Blender/validate_antey_runtime_lods.py --package Engine/Assets/subm
 ```
 
 Both packages must report the same family/availability/selection result.
+
+Before closure also require:
+
+```text
+PhysicalPlayground normal path -> SelectProductionAnteyRenderAsset(..., Lod0)
+focused IG1-D test -> CMake/CTest
+Debug + Release build/CTest
+headless + windowed smoke
+git diff --check
+```
