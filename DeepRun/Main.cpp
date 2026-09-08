@@ -3,6 +3,7 @@
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/AcousticPlaygroundRuntime.h"
+#include "Game/Combat/CombatPlaygroundWindowedComposition.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicalPlayground.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -267,6 +268,7 @@ int main(const int argumentCount, char** argumentValues)
         DeepRun::Game::PhysicalPlayground playground;
         DeepRun::Game::HapticFeedbackSystem hapticFeedback;
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
+        std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
@@ -274,6 +276,8 @@ int main(const int argumentCount, char** argumentValues)
         bool loggedHapticSubmissionFailure = false;
         bool loggedFirstAcousticObservation = false;
         bool loggedConfirmedAcousticTrack = false;
+        bool loggedCombatRuntime = false;
+        bool loggedCombatImpact = false;
         DeepRun::Core::Engine* engineServices = nullptr;
         const DeepRun::Input::InputState* inputState = nullptr;
         // Bisection aid: DR_NO_CAPTURE=1 disables window frame capture entirely so the physics/render path
@@ -288,7 +292,8 @@ int main(const int argumentCount, char** argumentValues)
 
         DeepRun::Core::Application application(
             options,
-            [&options, &playground, &acousticPlaygroundRuntime, &inputState, &engineServices](DeepRun::Core::Engine& engine)
+            [&options, &playground, &acousticPlaygroundRuntime, &combatPlayground,
+             &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
                 engineServices = &engine;
                 if (options.headless)
@@ -333,11 +338,24 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
                 acousticPlaygroundRuntime = *acousticRuntime;
+
+                // M3 benchmark remains byte-for-byte comparable at the scene level: the live M5 composition
+                // is not created for that dedicated benchmark path. Normal and smoke windowed runs opt in.
+                if (!options.benchmarkM3)
+                {
+                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer);
+                    if (!combat)
+                    {
+                        std::cerr << "[Game][ERROR] " << combat.error() << '\n';
+                        return false;
+                    }
+                    combatPlayground = *combat;
+                }
                 return playground.SubmarineModel().IsValid();
             },
-            [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &inputState, &engineServices,
-             &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation,
-             &loggedConfirmedAcousticTrack](const float fixedDeltaSeconds)
+            [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
+             &inputState, &engineServices, &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation,
+             &loggedConfirmedAcousticTrack, &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
                 // Smoke runs deliberately consume an explicit neutral command, insulating deterministic
                 // automated validation from any live controller connected to the developer machine.
@@ -398,12 +416,43 @@ int main(const int argumentCount, char** argumentValues)
                     std::cerr << "[Game][ERROR] " << acousticSnapshot.error() << '\n';
                     return false;
                 }
+                const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const auto acousticFrame = acousticPlaygroundRuntime->Advance(
-                    *acousticSnapshot, engineServices->SimulationTimeSeconds());
+                    *acousticSnapshot, simulationTimeSeconds);
                 if (!acousticFrame)
                 {
                     std::cerr << "[Game][ERROR] " << acousticFrame.error() << '\n';
                     return false;
+                }
+
+                if (combatPlayground.has_value())
+                {
+                    DeepRun::Physics::PhysicsWorld* physics = engineServices->Physics();
+                    if (physics == nullptr)
+                    {
+                        std::cerr << "[Game][ERROR] M5 live combat physics authority is unavailable\n";
+                        return false;
+                    }
+                    const auto combatFrame = combatPlayground->Advance(
+                        *acousticSnapshot, *physics, simulationTimeSeconds);
+                    if (!combatFrame)
+                    {
+                        std::cerr << "[Game][ERROR] " << combatFrame.error() << '\n';
+                        return false;
+                    }
+                    if (!loggedCombatRuntime)
+                    {
+                        loggedCombatRuntime = true;
+                        std::cout << "[Game][Combat] M5 live combat runtime active: destroyer, active sonar, "
+                                     "heavyweight torpedo and acoustic decoy share the Engine PhysicsWorld\n";
+                    }
+                    if (!loggedCombatImpact && combatFrame->playerTorpedoImpact.has_value())
+                    {
+                        loggedCombatImpact = true;
+                        std::cout << "[Game][Combat] Physical torpedo impact confirmed: damage="
+                                  << combatFrame->playerTorpedoImpact->damage.damage << ", explosion radius="
+                                  << combatFrame->playerTorpedoImpact->explosion.radiusMeters << " m\n";
+                    }
                 }
 
                 if (!loggedFirstAcousticObservation && acousticFrame->passiveObservation.has_value())
@@ -436,24 +485,57 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &frameCapture, &captureEnabled, &options, &renderFrames, &capturedInitial,
-             &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+            [&playground, &combatPlayground, &frameCapture, &captureEnabled, &options, &renderFrames,
+             &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
+                const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
+                const double presentationTimeSeconds = engineServices->CurrentFrame().elapsedSeconds;
                 const auto rendered = playground.Render(
-                    renderer,
-                    engineServices->SimulationTimeSeconds(),
-                    engineServices->CurrentFrame().elapsedSeconds);
+                    renderer, simulationTimeSeconds, presentationTimeSeconds);
                 if (!rendered)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
                     return false;
                 }
 
-                // Bounded M3-H.1 visual validation: one frame near the start and one later frame makes the
-                // static authored ice/flora, moving presentation school, completed-step surface profile, and
-                // actual Jolt float response observable. The smoke run resizes at engine frame 30 from 16:9
-                // to 16:10 (1280x720 -> 1024x640), so the later capture also proves the fixed 600 m view is
-                // covered through a changed projection. Capture failure never fails the run.
+                // M5-H.1-B uses the same fixed-world camera policy/data as PhysicalPlayground. The combat
+                // presentation remains a separate draw/stat contract so the accepted 74/72/364380 physical
+                // regression counters below stay unchanged. H.1 is presentation-only and cannot feed results
+                // back into combat runtime, physics, sonar or targeting.
+                if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
+                {
+                    DeepRun::Physics::PhysicsWorld* physics = engineServices->Physics();
+                    if (physics == nullptr)
+                    {
+                        std::cerr << "[Game][ERROR] M5 combat render physics snapshot source is unavailable\n";
+                        return false;
+                    }
+                    const auto camera = playground.BuildPresentationCamera(renderer, presentationTimeSeconds);
+                    if (!camera)
+                    {
+                        std::cerr << "[Game][ERROR] " << camera.error() << '\n';
+                        return false;
+                    }
+                    const auto combatRendered = combatPlayground->Render(
+                        renderer, *physics, *camera, simulationTimeSeconds);
+                    if (!combatRendered)
+                    {
+                        std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
+                        return false;
+                    }
+                    if (combatRendered->drawCalls < 2U || combatRendered->drawCalls > 5U ||
+                        combatRendered->submittedPrimitives != combatRendered->drawCalls ||
+                        combatRendered->submittedIndices != combatRendered->drawCalls * 36U)
+                    {
+                        std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
+                        return false;
+                    }
+                }
+
+                // Bounded M3-H.1/M5-H.1 visual validation: the existing initial/later captures now include
+                // the live combat presentation in normal smoke runs while preserving their historical paths.
+                // The smoke run resizes at engine frame 30 from 16:9 to 16:10 (1280x720 -> 1024x640), so the
+                // later capture also proves the shared fixed 600 m view through a changed projection.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;
@@ -489,7 +571,7 @@ int main(const int argumentCount, char** argumentValues)
                 ++renderFrames;
                 // IG1-B replaces the four-primitive prototype submarine with the actual 66-primitive staged
                 // Antey LOD0. Model primitives remain model draws only; the Gerstner surface and particles
-                // remain their existing non-model batches.
+                // remain their existing non-model batches. M5 combat draws are separately validated above.
                 return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
                        rendered->submittedIndices == 364380;
             });

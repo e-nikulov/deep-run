@@ -1,9 +1,11 @@
 #pragma once
 
 #include "Engine/Assets/AssetManager.h"
+#include "Engine/Assets/ModelAsset.h"
 #include "Engine/Physics/PhysicsTypes.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
+#include "Engine/Render/D3D12Renderer.h"
 #include "Engine/Render/IndexedGeometry.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Environment/EnvironmentSection.h"
@@ -11,6 +13,7 @@
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Haptics/HapticEvent.h"
+#include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
@@ -21,6 +24,7 @@
 #include "Simulation/Marine/PropulsionSystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -38,11 +42,6 @@ struct ModelAsset;
 namespace DeepRun::Physics
 {
 class PhysicsWorld;
-}
-
-namespace DeepRun::Render
-{
-class D3D12Renderer;
 }
 
 namespace DeepRun::Game
@@ -119,6 +118,74 @@ public:
             return std::unexpected("physical playground live acoustic snapshot failed: " + snapshot.error());
         }
         return *snapshot;
+    }
+
+    // M5-H.1-B read-only camera bridge for additional Game presentation consumers. This deliberately mirrors
+    // the accepted B2.1/M3 camera inputs from Render without exposing WaterBody, ModelAsset, body handles or
+    // renderer internals to the combat runtime. It never steps physics or mutates simulation. The bridge exists
+    // so a bounded combat view can share the exact fixed-world target/span/depth policy instead of inventing a
+    // second projection in Main; the existing Render path remains the authoritative owner of scene presentation.
+    [[nodiscard]] std::expected<Render::OrthographicCamera, std::string> BuildPresentationCamera(
+        Render::D3D12Renderer& renderer,
+        const double presentationTimeSeconds) const
+    {
+        if (!modelAsset_.IsValid() || !surfaceFloatModel_.has_value() || !faunaField_.has_value() ||
+            !seabedSection_.has_value() || !floraField_.has_value() || !iceField_.has_value() ||
+            physics_ == nullptr || !physicsBody_.IsValid() || !surfaceFloatBody_.IsValid())
+        {
+            return std::unexpected("physical playground presentation camera authorities are unavailable");
+        }
+
+        const auto bodyState = physics_->GetBodyState(physicsBody_);
+        const auto surfaceFloatState = physics_->GetBodyState(surfaceFloatBody_);
+        if (!bodyState || !surfaceFloatState)
+        {
+            return std::unexpected("physical playground presentation camera body state is unavailable");
+        }
+        const auto bodyToWorld = BuildBodyToWorld(*bodyState);
+        const auto surfaceFloatToWorld = BuildBodyToWorld(*surfaceFloatState);
+        const auto faunaToWorld = EvaluateUnderwaterFishSchoolPresentation(
+            faunaField_->presentation, presentationTimeSeconds);
+        if (!bodyToWorld || !surfaceFloatToWorld || !faunaToWorld)
+        {
+            return std::unexpected("physical playground presentation camera transforms are unavailable");
+        }
+
+        const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
+        const auto worldBounds = TransformBounds(modelAsset_->bounds, modelToWorld);
+        const auto surfaceFloatWorldBounds = TransformBounds(surfaceFloatModel_->bounds, *surfaceFloatToWorld);
+        const auto faunaWorldBounds = TransformBounds(faunaField_->renderGeometry.bounds, *faunaToWorld);
+        if (!worldBounds || !surfaceFloatWorldBounds || !faunaWorldBounds)
+        {
+            return std::unexpected("physical playground presentation camera bounds transform failed");
+        }
+
+        const auto combineBounds = [](const Assets::ModelBounds& first, const Assets::ModelBounds& second) noexcept
+        {
+            return Assets::ModelBounds{
+                .minimum = {
+                    (std::min)(first.minimum.x, second.minimum.x),
+                    (std::min)(first.minimum.y, second.minimum.y),
+                    (std::min)(first.minimum.z, second.minimum.z)},
+                .maximum = {
+                    (std::max)(first.maximum.x, second.maximum.x),
+                    (std::max)(first.maximum.y, second.maximum.y),
+                    (std::max)(first.maximum.z, second.maximum.z)}};
+        };
+        const Assets::ModelBounds cameraDepthBounds = combineBounds(
+            combineBounds(
+                combineBounds(
+                    combineBounds(
+                        combineBounds(*worldBounds, seabedSection_->renderGeometry.bounds),
+                        floraField_->renderGeometry.bounds),
+                    iceField_->renderGeometry.bounds),
+                *faunaWorldBounds),
+            *surfaceFloatWorldBounds);
+        const Assets::ModelVector3 target{
+            initialBodyWorldCenter_.x, initialBodyWorldCenter_.y, initialBodyWorldCenter_.z};
+        constexpr float fixedHorizontalSpanMeters = 600.0F; // accepted B2.1 camera policy
+        return Render::BuildFixedWorldSideViewCamera(
+            target, renderer.AspectRatio(), fixedHorizontalSpanMeters, cameraDepthBounds);
     }
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
