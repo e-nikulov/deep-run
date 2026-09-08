@@ -4,6 +4,7 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Simulation/Combat/CombatIntegrity.h"
 #include "Simulation/Weapons/ConventionalTorpedo.h"
+#include "Tests/M5AcousticDecoyChecks.h"
 
 #include <cmath>
 #include <iostream>
@@ -56,7 +57,7 @@ namespace M5CombatImpactDetail
     using namespace Weapons;
 
     const auto fail = [](const char* message) {
-        std::cerr << "M5-D check failed: " << message << '\n';
+        std::cerr << "M5 combat check failed: " << message << '\n';
         return false;
     };
 
@@ -211,6 +212,11 @@ namespace M5CombatImpactDetail
             launchPlatformBody))
     {
         return fail("spent torpedo must not produce a second impact");
+    }
+
+    if (!RunM5AcousticDecoyChecks())
+    {
+        return fail("M5-E acoustic decoy/seeker perceived-world interaction");
     }
 
     return true;
