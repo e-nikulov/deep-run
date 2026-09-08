@@ -40,14 +40,16 @@ enum class TrackLifecycleState
     Lost,
 };
 
-// A Track is an estimate, never an authoritative target. Passive bearing-only M4 observations therefore leave
-// estimated position/velocity empty until later sensor fusion has enough evidence to estimate them honestly.
+// A Track is an estimate, never an authoritative target. Bearing-only passive observations leave position and
+// velocity empty. Ranged observations may populate a spatial estimate only from perceived bearing/range plus
+// the observing participant's own sensor position; hostile ground-truth position never crosses this boundary.
 struct Track final
 {
     std::uint64_t trackId = 0;
     std::uint64_t contactId = 0;
     TrackLifecycleState lifecycle = TrackLifecycleState::Tentative;
     std::optional<Physics::PhysicsVector3> estimatedPositionMeters{};
+    std::optional<float> positionUncertaintyMeters{};
     std::optional<Physics::PhysicsVector3> estimatedVelocityMetersPerSecond{};
     float estimatedBearingRadians = 0.0F;
     float bearingUncertaintyRadians = 0.0F;
@@ -65,6 +67,7 @@ struct TrackManagerConfig final
     double lostAfterSeconds = 20.0;
     float confidenceDecayPerSecond = 0.035F;
     float bearingUncertaintyGrowthRadiansPerSecond = 0.012F;
+    float positionUncertaintyGrowthMetersPerSecond = 5.0F;
     std::size_t maximumTracks = 32;
 };
 
@@ -79,7 +82,9 @@ public:
             !std::isfinite(config.lostAfterSeconds) || config.lostAfterSeconds <= config.coastAfterSeconds ||
             !std::isfinite(config.confidenceDecayPerSecond) || config.confidenceDecayPerSecond < 0.0F ||
             !std::isfinite(config.bearingUncertaintyGrowthRadiansPerSecond) ||
-            config.bearingUncertaintyGrowthRadiansPerSecond < 0.0F || config.maximumTracks == 0U)
+            config.bearingUncertaintyGrowthRadiansPerSecond < 0.0F ||
+            !std::isfinite(config.positionUncertaintyGrowthMetersPerSecond) ||
+            config.positionUncertaintyGrowthMetersPerSecond < 0.0F || config.maximumTracks == 0U)
         {
             return std::unexpected("invalid TrackManager configuration");
         }
@@ -91,7 +96,12 @@ public:
         if (observation.sensorId.empty() || !std::isfinite(observation.observationTimeSeconds) ||
             observation.observationTimeSeconds < currentTimeSeconds_ || !std::isfinite(observation.measuredBearingRadians) ||
             !std::isfinite(observation.bearingUncertaintyRadians) || observation.bearingUncertaintyRadians < 0.0F ||
-            !std::isfinite(observation.confidence) || observation.confidence < 0.0F || observation.confidence > 1.0F)
+            !std::isfinite(observation.confidence) || observation.confidence < 0.0F || observation.confidence > 1.0F ||
+            (observation.sensorPositionMeters && !observation.sensorPositionMeters->IsFinite()) ||
+            (observation.estimatedRangeMeters &&
+             (!std::isfinite(*observation.estimatedRangeMeters) || *observation.estimatedRangeMeters < 0.0F)) ||
+            (observation.rangeUncertaintyMeters &&
+             (!std::isfinite(*observation.rangeUncertaintyMeters) || *observation.rangeUncertaintyMeters < 0.0F)))
         {
             return std::unexpected("invalid or time-reversing SensorObservation");
         }
@@ -160,6 +170,13 @@ public:
                 config_.bearingUncertaintyGrowthRadiansPerSecond * static_cast<float>(ageSeconds);
             record.contact.bearingUncertaintyRadians = record.track.bearingUncertaintyRadians;
 
+            if (record.positionUncertaintyAtEstimateMeters && record.positionEstimateTimeSeconds)
+            {
+                const double positionAgeSeconds = currentTimeSeconds_ - *record.positionEstimateTimeSeconds;
+                record.track.positionUncertaintyMeters = *record.positionUncertaintyAtEstimateMeters +
+                    config_.positionUncertaintyGrowthMetersPerSecond * static_cast<float>(positionAgeSeconds);
+            }
+
             if (ageSeconds >= config_.coastAfterSeconds)
             {
                 record.track.lifecycle = TrackLifecycleState::Coasting;
@@ -197,12 +214,20 @@ public:
     }
 
 private:
+    struct SpatialEstimate final
+    {
+        Physics::PhysicsVector3 positionMeters{};
+        float uncertaintyMeters = 0.0F;
+    };
+
     struct Record final
     {
         Contact contact{};
         Track track{};
         float confidenceAtLastObservation = 0.0F;
         float bearingUncertaintyAtLastObservation = 0.0F;
+        std::optional<float> positionUncertaintyAtEstimateMeters{};
+        std::optional<double> positionEstimateTimeSeconds{};
     };
 
     explicit TrackManager(TrackManagerConfig config)
@@ -220,11 +245,34 @@ private:
         return WrapAngle(to - from);
     }
 
+    [[nodiscard]] static std::optional<SpatialEstimate> MakeSpatialEstimate(const SensorObservation& observation)
+    {
+        if (!observation.sensorPositionMeters || !observation.estimatedRangeMeters ||
+            !observation.rangeUncertaintyMeters)
+        {
+            return std::nullopt;
+        }
+
+        const float bearing = WrapAngle(observation.measuredBearingRadians);
+        const float rangeMeters = *observation.estimatedRangeMeters;
+        const float lateralUncertaintyMeters = std::abs(rangeMeters * observation.bearingUncertaintyRadians);
+        const float uncertaintyMeters = static_cast<float>(
+            std::hypot(static_cast<double>(*observation.rangeUncertaintyMeters),
+                       static_cast<double>(lateralUncertaintyMeters)));
+
+        return SpatialEstimate{
+            .positionMeters = {
+                .x = observation.sensorPositionMeters->x + std::cos(bearing) * rangeMeters,
+                .y = observation.sensorPositionMeters->y + std::sin(bearing) * rangeMeters,
+                .z = observation.sensorPositionMeters->z},
+            .uncertaintyMeters = uncertaintyMeters};
+    }
+
     [[nodiscard]] Record CreateRecord(const SensorObservation& observation)
     {
         const std::uint64_t contactId = nextContactId_++;
         const std::uint64_t trackId = nextTrackId_++;
-        return Record{
+        Record record{
             .contact = {
                 .contactId = contactId,
                 .classification = ContactClassification::Unknown,
@@ -239,6 +287,7 @@ private:
                 .contactId = contactId,
                 .lifecycle = config_.observationsToConfirm <= 1U ? TrackLifecycleState::Confirmed : TrackLifecycleState::Tentative,
                 .estimatedPositionMeters = std::nullopt,
+                .positionUncertaintyMeters = std::nullopt,
                 .estimatedVelocityMetersPerSecond = std::nullopt,
                 .estimatedBearingRadians = WrapAngle(observation.measuredBearingRadians),
                 .bearingUncertaintyRadians = observation.bearingUncertaintyRadians,
@@ -247,7 +296,18 @@ private:
                 .firstObservationTimeSeconds = observation.observationTimeSeconds,
                 .lastObservationTimeSeconds = observation.observationTimeSeconds},
             .confidenceAtLastObservation = observation.confidence,
-            .bearingUncertaintyAtLastObservation = observation.bearingUncertaintyRadians};
+            .bearingUncertaintyAtLastObservation = observation.bearingUncertaintyRadians,
+            .positionUncertaintyAtEstimateMeters = std::nullopt,
+            .positionEstimateTimeSeconds = std::nullopt};
+
+        if (const auto spatial = MakeSpatialEstimate(observation))
+        {
+            record.track.estimatedPositionMeters = spatial->positionMeters;
+            record.track.positionUncertaintyMeters = spatial->uncertaintyMeters;
+            record.positionUncertaintyAtEstimateMeters = spatial->uncertaintyMeters;
+            record.positionEstimateTimeSeconds = observation.observationTimeSeconds;
+        }
+        return record;
     }
 
     void UpdateRecord(Record& record, const SensorObservation& observation)
@@ -274,6 +334,14 @@ private:
         record.track.lifecycle = record.track.observationCount >= config_.observationsToConfirm
             ? TrackLifecycleState::Confirmed
             : TrackLifecycleState::Tentative;
+
+        if (const auto spatial = MakeSpatialEstimate(observation))
+        {
+            record.track.estimatedPositionMeters = spatial->positionMeters;
+            record.track.positionUncertaintyMeters = spatial->uncertaintyMeters;
+            record.positionUncertaintyAtEstimateMeters = spatial->uncertaintyMeters;
+            record.positionEstimateTimeSeconds = observation.observationTimeSeconds;
+        }
 
         record.confidenceAtLastObservation = fusedConfidence;
         record.bearingUncertaintyAtLastObservation = fusedUncertainty;
