@@ -639,7 +639,7 @@ contract can be verified before it changes the existing playground visual path:
 | IG1-C | Production collision/buoyancy runtime composition | COMPLETE |
 | IG1-D | Production LOD validation/selection policy | COMPLETE |
 
-IG1 gate is complete. M4 remains NOT STARTED and is READY to begin.
+IG1 gate is complete. M4 is IN PROGRESS.
 
 IG1-A stages the currently accepted LOD0 GLB and retains the declared
 LOD0--LOD3 family metadata without fabricating absent LOD files. Availability
@@ -728,7 +728,7 @@ cleanup.
 
 ### Milestone 4 - Acoustic Playground
 
-Status: NOT STARTED
+Status: IN PROGRESS
 
 Milestone 4 remains a bounded playground for proving the first acoustic
 perception vertical slice.
@@ -736,6 +736,24 @@ It starts only after IG1 has established the production submarine runtime
 representation. M4 consumes runtime transform, velocity, propulsion state and
 semantic anchors where its own acoustic contract requires them; it must not
 consume Blender names, GLB node names, or source hierarchy as gameplay API.
+
+Implementation status:
+
+| Slice | Content | Status |
+|---|---|---|
+| A | Acoustic core, coarse spectrum, direct passive propagation and delay | IMPLEMENTED |
+| B | Observation-to-contact/track perceived-world boundary | IMPLEMENTED |
+| C | Production Antey runtime signature and passive receiver composition | IMPLEMENTED |
+| D | Thermocline plus graded terrain attenuation | IMPLEMENTED |
+| E | Active-sonar round trip and outgoing-transmission observability | IMPLEMENTED |
+| F | Gameplay cavitation signature integration | IMPLEMENTED |
+| G | Live `PhysicalPlayground` Jolt/WaterBody/RPM to passive-track composition | IMPLEMENTED |
+| H | Developer-only ground-truth versus perceived-state debugger boundary | IMPLEMENTED |
+| I | Final tactical/debug presentation, windowed smoke and milestone closure | IN PROGRESS |
+
+Detailed implementation/authority notes are recorded in
+[the M4 acoustic playground progress report](../development/m4-acoustic-playground.md).
+M4 remains `IN PROGRESS` until the final presentation/windowed-smoke/closure gate is accepted.
 <!-- deeprun-m4-command-note:start -->
 
 Command-layer relevance:
