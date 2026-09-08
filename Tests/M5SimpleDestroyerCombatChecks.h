@@ -139,17 +139,19 @@ namespace M5SimpleDestroyerCombatDetail
     }
 
     // Deterministic selection: confidence wins, then lower bearing uncertainty, then lower stable track id.
+    // Temporary candidate vectors are intentional here: selectors return value-safe optional Tracks rather
+    // than pointers into caller-owned storage.
     const auto first = MakeSpatialTrack(40U, 0.82F);
     auto second = MakeSpatialTrack(41U, 0.90F);
     const auto best = SelectBestWeaponQualifiedTrack(weaponDefinition, controllerConfig, {first, second});
-    if (best == nullptr || best->trackId != second.trackId)
+    if (!best || best->trackId != second.trackId)
     {
         return false;
     }
     second.confidence = first.confidence;
     second.bearingUncertaintyRadians = first.bearingUncertaintyRadians;
     const auto stableTie = SelectBestWeaponQualifiedTrack(weaponDefinition, controllerConfig, {second, first});
-    if (stableTie == nullptr || stableTie->trackId != first.trackId)
+    if (!stableTie || stableTie->trackId != first.trackId)
     {
         return false;
     }
