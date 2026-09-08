@@ -1,77 +1,69 @@
-# M4 Acoustic Playground
-
-Status: ACTIVE
-
-Baseline: `main` at `175f8b95381ef00866a4cdc55bef17d4d04e4054` (`chore: close IG1 production Antey runtime integration`).
-
-## M4-A — coarse passive direct propagation
+# Milestone 4 — Acoustic Playground
 
 Status: IN PROGRESS
 
-M4-A establishes the first headless gameplay-acoustic foundation under `Simulation/Acoustics`:
+Milestone 4 proves the first bounded acoustic-perception vertical slice on top of the production Antey runtime established by IG1. It deliberately keeps acoustic simulation, perceived-world evidence, and developer ground truth as separate authorities.
 
-- four coarse spectral bands: very-low, low, medium, high;
-- deterministic direct-path distance and propagation delay driven by `SimulationTime`;
-- bounded propagation distance;
-- gameplay-authored geometric spreading and per-band absorption;
-- ambient noise plus receiver self-noise;
-- per-band SNR, peak-SNR detection threshold and bounded confidence;
-- passive bearing plus uncertainty;
-- passive observations with no automatic range estimate and no ground-truth source/entity identity;
-- receiver/sensor provenance is retained as a safe own-sensor semantic ID.
+## Implemented foundation
 
-The M4-A numeric tuning is intentionally coarse gameplay data. It is not a claim about exact or classified real-world submarine signatures or ocean-acoustic performance.
+- `AcousticWorld`, `AcousticEmitter`, `AcousticReceiver`, and a bounded four-band gameplay spectrum.
+- Deterministic direct-path transmission loss, frequency-dependent absorption, propagation delay, ambient noise, receiver self-noise, SNR, detection threshold, bearing, uncertainty, and confidence.
+- Passive observations with no automatic range and no source/entity identity leakage.
+- `SensorObservation` conversion, `Contact`, `TrackManager`, confidence, confirmation, ageing, coasting, and loss behavior.
+- Authored thermocline loss and graded terrain attenuation through `AcousticPropagationModifiers`; terrain is not binary acoustic visibility.
+- Active-sonar pulse, beam gate, outbound propagation, reflection loss, return propagation, round-trip delay/range, and separate `ActiveEcho` observations.
+- Outgoing active transmissions are ordinary acoustic emissions and may be detected by another passive receiver before the transmitting vessel receives its own echo.
+- Production Antey acoustic tuning derives emitted signature and passive self-noise from authoritative runtime velocity and shaft RPM, plus a smooth gameplay-only cavitation contribution modulated by signed depth.
+- Developer-only `AcousticDebuggerSnapshot` compares ground truth against observed/estimated state without exposing ground truth through the normal observation/contact/track API.
 
-`Engine/Audio` and miniaudio remain playback-only and are not dependencies of acoustic detection.
+## Live production-runtime composition
 
-## M4-A.1 — production Antey acoustic composition
+The normal windowed playground now uses the one-way authority chain:
 
-Status: IMPLEMENTED, CI VALIDATION IN PROGRESS
+```text
+PhysicsWorld/Jolt body state
++ WaterBody signed depth
++ committed propulsion shaft RPM
+        ↓
+AnteyAcousticRuntimeState
+        ↓
+AnteyAcousticSnapshot
+        ↓
+AcousticWorld + authored environment modifiers
+        ↓
+AcousticObservation
+        ↓
+SensorObservation
+        ↓
+Contact / TrackManager
+```
 
-`Game/Submarine/AnteyAcousticModel.h` is the bounded Game composition layer between authoritative vessel runtime state and generic acoustic simulation values:
+`PhysicalPlayground::BuildAcousticSnapshot` is read-only. Acoustics cannot write state back into Jolt, `WaterBody`, propulsion, rendering, input, or `AudioEngine`/miniaudio.
 
-- body reference position -> `AcousticEmitter.positionMeters` and passive receiver reference position;
-- authoritative linear velocity -> emitter kinematics and speed-derived flow/self-noise tuning;
-- authoritative shaft RPM -> coarse propulsion-dependent source signature and self-noise;
-- ambient noise remains an external acoustic-environment input rather than vessel-owned state;
-- the passive receiver publishes canonical semantic sensor ID `MGK540_BOW_ARRAY`;
-- source/entity identity is still absent from `AcousticObservation`.
+The representative remote continuous emitter used by the M4 playground is simulation-only scenario truth. Its identity is not present in `AcousticObservation`, `SensorObservation`, `Contact`, or `Track`. The current live scenario intentionally crosses the authored thermocline so the environment path is exercised rather than bypassed.
 
-The accepted production Antey content contract explicitly records `MGK540_BOW_ARRAY` as a semantic reserved region with `NO_GEOMETRIC_ANCHOR_AUTHORED`. M4-A.1 therefore does **not** invent a bow-array transform. Until a real geometric sensor anchor is authored, the receiver uses the authoritative vessel body reference position as an explicit gameplay approximation while preserving the correct semantic sensor identity.
+The fixed-update callback has an explicit discrete-time boundary: the body position/velocity sample is the current authoritative Jolt state before the Engine's following `PhysicsWorld::Step`, while the shaft RPM has already been committed by the successful propulsion transaction for that fixed update. M4 treats this as one bounded gameplay snapshot; it is not a claim of continuous acoustic/propulsion integration.
 
-The signature values are authored gameplay tuning only. They are deliberately not measured/classified Project 949A acoustic data.
-
-## Tests
+## Validation
 
 `DeepRunM4AcousticTests` covers:
 
-- propagation arrival timing;
-- frequency-dependent absorption;
-- ambient/self-noise masking;
-- passive knowledge boundary (bearing evidence, no perfect range);
-- own-sensor semantic provenance;
-- maximum propagation bound;
-- deterministic repeated evaluation;
-- invalid-configuration and invalid-receiver rejection;
-- Antey `MGK540_BOW_ARRAY` semantic receiver identity;
-- increasing propulsion RPM raises emitted signature;
-- increasing vessel speed raises passive self-noise;
-- authoritative vessel position/velocity reaches the acoustic snapshot without render dependencies;
-- non-finite Antey runtime state is rejected.
+- delayed passive arrival and deterministic repeatability;
+- frequency-dependent loss, ambient/self-noise masking, and bounded propagation;
+- production Antey sensor semantic identity and runtime signature inputs;
+- perception conversion and track lifecycle without omniscient target identity;
+- thermocline and terrain-loss modifiers;
+- active round-trip timing/range and detection of outgoing active transmission;
+- cavitation source/self-noise effects and depth modulation;
+- developer debugger knowledge boundary;
+- live runtime bridge from body/water/propulsion snapshots to a tentative then confirmed bearing-only track.
 
-Canonical local verification after configuring a preset:
+The full Debug and Release CI matrix must remain green for every accepted M4 slice. Windowed runtime smoke remains a separate closure check because the CI workflow currently runs configure/build/CTest only.
 
-```text
-cmake --build --preset windows-debug
-ctest --preset windows-debug
-cmake --build --preset windows-release
-ctest --preset windows-release
-```
+## Remaining before M4 closure
 
-GitHub Actions runs the same Debug/Release configure, full build and CTest matrix on Windows Server 2025 with Visual Studio 2026.
+- bounded developer/read-only tactical presentation that exposes observations, contacts/tracks, uncertainty/confidence, and debugger comparison without granting ground truth to gameplay;
+- final windowed smoke/acceptance evidence for the live production-Antey acoustic path;
+- final M4 integration review and milestone status transition to `COMPLETE` only after those gates are accepted.
 
-## Explicitly deferred after M4-A/A.1
-
-The next integration step is to compose the policy from the live production Antey body snapshot and propulsion state inside the playground fixed-step path, then feed a bounded synthetic/debug external source through `AcousticWorld` into a passive observation. This must preserve propagation delay and the player-knowledge boundary.
-
-M4-A/A.1 does not yet add thermoclines, terrain occlusion, surface/bottom reflection, multipath, active sonar, contact/track fusion, cavitation signatures, biological emitters, AcousticDebugger UI, audio playback integration, weapons, damage, AI, or M5 work. Those remain later bounded M4 slices.
+Surface/bottom reflection, bounded multipath, reverberation, biological emitters, wake, weapons, destroyers, explosions, and combat AI are not required for this first vertical slice unless separately promoted into scope. Combat remains Milestone 5.
