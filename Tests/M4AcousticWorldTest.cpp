@@ -1,3 +1,4 @@
+#include "Game/Submarine/AnteyAcousticModel.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
 
 #include <cmath>
@@ -16,6 +17,11 @@ using DeepRun::Physics::PhysicsVector3;
 [[nodiscard]] AcousticSpectrum UniformSpectrum(const float levelDb)
 {
     return AcousticSpectrum{.levelDb = {levelDb, levelDb, levelDb, levelDb}};
+}
+
+[[nodiscard]] AcousticSpectrum AmbientSpectrum()
+{
+    return AcousticSpectrum{.levelDb = {42.0F, 40.0F, 38.0F, 36.0F}};
 }
 
 [[nodiscard]] AcousticReceiver QuietReceiver(const PhysicsVector3 position = {})
@@ -167,6 +173,79 @@ using DeepRun::Physics::PhysicsVector3;
     const auto result = world->CollectPassiveDirectObservation(emission, receiver, 1.0);
     return !result && result.error().code == AcousticErrorCode::InvalidReceiver;
 }
+
+[[nodiscard]] bool AnteySensorIdentityUsesProductionSemanticRegion()
+{
+    const auto snapshot = DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot({}, AmbientSpectrum());
+    return snapshot &&
+           snapshot->passiveReceiver.sensorId == DeepRun::Game::Submarine::AnteyMainPassiveArraySensorId &&
+           snapshot->passiveReceiver.positionMeters == PhysicsVector3{};
+}
+
+[[nodiscard]] bool AnteyPropulsionRaisesEmittedSignature()
+{
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState stopped{};
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState running{};
+    running.shaftRpm = 180.0F;
+
+    const auto quiet = DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(stopped, AmbientSpectrum());
+    const auto loud = DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(running, AmbientSpectrum());
+    if (!quiet || !loud)
+    {
+        return false;
+    }
+    for (std::size_t band = 0; band < AcousticBandCount; ++band)
+    {
+        if (!(loud->emitter.continuousSourceLevelDb.levelDb[band] > quiet->emitter.continuousSourceLevelDb.levelDb[band]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool AnteySpeedRaisesPassiveSelfNoise()
+{
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState stopped{};
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState moving{};
+    moving.linearVelocityMetersPerSecond = {10.0F, 0.0F, 0.0F};
+
+    const auto quiet = DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(stopped, AmbientSpectrum());
+    const auto noisy = DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(moving, AmbientSpectrum());
+    if (!quiet || !noisy)
+    {
+        return false;
+    }
+    for (std::size_t band = 0; band < AcousticBandCount; ++band)
+    {
+        if (!(noisy->passiveReceiver.selfNoiseLevelDb.levelDb[band] >
+              quiet->passiveReceiver.selfNoiseLevelDb.levelDb[band]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool AnteyRuntimeKinematicsReachAcousticSnapshot()
+{
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState state{};
+    state.bodyReferencePositionMeters = {125.0F, -90.0F, 0.0F};
+    state.linearVelocityMetersPerSecond = {4.0F, -0.5F, 0.0F};
+    state.shaftRpm = 72.0F;
+
+    const auto snapshot = DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(state, AmbientSpectrum());
+    return snapshot && snapshot->emitter.positionMeters == state.bodyReferencePositionMeters &&
+           snapshot->emitter.velocityMetersPerSecond == state.linearVelocityMetersPerSecond &&
+           snapshot->passiveReceiver.positionMeters == state.bodyReferencePositionMeters;
+}
+
+[[nodiscard]] bool AnteyRejectsNonFiniteRuntimeState()
+{
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState state{};
+    state.shaftRpm = std::nanf("");
+    return !DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(state, AmbientSpectrum());
+}
 }
 
 int main()
@@ -174,7 +253,9 @@ int main()
     const bool ok = PropagationDelayUsesSimulationTime() && FrequencyDependentAbsorptionIsApplied() &&
                     AmbientAndSelfNoiseGateDetection() && PassiveObservationPreservesKnowledgeBoundary() &&
                     PropagationIsBounded() && RepeatedEvaluationIsDeterministic() && InvalidConfigurationIsRejected() &&
-                    ReceiverRequiresSensorIdentity();
-    std::cout << (ok ? "M4-A ACOUSTIC WORLD: PASS\n" : "M4-A ACOUSTIC WORLD: FAIL\n");
+                    ReceiverRequiresSensorIdentity() && AnteySensorIdentityUsesProductionSemanticRegion() &&
+                    AnteyPropulsionRaisesEmittedSignature() && AnteySpeedRaisesPassiveSelfNoise() &&
+                    AnteyRuntimeKinematicsReachAcousticSnapshot() && AnteyRejectsNonFiniteRuntimeState();
+    std::cout << (ok ? "M4-A/A.1 ACOUSTIC WORLD: PASS\n" : "M4-A/A.1 ACOUSTIC WORLD: FAIL\n");
     return ok ? 0 : 1;
 }
