@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <optional>
+#include <string>
 
 namespace DeepRun::Acoustics
 {
@@ -51,6 +52,15 @@ struct AcousticSpectrum final
     [[nodiscard]] bool operator==(const AcousticSpectrum&) const noexcept = default;
 };
 
+// Persistent simulation-facing source state. It may carry authoritative position/velocity because it remains
+// inside simulation; normal observations never receive a source/entity identifier or this structure itself.
+struct AcousticEmitter final
+{
+    Physics::PhysicsVector3 positionMeters{};
+    Physics::PhysicsVector3 velocityMetersPerSecond{};
+    AcousticSpectrum continuousSourceLevelDb{};
+};
+
 // One gameplay acoustic emission sample. Source identity is intentionally absent: authoritative entity
 // identity belongs inside simulation ownership and must never leak into normal sensor observations.
 struct AcousticEmission final
@@ -62,6 +72,9 @@ struct AcousticEmission final
 
 struct AcousticReceiver final
 {
+    // Sensor identity is safe perceived-world provenance. It identifies which own sensor produced evidence,
+    // not the ground-truth source that generated the signal.
+    std::string sensorId;
     Physics::PhysicsVector3 positionMeters{};
     AcousticSpectrum ambientNoiseLevelDb{};
     AcousticSpectrum selfNoiseLevelDb{};
@@ -78,6 +91,7 @@ enum class AcousticPathClass
 // and deliberately leaves range unset; there is no source/entity identifier in this value.
 struct AcousticObservation final
 {
+    std::string sensorId;
     double observationTimeSeconds = 0.0;
     double arrivalTimeSeconds = 0.0;
     float measuredBearingRadians = 0.0F;
