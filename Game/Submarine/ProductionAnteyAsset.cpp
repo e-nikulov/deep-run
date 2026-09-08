@@ -1,4 +1,5 @@
 #include "Game/Submarine/ProductionAnteyAsset.h"
+#include "Game/Submarine/ProductionAnteyLodPolicy.h"
 
 #include <nlohmann/json.hpp>
 
@@ -497,15 +498,11 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
 std::expected<Assets::AssetId, std::string> SelectProductionAnteyLod0Asset(
     const ProductionSubmarineAssetDefinition& definition)
 {
-    if (definition.assetFamilyId != "submarine.antey")
+    const auto selection = SelectProductionAnteyRenderAsset(definition, ProductionRenderLodLevel::Lod0);
+    if (!selection)
     {
-        return std::unexpected("production Antey visual selection received an unexpected asset family");
+        return std::unexpected(selection.error());
     }
-    const ProductionRenderLod& lod0 = definition.renderLods.front();
-    if (lod0.semanticId != "render.LOD0" || !lod0.stagedModelAssetId.has_value())
-    {
-        return std::unexpected("production Antey LOD0 staged model is unavailable");
-    }
-    return *lod0.stagedModelAssetId;
+    return selection->assetId;
 }
 }
