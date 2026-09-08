@@ -74,9 +74,9 @@ struct AnteyAcousticSnapshot final
 
     // Gameplay-only cavitation approximation. More RPM/speed increases cavitation; increasing depth reduces
     // it but never creates a magical zero-noise deep state. Values are intentionally not real submarine data.
-    const float rpmDrive = std::max(0.0F, (normalizedRpm - 0.55F) / 0.55F);
-    const float speedDrive = std::max(0.0F, (speedMetersPerSecond - 7.0F) / 12.0F);
-    const float shallowFactor = std::clamp(1.0F - std::max(state.signedDepthMeters, 0.0F) / 300.0F, 0.20F, 1.0F);
+    const float rpmDrive = (std::max)(0.0F, (normalizedRpm - 0.55F) / 0.55F);
+    const float speedDrive = (std::max)(0.0F, (speedMetersPerSecond - 7.0F) / 12.0F);
+    const float shallowFactor = std::clamp(1.0F - (std::max)(state.signedDepthMeters, 0.0F) / 300.0F, 0.20F, 1.0F);
     const float cavitationIntensity = std::clamp((0.65F * rpmDrive + 0.35F * speedDrive) * shallowFactor, 0.0F, 1.0F);
 
     Acoustics::AcousticSpectrum sourceLevel = baseSourceLevelDb;
