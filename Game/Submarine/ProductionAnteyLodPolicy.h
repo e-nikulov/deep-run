@@ -31,6 +31,11 @@ struct ProductionRenderLodSelection final
     constexpr std::array<const char*, 4> ExpectedSemanticIds{
         "render.LOD0", "render.LOD1", "render.LOD2", "render.LOD3"};
 
+    if (definition.assetFamilyId != "submarine.antey")
+    {
+        return std::unexpected("Antey render LOD validation received an unexpected asset family");
+    }
+
     for (std::size_t index = 0; index < definition.renderLods.size(); ++index)
     {
         const ProductionRenderLod& lod = definition.renderLods[index];
@@ -78,9 +83,10 @@ struct ProductionRenderLodSelection final
 
     // Prefer the requested variant. If it is unavailable, fall back toward a more detailed available LOD
     // first. This preserves geometry correctness at the cost of performance and never invents an asset path.
-    for (std::size_t index = requestedIndex + 1U; index-- > 0U;)
+    for (std::size_t candidateCount = requestedIndex + 1U; candidateCount > 0U; --candidateCount)
     {
-        const auto& candidate = definition.renderLods[index];
+        const std::size_t index = candidateCount - 1U;
+        const ProductionRenderLod& candidate = definition.renderLods[index];
         if (candidate.stagedModelAssetId.has_value())
         {
             return ProductionRenderLodSelection{
@@ -95,7 +101,7 @@ struct ProductionRenderLodSelection final
     // It is unreachable for the accepted IG1 contract because validation above requires staged LOD0.
     for (std::size_t index = requestedIndex + 1U; index < definition.renderLods.size(); ++index)
     {
-        const auto& candidate = definition.renderLods[index];
+        const ProductionRenderLod& candidate = definition.renderLods[index];
         if (candidate.stagedModelAssetId.has_value())
         {
             return ProductionRenderLodSelection{
