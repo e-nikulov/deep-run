@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Engine/Diagnostics/Logger.h"
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 
@@ -66,15 +65,15 @@ namespace M5SimpleDestroyerRuntimeDetail
 }
 }
 
-[[nodiscard]] inline bool RunM5SimpleDestroyerRuntimeChecks()
+// Reuses the caller-owned PhysicsWorld instead of creating another Jolt authority in the same process. This
+// mirrors the real Engine composition: one PhysicsWorld owns all combat bodies and all weapon collision queries.
+[[nodiscard]] inline bool RunM5SimpleDestroyerRuntimeChecks(Physics::PhysicsWorld& physicsWorld)
 {
     using namespace M5SimpleDestroyerRuntimeDetail;
     using namespace Game::Combat;
     using namespace Weapons;
 
-    Diagnostics::Logger logger;
-    Physics::PhysicsWorld physicsWorld(logger);
-    if (!physicsWorld.Initialize())
+    if (!physicsWorld.IsInitialized())
     {
         return false;
     }
