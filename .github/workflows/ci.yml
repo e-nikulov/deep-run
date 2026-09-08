@@ -19,9 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset:
-          - windows-debug
-          - windows-release
+        include:
+          - preset: windows-debug
+            configuration: Debug
+          - preset: windows-release
+            configuration: Release
 
     steps:
       - name: Checkout
@@ -38,3 +40,21 @@ jobs:
       - name: Test
         shell: pwsh
         run: ctest --preset ${{ matrix.preset }}
+
+      - name: Windowed acoustic smoke
+        shell: pwsh
+        run: |
+          $env:DR_NO_CAPTURE = "1"
+          $executable = ".\build\${{ matrix.preset }}\${{ matrix.configuration }}\DeepRun.exe"
+          $output = & $executable --smoke-test 2>&1 | Tee-Object -Variable smokeOutput
+          $exitCode = $LASTEXITCODE
+          $text = ($smokeOutput | Out-String)
+          if ($exitCode -ne 0) {
+            throw "DeepRun windowed smoke failed with exit code $exitCode"
+          }
+          if ($text -notmatch "\[Game\]\[Acoustics\] Passive contact acquired:") {
+            throw "M4 smoke did not acquire the expected passive acoustic observation"
+          }
+          if ($text -notmatch "\[Game\]\[Acoustics\] Track confirmed:") {
+            throw "M4 smoke did not confirm the expected acoustic track"
+          }
