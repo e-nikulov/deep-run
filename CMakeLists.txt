@@ -176,6 +176,7 @@ add_library(DeepRunEngine STATIC
     Engine/Render/SuspendedParticles.cpp
     Engine/Render/ViewPathFog.cpp
     Engine/Scene/Scene.cpp
+    Simulation/Acoustics/AcousticWorld.cpp
     Simulation/Marine/BuoyancySystem.cpp
     Simulation/Marine/ControlSurfaceSystem.cpp
     Simulation/Marine/HydroDragSystem.cpp
@@ -314,5 +315,18 @@ target_compile_definitions(DeepRunIG1DLodPolicyTests PRIVATE
 deeprun_set_project_warnings(DeepRunIG1DLodPolicyTests)
 target_link_libraries(DeepRunIG1DLodPolicyTests PRIVATE DeepRunEngine)
 add_test(NAME DeepRunIG1DLodPolicyTests COMMAND DeepRunIG1DLodPolicyTests)
+
+# M4-A is headless and simulation-only. It must remain independent from renderer and audio-device timing.
+add_executable(DeepRunM4AcousticTests
+    Tests/M4AcousticWorldTest.cpp
+)
+target_compile_features(DeepRunM4AcousticTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunM4AcousticTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunM4AcousticTests)
+target_link_libraries(DeepRunM4AcousticTests PRIVATE DeepRunEngine)
+add_test(NAME DeepRunM4AcousticTests COMMAND DeepRunM4AcousticTests)
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)
