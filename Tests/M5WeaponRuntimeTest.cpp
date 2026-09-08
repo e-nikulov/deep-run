@@ -1,7 +1,10 @@
+#include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string_view>
 
@@ -23,6 +26,7 @@ DeepRun::Perception::Track MakeTrack()
         .contactId = 7U,
         .lifecycle = DeepRun::Perception::TrackLifecycleState::Confirmed,
         .estimatedPositionMeters = DeepRun::Physics::PhysicsVector3{.x = 1200.0F, .y = -140.0F, .z = 0.0F},
+        .positionUncertaintyMeters = 50.0F,
         .estimatedVelocityMetersPerSecond = std::nullopt,
         .estimatedBearingRadians = 0.25F,
         .bearingUncertaintyRadians = 0.05F,
@@ -30,6 +34,101 @@ DeepRun::Perception::Track MakeTrack()
         .observationCount = 4U,
         .firstObservationTimeSeconds = 1.0,
         .lastObservationTimeSeconds = 8.0};
+}
+
+DeepRun::Acoustics::AcousticSpectrum UniformSpectrum(const float value)
+{
+    return DeepRun::Acoustics::AcousticSpectrum{.levelDb = {value, value, value, value}};
+}
+
+DeepRun::Perception::Track BuildSpatialTrackFromActiveEcho()
+{
+    using namespace DeepRun;
+
+    const auto world = Acoustics::AcousticWorld::Create({});
+    Require(world.has_value(), "M5-B acoustic world must be created");
+
+    Acoustics::ActiveAcousticPulse pulse{};
+    pulse.originMeters = {100.0F, -120.0F, 2.0F};
+    pulse.forwardUnitVector = {1.0F, 0.0F, 0.0F};
+    pulse.sourceLevelDb = UniformSpectrum(230.0F);
+    pulse.emissionTimeSeconds = 1.0;
+
+    Acoustics::AcousticReflector reflector{};
+    reflector.positionMeters = {3100.0F, -120.0F, 2.0F};
+    reflector.reflectionLossDb = UniformSpectrum(8.0F);
+
+    const Acoustics::AcousticReceiver receiver{
+        .sensorId = "MGK540_BOW_ARRAY",
+        .positionMeters = pulse.originMeters,
+        .ambientNoiseLevelDb = UniformSpectrum(30.0F),
+        .selfNoiseLevelDb = UniformSpectrum(30.0F),
+        .sensitivityDb = UniformSpectrum(0.0F),
+        .minimumPeakSnrDb = 3.0F};
+
+    const auto echo = Acoustics::CollectMonostaticActiveEchoObservation(*world, pulse, reflector, receiver, 5.0);
+    Require(echo.has_value() && echo->has_value(), "M5-B active echo must arrive at the expected SimulationTime");
+
+    const auto rangedWithoutOwnPosition = Perception::FromAcousticObservation(**echo);
+    Require(rangedWithoutOwnPosition.has_value(), "active echo must cross the ordinary perception boundary");
+    auto noOwnPositionManager = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+        .observationsToConfirm = 1,
+        .coastAfterSeconds = 100.0,
+        .lostAfterSeconds = 200.0,
+        .confidenceDecayPerSecond = 0.0F});
+    Require(noOwnPositionManager.has_value(), "M5-B no-own-position TrackManager must be created");
+    Require(noOwnPositionManager->IntegrateObservation(*rangedWithoutOwnPosition).has_value(),
+            "ranged evidence without own sensor position remains valid evidence");
+    const auto nonSpatialTracks = noOwnPositionManager->Tracks();
+    Require(nonSpatialTracks.size() == 1U && !nonSpatialTracks.front().estimatedPositionMeters.has_value(),
+            "range evidence must not be spatialized without known own sensor position");
+
+    const auto perceived = Perception::FromAcousticObservation(**echo, receiver.positionMeters);
+    Require(perceived.has_value() && perceived->sensorPositionMeters == receiver.positionMeters,
+            "own sensor position must cross explicitly with ranged perceived evidence");
+
+    const Physics::PhysicsVector3 invalidOwnPosition{
+        .x = std::numeric_limits<float>::quiet_NaN(), .y = 0.0F, .z = 0.0F};
+    Require(!Perception::FromAcousticObservation(**echo, invalidOwnPosition).has_value(),
+            "non-finite own sensor position must be rejected before track integration");
+
+    auto manager = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+        .observationsToConfirm = 1,
+        .coastAfterSeconds = 100.0,
+        .lostAfterSeconds = 200.0,
+        .confidenceDecayPerSecond = 0.0F,
+        .positionUncertaintyGrowthMetersPerSecond = 5.0F});
+    Require(manager.has_value(), "M5-B spatial TrackManager must be created");
+    Require(manager->IntegrateObservation(*perceived).has_value(), "ranged perceived evidence must integrate");
+
+    const auto tracks = manager->Tracks();
+    Require(tracks.size() == 1U, "ranged active evidence must create one track");
+    const auto& track = tracks.front();
+    Require(track.lifecycle == Perception::TrackLifecycleState::Confirmed,
+            "single-observation M5-B test configuration must confirm the ranged track");
+    Require(track.estimatedPositionMeters.has_value() && track.positionUncertaintyMeters.has_value(),
+            "ranged track must carry spatial estimate and explicit uncertainty");
+    Require(std::abs(track.estimatedPositionMeters->x - reflector.positionMeters.x) < 0.01F &&
+            std::abs(track.estimatedPositionMeters->y - reflector.positionMeters.y) < 0.01F &&
+            std::abs(track.estimatedPositionMeters->z - receiver.positionMeters.z) < 0.01F,
+            "spatial track must derive from own sensor position plus measured bearing/range");
+
+    const float expectedLateralUncertainty =
+        *perceived->estimatedRangeMeters * perceived->bearingUncertaintyRadians;
+    const float expectedPositionUncertainty = static_cast<float>(std::hypot(
+        static_cast<double>(*perceived->rangeUncertaintyMeters),
+        static_cast<double>(expectedLateralUncertainty)));
+    Require(std::abs(*track.positionUncertaintyMeters - expectedPositionUncertainty) < 0.01F,
+            "position uncertainty must combine range and angular evidence uncertainty");
+
+    Require(manager->AdvanceTo(12.0).has_value(), "spatial track uncertainty must age on SimulationTime");
+    const auto agedTracks = manager->Tracks();
+    Require(agedTracks.size() == 1U && agedTracks.front().positionUncertaintyMeters.has_value(),
+            "aged spatial track must retain explicit uncertainty");
+    Require(std::abs(*agedTracks.front().positionUncertaintyMeters - (expectedPositionUncertainty + 35.0F)) < 0.01F,
+            "position uncertainty age must be measured from the last ranged estimate");
+
+    return track;
 }
 } // namespace
 
@@ -41,6 +140,7 @@ int main()
     using DeepRun::Weapons::CreateWeaponRuntime;
     using DeepRun::Weapons::LaunchWeapon;
     using DeepRun::Weapons::PrepareWeapon;
+    using DeepRun::Weapons::ValidateTrackForWeapon;
     using DeepRun::Weapons::WeaponDefinition;
     using DeepRun::Weapons::WeaponPhase;
     using DeepRun::Weapons::WeaponTargetingRequirements;
@@ -51,6 +151,7 @@ int main()
         .targeting = WeaponTargetingRequirements{
             .minimumTrackConfidence = 0.70F,
             .maximumBearingUncertaintyRadians = 0.10F,
+            .maximumPositionUncertaintyMeters = 150.0F,
             .requiresEstimatedPosition = true,
             .allowCoastingTrack = false}};
 
@@ -66,9 +167,20 @@ int main()
 
     auto bearingOnlyTrack = MakeTrack();
     bearingOnlyTrack.estimatedPositionMeters = std::nullopt;
+    bearingOnlyTrack.positionUncertaintyMeters = std::nullopt;
     Require(!AssignWeaponTarget(torpedo, runtime, bearingOnlyTrack, 10.0).has_value(),
             "M4-style bearing-only track must not satisfy position-requiring torpedo targeting");
     Require(!runtime.targetTrackId.has_value(), "rejected track must not leak into weapon target state");
+
+    auto missingSpatialUncertainty = MakeTrack();
+    missingSpatialUncertainty.positionUncertaintyMeters = std::nullopt;
+    Require(!ValidateTrackForWeapon(torpedo, missingSpatialUncertainty).has_value(),
+            "position-requiring weapon must reject a spatial estimate with unknown uncertainty");
+
+    auto excessiveSpatialUncertainty = MakeTrack();
+    excessiveSpatialUncertainty.positionUncertaintyMeters = 151.0F;
+    Require(!ValidateTrackForWeapon(torpedo, excessiveSpatialUncertainty).has_value(),
+            "position-requiring weapon must reject a track above its spatial uncertainty budget");
 
     auto weakTrack = MakeTrack();
     weakTrack.confidence = 0.50F;
@@ -124,6 +236,15 @@ int main()
     Require(AssignWeaponTarget(coastingDefinition, coastingRuntime, coastingTrack, 30.0).has_value(),
             "coasting track must be accepted only when explicitly authored");
 
-    std::cout << "M5 weapon runtime checks passed\n";
+    const auto activeSpatialTrack = BuildSpatialTrackFromActiveEcho();
+    Require(ValidateTrackForWeapon(torpedo, activeSpatialTrack).has_value(),
+            "active ranged perception must produce a track that satisfies the first torpedo spatial quality gate");
+
+    auto agedSpatialTrack = activeSpatialTrack;
+    agedSpatialTrack.positionUncertaintyMeters = 160.0F;
+    Require(!ValidateTrackForWeapon(torpedo, agedSpatialTrack).has_value(),
+            "weapon must reject spatial evidence after its uncertainty exceeds the authored budget");
+
+    std::cout << "M5 weapon/perception runtime checks passed\n";
     return EXIT_SUCCESS;
 }
