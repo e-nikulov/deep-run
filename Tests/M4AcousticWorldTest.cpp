@@ -21,6 +21,7 @@ using DeepRun::Physics::PhysicsVector3;
 [[nodiscard]] AcousticReceiver QuietReceiver(const PhysicsVector3 position = {})
 {
     return AcousticReceiver{
+        .sensorId = "test.passive.array",
         .positionMeters = position,
         .ambientNoiseLevelDb = UniformSpectrum(35.0F),
         .selfNoiseLevelDb = UniformSpectrum(35.0F),
@@ -106,8 +107,8 @@ using DeepRun::Physics::PhysicsVector3;
     }
     constexpr double quarterTurn = 0.7853981633974483;
     const auto& value = observation->value();
-    return NearlyEqual(value.measuredBearingRadians, quarterTurn) && !value.estimatedRangeMeters.has_value() &&
-           !value.rangeUncertaintyMeters.has_value();
+    return value.sensorId == "test.passive.array" && NearlyEqual(value.measuredBearingRadians, quarterTurn) &&
+           !value.estimatedRangeMeters.has_value() && !value.rangeUncertaintyMeters.has_value();
 }
 
 [[nodiscard]] bool PropagationIsBounded()
@@ -149,13 +150,31 @@ using DeepRun::Physics::PhysicsVector3;
     const auto world = AcousticWorld::Create(config);
     return !world && world.error().code == AcousticErrorCode::InvalidConfiguration;
 }
+
+[[nodiscard]] bool ReceiverRequiresSensorIdentity()
+{
+    const auto world = AcousticWorld::Create({});
+    if (!world)
+    {
+        return false;
+    }
+    auto receiver = QuietReceiver();
+    receiver.sensorId.clear();
+    const AcousticEmission emission{
+        .positionMeters = {1000.0F, 0.0F, 0.0F},
+        .sourceLevelDb = UniformSpectrum(180.0F),
+        .emissionTimeSeconds = 0.0};
+    const auto result = world->CollectPassiveDirectObservation(emission, receiver, 1.0);
+    return !result && result.error().code == AcousticErrorCode::InvalidReceiver;
+}
 }
 
 int main()
 {
     const bool ok = PropagationDelayUsesSimulationTime() && FrequencyDependentAbsorptionIsApplied() &&
                     AmbientAndSelfNoiseGateDetection() && PassiveObservationPreservesKnowledgeBoundary() &&
-                    PropagationIsBounded() && RepeatedEvaluationIsDeterministic() && InvalidConfigurationIsRejected();
+                    PropagationIsBounded() && RepeatedEvaluationIsDeterministic() && InvalidConfigurationIsRejected() &&
+                    ReceiverRequiresSensorIdentity();
     std::cout << (ok ? "M4-A ACOUSTIC WORLD: PASS\n" : "M4-A ACOUSTIC WORLD: FAIL\n");
     return ok ? 0 : 1;
 }
