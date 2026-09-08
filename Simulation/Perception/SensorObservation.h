@@ -11,6 +11,7 @@ namespace DeepRun::Perception
 enum class SensorModality
 {
     PassiveAcoustic,
+    ActiveAcoustic,
 };
 
 // Perceived-world evidence shared above sensor-specific simulation. Deliberately contains no authoritative
@@ -44,7 +45,9 @@ struct SensorObservation final
     }
 
     return SensorObservation{
-        .modality = SensorModality::PassiveAcoustic,
+        .modality = acoustic.kind == Acoustics::AcousticObservationKind::ActiveEcho
+            ? SensorModality::ActiveAcoustic
+            : SensorModality::PassiveAcoustic,
         .sensorId = acoustic.sensorId,
         .observationTimeSeconds = acoustic.observationTimeSeconds,
         .measuredBearingRadians = acoustic.measuredBearingRadians,

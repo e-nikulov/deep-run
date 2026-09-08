@@ -93,15 +93,22 @@ struct AcousticReceiver final
     float minimumPeakSnrDb = 0.0F;
 };
 
+enum class AcousticObservationKind
+{
+    PassiveReception,
+    ActiveEcho,
+};
+
 enum class AcousticPathClass
 {
     Direct,
 };
 
-// M4 observations are evidence, not targets. Passive M4-A therefore publishes bearing/SNR/uncertainty
-// and deliberately leaves range unset; there is no source/entity identifier in this value.
+// M4 observations are evidence, not targets. Passive observations deliberately leave range unset; active
+// echoes may provide a bounded range estimate from round-trip timing. No observation contains source identity.
 struct AcousticObservation final
 {
+    AcousticObservationKind kind = AcousticObservationKind::PassiveReception;
     std::string sensorId;
     double observationTimeSeconds = 0.0;
     double arrivalTimeSeconds = 0.0;
