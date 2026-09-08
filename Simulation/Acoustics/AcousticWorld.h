@@ -15,6 +15,7 @@ enum class AcousticErrorCode
     InvalidEmission,
     InvalidReceiver,
     InvalidSimulationTime,
+    InvalidPropagationModifiers,
     NonFiniteResult,
 };
 
@@ -37,7 +38,7 @@ struct AcousticWorldConfig final
     float confidenceFullScaleSnrMarginDb = 20.0F;
 };
 
-// M4-A authoritative gameplay-acoustic foundation. This class performs one bounded deterministic direct
+// M4 authoritative gameplay-acoustic foundation. This class performs one bounded deterministic direct
 // passive propagation query. It has no dependency on AudioEngine/miniaudio and never exposes source identity.
 class AcousticWorld final
 {
@@ -48,11 +49,13 @@ public:
 
     // Evaluates a direct passive arrival at one receiver using SimulationTime. A valid but not-yet-arrived,
     // out-of-range, or below-threshold signal returns an empty optional. Invalid runtime data is an error.
-    // Passive M4-A observations deliberately contain bearing but no estimated range.
+    // Passive observations deliberately contain bearing but no automatic estimated range. Optional path
+    // modifiers add authored terrain/layer loss without making geometry or water-layer policy AcousticWorld-owned.
     [[nodiscard]] std::expected<std::optional<AcousticObservation>, AcousticError> CollectPassiveDirectObservation(
         const AcousticEmission& emission,
         const AcousticReceiver& receiver,
-        double simulationTimeSeconds) const;
+        double simulationTimeSeconds,
+        const AcousticPropagationModifiers& propagationModifiers = {}) const;
 
 private:
     explicit AcousticWorld(AcousticWorldConfig config);

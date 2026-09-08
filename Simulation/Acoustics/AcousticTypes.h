@@ -52,6 +52,17 @@ struct AcousticSpectrum final
     [[nodiscard]] bool operator==(const AcousticSpectrum&) const noexcept = default;
 };
 
+// Bounded environmental modifier for one already-selected acoustic path. Terrain and authored water layers
+// contribute extra loss instead of replacing propagation with binary visibility. Flags are simulation/debug
+// provenance only; they do not identify the ground-truth source.
+struct AcousticPropagationModifiers final
+{
+    AcousticSpectrum additionalTransmissionLossDb{};
+    float confidenceMultiplier = 1.0F;
+    bool terrainAttenuated = false;
+    bool crossedThermocline = false;
+};
+
 // Persistent simulation-facing source state. It may carry authoritative position/velocity because it remains
 // inside simulation; normal observations never receive a source/entity identifier or this structure itself.
 struct AcousticEmitter final

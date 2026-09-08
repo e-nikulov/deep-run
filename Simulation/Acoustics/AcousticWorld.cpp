@@ -14,6 +14,23 @@ namespace
     return std::isfinite(value) && value >= 0.0F;
 }
 
+[[nodiscard]] bool AreValidPropagationModifiers(const AcousticPropagationModifiers& modifiers) noexcept
+{
+    if (!modifiers.additionalTransmissionLossDb.IsFinite() || !std::isfinite(modifiers.confidenceMultiplier) ||
+        modifiers.confidenceMultiplier < 0.0F || modifiers.confidenceMultiplier > 1.0F)
+    {
+        return false;
+    }
+    for (const float lossDb : modifiers.additionalTransmissionLossDb.levelDb)
+    {
+        if (lossDb < 0.0F)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] float CombineIndependentNoiseLevelsDb(const float firstDb, const float secondDb)
 {
     const double high = static_cast<double>(std::max(firstDb, secondDb));
@@ -80,7 +97,8 @@ const AcousticWorldConfig& AcousticWorld::Config() const noexcept
 std::expected<std::optional<AcousticObservation>, AcousticError> AcousticWorld::CollectPassiveDirectObservation(
     const AcousticEmission& emission,
     const AcousticReceiver& receiver,
-    const double simulationTimeSeconds) const
+    const double simulationTimeSeconds,
+    const AcousticPropagationModifiers& propagationModifiers) const
 {
     if (!std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
     {
@@ -97,6 +115,11 @@ std::expected<std::optional<AcousticObservation>, AcousticError> AcousticWorld::
         !std::isfinite(receiver.minimumPeakSnrDb))
     {
         return std::unexpected(MakeError(AcousticErrorCode::InvalidReceiver, "acoustic receiver is invalid"));
+    }
+    if (!AreValidPropagationModifiers(propagationModifiers))
+    {
+        return std::unexpected(MakeError(AcousticErrorCode::InvalidPropagationModifiers,
+                                         "acoustic propagation modifiers are invalid"));
     }
 
     const double dx = static_cast<double>(emission.positionMeters.x) - static_cast<double>(receiver.positionMeters.x);
@@ -144,8 +167,11 @@ std::expected<std::optional<AcousticObservation>, AcousticError> AcousticWorld::
     {
         const double absorptionLossDb = static_cast<double>(config_.absorptionDbPerKilometer[bandIndex]) *
                                         (distanceMeters / 1000.0);
+        const double environmentalLossDb =
+            static_cast<double>(propagationModifiers.additionalTransmissionLossDb.levelDb[bandIndex]);
         const double receivedDb = static_cast<double>(emission.sourceLevelDb.levelDb[bandIndex]) - spreadingLossDb -
-                                  absorptionLossDb + static_cast<double>(receiver.sensitivityDb.levelDb[bandIndex]);
+                                  absorptionLossDb - environmentalLossDb +
+                                  static_cast<double>(receiver.sensitivityDb.levelDb[bandIndex]);
         const float noiseDb = CombineIndependentNoiseLevelsDb(receiver.ambientNoiseLevelDb.levelDb[bandIndex],
                                                                receiver.selfNoiseLevelDb.levelDb[bandIndex]);
         const double snrDb = receivedDb - static_cast<double>(noiseDb);
@@ -173,7 +199,7 @@ std::expected<std::optional<AcousticObservation>, AcousticError> AcousticWorld::
     observation.confidence = std::clamp(
         (observation.peakSignalToNoiseDb - receiver.minimumPeakSnrDb) / config_.confidenceFullScaleSnrMarginDb,
         0.0F,
-        1.0F);
+        1.0F) * propagationModifiers.confidenceMultiplier;
     return std::optional<AcousticObservation>{observation};
 }
 
