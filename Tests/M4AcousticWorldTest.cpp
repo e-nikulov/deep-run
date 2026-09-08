@@ -1,6 +1,7 @@
 #include "Game/AcousticPlayground.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
+#include "Tests/M4EnvironmentChecks.h"
 #include "Tests/M4PerceptionChecks.h"
 
 #include <cmath>
@@ -284,7 +285,9 @@ int main()
                     ReceiverRequiresSensorIdentity() && AnteySensorIdentityUsesProductionSemanticRegion() &&
                     AnteyPropulsionRaisesEmittedSignature() && AnteySpeedRaisesPassiveSelfNoise() &&
                     AnteyRuntimeKinematicsReachAcousticSnapshot() && AnteyRejectsNonFiniteRuntimeState() &&
-                    AcousticPlaygroundClosesPassiveVerticalSlice() && DeepRun::Tests::RunM4PerceptionChecks();
-    std::cout << (ok ? "M4-A/A.1 PASSIVE + PERCEPTION SLICE: PASS\n" : "M4-A/A.1 PASSIVE + PERCEPTION SLICE: FAIL\n");
+                    AcousticPlaygroundClosesPassiveVerticalSlice() && DeepRun::Tests::RunM4PerceptionChecks() &&
+                    DeepRun::Tests::RunM4EnvironmentChecks();
+    std::cout << (ok ? "M4-A/A.1 PASSIVE + PERCEPTION + ENVIRONMENT SLICE: PASS\n" :
+                       "M4-A/A.1 PASSIVE + PERCEPTION + ENVIRONMENT SLICE: FAIL\n");
     return ok ? 0 : 1;
 }
