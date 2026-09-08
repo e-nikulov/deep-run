@@ -41,11 +41,13 @@ IG1-D treats LOD identity and availability as presentation policy only. The
 production family always carries semantic `render.LOD0` through `render.LOD3`
 metadata, but the current staged runtime package exposes only the validated
 `Antey.glb` LOD0 artifact. Missing variants are not fabricated from metadata.
-A request selects the requested staged LOD when available; otherwise it falls
-back first toward a more detailed staged variant. With the current package,
-requests for LOD1--LOD3 therefore resolve explicitly to LOD0. Changing render
-LOD selection cannot change collision, buoyancy, mass/displacement tuning,
-propulsion, controls, or semantic gameplay anchors.
+Staged LOD0 is mandatory. A request selects the requested staged LOD when
+available; otherwise it falls back only toward the nearest more-detailed staged
+variant, with LOD0 as the guaranteed terminal fallback. A coarser-than-requested
+asset is never substituted. With the current package, requests for LOD1--LOD3
+therefore resolve explicitly to LOD0. Changing render LOD selection cannot
+change collision, buoyancy, mass/displacement tuning, propulsion, controls, or
+semantic gameplay anchors.
 
 Runtime consumes semantic records for propellers, torpedo anchors, P-700
 launcher data, compartments, collision, buoyancy, and LOD identity. Blender
@@ -83,8 +85,9 @@ or Simulation consume them; extent magnitudes map as `(X, Y, Z) -> (X, Z, Y)`.
 - The Antey LOD0--LOD3 variants share one runtime asset-family identity; LOD
   validation/selection is a bounded Game presentation policy, not a generic
   Engine LOD manager.
-- The current lack of staged LOD1--LOD3 is explicit and falls back to LOD0;
-  runtime never invents asset paths for unavailable variants.
+- The current lack of staged LOD1--LOD3 is explicit and falls back toward the
+  nearest more-detailed available variant; current package requests therefore
+  resolve to mandatory staged LOD0. Runtime never invents asset paths.
 - Render-LOD selection cannot become authority for collision, buoyancy,
   hydrostatic tuning, or semantic gameplay state.
 - M4 receives runtime state and semantic anchors only through its own acoustic
