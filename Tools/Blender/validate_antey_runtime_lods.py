@@ -60,6 +60,28 @@ def read_glb_triangle_count(path: Path) -> int:
     return triangles
 
 
+def current_selection(family: list[dict]) -> dict[str, str]:
+    """Mirror the accepted runtime rule for the currently declared package variants.
+
+    LOD0 is mandatory. A missing requested LOD may only fall back toward a more detailed
+    staged variant; a coarser-than-requested substitution is never allowed.
+    """
+    if not family or not family[0]["runtimeAvailable"]:
+        raise RuntimeError("LOD0 must be available before applying the selection policy")
+
+    selected: dict[str, str] = {}
+    for requested_index, requested in enumerate(family):
+        resolved: str | None = None
+        for candidate_index in range(requested_index, -1, -1):
+            if family[candidate_index]["runtimeAvailable"]:
+                resolved = str(family[candidate_index]["lod"])
+                break
+        if resolved is None:
+            raise RuntimeError(f"No selectable staged render variant for {requested['lod']}")
+        selected[str(requested["lod"])] = resolved
+    return selected
+
+
 def validate(package: Path) -> dict:
     metadata_path = package / "Antey.asset.json"
     if not metadata_path.is_file():
@@ -112,15 +134,21 @@ def validate(package: Path) -> dict:
             f"metadata={metadata_triangles}, tolerance={tolerance}"
         )
 
-    # Current bounded selection policy: a requested unavailable coarser LOD falls back toward the
-    # nearest more-detailed available variant. With only LOD0 staged, every request resolves to LOD0.
-    selection = {lod_name: "LOD0" for lod_name in EXPECTED_LODS}
+    selection = current_selection(family)
+    expected_current_selection = {lod_name: "LOD0" for lod_name in EXPECTED_LODS}
+    if selection != expected_current_selection:
+        raise RuntimeError(
+            f"Current IG1-D package selection changed unexpectedly: {selection!r}"
+        )
+
     return {
         "status": "PASS",
         "family": family,
         "runtimeLod0Triangles": runtime_triangles,
         "metadataLod0Triangles": metadata_triangles,
         "selectionPolicy": selection,
+        "fallbackDirection": "MORE_DETAILED_ONLY",
+        "mandatoryRuntimeLod": "LOD0",
         "dynamicScreenSpaceSwitching": "DEFERRED",
         "physicsDependsOnRenderLod": False,
     }
