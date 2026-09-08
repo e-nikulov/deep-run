@@ -1,10 +1,10 @@
 # Milestone 4 — Acoustic Playground
 
-Status: IN PROGRESS
+Status: COMPLETE
 
-Milestone 4 proves the first bounded acoustic-perception vertical slice on top of the production Antey runtime established by IG1. It deliberately keeps acoustic simulation, perceived-world evidence, and developer ground truth as separate authorities.
+Milestone 4 proves the first bounded acoustic-perception vertical slice on top of the production Antey runtime established by IG1. Acoustic simulation, perceived-world evidence, and developer ground truth remain separate authorities.
 
-## Implemented foundation
+## Accepted foundation
 
 - `AcousticWorld`, `AcousticEmitter`, `AcousticReceiver`, and a bounded four-band gameplay spectrum.
 - Deterministic direct-path transmission loss, frequency-dependent absorption, propagation delay, ambient noise, receiver self-noise, SNR, detection threshold, bearing, uncertainty, and confidence.
@@ -18,7 +18,7 @@ Milestone 4 proves the first bounded acoustic-perception vertical slice on top o
 
 ## Live production-runtime composition
 
-The normal windowed playground now uses the one-way authority chain:
+The normal windowed playground uses the one-way authority chain:
 
 ```text
 PhysicsWorld/Jolt body state
@@ -40,11 +40,17 @@ Contact / TrackManager
 
 `PhysicalPlayground::BuildAcousticSnapshot` is read-only. Acoustics cannot write state back into Jolt, `WaterBody`, propulsion, rendering, input, or `AudioEngine`/miniaudio.
 
-The representative remote continuous emitter used by the M4 playground is simulation-only scenario truth. Its identity is not present in `AcousticObservation`, `SensorObservation`, `Contact`, or `Track`. The current live scenario intentionally crosses the authored thermocline so the environment path is exercised rather than bypassed.
+The representative remote continuous emitter used by the M4 playground is simulation-only scenario truth. Its identity is absent from `AcousticObservation`, `SensorObservation`, `Contact`, and `Track`. The live scenario intentionally crosses the authored thermocline so the environment path is exercised rather than bypassed.
 
-The fixed-update callback has an explicit discrete-time boundary: the body position/velocity sample is the current authoritative Jolt state before the Engine's following `PhysicsWorld::Step`, while the shaft RPM has already been committed by the successful propulsion transaction for that fixed update. M4 treats this as one bounded gameplay snapshot; it is not a claim of continuous acoustic/propulsion integration.
+The fixed-update callback has an explicit discrete-time boundary: body position/velocity is the current authoritative Jolt state before the Engine's following `PhysicsWorld::Step`, while shaft RPM has already been committed by the successful propulsion transaction for that fixed update. M4 treats this as one bounded gameplay snapshot, not continuous acoustic/propulsion integration.
 
-## Validation
+## Read-only tactical/debug presentation
+
+The bounded Game-side runtime readout reports the first passive acquisition and first confirmed track. It exposes bearing plus bearing uncertainty and confidence; the passive track explicitly retains `position=unknown` and `velocity=unknown`. Cavitation and thermocline provenance are developer diagnostics only.
+
+Ground-truth source position/range is available only through the explicit developer-only debugger accessor. It is not present in the ordinary runtime frame or perceived-world types and is not an AI, weapon, or player-knowledge API.
+
+## Validation and acceptance
 
 `DeepRunM4AcousticTests` covers:
 
@@ -58,12 +64,10 @@ The fixed-update callback has an explicit discrete-time boundary: the body posit
 - developer debugger knowledge boundary;
 - live runtime bridge from body/water/propulsion snapshots to a tentative then confirmed bearing-only track.
 
-The full Debug and Release CI matrix must remain green for every accepted M4 slice. Windowed runtime smoke remains a separate closure check because the CI workflow currently runs configure/build/CTest only.
+Final code acceptance was GitHub Actions run `34211992286` on commit `6916875dedb5e4136e301c40d217d22f7f432260`. Both `windows-debug` and `windows-release` passed configure, full build, CTest, and the real windowed `DeepRun.exe --smoke-test` step. The smoke step runs the D3D12/windowed production-Antey path with frame capture disabled only for CI robustness and fails unless the live log contains both `Passive contact acquired` and `Track confirmed`.
 
-## Remaining before M4 closure
+The immediately preceding windowed gate `34211016862` also passed the same Debug/Release configure/build/CTest/windowed-smoke matrix before the final uncertainty readout change.
 
-- bounded developer/read-only tactical presentation that exposes observations, contacts/tracks, uncertainty/confidence, and debugger comparison without granting ground truth to gameplay;
-- final windowed smoke/acceptance evidence for the live production-Antey acoustic path;
-- final M4 integration review and milestone status transition to `COMPLETE` only after those gates are accepted.
+## Deferred after M4
 
-Surface/bottom reflection, bounded multipath, reverberation, biological emitters, wake, weapons, destroyers, explosions, and combat AI are not required for this first vertical slice unless separately promoted into scope. Combat remains Milestone 5.
+Surface reflection, bottom reflection, bounded multipath, reverberation, synthetic biological emitters, hydrodynamic wake, weapons, destroyers, explosions, and combat AI are not required for this first vertical slice. Weapon use, hostile combat entities, targeting, and tactical combat remain Milestone 5 or later scope.

@@ -639,7 +639,7 @@ contract can be verified before it changes the existing playground visual path:
 | IG1-C | Production collision/buoyancy runtime composition | COMPLETE |
 | IG1-D | Production LOD validation/selection policy | COMPLETE |
 
-IG1 gate is complete. M4 is IN PROGRESS.
+IG1 gate is complete. M4 is COMPLETE.
 
 IG1-A stages the currently accepted LOD0 GLB and retains the declared
 LOD0--LOD3 family metadata without fabricating absent LOD files. Availability
@@ -724,11 +724,11 @@ cleanup.
 - Existing M2/M3 tests remain green and new regression checks prevent a return
   to prototype normal-path rendering or legacy Antey-marker dependencies.
 
-## Future milestones
+## Completed milestones (continued)
 
 ### Milestone 4 - Acoustic Playground
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 Milestone 4 remains a bounded playground for proving the first acoustic
 perception vertical slice.
@@ -741,19 +741,19 @@ Implementation status:
 
 | Slice | Content | Status |
 |---|---|---|
-| A | Acoustic core, coarse spectrum, direct passive propagation and delay | IMPLEMENTED |
-| B | Observation-to-contact/track perceived-world boundary | IMPLEMENTED |
-| C | Production Antey runtime signature and passive receiver composition | IMPLEMENTED |
-| D | Thermocline plus graded terrain attenuation | IMPLEMENTED |
-| E | Active-sonar round trip and outgoing-transmission observability | IMPLEMENTED |
-| F | Gameplay cavitation signature integration | IMPLEMENTED |
-| G | Live `PhysicalPlayground` Jolt/WaterBody/RPM to passive-track composition | IMPLEMENTED |
-| H | Developer-only ground-truth versus perceived-state debugger boundary | IMPLEMENTED |
-| I | Final tactical/debug presentation, windowed smoke and milestone closure | IN PROGRESS |
+| A | Acoustic core, coarse spectrum, direct passive propagation and delay | ACCEPTED |
+| B | Observation-to-contact/track perceived-world boundary | ACCEPTED |
+| C | Production Antey runtime signature and passive receiver composition | ACCEPTED |
+| D | Thermocline plus graded terrain attenuation | ACCEPTED |
+| E | Active-sonar round trip and outgoing-transmission observability | ACCEPTED |
+| F | Gameplay cavitation signature integration | ACCEPTED |
+| G | Live `PhysicalPlayground` Jolt/WaterBody/RPM to passive-track composition | ACCEPTED |
+| H | Developer-only ground-truth versus perceived-state debugger boundary | ACCEPTED |
+| I | Final tactical/debug presentation, windowed smoke and milestone closure | ACCEPTED |
 
-Detailed implementation/authority notes are recorded in
-[the M4 acoustic playground progress report](../development/m4-acoustic-playground.md).
-M4 remains `IN PROGRESS` until the final presentation/windowed-smoke/closure gate is accepted.
+M4-I acceptance evidence is recorded in
+[the M4 acoustic playground acceptance report](../development/m4-acoustic-playground.md).
+Milestone 4 — Acoustic Playground is COMPLETE.
 <!-- deeprun-m4-command-note:start -->
 
 Command-layer relevance:
@@ -829,6 +829,8 @@ is not required.
 Hydrodynamic wake is not required for the first working Milestone 4 vertical
 slice. Synthetic/debug emitters and reflectors should be used where practical;
 torpedoes, destroyers, explosions and full combat remain in Milestone 5.
+
+## Future milestones
 
 ### Milestone 5 - Combat Playground
 
