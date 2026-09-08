@@ -81,8 +81,9 @@ struct ProductionRenderLodSelection final
         return std::unexpected("Antey requested render LOD is outside the production family");
     }
 
-    // Prefer the requested variant. If it is unavailable, fall back toward a more detailed available LOD
-    // first. This preserves geometry correctness at the cost of performance and never invents an asset path.
+    // LOD0 is mandatory for the accepted production package, so fallback is deliberately one-directional:
+    // use the requested variant when staged, otherwise walk toward a more detailed available variant until
+    // LOD0 is reached. Never invent an AssetId and never substitute a coarser-than-requested asset.
     for (std::size_t candidateCount = requestedIndex + 1U; candidateCount > 0U; --candidateCount)
     {
         const std::size_t index = candidateCount - 1U;
@@ -97,21 +98,8 @@ struct ProductionRenderLodSelection final
         }
     }
 
-    // This branch is defensive for future packages where LOD0 might intentionally cease to be mandatory.
-    // It is unreachable for the accepted IG1 contract because validation above requires staged LOD0.
-    for (std::size_t index = requestedIndex + 1U; index < definition.renderLods.size(); ++index)
-    {
-        const ProductionRenderLod& candidate = definition.renderLods[index];
-        if (candidate.stagedModelAssetId.has_value())
-        {
-            return ProductionRenderLodSelection{
-                .requested = requested,
-                .selected = static_cast<ProductionRenderLodLevel>(index),
-                .assetId = *candidate.stagedModelAssetId,
-                .usedFallback = true};
-        }
-    }
-
-    return std::unexpected("Antey production render family has no staged render variant");
+    // Unreachable after successful family validation because staged LOD0 is mandatory. Keep a defensive error
+    // so future contract changes fail clearly if validation and selection policy ever diverge.
+    return std::unexpected("Antey production render family has no selectable staged render variant");
 }
 } // namespace DeepRun::Game::Submarine
