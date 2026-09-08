@@ -6,6 +6,7 @@
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 
 #include <cmath>
+#include <iostream>
 #include <optional>
 
 namespace DeepRun::Tests
@@ -54,11 +55,16 @@ namespace M5CombatImpactDetail
     using namespace M5CombatImpactDetail;
     using namespace Weapons;
 
+    const auto fail = [](const char* message) {
+        std::cerr << "M5-D check failed: " << message << '\n';
+        return false;
+    };
+
     Diagnostics::Logger logger;
     Physics::PhysicsWorld physicsWorld(logger);
     if (!physicsWorld.Initialize())
     {
-        return false;
+        return fail("PhysicsWorld initialization");
     }
 
     const Physics::PhysicsBodyHandle launchPlatformBody = physicsWorld.CreateStaticBoxBody(
@@ -71,29 +77,32 @@ namespace M5CombatImpactDetail
             .position = {.x = 30.0F, .y = 0.0F, .z = 0.0F}});
     if (!launchPlatformBody.IsValid() || !targetBody.IsValid())
     {
-        return false;
+        return fail("static test-body creation");
     }
 
-    // Prove the generic query itself: without filtering, starting inside the launch platform reports it;
-    // explicitly ignoring that body lets the same sweep reach the later physical target.
+    // Prove the generic query and filtering without depending on Jolt's start-overlap/back-face policy.
+    // The cast starts clear of both bodies: without filtering it reaches the launch platform first; with that
+    // exact body ignored, the identical sweep continues to the later physical target.
     Physics::PhysicsBoxSweepQuery genericSweep{
         .halfExtentsMeters = {.x = 1.0F, .y = 0.25F, .z = 0.25F},
-        .startPositionMeters = {.x = 0.0F, .y = 0.0F, .z = 0.0F},
+        .startPositionMeters = {.x = -10.0F, .y = 0.0F, .z = 0.0F},
         .orientation = {},
-        .displacementMeters = {.x = 40.0F, .y = 0.0F, .z = 0.0F}};
+        .displacementMeters = {.x = 50.0F, .y = 0.0F, .z = 0.0F}};
     const auto launchHit = physicsWorld.SweepBoxClosest(genericSweep);
-    if (!launchHit || !*launchHit || (**launchHit).body != launchPlatformBody || (**launchHit).fraction != 0.0F)
+    if (!launchHit || !*launchHit || (**launchHit).body != launchPlatformBody ||
+        std::abs((**launchHit).fraction - 0.16F) > 0.01F ||
+        std::abs((**launchHit).positionMeters.x + 2.0F) > 0.1F)
     {
-        return false;
+        return fail("generic closest sweep must hit launch platform first");
     }
 
     genericSweep.ignoredBody = launchPlatformBody;
     const auto targetHit = physicsWorld.SweepBoxClosest(genericSweep);
     if (!targetHit || !*targetHit || (**targetHit).body != targetBody ||
-        std::abs((**targetHit).fraction - 0.675F) > 0.01F ||
+        std::abs((**targetHit).fraction - 0.74F) > 0.01F ||
         std::abs((**targetHit).positionMeters.x - 27.0F) > 0.1F)
     {
-        return false;
+        return fail("ignored-body sweep must reach target body");
     }
 
     auto invalidSweep = genericSweep;
@@ -101,7 +110,7 @@ namespace M5CombatImpactDetail
     const auto invalidSweepResult = physicsWorld.SweepBoxClosest(invalidSweep);
     if (invalidSweepResult || invalidSweepResult.error().code != Physics::PhysicsErrorCode::InvalidInput)
     {
-        return false;
+        return fail("zero-displacement sweep validation");
     }
 
     const auto definition = MakeImpactDefinition();
@@ -109,14 +118,14 @@ namespace M5CombatImpactDetail
     auto weaponResult = CreateWeaponRuntime(definition.weapon, 0.0);
     if (!weaponResult)
     {
-        return false;
+        return fail("weapon runtime creation");
     }
     auto weapon = *weaponResult;
     if (!PrepareWeapon(definition.weapon, weapon, 0.0) ||
         !AssignWeaponTarget(definition.weapon, weapon, track, 0.0) ||
         !LaunchWeapon(definition.weapon, weapon, 0.0))
     {
-        return false;
+        return fail("weapon preparation/target/launch");
     }
 
     auto torpedoResult = CreateLaunchedConventionalTorpedo(
@@ -128,14 +137,14 @@ namespace M5CombatImpactDetail
         0.0);
     if (!torpedoResult)
     {
-        return false;
+        return fail("launched torpedo creation");
     }
     auto torpedo = *torpedoResult;
 
     auto integrityResult = Combat::CreateCombatIntegrity(targetBody, 100.0F, 0.0);
     if (!integrityResult)
     {
-        return false;
+        return fail("combat integrity creation");
     }
     auto integrity = *integrityResult;
 
@@ -148,7 +157,7 @@ namespace M5CombatImpactDetail
         launchPlatformBody);
     if (!impactResult || !*impactResult)
     {
-        return false;
+        return fail("torpedo swept movement must produce physical impact");
     }
 
     const auto& impact = **impactResult;
@@ -159,20 +168,20 @@ namespace M5CombatImpactDetail
         impact.explosion.radiusMeters != definition.explosionRadiusMeters ||
         impact.explosion.simulationTimeSeconds != 2.0)
     {
-        return false;
+        return fail("terminal impact state/damage/explosion payload");
     }
 
     if (!Combat::ApplyCombatDamage(integrity, impact.damage) ||
         std::abs(integrity.remainingIntegrity - 25.0F) > 0.001F || integrity.destroyed)
     {
-        return false;
+        return fail("first coarse combat damage application");
     }
 
     auto wrongBodyDamage = impact.damage;
     wrongBodyDamage.targetBody = launchPlatformBody;
     if (Combat::ApplyCombatDamage(integrity, wrongBodyDamage))
     {
-        return false;
+        return fail("wrong-body combat damage must be rejected");
     }
 
     Combat::CombatDamageEvent finishingDamage{
@@ -183,13 +192,13 @@ namespace M5CombatImpactDetail
     if (!Combat::ApplyCombatDamage(integrity, finishingDamage) || !integrity.destroyed ||
         integrity.remainingIntegrity != 0.0F)
     {
-        return false;
+        return fail("finishing coarse combat damage");
     }
 
     finishingDamage.simulationTimeSeconds = 2.5;
     if (Combat::ApplyCombatDamage(integrity, finishingDamage))
     {
-        return false;
+        return fail("combat damage SimulationTime reversal must be rejected");
     }
 
     // A confirmed impact consumes the torpedo. It cannot generate a second damage/explosion event later.
@@ -201,7 +210,7 @@ namespace M5CombatImpactDetail
             3.0,
             launchPlatformBody))
     {
-        return false;
+        return fail("spent torpedo must not produce a second impact");
     }
 
     return true;
