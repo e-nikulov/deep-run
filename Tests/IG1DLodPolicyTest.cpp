@@ -62,6 +62,31 @@ bool AvailableRequestedLodWins()
            selected->assetId.Value() == "submarines/Antey/Antey_LOD2.glb";
 }
 
+bool NearestMoreDetailedAvailableLodWinsFallback()
+{
+    auto definition = MakeDefinition();
+    const auto lod1 = DeepRun::Assets::AssetId::FromPath("submarines/Antey/Antey_LOD1.glb");
+    const auto lod2 = DeepRun::Assets::AssetId::FromPath("submarines/Antey/Antey_LOD2.glb");
+    if (!lod1 || !lod2)
+    {
+        return false;
+    }
+    definition.renderLods[1].stagedModelAssetId = *lod1;
+    definition.renderLods[2].stagedModelAssetId = *lod2;
+
+    const auto selected = SelectProductionAnteyRenderAsset(definition, ProductionRenderLodLevel::Lod3);
+    return selected && selected->selected == ProductionRenderLodLevel::Lod2 && selected->usedFallback &&
+           selected->assetId.Value() == "submarines/Antey/Antey_LOD2.glb";
+}
+
+bool MissingMandatoryLod0Fails()
+{
+    auto definition = MakeDefinition();
+    definition.renderLods[0].stagedModelAssetId.reset();
+    return !ValidateProductionAnteyLodFamily(definition) &&
+           !SelectProductionAnteyRenderAsset(definition, ProductionRenderLodLevel::Lod3);
+}
+
 bool InvalidFamilyFails()
 {
     auto definition = MakeDefinition();
@@ -73,7 +98,9 @@ bool InvalidFamilyFails()
 
 int main()
 {
-    const bool ok = CurrentPackageFallsBackToLod0() && AvailableRequestedLodWins() && InvalidFamilyFails();
+    const bool ok = CurrentPackageFallsBackToLod0() && AvailableRequestedLodWins() &&
+                    NearestMoreDetailedAvailableLodWinsFallback() && MissingMandatoryLod0Fails() &&
+                    InvalidFamilyFails();
     std::cout << (ok ? "IG1-D LOD POLICY: PASS\n" : "IG1-D LOD POLICY: FAIL\n");
     return ok ? 0 : 1;
 }
