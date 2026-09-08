@@ -92,7 +92,7 @@ std::expected<std::optional<AcousticObservation>, AcousticError> AcousticWorld::
     {
         return std::unexpected(MakeError(AcousticErrorCode::InvalidEmission, "acoustic emission is invalid"));
     }
-    if (!receiver.positionMeters.IsFinite() || !receiver.ambientNoiseLevelDb.IsFinite() ||
+    if (receiver.sensorId.empty() || !receiver.positionMeters.IsFinite() || !receiver.ambientNoiseLevelDb.IsFinite() ||
         !receiver.selfNoiseLevelDb.IsFinite() || !receiver.sensitivityDb.IsFinite() ||
         !std::isfinite(receiver.minimumPeakSnrDb))
     {
@@ -132,6 +132,7 @@ std::expected<std::optional<AcousticObservation>, AcousticError> AcousticWorld::
     }
 
     AcousticObservation observation{};
+    observation.sensorId = receiver.sensorId;
     observation.observationTimeSeconds = simulationTimeSeconds;
     observation.arrivalTimeSeconds = arrivalTimeSeconds;
     observation.measuredBearingRadians = static_cast<float>(std::atan2(dy, dx));
