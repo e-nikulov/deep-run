@@ -1,5 +1,6 @@
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
+#include "Tests/M5CombatImpactChecks.h"
 #include "Tests/M5ConventionalTorpedoChecks.h"
 
 #include <cmath>
@@ -248,7 +249,9 @@ int main()
 
     Require(DeepRun::Tests::RunM5ConventionalTorpedoChecks(),
             "M5-C conventional torpedo runtime must remain track-bound and SimulationTime deterministic");
+    Require(DeepRun::Tests::RunM5CombatImpactChecks(),
+            "M5-D swept collision, impact, explosion and bounded combat damage checks must pass");
 
-    std::cout << "M5 weapon/perception/torpedo runtime checks passed\n";
+    std::cout << "M5 weapon/perception/torpedo/combat runtime checks passed\n";
     return EXIT_SUCCESS;
 }

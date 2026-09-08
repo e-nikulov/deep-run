@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Engine/Physics/PhysicsSweepTypes.h"
 #include "Engine/Physics/PhysicsTypes.h"
 
+#include <expected>
 #include <memory>
 #include <optional>
 #include <string>
@@ -57,6 +59,12 @@ public:
 
     // Returns a copy of the body state. Invalid/foreign/stale handles are recoverable errors, never UB.
     [[nodiscard]] std::optional<PhysicsBodyState> GetBodyState(PhysicsBodyHandle handle) const;
+
+    // Performs a backend-authoritative closest-hit sweep of one fixed-orientation box over a linear displacement.
+    // This is a generic physics query, not a weapon API. A successful query with no collision returns an empty
+    // optional; invalid input/world/ignored handles return PhysicsError. The hit exposes only DeepRun-owned values.
+    [[nodiscard]] std::expected<std::optional<PhysicsSweepHit>, PhysicsError> SweepBoxClosest(
+        const PhysicsBoxSweepQuery& query);
 
     // Applies a force (unit: Newtons) at world-space position `worldPositionMeters` (unit: meters) to the
     // body referenced by `handle`, for the upcoming fixed simulation step. This is a force, not an impulse:

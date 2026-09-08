@@ -10,9 +10,13 @@
 #include <Jolt/Math/Vector.h>
 #include <Jolt/Physics/Body/AllowedDOFs.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
@@ -425,6 +429,99 @@ public:
             .active = bodyInterface.IsActive(slot.bodyId)};
     }
 
+    std::expected<std::optional<PhysicsSweepHit>, PhysicsError> SweepBoxClosest(const PhysicsBoxSweepQuery& query)
+    {
+        const auto fail = [](const PhysicsErrorCode code, const std::string& message)
+            -> std::expected<std::optional<PhysicsSweepHit>, PhysicsError> {
+            return std::unexpected(PhysicsError{code, message});
+        };
+
+        if (!initialized)
+        {
+            return fail(PhysicsErrorCode::NotInitialized, "physics world is not initialized");
+        }
+        if (!query.halfExtentsMeters.IsFinite() || query.halfExtentsMeters.x <= 0.0F ||
+            query.halfExtentsMeters.y <= 0.0F || query.halfExtentsMeters.z <= 0.0F ||
+            !query.startPositionMeters.IsFinite() || !query.orientation.IsFinite() ||
+            query.orientation.LengthSquared() <= 0.0F || !query.displacementMeters.IsFinite())
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "box sweep requires finite positive extents, transform, and displacement");
+        }
+        if (query.displacementMeters.x == 0.0F && query.displacementMeters.y == 0.0F &&
+            query.displacementMeters.z == 0.0F)
+        {
+            return fail(PhysicsErrorCode::InvalidInput, "box sweep displacement must be non-zero");
+        }
+
+        BodySlot* ignoredSlot = nullptr;
+        if (query.ignoredBody.IsValid())
+        {
+            ignoredSlot = Resolve(query.ignoredBody);
+            if (ignoredSlot == nullptr)
+            {
+                return fail(PhysicsErrorCode::InvalidHandle, "box sweep ignored body is invalid, foreign, or stale");
+            }
+        }
+
+        const float orientationLength = std::sqrt(query.orientation.LengthSquared());
+        const JPH::Quat orientation(
+            query.orientation.x / orientationLength,
+            query.orientation.y / orientationLength,
+            query.orientation.z / orientationLength,
+            query.orientation.w / orientationLength);
+        const JPH::BoxShape castShape(
+            JPH::Vec3(query.halfExtentsMeters.x, query.halfExtentsMeters.y, query.halfExtentsMeters.z),
+            0.0F);
+        const JPH::RShapeCast shapeCast(
+            &castShape,
+            JPH::Vec3::sOne(),
+            JPH::RMat44::sRotationTranslation(
+                orientation,
+                JPH::RVec3(query.startPositionMeters.x, query.startPositionMeters.y, query.startPositionMeters.z)),
+            JPH::Vec3(query.displacementMeters.x, query.displacementMeters.y, query.displacementMeters.z));
+
+        JPH::ShapeCastSettings settings{};
+        settings.mReturnDeepestPoint = true;
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        const JPH::NarrowPhaseQuery& narrowPhase = physicsSystem->GetNarrowPhaseQuery();
+        if (ignoredSlot != nullptr)
+        {
+            const JPH::IgnoreSingleBodyFilter ignoredBodyFilter(ignoredSlot->bodyId);
+            narrowPhase.CastShape(
+                shapeCast,
+                settings,
+                JPH::RVec3::sZero(),
+                collector,
+                {},
+                {},
+                ignoredBodyFilter);
+        }
+        else
+        {
+            narrowPhase.CastShape(shapeCast, settings, JPH::RVec3::sZero(), collector);
+        }
+
+        if (!collector.HadHit())
+        {
+            return std::optional<PhysicsSweepHit>{};
+        }
+
+        const auto bodyHandle = HandleForBodyId(collector.mHit.mBodyID2);
+        if (!bodyHandle)
+        {
+            return fail(PhysicsErrorCode::InvalidHandle, "box sweep hit a body that is not owned by the public PhysicsWorld registry");
+        }
+
+        const float fraction = std::clamp(collector.mHit.mFraction, 0.0F, 1.0F);
+        return std::optional<PhysicsSweepHit>{PhysicsSweepHit{
+            .body = *bodyHandle,
+            .fraction = fraction,
+            .positionMeters = {
+                query.startPositionMeters.x + query.displacementMeters.x * fraction,
+                query.startPositionMeters.y + query.displacementMeters.y * fraction,
+                query.startPositionMeters.z + query.displacementMeters.z * fraction}}};
+    }
+
     bool AddForceAtWorldPosition(PhysicsBodyHandle handle, PhysicsVector3 forceNewtons, PhysicsVector3 worldPositionMeters, PhysicsError* error)
     {
         const auto fail = [this, error](const PhysicsErrorCode code, const std::string& message) -> bool {
@@ -560,6 +657,19 @@ private:
             return nullptr;
         }
         return slot;
+    }
+
+    [[nodiscard]] std::optional<PhysicsBodyHandle> HandleForBodyId(const JPH::BodyID bodyId) const
+    {
+        for (std::size_t index = 0; index < bodies.size(); ++index)
+        {
+            const BodySlot& slot = bodies[index];
+            if (slot.active && slot.bodyId == bodyId)
+            {
+                return PhysicsBodyHandle(worldIdentity, index, slot.generation);
+            }
+        }
+        return std::nullopt;
     }
 
     std::uint64_t worldIdentity;
@@ -729,6 +839,13 @@ std::optional<PhysicsBodyState> PhysicsWorld::GetBodyState(PhysicsBodyHandle han
 {
     assert(impl_ != nullptr);
     return impl_->GetBodyState(handle);
+}
+
+std::expected<std::optional<PhysicsSweepHit>, PhysicsError> PhysicsWorld::SweepBoxClosest(
+    const PhysicsBoxSweepQuery& query)
+{
+    assert(impl_ != nullptr);
+    return impl_->SweepBoxClosest(query);
 }
 
 bool PhysicsWorld::AddForceAtWorldPosition(

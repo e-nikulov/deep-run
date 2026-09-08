@@ -48,6 +48,45 @@ Accepted contract:
 
 Acceptance evidence: GitHub Actions run `34223149715` on code commit `10f6d0451ffb3ef5537f4ba43d33e1ee60676303`. Both `windows-debug` and `windows-release` passed configure, full build, full CTest, and the existing real windowed M4 acoustic smoke gate.
 
+## M5-C — conventional heavyweight torpedo movement/guidance
+
+Status: ACCEPTED.
+
+M5-C introduces the first bounded conventional-heavyweight torpedo runtime without collision or damage yet.
+
+Accepted contract:
+
+- a torpedo runtime can be created only from the matching authoritative `WeaponPhase::Launched` state and accepted perceived `trackId`;
+- movement advances only from monotonic `SimulationTime`;
+- underwater movement is headless 2.5D kinematics with authored speed and bounded turn rate;
+- guidance consumes only the already accepted perceived track identity/spatial estimate and never a hostile entity handle or Transform;
+- a later weak/invalid update cannot overwrite the last accepted aim point;
+- a different `trackId` cannot silently retarget an in-flight torpedo;
+- authoritative weapon and movement timestamps remain synchronized.
+
+The M5 CTest runner executes dedicated conventional-torpedo checks for launch gating, deterministic movement, bounded steering, target identity, stale/weak guidance handling and SimulationTime reversal.
+
+Acceptance evidence: GitHub Actions run `34224207370` on code commit `c7856774c003d66d850c76bca93b48a9f73b3d4b`. Both `windows-debug` and `windows-release` passed configure, full build, full CTest (including the M5-C checks), and the existing real windowed M4 acoustic smoke gate.
+
+## M5-D — swept collision, impact, explosion event and bounded combat damage
+
+Status: IMPLEMENTED — acceptance pending CI.
+
+M5-D closes the physical-impact boundary without allowing Weapons to reproduce collision logic themselves.
+
+Implemented contract under validation:
+
+- `PhysicsWorld` owns a generic backend-authoritative closest-hit box sweep implemented by the pinned Jolt backend;
+- the public sweep API exposes only DeepRun-owned inputs/results (`PhysicsBodyHandle`, hit fraction and swept-box center at contact), never `JPH::*` types;
+- callers may explicitly ignore one valid body, allowing launch-platform filtering without weakening other collision authority;
+- conventional torpedo motion is first advanced on a candidate copy, then swept from the previous to candidate position; physics query failure cannot partially advance authoritative weapon state;
+- only a confirmed `PhysicsWorld` hit can expose an impacted body handle to the weapon terminal state;
+- confirmed impact consumes the torpedo into `MovementDomain::Spent`, emits one bounded damage event and one authoritative explosion event;
+- M5 combat integrity is deliberately coarse and body-bound; it is not the M6 compartment/flooding/system-damage model;
+- combat damage is SimulationTime-ordered, target-body matched and clamped to a deterministic destroyed state.
+
+`DeepRunM5WeaponRuntimeTests` now also executes a real Jolt-backed sweep against physical static bodies, verifies launch-platform filtering, torpedo impact/consumption, explosion production, basic integrity damage/destruction, target mismatch rejection and time-reversal rejection.
+
 ## Next slice
 
-M5-C introduces the first conventional-heavyweight torpedo runtime as a bounded headless underwater movement/guidance slice. It will consume only the accepted perceived track identity and spatial estimate, advance on `SimulationTime`, and keep collision, impact, detonation, damage, destroyers, decoys, mines, explosions, and combat AI out of scope until their own slices.
+After M5-D acceptance, continue with the remaining Combat Playground dependencies (decoy, simple enemy/destroyer behavior and the minimal combat interaction needed to exercise them) while preserving the perceived-world and physics-authority boundaries. Detailed compartment/flooding/system damage remains M6.

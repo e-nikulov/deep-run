@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Engine/Physics/PhysicsWorld.h"
+#include "Simulation/Combat/CombatIntegrity.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
 #include <algorithm>
@@ -14,6 +16,7 @@ enum class MovementDomain
 {
     Attached,
     Underwater,
+    Spent,
 };
 
 struct ConventionalTorpedoDefinition final
@@ -21,10 +24,17 @@ struct ConventionalTorpedoDefinition final
     WeaponDefinition weapon{};
     float underwaterSpeedMetersPerSecond = 20.0F;
     float maximumTurnRateRadiansPerSecond = 0.25F;
+
+    // M5-D coarse physical/payload representation. These are gameplay-authored values, not claimed real-world
+    // performance data. The box is swept by PhysicsWorld each fixed movement update.
+    Physics::PhysicsVector3 collisionHalfExtentsMeters{2.0F, 0.25F, 0.25F};
+    float directImpactDamage = 75.0F;
+    float explosionRadiusMeters = 8.0F;
 };
 
-// Bounded M5-C runtime: authoritative weapon phase remains in WeaponRuntimeState, while movement owns only
-// underwater kinematics and a perceived-world guidance snapshot. No target entity handle or Transform exists here.
+// Bounded M5-C/D runtime: authoritative weapon phase remains in WeaponRuntimeState, while movement owns only
+// underwater kinematics, perceived-world guidance and terminal physical-impact state. No target entity handle or
+// Transform exists before PhysicsWorld reports an actual collision.
 struct ConventionalTorpedoRuntimeState final
 {
     WeaponRuntimeState weapon{};
@@ -36,11 +46,29 @@ struct ConventionalTorpedoRuntimeState final
     std::optional<std::uint64_t> guidanceTrackId{};
     std::optional<Physics::PhysicsVector3> guidanceAimPointMeters{};
     std::optional<float> guidancePositionUncertaintyMeters{};
+    std::optional<Physics::PhysicsBodyHandle> impactedBody{};
+};
+
+struct ConventionalTorpedoImpact final
+{
+    Physics::PhysicsSweepHit physicsHit{};
+    Combat::CombatDamageEvent damage{};
+    Combat::CombatExplosionEvent explosion{};
 };
 
 [[nodiscard]] inline float WrapWeaponHeading(const float radians) noexcept
 {
     return std::remainder(radians, 6.2831853F);
+}
+
+[[nodiscard]] inline Physics::PhysicsQuaternion WeaponHeadingQuaternion(const float headingRadians) noexcept
+{
+    const float halfAngle = 0.5F * headingRadians;
+    return Physics::PhysicsQuaternion{
+        .x = 0.0F,
+        .y = 0.0F,
+        .z = static_cast<float>(std::sin(static_cast<double>(halfAngle))),
+        .w = static_cast<float>(std::cos(static_cast<double>(halfAngle)))};
 }
 
 [[nodiscard]] inline std::expected<void, std::string> ValidateConventionalTorpedoDefinition(
@@ -55,9 +83,14 @@ struct ConventionalTorpedoRuntimeState final
         definition.underwaterSpeedMetersPerSecond <= 0.0F ||
         !std::isfinite(definition.maximumTurnRateRadiansPerSecond) ||
         definition.maximumTurnRateRadiansPerSecond <= 0.0F ||
-        definition.maximumTurnRateRadiansPerSecond > 3.1415927F)
+        definition.maximumTurnRateRadiansPerSecond > 3.1415927F ||
+        !definition.collisionHalfExtentsMeters.IsFinite() ||
+        definition.collisionHalfExtentsMeters.x <= 0.0F || definition.collisionHalfExtentsMeters.y <= 0.0F ||
+        definition.collisionHalfExtentsMeters.z <= 0.0F || !std::isfinite(definition.directImpactDamage) ||
+        definition.directImpactDamage <= 0.0F || !std::isfinite(definition.explosionRadiusMeters) ||
+        definition.explosionRadiusMeters <= 0.0F)
     {
-        return std::unexpected("conventional torpedo movement definition is invalid");
+        return std::unexpected("conventional torpedo movement/collision/payload definition is invalid");
     }
     return {};
 }
@@ -104,7 +137,8 @@ struct ConventionalTorpedoRuntimeState final
         .lastUpdateTimeSeconds = simulationTimeSeconds,
         .guidanceTrackId = targetTrack.trackId,
         .guidanceAimPointMeters = targetTrack.estimatedPositionMeters,
-        .guidancePositionUncertaintyMeters = targetTrack.positionUncertaintyMeters};
+        .guidancePositionUncertaintyMeters = targetTrack.positionUncertaintyMeters,
+        .impactedBody = std::nullopt};
 }
 
 [[nodiscard]] inline std::expected<void, std::string> UpdateConventionalTorpedoGuidance(
@@ -119,12 +153,13 @@ struct ConventionalTorpedoRuntimeState final
         return std::unexpected(definitionValid.error());
     }
     if (state.weapon.definitionId != definition.weapon.id || state.weapon.phase != WeaponPhase::Launched ||
-        state.movementDomain != MovementDomain::Underwater || !state.positionMeters.IsFinite() ||
-        !std::isfinite(state.headingRadians) || !std::isfinite(state.speedMetersPerSecond) ||
-        state.speedMetersPerSecond <= 0.0F || !std::isfinite(simulationTimeSeconds) ||
-        simulationTimeSeconds < state.lastUpdateTimeSeconds || simulationTimeSeconds < state.weapon.lastUpdateTimeSeconds)
+        state.movementDomain != MovementDomain::Underwater || state.impactedBody.has_value() ||
+        !state.positionMeters.IsFinite() || !std::isfinite(state.headingRadians) ||
+        !std::isfinite(state.speedMetersPerSecond) || state.speedMetersPerSecond <= 0.0F ||
+        !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < state.lastUpdateTimeSeconds ||
+        simulationTimeSeconds < state.weapon.lastUpdateTimeSeconds)
     {
-        return std::unexpected("conventional torpedo runtime is invalid or time-reversing");
+        return std::unexpected("conventional torpedo runtime is invalid, spent, or time-reversing");
     }
 
     if (perceivedTrack)
@@ -167,5 +202,79 @@ struct ConventionalTorpedoRuntimeState final
     state.lastUpdateTimeSeconds = simulationTimeSeconds;
     state.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;
     return {};
+}
+
+// Advances guidance/kinematics on a candidate copy, then asks PhysicsWorld to sweep the authored collision box
+// from the previous position to the candidate position. Only a confirmed physics hit can expose a body handle and
+// consume the torpedo into Spent state. Query failures do not partially advance authoritative weapon state.
+[[nodiscard]] inline std::expected<std::optional<ConventionalTorpedoImpact>, std::string>
+AdvanceConventionalTorpedoWithCollision(
+    const ConventionalTorpedoDefinition& definition,
+    ConventionalTorpedoRuntimeState& state,
+    const std::optional<Perception::Track>& perceivedTrack,
+    Physics::PhysicsWorld& physicsWorld,
+    const double simulationTimeSeconds,
+    const Physics::PhysicsBodyHandle ignoredBody = {})
+{
+    if (state.movementDomain != MovementDomain::Underwater || state.impactedBody.has_value())
+    {
+        return std::unexpected("spent/non-underwater conventional torpedo cannot advance with collision");
+    }
+
+    const Physics::PhysicsVector3 startPosition = state.positionMeters;
+    ConventionalTorpedoRuntimeState candidate = state;
+    const auto movement = UpdateConventionalTorpedoGuidance(definition, candidate, perceivedTrack, simulationTimeSeconds);
+    if (!movement)
+    {
+        return std::unexpected(movement.error());
+    }
+
+    const Physics::PhysicsVector3 displacement{
+        .x = candidate.positionMeters.x - startPosition.x,
+        .y = candidate.positionMeters.y - startPosition.y,
+        .z = candidate.positionMeters.z - startPosition.z};
+    if (displacement.x == 0.0F && displacement.y == 0.0F && displacement.z == 0.0F)
+    {
+        state = candidate;
+        return std::optional<ConventionalTorpedoImpact>{};
+    }
+
+    const auto sweep = physicsWorld.SweepBoxClosest(Physics::PhysicsBoxSweepQuery{
+        .halfExtentsMeters = definition.collisionHalfExtentsMeters,
+        .startPositionMeters = startPosition,
+        .orientation = WeaponHeadingQuaternion(candidate.headingRadians),
+        .displacementMeters = displacement,
+        .ignoredBody = ignoredBody});
+    if (!sweep)
+    {
+        return std::unexpected("conventional torpedo physics sweep failed: " + sweep.error().message);
+    }
+    if (!*sweep)
+    {
+        state = candidate;
+        return std::optional<ConventionalTorpedoImpact>{};
+    }
+
+    const Physics::PhysicsSweepHit hit = **sweep;
+    candidate.positionMeters = hit.positionMeters;
+    candidate.speedMetersPerSecond = 0.0F;
+    candidate.movementDomain = MovementDomain::Spent;
+    candidate.impactedBody = hit.body;
+    candidate.lastUpdateTimeSeconds = simulationTimeSeconds;
+    candidate.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;
+    state = candidate;
+
+    return std::optional<ConventionalTorpedoImpact>{ConventionalTorpedoImpact{
+        .physicsHit = hit,
+        .damage = Combat::CombatDamageEvent{
+            .targetBody = hit.body,
+            .positionMeters = hit.positionMeters,
+            .damage = definition.directImpactDamage,
+            .simulationTimeSeconds = simulationTimeSeconds},
+        .explosion = Combat::CombatExplosionEvent{
+            .positionMeters = hit.positionMeters,
+            .nominalDamage = definition.directImpactDamage,
+            .radiusMeters = definition.explosionRadiusMeters,
+            .simulationTimeSeconds = simulationTimeSeconds}}};
 }
 } // namespace DeepRun::Weapons
