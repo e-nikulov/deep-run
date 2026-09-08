@@ -23,6 +23,7 @@ struct WeaponTargetingRequirements final
 {
     float minimumTrackConfidence = 0.65F;
     float maximumBearingUncertaintyRadians = 0.17453293F; // 10 degrees; gameplay tuning, not sensor truth.
+    float maximumPositionUncertaintyMeters = 250.0F;
     bool requiresEstimatedPosition = true;
     bool allowCoastingTrack = false;
 };
@@ -64,6 +65,11 @@ struct WeaponRuntimeState final
         definition.targeting.maximumBearingUncertaintyRadians < 0.0F)
     {
         return std::unexpected("weapon maximum bearing uncertainty must be finite and non-negative");
+    }
+    if (!std::isfinite(definition.targeting.maximumPositionUncertaintyMeters) ||
+        definition.targeting.maximumPositionUncertaintyMeters < 0.0F)
+    {
+        return std::unexpected("weapon maximum position uncertainty must be finite and non-negative");
     }
     return {};
 }
@@ -168,10 +174,18 @@ struct WeaponRuntimeState final
     {
         return std::unexpected("weapon targeting requires sufficiently bounded bearing uncertainty");
     }
-    if (definition.targeting.requiresEstimatedPosition &&
-        (!track.estimatedPositionMeters.has_value() || !track.estimatedPositionMeters->IsFinite()))
+    if (definition.targeting.requiresEstimatedPosition)
     {
-        return std::unexpected("weapon targeting requires an estimated track position");
+        if (!track.estimatedPositionMeters.has_value() || !track.estimatedPositionMeters->IsFinite())
+        {
+            return std::unexpected("weapon targeting requires an estimated track position");
+        }
+        if (!track.positionUncertaintyMeters.has_value() || !std::isfinite(*track.positionUncertaintyMeters) ||
+            *track.positionUncertaintyMeters < 0.0F ||
+            *track.positionUncertaintyMeters > definition.targeting.maximumPositionUncertaintyMeters)
+        {
+            return std::unexpected("weapon targeting requires sufficiently bounded position uncertainty");
+        }
     }
     return {};
 }
