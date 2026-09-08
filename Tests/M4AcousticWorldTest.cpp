@@ -1,3 +1,4 @@
+#include "Game/AcousticPlayground.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
 
@@ -246,6 +247,32 @@ using DeepRun::Physics::PhysicsVector3;
     state.shaftRpm = std::nanf("");
     return !DeepRun::Game::Submarine::BuildAnteyAcousticSnapshot(state, AmbientSpectrum());
 }
+
+[[nodiscard]] bool AcousticPlaygroundClosesPassiveVerticalSlice()
+{
+    const auto playground = DeepRun::Game::AcousticPlayground::Create();
+    if (!playground)
+    {
+        return false;
+    }
+
+    DeepRun::Game::Submarine::AnteyAcousticRuntimeState player{};
+    player.bodyReferencePositionMeters = {0.0F, -100.0F, 0.0F};
+
+    // Synthetic source is 4,500 m away and emits at t=0.5. At 1,500 m/s it must arrive at t=3.5.
+    const auto before = playground->CollectSyntheticPassiveObservation(player, AmbientSpectrum(), 3.499);
+    const auto arrived = playground->CollectSyntheticPassiveObservation(player, AmbientSpectrum(), 3.5);
+    if (!before || before->has_value() || !arrived || !arrived->has_value())
+    {
+        return false;
+    }
+
+    const AcousticObservation& observation = **arrived;
+    return observation.sensorId == DeepRun::Game::Submarine::AnteyMainPassiveArraySensorId &&
+           NearlyEqual(observation.arrivalTimeSeconds, 3.5) &&
+           NearlyEqual(observation.measuredBearingRadians, 0.0) &&
+           !observation.estimatedRangeMeters.has_value() && !observation.rangeUncertaintyMeters.has_value();
+}
 }
 
 int main()
@@ -255,7 +282,8 @@ int main()
                     PropagationIsBounded() && RepeatedEvaluationIsDeterministic() && InvalidConfigurationIsRejected() &&
                     ReceiverRequiresSensorIdentity() && AnteySensorIdentityUsesProductionSemanticRegion() &&
                     AnteyPropulsionRaisesEmittedSignature() && AnteySpeedRaisesPassiveSelfNoise() &&
-                    AnteyRuntimeKinematicsReachAcousticSnapshot() && AnteyRejectsNonFiniteRuntimeState();
-    std::cout << (ok ? "M4-A/A.1 ACOUSTIC WORLD: PASS\n" : "M4-A/A.1 ACOUSTIC WORLD: FAIL\n");
+                    AnteyRuntimeKinematicsReachAcousticSnapshot() && AnteyRejectsNonFiniteRuntimeState() &&
+                    AcousticPlaygroundClosesPassiveVerticalSlice();
+    std::cout << (ok ? "M4-A/A.1 PASSIVE VERTICAL SLICE: PASS\n" : "M4-A/A.1 PASSIVE VERTICAL SLICE: FAIL\n");
     return ok ? 0 : 1;
 }
