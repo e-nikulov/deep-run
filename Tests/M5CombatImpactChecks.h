@@ -5,6 +5,7 @@
 #include "Simulation/Combat/CombatIntegrity.h"
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Tests/M5AcousticDecoyChecks.h"
+#include "Tests/M5SimpleDestroyerCombatChecks.h"
 
 #include <cmath>
 #include <iostream>
@@ -217,6 +218,10 @@ namespace M5CombatImpactDetail
     if (!RunM5AcousticDecoyChecks())
     {
         return fail("M5-E acoustic decoy/seeker perceived-world interaction");
+    }
+    if (!RunM5SimpleDestroyerCombatChecks())
+    {
+        return fail("M5-F simple destroyer perceived-world combat sequencing");
     }
 
     return true;
