@@ -80,7 +80,7 @@ with the new policy until the legacy helper/test expectation is removed during c
 
 `Tests/IG1DLodPolicyTest.cpp` exercises the policy in isolation:
 
-- the current LOD0-only package resolves LOD0 directly and LOD1-L0D3 through explicit fallback;
+- the current LOD0-only package resolves LOD0 directly and LOD1-LOD3 through explicit fallback;
 - a future actually-staged requested LOD wins without fallback;
 - the nearest more-detailed staged LOD wins when the requested LOD is absent;
 - a package missing mandatory staged LOD0 is rejected;
