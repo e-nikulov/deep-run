@@ -68,34 +68,37 @@ struct SimpleDestroyerCombatState final
         track.bearingUncertaintyRadians <= config.maximumAwarenessBearingUncertaintyRadians;
 }
 
-[[nodiscard]] inline const Perception::Track* SelectBestSimpleDestroyerTrack(
+// Selectors return perceived Track values rather than pointers into caller-owned containers. This keeps the
+// helper safe when a caller constructs a temporary candidate list and avoids configuration-dependent dangling
+// pointer behavior while preserving the no-ground-truth boundary.
+[[nodiscard]] inline std::optional<Perception::Track> SelectBestSimpleDestroyerTrack(
     const SimpleDestroyerCombatConfig& config,
-    const std::vector<Perception::Track>& tracks) noexcept
+    const std::vector<Perception::Track>& tracks)
 {
-    const Perception::Track* best = nullptr;
+    std::optional<Perception::Track> best{};
     for (const auto& track : tracks)
     {
         if (!IsTrackVisibleToSimpleDestroyer(config, track))
         {
             continue;
         }
-        if (best == nullptr || track.confidence > best->confidence ||
+        if (!best || track.confidence > best->confidence ||
             (track.confidence == best->confidence && track.bearingUncertaintyRadians < best->bearingUncertaintyRadians) ||
             (track.confidence == best->confidence && track.bearingUncertaintyRadians == best->bearingUncertaintyRadians &&
              track.trackId < best->trackId))
         {
-            best = &track;
+            best = track;
         }
     }
     return best;
 }
 
-[[nodiscard]] inline const Perception::Track* SelectBestWeaponQualifiedTrack(
+[[nodiscard]] inline std::optional<Perception::Track> SelectBestWeaponQualifiedTrack(
     const Weapons::WeaponDefinition& weaponDefinition,
     const SimpleDestroyerCombatConfig& config,
-    const std::vector<Perception::Track>& tracks) noexcept
+    const std::vector<Perception::Track>& tracks)
 {
-    const Perception::Track* best = nullptr;
+    std::optional<Perception::Track> best{};
     for (const auto& track : tracks)
     {
         if (!IsTrackVisibleToSimpleDestroyer(config, track) ||
@@ -103,12 +106,12 @@ struct SimpleDestroyerCombatState final
         {
             continue;
         }
-        if (best == nullptr || track.confidence > best->confidence ||
+        if (!best || track.confidence > best->confidence ||
             (track.confidence == best->confidence && track.bearingUncertaintyRadians < best->bearingUncertaintyRadians) ||
             (track.confidence == best->confidence && track.bearingUncertaintyRadians == best->bearingUncertaintyRadians &&
              track.trackId < best->trackId))
         {
-            best = &track;
+            best = track;
         }
     }
     return best;
@@ -141,8 +144,8 @@ struct SimpleDestroyerCombatState final
         return std::unexpected("simple destroyer combat state is invalid or time-reversing");
     }
 
-    const Perception::Track* awarenessTrack = SelectBestSimpleDestroyerTrack(config, perceivedTracks);
-    const Perception::Track* qualifiedTrack = SelectBestWeaponQualifiedTrack(weaponDefinition, config, perceivedTracks);
+    const auto awarenessTrack = SelectBestSimpleDestroyerTrack(config, perceivedTracks);
+    const auto qualifiedTrack = SelectBestWeaponQualifiedTrack(weaponDefinition, config, perceivedTracks);
 
     if (weapon.phase == Weapons::WeaponPhase::Launched)
     {
@@ -160,7 +163,7 @@ struct SimpleDestroyerCombatState final
 
     if (weapon.phase == Weapons::WeaponPhase::Stored)
     {
-        if (awarenessTrack == nullptr)
+        if (!awarenessTrack)
         {
             const auto advanced = Weapons::AdvanceWeaponReadiness(weaponDefinition, weapon, simulationTimeSeconds);
             if (!advanced)
@@ -179,7 +182,7 @@ struct SimpleDestroyerCombatState final
         }
         controller.selectedTrackId = awarenessTrack->trackId;
 
-        if (qualifiedTrack != nullptr)
+        if (qualifiedTrack)
         {
             const auto assigned = Weapons::AssignWeaponTarget(
                 weaponDefinition, weapon, *qualifiedTrack, simulationTimeSeconds);
@@ -202,9 +205,9 @@ struct SimpleDestroyerCombatState final
         return std::unexpected(advanced.error());
     }
 
-    if (qualifiedTrack == nullptr)
+    if (!qualifiedTrack)
     {
-        controller.selectedTrackId = awarenessTrack != nullptr
+        controller.selectedTrackId = awarenessTrack
             ? std::optional<std::uint64_t>{awarenessTrack->trackId}
             : std::nullopt;
         controller.lastUpdateTimeSeconds = simulationTimeSeconds;
