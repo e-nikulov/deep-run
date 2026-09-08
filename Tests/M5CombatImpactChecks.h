@@ -5,6 +5,7 @@
 #include "Simulation/Combat/CombatIntegrity.h"
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Tests/M5AcousticDecoyChecks.h"
+#include "Tests/M5CombatPlaygroundRuntimeChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -83,9 +84,6 @@ namespace M5CombatImpactDetail
         return fail("static test-body creation");
     }
 
-    // Prove the generic query and filtering without depending on Jolt's start-overlap/back-face policy.
-    // The cast starts clear of both bodies: without filtering it reaches the launch platform first; with that
-    // exact body ignored, the identical sweep continues to the later physical target.
     Physics::PhysicsBoxSweepQuery genericSweep{
         .halfExtentsMeters = {.x = 1.0F, .y = 0.25F, .z = 0.25F},
         .startPositionMeters = {.x = -10.0F, .y = 0.0F, .z = 0.0F},
@@ -204,7 +202,6 @@ namespace M5CombatImpactDetail
         return fail("combat damage SimulationTime reversal must be rejected");
     }
 
-    // A confirmed impact consumes the torpedo. It cannot generate a second damage/explosion event later.
     if (AdvanceConventionalTorpedoWithCollision(
             definition,
             torpedo,
@@ -216,8 +213,6 @@ namespace M5CombatImpactDetail
         return fail("spent torpedo must not produce a second impact");
     }
 
-    // The M5 test process intentionally owns exactly one initialized PhysicsWorld. Remove the D fixtures before
-    // the G scenario so the same backend authority can be reused without unrelated bodies intercepting its sweep.
     if (!physicsWorld.DestroyBody(launchPlatformBody) || !physicsWorld.DestroyBody(targetBody))
     {
         return fail("M5-D fixture cleanup before shared-world composition");
@@ -234,6 +229,10 @@ namespace M5CombatImpactDetail
     if (!RunM5SimpleDestroyerRuntimeChecks(physicsWorld))
     {
         return fail("M5-G physical destroyer runtime and Jolt combat composition");
+    }
+    if (!RunM5CombatPlaygroundRuntimeChecks(physicsWorld))
+    {
+        return fail("M5-H live combat simulation composition");
     }
 
     return true;
