@@ -1,6 +1,6 @@
 # IG1-D — Production Antey LOD validation / selection policy
 
-Status: IN PROGRESS on `ig1-d`.
+Status: IN PROGRESS on `ig1-d`; runtime wiring complete, acceptance validation pending.
 
 ## Scope
 
@@ -67,17 +67,23 @@ Render LOD selection is presentation policy only. It must not change:
 
 Physics and gameplay therefore remain stable if the selected render LOD changes in a future slice.
 
+The normal `PhysicalPlayground` initialization now requests `ProductionRenderLodLevel::Lod0` through
+`SelectProductionAnteyRenderAsset` and loads the returned `assetId`. Initialization diagnostics record the
+requested level, selected level, fallback state, and selected asset. The old IG1-B LOD0-only selector is
+consulted only as a temporary compatibility invariant and is not the selected-asset authority; it must agree
+with the new policy until the legacy helper/test expectation is removed during closure cleanup.
+
 ## Focused coverage
 
-`Tests/IG1DLodPolicyTest.cpp` now exercises the policy in isolation:
+`Tests/IG1DLodPolicyTest.cpp` exercises the policy in isolation:
 
 - the current LOD0-only package resolves LOD0 directly and LOD1-LOD3 through explicit fallback;
 - a future actually-staged requested LOD wins without fallback;
 - invalid non-monotonic family metadata is rejected.
 
-The focused test source is intentionally separate while the normal `PhysicalPlayground` path is being
-migrated. IG1-D is not complete until that test is wired into CMake/CTest and the normal playground calls
-`SelectProductionAnteyRenderAsset` rather than the legacy LOD0-only selector.
+The focused executable is registered with CMake/CTest as `DeepRunIG1DLodPolicyTests`. It intentionally has
+no renderer, physics, authoring-file, or staged-content dependency; it validates deterministic selection from
+an already-loaded semantic production definition.
 
 ## Deferred
 
@@ -103,12 +109,20 @@ python Tools/Blender/validate_antey_runtime_lods.py --package Engine/Assets/subm
 
 Both packages must report the same family/availability/selection result.
 
-Before closure also require:
+Runtime/CTest wiring now established:
 
 ```text
-PhysicalPlayground normal path -> SelectProductionAnteyRenderAsset(..., Lod0)
-focused IG1-D test -> CMake/CTest
-Debug + Release build/CTest
+PhysicalPlayground normal selected-asset authority -> SelectProductionAnteyRenderAsset(..., Lod0)
+focused IG1-D policy test -> DeepRunIG1DLodPolicyTests -> CTest
+```
+
+Before marking IG1-D or IG1 complete still require:
+
+```text
+remove the temporary legacy-selector compatibility invariant and update the old source-scan expectation
+Debug + Release configure/build/CTest
 headless + windowed smoke
+both offline LOD validators
 git diff --check
+roadmap + ADR closure update
 ```
