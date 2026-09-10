@@ -20,11 +20,15 @@ class WindowsGamingInputGamepad;
 }
 
 // Small pure controller boundary used by InputSystem and headless tests. Inputs are already normalized by
-// the platform backend; output follows the canonical semantic signs (stick up -> Depth < 0).
+// the platform backend; output follows the canonical semantic signs (left stick up -> Depth < 0; right stick
+// right/up -> positive camera pan; right trigger -> zoom out, left trigger -> zoom in).
 struct ControllerSemanticAxes final
 {
     float throttle = 0.0F;
     float depth = 0.0F;
+    float cameraPanX = 0.0F;
+    float cameraPanY = 0.0F;
+    float cameraZoom = 0.0F;
 };
 
 [[nodiscard]] ControllerSemanticAxes MapControllerLeftStick(float normalizedLeftX, float normalizedLeftY) noexcept;
@@ -69,5 +73,11 @@ private:
     bool throttleAheadKeyDown_ = false;
     bool depthSurfaceKeyDown_ = false;
     bool depthDiveKeyDown_ = false;
+    bool cameraPanLeftKeyDown_ = false;
+    bool cameraPanRightKeyDown_ = false;
+    bool cameraPanUpKeyDown_ = false;
+    bool cameraPanDownKeyDown_ = false;
+    bool cameraZoomInKeyDown_ = false;
+    bool cameraZoomOutKeyDown_ = false;
 };
 }
