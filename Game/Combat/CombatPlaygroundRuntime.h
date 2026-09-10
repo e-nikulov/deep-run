@@ -18,6 +18,17 @@
 
 namespace DeepRun::Game::Combat
 {
+// M5 playground framing/weapon-profile tuning. These values exist to make the bounded side-view combat scenario
+// readable and to distinguish a conventional heavyweight torpedo from a future P-700 water-exit/airborne path.
+// They are gameplay-authored values, not claimed real-world Project 949A or torpedo performance data.
+inline constexpr float M5CombatCameraTargetOffsetXMeters = 150.0F;
+inline constexpr float M5CombatDestroyerInitialXMeters = 380.0F;
+inline constexpr float M5CombatTorpedoLaunchClearanceMeters = 85.0F;
+inline constexpr float M5CombatTorpedoStraightRunMeters = 60.0F;
+inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
+inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
+inline constexpr float M5CombatTorpedoSurfaceSafetyMarginMeters = 0.25F;
+
 struct CombatPlaygroundFrame final
 {
     std::vector<Perception::Track> playerTracks;
@@ -96,7 +107,12 @@ public:
                 .maximumAwarenessBearingUncertaintyRadians = 0.30F,
                 .allowCoastingAwareness = false}};
         auto destroyer = CreateSimpleDestroyerRuntime(
-            destroyerDefinition, physicsWorld, surfaceLevelY, 100.0F, 0.0F, simulationTimeSeconds);
+            destroyerDefinition,
+            physicsWorld,
+            surfaceLevelY,
+            M5CombatDestroyerInitialXMeters,
+            0.0F,
+            simulationTimeSeconds);
         if (!destroyer)
         {
             return std::unexpected("M5-H destroyer creation failed: " + destroyer.error());
@@ -121,7 +137,8 @@ public:
         const Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition{
             .weapon = playerWeapon,
             .underwaterSpeedMetersPerSecond = 55.0F,
-            .maximumTurnRateRadiansPerSecond = 0.70F,
+            .maximumTurnRateRadiansPerSecond = 0.45F,
+            .maximumVerticalCourseAngleRadians = M5CombatTorpedoMaximumVerticalCourseAngleRadians,
             .collisionHalfExtentsMeters = {.x = 2.0F, .y = 0.25F, .z = 0.25F},
             .directImpactDamage = 60.0F,
             .explosionRadiusMeters = 8.0F};
@@ -270,20 +287,18 @@ public:
                     return std::unexpected("M5-H player weapon target/launch failed");
                 }
 
-                const Physics::PhysicsVector3 delta = Difference(
-                    *qualifyingTrack->estimatedPositionMeters, playerSnapshot.emitter.positionMeters);
-                const auto direction = Normalize(delta);
-                if (!direction)
+                const float targetDeltaX = qualifyingTrack->estimatedPositionMeters->x - playerSnapshot.emitter.positionMeters.x;
+                if (!std::isfinite(targetDeltaX) || std::abs(targetDeltaX) <= 1.0e-3F)
                 {
-                    return std::unexpected("M5-H torpedo launch direction is invalid");
+                    return std::unexpected("M5-H torpedo launch has no horizontal separation from its perceived track");
                 }
-                constexpr float launchClearanceMeters = 85.0F;
+                playerTorpedoForwardSign_ = targetDeltaX > 0.0F ? 1.0F : -1.0F;
                 const Physics::PhysicsVector3 launchPosition{
-                    .x = playerSnapshot.emitter.positionMeters.x + direction->x * launchClearanceMeters,
-                    .y = playerSnapshot.emitter.positionMeters.y + direction->y * launchClearanceMeters,
-                    .z = playerSnapshot.emitter.positionMeters.z + direction->z * launchClearanceMeters};
-                const float launchHeading = static_cast<float>(std::atan2(
-                    static_cast<double>(direction->y), static_cast<double>(direction->x)));
+                    .x = playerSnapshot.emitter.positionMeters.x +
+                         playerTorpedoForwardSign_ * M5CombatTorpedoLaunchClearanceMeters,
+                    .y = playerSnapshot.emitter.positionMeters.y,
+                    .z = playerSnapshot.emitter.positionMeters.z};
+                const float launchHeading = playerTorpedoForwardSign_ > 0.0F ? 0.0F : 3.1415927F;
                 const auto launched = Weapons::CreateLaunchedConventionalTorpedo(
                     playerTorpedoDefinition_, playerWeapon_, launchPosition, launchHeading,
                     *qualifyingTrack, simulationTimeSeconds);
@@ -292,6 +307,7 @@ public:
                     return std::unexpected("M5-H torpedo runtime creation failed: " + launched.error());
                 }
                 playerTorpedo_ = *launched;
+                playerTorpedoLaunchPosition_ = launchPosition;
 
                 const Physics::PhysicsVector3 decoyPosition{
                     .x = destroyerAcoustics->emitter.positionMeters.x - 20.0F,
@@ -310,9 +326,10 @@ public:
         std::optional<Weapons::ConventionalTorpedoImpact> impact{};
         if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
-            const auto currentTrack = FindTrack(playerTracks_.Tracks(), playerTorpedo_->guidanceTrackId);
+            const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerTorpedo_->guidanceTrackId);
+            const auto guidanceTrack = BuildPlayerTorpedoGuidanceTrack(perceivedTrack);
             const auto advanced = Weapons::AdvanceConventionalTorpedoWithCollision(
-                playerTorpedoDefinition_, *playerTorpedo_, currentTrack, *physicsWorld_, simulationTimeSeconds);
+                playerTorpedoDefinition_, *playerTorpedo_, guidanceTrack, *physicsWorld_, simulationTimeSeconds);
             if (!advanced)
             {
                 return std::unexpected("M5-H torpedo fixed-step advance failed: " + advanced.error());
@@ -355,6 +372,10 @@ public:
     [[nodiscard]] const std::optional<Weapons::ConventionalTorpedoRuntimeState>& PlayerTorpedo() const noexcept
     {
         return playerTorpedo_;
+    }
+    [[nodiscard]] const std::optional<Physics::PhysicsVector3>& PlayerTorpedoLaunchPosition() const noexcept
+    {
+        return playerTorpedoLaunchPosition_;
     }
     [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& Decoy() const noexcept { return decoy_; }
     [[nodiscard]] const std::optional<DeepRun::Combat::CombatExplosionEvent>& LastExplosion() const noexcept
@@ -441,6 +462,33 @@ private:
         return best;
     }
 
+    [[nodiscard]] std::optional<Perception::Track> BuildPlayerTorpedoGuidanceTrack(
+        const std::optional<Perception::Track>& perceivedTrack) const
+    {
+        if (!perceivedTrack || !perceivedTrack->estimatedPositionMeters || !playerTorpedo_ ||
+            !playerTorpedoLaunchPosition_)
+        {
+            return perceivedTrack;
+        }
+
+        Perception::Track guidanceTrack = *perceivedTrack;
+        const float forwardProgressMeters =
+            (playerTorpedo_->positionMeters.x - playerTorpedoLaunchPosition_->x) * playerTorpedoForwardSign_;
+        if (forwardProgressMeters < M5CombatTorpedoStraightRunMeters)
+        {
+            // Tube exit/run-out: preserve launch depth while still using the perceived track's horizontal
+            // coordinate. This is a weapon waypoint derived from perceived evidence, not hostile ground truth.
+            guidanceTrack.estimatedPositionMeters->y = playerTorpedoLaunchPosition_->y;
+        }
+        else
+        {
+            // Aim slightly below the perceived surface-target reference so the conventional torpedo attacks
+            // the underwater physical hull rather than steering toward an above-water visual superstructure.
+            guidanceTrack.estimatedPositionMeters->y -= M5CombatTorpedoAttackPointBelowPerceivedTargetMeters;
+        }
+        return guidanceTrack;
+    }
+
     [[nodiscard]] static std::optional<Perception::Track> FindTrack(
         const std::vector<Perception::Track>& tracks,
         const std::optional<std::uint64_t> trackId)
@@ -470,6 +518,8 @@ private:
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
     std::optional<Weapons::ConventionalTorpedoRuntimeState> playerTorpedo_{};
+    std::optional<Physics::PhysicsVector3> playerTorpedoLaunchPosition_{};
+    float playerTorpedoForwardSign_ = 1.0F;
     std::optional<Acoustics::ActiveAcousticPulse> activePulse_{};
     std::optional<Acoustics::AcousticReflector> activeReflector_{};
     bool activeEchoConsumed_ = false;
