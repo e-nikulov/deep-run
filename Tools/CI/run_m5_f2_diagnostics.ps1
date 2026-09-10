@@ -7,6 +7,10 @@ if ($text.Contains('[M5-F.2 diagnostic]')) {
     throw 'diagnostics already applied'
 }
 
+# Probe whether the reciprocal torpedo simply needs the physically implied travel time after late fire-control launch.
+$text = $text.Replace('constexpr int finalTick = 2700;', 'constexpr int finalTick = 4800;')
+$text = $text.Replace('BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 45.0)', 'BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 80.0)')
+
 # Instrument the original returns first so the helper itself remains a normal false-returning lambda.
 $text = $text.Replace('return false;', 'return fail(__LINE__);')
 $text = $text.Replace("#include <cmath>`n", "#include <cmath>`n#include <iostream>`n")
