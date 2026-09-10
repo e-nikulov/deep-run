@@ -1085,7 +1085,9 @@ private:
 
     void ApplyIncomingThreatPresentation(PlayerCombatPresentationSnapshot& snapshot) const noexcept
     {
-        const Perception::Track* best = nullptr;
+        // TrackManager::Tracks() intentionally returns a snapshot by value. Keep the selected perceived Track by
+        // value as well; never retain a pointer/reference into that temporary snapshot beyond the loop.
+        std::optional<Perception::Track> best{};
         for (const auto& track : incomingThreatTracks_.Tracks())
         {
             const bool present = track.lifecycle == Perception::TrackLifecycleState::Confirmed ||
@@ -1094,13 +1096,13 @@ private:
             {
                 continue;
             }
-            if (best == nullptr || track.confidence > best->confidence ||
+            if (!best || track.confidence > best->confidence ||
                 (track.confidence == best->confidence && track.trackId < best->trackId))
             {
-                best = &track;
+                best = track;
             }
         }
-        if (best == nullptr)
+        if (!best)
         {
             return;
         }
