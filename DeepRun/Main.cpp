@@ -108,7 +108,7 @@ public:
             {
                 haveBits = true;
                 const HGDIOBJ previous = SelectObject(memoryDc, dib);
-                if (PrintWindow(window, memoryDc, PW_RENDERFULLCONTENT) && !IsAllBlack(bits, width, height))
+                if (PrintWindow(window, memoryDc, PW_RENDERFULLCONTENT) && !IsBlankFrame(bits, width, height))
                 {
                     captured = true;
                 }
@@ -123,7 +123,7 @@ public:
                             const BOOL copied = BitBlt(
                                 memoryDc, 0, 0, width, height, screenDc, origin.x, origin.y, SRCCOPY);
                             ReleaseDC(window, screenDc);
-                            captured = copied && !IsAllBlack(bits, width, height);
+                            captured = copied && !IsBlankFrame(bits, width, height);
                         }
                     }
                 }
@@ -161,21 +161,27 @@ private:
         }
     }
 
-    static bool IsAllBlack(const void* bits, const std::uint32_t width, const std::uint32_t height) noexcept
+    static bool IsBlankFrame(const void* bits, const std::uint32_t width, const std::uint32_t height) noexcept
     {
         const auto* pixels = static_cast<const std::uint8_t*>(bits);
+        bool allBlack = true;
+        bool allWhite = true;
         for (std::uint32_t y = 0; y < height; ++y)
         {
             for (std::uint32_t x = 0; x < width; ++x)
             {
                 const std::size_t offset = (static_cast<std::size_t>(y) * width + x) * 4U;
-                if (pixels[offset] > 8 || pixels[offset + 1] > 8 || pixels[offset + 2] > 8)
+                const bool blackPixel = pixels[offset] <= 8 && pixels[offset + 1] <= 8 && pixels[offset + 2] <= 8;
+                const bool whitePixel = pixels[offset] >= 247 && pixels[offset + 1] >= 247 && pixels[offset + 2] >= 247;
+                allBlack = allBlack && blackPixel;
+                allWhite = allWhite && whitePixel;
+                if (!allBlack && !allWhite)
                 {
                     return false;
                 }
             }
         }
-        return true;
+        return allBlack || allWhite;
     }
 
     bool logged_ = false;

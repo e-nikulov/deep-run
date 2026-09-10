@@ -66,6 +66,13 @@ constexpr std::array<float, 3> M3FogColorRgb{
     M2UnderwaterBackgroundColor.g,
     M2UnderwaterBackgroundColor.b};
 
+// H.4 presentation-only continuation behind the repeated M3 seabed front wall. The colour is scene-linear
+// and matched to the accepted wall near its deep fill edge; it is not terrain, collision, bathymetry or
+// acoustic authority. A small overlap hides the authored fill-bottom edge even when adjacent X tiles carry
+// the accepted -5 m profile continuation step.
+constexpr Render::RgbaColor M5ScalableSeabedContinuationColor{0.0034F, 0.0180F, 0.0400F, 1.0F};
+constexpr float M5ScalableSeabedContinuationOverlapMeters = 32.0F;
+
 // M3-D fixed presentation tuning for the one canonical suspended-particulate field. These bounds cover the
 // 600 m side view with a small margin and remain wholly below the Game-owned WaterBody surface. This is not
 // environment authority, a simulation population, or an emitter configuration system.
@@ -1597,6 +1604,42 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
             {
                 return std::unexpected("physical playground scalable environment tiling failed: " +
                                        terrainTiles.error());
+            }
+            if (terrainTiles->empty())
+            {
+                return std::unexpected("physical playground scalable environment produced no visible terrain tiles");
+            }
+
+            // The canonical M3 cross-section has a finite fillBottom because its original 600 m camera never
+            // exposed anything below it. Wide M5 framing can expose that implementation edge. Paint only the
+            // screen-space region behind the repeated wall, starting slightly above the highest translated
+            // fill bottom; the real tiled geometry then overdraws this overlap. This removes the lower box edge
+            // without extending render geometry or creating another environment/physics representation.
+            float highestTiledFillBottomYMeters = (std::numeric_limits<float>::lowest)();
+            for (const EnvironmentPresentationTile& tile : *terrainTiles)
+            {
+                highestTiledFillBottomYMeters = (std::max)(
+                    highestTiledFillBottomYMeters,
+                    seabedSection_->renderGeometry.bounds.minimum.y + tile.offsetYMeters);
+            }
+            const auto seabedContinuationRegion = UnderwaterRegionForSurface(
+                *camera,
+                highestTiledFillBottomYMeters + M5ScalableSeabedContinuationOverlapMeters);
+            if (!seabedContinuationRegion)
+            {
+                return std::unexpected("physical playground scalable seabed continuation projection failed: " +
+                                       seabedContinuationRegion.error());
+            }
+            if (seabedContinuationRegion->has_value())
+            {
+                const auto continued = renderer.ClearViewportRect(
+                    **seabedContinuationRegion,
+                    M5ScalableSeabedContinuationColor);
+                if (!continued)
+                {
+                    return std::unexpected("physical playground scalable seabed continuation clear failed: " +
+                                           continued.error());
+                }
             }
 
             scalableSeabedDraws = BuildEnvironmentPresentationDraws(

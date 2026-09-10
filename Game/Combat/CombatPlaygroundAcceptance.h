@@ -304,12 +304,14 @@ public:
         const float rendererAspectRatio,
         const bool gpuPresentationHandleValid)
     {
-        // Select the initial checkpoint at render time. Startup can spend enough wall time loading the
-        // production scene for several fixed ticks to execute before the first present; choosing here keeps
-        // the JSON state and the pixels from the same live frame while still requiring no impact and intact
-        // destroyer presentation.
-        if (!pending_.has_value() && !initialSeen_ && !latestFixedSnapshot_.hasImpact &&
-            latestFixedSnapshot_.destroyerIntegrity >= 99.999F)
+        // WindowFrameCapture reads the most recently presented client image, while this callback runs before
+        // the current Present. The first render therefore has no valid D3D12 frame for PrintWindow/BitBlt yet.
+        // Warm up exactly one render observation, then select Initial from the next live render so state and
+        // captured pixels remain synchronized without accepting the compositor's startup-white client area.
+        const bool presentedFrameAvailableForCapture = renderWarmupObserved_;
+        renderWarmupObserved_ = true;
+        if (presentedFrameAvailableForCapture && !pending_.has_value() && !initialSeen_ &&
+            !latestFixedSnapshot_.hasImpact && latestFixedSnapshot_.destroyerIntegrity >= 99.999F)
         {
             pending_ = M5CombatAcceptanceCheckpoint::Initial;
             pendingSnapshot_ = latestFixedSnapshot_;
@@ -432,5 +434,6 @@ private:
     bool torpedoLaunchValidated_ = false;
     bool straightRunoutValidated_ = false;
     bool gradualAscentObserved_ = false;
+    bool renderWarmupObserved_ = false;
 };
 } // namespace DeepRun::Game::Combat
