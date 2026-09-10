@@ -470,6 +470,13 @@ int main(const int argumentCount, char** argumentValues)
                 // is not created for that dedicated benchmark path. Normal and smoke windowed runs opt in.
                 if (!options.benchmarkM3)
                 {
+                    const auto framing = playground.SetPresentationCameraTargetOffsetXMeters(
+                        DeepRun::Game::Combat::M5CombatCameraTargetOffsetXMeters);
+                    if (!framing)
+                    {
+                        std::cerr << "[Game][ERROR] M5 combat framing failed: " << framing.error() << '\n';
+                        return false;
+                    }
                     const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer);
                     if (!combat)
                     {
