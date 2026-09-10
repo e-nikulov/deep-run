@@ -311,3 +311,4 @@ void* Window::NativeHandle() const noexcept
 {
     return impl_->handle_;
 }
+}
