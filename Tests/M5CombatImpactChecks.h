@@ -9,6 +9,7 @@
 #include "Tests/M5MultiScaleCameraChecks.h"
 #include "Tests/M5NavalMineChecks.h"
 #include "Tests/M5PlayerCombatCommandChecks.h"
+#include "Tests/M5PlayerCombatInputChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -228,6 +229,10 @@ namespace M5CombatImpactDetail
     if (!RunM5PlayerCombatCommandChecks())
     {
         return fail("M5-J1 player commander track selection, readiness and fire sequencing");
+    }
+    if (!RunM5PlayerCombatInputChecks())
+    {
+        return fail("M5-J2-A controller-first combat semantic input bindings");
     }
     if (!RunM5AcousticDecoyChecks())
     {
