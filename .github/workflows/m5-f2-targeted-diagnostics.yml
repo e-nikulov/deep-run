@@ -1,0 +1,23 @@
+name: M5 F2 Targeted Diagnostics
+
+on:
+  push:
+    branches:
+      - tmp/m5-f2-diagnostics2
+    paths:
+      - Tools/CI/run_m5_f2_diagnostics.ps1
+      - .github/workflows/m5-f2-targeted-diagnostics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout clean F2 candidate
+        uses: actions/checkout@v4
+
+      - name: Instrument and run M5 weapon runtime suite
+        shell: pwsh
+        run: ./Tools/CI/run_m5_f2_diagnostics.ps1
