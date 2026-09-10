@@ -41,6 +41,12 @@ Key TranslateKey(const WPARAM virtualKey)
     case 'D': return Key::D;
     case 'W': return Key::W;
     case 'S': return Key::S;
+    case VK_LEFT: return Key::Left;
+    case VK_RIGHT: return Key::Right;
+    case VK_UP: return Key::Up;
+    case VK_DOWN: return Key::Down;
+    case 'Q': return Key::Q;
+    case 'E': return Key::E;
     default: return Key::Unknown;
     }
 }
@@ -196,6 +202,12 @@ public:
                 .type = WindowEventType::MouseMove,
                 .mouseX = GET_X_LPARAM(lParam),
                 .mouseY = GET_Y_LPARAM(lParam)});
+            return 0;
+        case WM_MOUSEWHEEL:
+            window->pendingEvents_.push_back({
+                .type = WindowEventType::MouseWheel,
+                .mouseWheelSteps = static_cast<float>(GET_WHEEL_DELTA_WPARAM(wParam)) /
+                                   static_cast<float>(WHEEL_DELTA)});
             return 0;
         case WM_LBUTTONDOWN:
         case WM_RBUTTONDOWN:
