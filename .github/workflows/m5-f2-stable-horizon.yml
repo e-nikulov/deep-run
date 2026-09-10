@@ -1,0 +1,31 @@
+name: M5 F2 Stable Horizon Apply
+
+on:
+  push:
+    branches:
+      - tmp/m5-f2-stable
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/m5-f2-stable
+          fetch-depth: 0
+      - name: Apply stable horizon
+        shell: pwsh
+        run: ./Tools/CI/apply_m5_f2_stable_horizon.ps1
+      - name: Commit clean F2 tree
+        shell: pwsh
+        run: |
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && throw "M5-F2 stable horizon produced no changes"
+          git commit -m "test: stabilize M5 F2 reciprocal combat horizon"
+          git push origin HEAD:tmp/m5-f2-stable
