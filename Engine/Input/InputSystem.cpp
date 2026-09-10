@@ -8,33 +8,71 @@
 
 namespace DeepRun::Input
 {
-ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const float normalizedLeftY) noexcept
+namespace
 {
-    if (!std::isfinite(normalizedLeftX) || !std::isfinite(normalizedLeftY))
+struct StickAxes final
+{
+    float x = 0.0F;
+    float y = 0.0F;
+};
+
+[[nodiscard]] StickAxes MapRadialStick(
+    const float normalizedX,
+    const float normalizedY,
+    const float deadZone) noexcept
+{
+    if (!std::isfinite(normalizedX) || !std::isfinite(normalizedY) ||
+        !std::isfinite(deadZone) || deadZone < 0.0F || deadZone >= 1.0F)
     {
         return {};
     }
 
-    // Preserve the accepted normalized threshold derived from the former XInput backend (7849 / 32767).
-    // The physical API is no longer part of this pure radial dead-zone contract.
-    constexpr float LeftThumbDeadZone = 7'849.0F / 32'767.0F;
-    const float clampedX = std::clamp(normalizedLeftX, -1.0F, 1.0F);
-    const float clampedY = std::clamp(normalizedLeftY, -1.0F, 1.0F);
+    const float clampedX = std::clamp(normalizedX, -1.0F, 1.0F);
+    const float clampedY = std::clamp(normalizedY, -1.0F, 1.0F);
     const float magnitude = std::sqrt(clampedX * clampedX + clampedY * clampedY);
-    if (magnitude <= LeftThumbDeadZone || magnitude <= 0.0F)
+    if (magnitude <= deadZone || magnitude <= 0.0F)
     {
         return {};
     }
 
     const float boundedMagnitude = (std::min)(magnitude, 1.0F);
-    const float scaledMagnitude = (boundedMagnitude - LeftThumbDeadZone) / (1.0F - LeftThumbDeadZone);
+    const float scaledMagnitude = (boundedMagnitude - deadZone) / (1.0F - deadZone);
     const float scale = scaledMagnitude / magnitude;
-    return {.throttle = clampedX * scale, .depth = -clampedY * scale};
+    return {.x = clampedX * scale, .y = clampedY * scale};
+}
+}
+
+ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const float normalizedLeftY) noexcept
+{
+    // Preserve the accepted normalized threshold derived from the former XInput backend (7849 / 32767).
+    constexpr float LeftThumbDeadZone = 7'849.0F / 32'767.0F;
+    const StickAxes mapped = MapRadialStick(normalizedLeftX, normalizedLeftY, LeftThumbDeadZone);
+    return {.throttle = mapped.x, .depth = -mapped.y};
 }
 
 ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexcept
 {
-    return gamepad.connected ? MapControllerLeftStick(gamepad.leftX, gamepad.leftY) : ControllerSemanticAxes{};
+    if (!gamepad.connected)
+    {
+        return {};
+    }
+
+    ControllerSemanticAxes result = MapControllerLeftStick(gamepad.leftX, gamepad.leftY);
+    // Keep camera navigation comfortably outside ordinary controller noise without exposing any Windows API
+    // threshold to Game. The backend values have already been normalized to [-1, 1].
+    constexpr float CameraStickDeadZone = 0.24F;
+    const StickAxes camera = MapRadialStick(gamepad.rightX, gamepad.rightY, CameraStickDeadZone);
+    result.cameraPanX = camera.x;
+    result.cameraPanY = camera.y;
+
+    const float leftTrigger = std::isfinite(gamepad.leftTrigger)
+                                  ? std::clamp(gamepad.leftTrigger, 0.0F, 1.0F)
+                                  : 0.0F;
+    const float rightTrigger = std::isfinite(gamepad.rightTrigger)
+                                   ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
+                                   : 0.0F;
+    result.cameraZoom = rightTrigger - leftTrigger;
+    return result;
 }
 
 float ResolveSemanticAxis(
@@ -110,6 +148,30 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 depthDiveKeyDown_ = true;
             }
+            else if (event.key == Platform::Key::Left)
+            {
+                cameraPanLeftKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Right)
+            {
+                cameraPanRightKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Up)
+            {
+                cameraPanUpKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Down)
+            {
+                cameraPanDownKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Q)
+            {
+                cameraZoomInKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::E)
+            {
+                cameraZoomOutKeyDown_ = true;
+            }
         }
         else if (event.type == Platform::WindowEventType::KeyUp)
         {
@@ -137,10 +199,38 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 depthDiveKeyDown_ = false;
             }
+            else if (event.key == Platform::Key::Left)
+            {
+                cameraPanLeftKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Right)
+            {
+                cameraPanRightKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Up)
+            {
+                cameraPanUpKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Down)
+            {
+                cameraPanDownKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Q)
+            {
+                cameraZoomInKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::E)
+            {
+                cameraZoomOutKeyDown_ = false;
+            }
         }
         else if (event.type == Platform::WindowEventType::MouseMove)
         {
             state_.SetMousePosition(event.mouseX, event.mouseY);
+        }
+        else if (event.type == Platform::WindowEventType::MouseWheel)
+        {
+            state_.AddCameraZoomSteps(event.mouseWheelSteps);
         }
         else if (event.type == Platform::WindowEventType::MouseButtonDown ||
                  event.type == Platform::WindowEventType::MouseButtonUp)
@@ -194,6 +284,15 @@ void InputSystem::RefreshSemanticAxes() noexcept
     state_.SetAxis(
         InputAxis::Depth,
         ResolveSemanticAxis(depthSurfaceKeyDown_, depthDiveKeyDown_, controller.depth));
+    state_.SetAxis(
+        InputAxis::CameraPanX,
+        ResolveSemanticAxis(cameraPanLeftKeyDown_, cameraPanRightKeyDown_, controller.cameraPanX));
+    state_.SetAxis(
+        InputAxis::CameraPanY,
+        ResolveSemanticAxis(cameraPanDownKeyDown_, cameraPanUpKeyDown_, controller.cameraPanY));
+    state_.SetAxis(
+        InputAxis::CameraZoom,
+        ResolveSemanticAxis(cameraZoomInKeyDown_, cameraZoomOutKeyDown_, controller.cameraZoom));
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept
