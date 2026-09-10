@@ -7,6 +7,7 @@
 #include <cmath>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 
 namespace DeepRun::Game::Combat
@@ -28,37 +29,42 @@ public:
         return CombatPlaygroundWindowedComposition(std::move(*view));
     }
 
+    // Deterministic H/H.1 smoke path retained unchanged in behavior.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> Advance(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         Physics::PhysicsWorld& physicsWorld,
         const double simulationTimeSeconds)
     {
-        if (!physicsWorld.IsInitialized() || !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
+        const auto ready = EnsureRuntime(playerSnapshot, physicsWorld, simulationTimeSeconds);
+        if (!ready)
         {
-            return std::unexpected("M5-H.1 windowed combat advance input is invalid");
+            return std::unexpected(ready.error());
         }
-
-        if (!runtime_.has_value())
-        {
-            const double surfaceLevel = static_cast<double>(playerSnapshot.emitter.positionMeters.y) +
-                                        static_cast<double>(playerSnapshot.signedDepthMeters);
-            if (!std::isfinite(surfaceLevel))
-            {
-                return std::unexpected("M5-H.1 windowed combat could not derive the live surface level");
-            }
-            auto runtime = CombatPlaygroundRuntime::Create(
-                physicsWorld, static_cast<float>(surfaceLevel), simulationTimeSeconds);
-            if (!runtime)
-            {
-                return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());
-            }
-            runtime_ = std::move(*runtime);
-        }
-
         const auto frame = runtime_->Advance(playerSnapshot, simulationTimeSeconds);
         if (!frame)
         {
             return std::unexpected("M5-H.1 windowed combat advance failed: " + frame.error());
+        }
+        return *frame;
+    }
+
+    // Normal-play J2 path. Semantic commands have already crossed the Input boundary; the composition does not
+    // know physical bindings and does not retain a command queue between fixed ticks.
+    [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvancePlayerControlled(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        Physics::PhysicsWorld& physicsWorld,
+        const std::span<const PlayerCombatCommand> commands,
+        const double simulationTimeSeconds)
+    {
+        const auto ready = EnsureRuntime(playerSnapshot, physicsWorld, simulationTimeSeconds);
+        if (!ready)
+        {
+            return std::unexpected(ready.error());
+        }
+        const auto frame = runtime_->AdvancePlayerControlled(playerSnapshot, commands, simulationTimeSeconds);
+        if (!frame)
+        {
+            return std::unexpected("M5-J2 windowed player-controlled combat advance failed: " + frame.error());
         }
         return *frame;
     }
@@ -92,6 +98,36 @@ private:
     explicit CombatPlaygroundWindowedComposition(CombatPlaygroundView view)
         : view_(std::move(view))
     {
+    }
+
+    [[nodiscard]] std::expected<void, std::string> EnsureRuntime(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        Physics::PhysicsWorld& physicsWorld,
+        const double simulationTimeSeconds)
+    {
+        if (!physicsWorld.IsInitialized() || !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
+        {
+            return std::unexpected("M5-H.1 windowed combat advance input is invalid");
+        }
+        if (runtime_.has_value())
+        {
+            return {};
+        }
+
+        const double surfaceLevel = static_cast<double>(playerSnapshot.emitter.positionMeters.y) +
+                                    static_cast<double>(playerSnapshot.signedDepthMeters);
+        if (!std::isfinite(surfaceLevel))
+        {
+            return std::unexpected("M5-H.1 windowed combat could not derive the live surface level");
+        }
+        auto runtime = CombatPlaygroundRuntime::Create(
+            physicsWorld, static_cast<float>(surfaceLevel), simulationTimeSeconds);
+        if (!runtime)
+        {
+            return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());
+        }
+        runtime_ = std::move(*runtime);
+        return {};
     }
 
     CombatPlaygroundView view_;
