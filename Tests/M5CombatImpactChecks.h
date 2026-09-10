@@ -10,6 +10,7 @@
 #include "Tests/M5NavalMineChecks.h"
 #include "Tests/M5PlayerCombatCommandChecks.h"
 #include "Tests/M5PlayerCombatInputChecks.h"
+#include "Tests/M5PlayerControlledCombatChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -245,6 +246,10 @@ namespace M5CombatImpactDetail
     if (!RunM5SimpleDestroyerRuntimeChecks(physicsWorld))
     {
         return fail("M5-G physical destroyer runtime and Jolt combat composition");
+    }
+    if (!RunM5PlayerControlledCombatChecks(physicsWorld))
+    {
+        return fail("M5-J2-B normal-play commander gating and explicit prepare-ready-fire sequence");
     }
     if (!RunM5CombatPlaygroundRuntimeChecks(physicsWorld))
     {
