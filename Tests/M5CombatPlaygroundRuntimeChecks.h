@@ -100,7 +100,9 @@ namespace DeepRun::Tests
     bool sawDestroyerTorpedoUnderwaterWithoutBodyIdentity = false;
     bool sawDestroyerTorpedoHiddenAfterImpact = false;
     bool sawIncomingThreat = false;
+    bool sawIncomingThreatPropagationDelay = false;
     bool sawIncomingThreatClearedAfterImpact = false;
+    std::optional<double> destroyerLaunchTimeSeconds{};
     bool sawTorpedo = false;
     bool sawDecoy = false;
     bool sawLiveSeekerSelection = false;
@@ -226,6 +228,15 @@ namespace DeepRun::Tests
             {
                 return false;
             }
+            if (!sawIncomingThreat)
+            {
+                if (!destroyerLaunchTimeSeconds ||
+                    simulationTimeSeconds - *destroyerLaunchTimeSeconds <= 0.25)
+                {
+                    return false;
+                }
+                sawIncomingThreatPropagationDelay = true;
+            }
             sawIncomingThreat = true;
         }
         else
@@ -271,6 +282,10 @@ namespace DeepRun::Tests
             }
             sawDestroyerLaunch = true;
             sawDestroyerTorpedoMaterialized = true;
+            if (!destroyerLaunchTimeSeconds)
+            {
+                destroyerLaunchTimeSeconds = simulationTimeSeconds;
+            }
         }
         sawTorpedo = sawTorpedo || runtime.PlayerTorpedo().has_value();
         sawDecoy = sawDecoy || (runtime.Decoy().has_value() && runtime.Decoy()->active);
@@ -425,7 +440,8 @@ namespace DeepRun::Tests
         !sawDestroyerSpatialFireControlTrack || !sawDestroyerPreparation || !sawDestroyerLaunch ||
         !sawDestroyerTorpedoMaterialized || !sawDestroyerTorpedoImpact ||
         !sawDestroyerTorpedoUnderwaterWithoutBodyIdentity || !sawDestroyerTorpedoHiddenAfterImpact ||
-        !sawIncomingThreat || !sawIncomingThreatClearedAfterImpact || !sawTorpedo ||
+        !sawIncomingThreat || !sawIncomingThreatPropagationDelay ||
+        !sawIncomingThreatClearedAfterImpact || !sawTorpedo ||
         !sawDecoy || !sawLiveSeekerSelection || !sawDecoyDiversion || !sawPostDecoyRecovery ||
         !sawImpact || !sawPresentationTorpedo || !sawPresentationDestroyerTorpedo || !sawPresentationMine ||
         !sawPresentationDecoy || !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||

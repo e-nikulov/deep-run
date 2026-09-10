@@ -44,6 +44,7 @@ inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
 inline constexpr double M5CombatTorpedoSeekerEmissionSampleIntervalSeconds = 0.10;
 inline constexpr float M5CombatTorpedoSeekerAssociationGateRadians = 0.03F;
 inline constexpr float M5CombatDecoyVerticalOffsetMeters = 120.0F;
+inline constexpr double M5CombatIncomingThreatEmissionSampleIntervalSeconds = 0.10;
 
 struct CombatPlaygroundFrame final
 {
@@ -863,6 +864,8 @@ private:
         }
         destroyerTorpedo_ = *launched;
         destroyerTorpedoLaunchPosition_ = launchPosition;
+        pendingIncomingThreatEmissions_.clear();
+        nextIncomingThreatEmissionSampleTimeSeconds_ = simulationTimeSeconds;
         return {};
     }
 
@@ -1020,28 +1023,42 @@ private:
             return std::unexpected("M5-J3 incoming-threat receiver/time input is invalid");
         }
 
-        bool integratedObservation = false;
+        // Sample the hostile weapon only while it physically exists underwater. Samples keep the source position
+        // and emission SimulationTime at which sound was actually emitted; they are never backdated to make a newly
+        // launched threat visible immediately.
         if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater &&
-            destroyerTorpedo_->positionMeters.IsFinite())
+            destroyerTorpedo_->positionMeters.IsFinite() &&
+            simulationTimeSeconds + 1.0e-9 >= nextIncomingThreatEmissionSampleTimeSeconds_)
         {
-            const double distanceMeters = Distance(
-                destroyerTorpedo_->positionMeters, playerSnapshot.passiveReceiver.positionMeters);
-            const double travelSeconds = distanceMeters /
-                static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
-            if (!std::isfinite(travelSeconds))
-            {
-                return std::unexpected("M5-J3 incoming-threat acoustic travel time is invalid");
-            }
-            const double emissionTimeSeconds = simulationTimeSeconds > travelSeconds
-                ? std::max(0.0, simulationTimeSeconds - travelSeconds - 1.0e-6)
-                : 0.0;
-            const Acoustics::AcousticEmission emission{
+            pendingIncomingThreatEmissions_.push_back(Acoustics::AcousticEmission{
                 .positionMeters = destroyerTorpedo_->positionMeters,
                 // Gameplay-authored coarse machinery/propulsor signature for the M5 warning slice.
                 .sourceLevelDb = {.levelDb = {176.0F, 172.0F, 164.0F, 156.0F}},
-                .emissionTimeSeconds = emissionTimeSeconds};
+                .emissionTimeSeconds = simulationTimeSeconds});
+            nextIncomingThreatEmissionSampleTimeSeconds_ =
+                simulationTimeSeconds + M5CombatIncomingThreatEmissionSampleIntervalSeconds;
+        }
+
+        bool integratedObservation = false;
+        auto emission = pendingIncomingThreatEmissions_.begin();
+        while (emission != pendingIncomingThreatEmissions_.end())
+        {
+            const double distanceMeters = Distance(
+                emission->positionMeters, playerSnapshot.passiveReceiver.positionMeters);
+            const double arrivalTimeSeconds = emission->emissionTimeSeconds + distanceMeters /
+                static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
+            if (!std::isfinite(arrivalTimeSeconds))
+            {
+                return std::unexpected("M5-J3 incoming-threat acoustic arrival time is invalid");
+            }
+            if (simulationTimeSeconds + 1.0e-9 < arrivalTimeSeconds)
+            {
+                ++emission;
+                continue;
+            }
+
             const auto observed = acousticWorld_.CollectPassiveDirectObservation(
-                emission, playerSnapshot.passiveReceiver, simulationTimeSeconds);
+                *emission, playerSnapshot.passiveReceiver, simulationTimeSeconds);
             if (!observed)
             {
                 return std::unexpected("M5-J3 incoming-threat acoustic propagation failed: " +
@@ -1056,6 +1073,7 @@ private:
                 }
                 integratedObservation = true;
             }
+            emission = pendingIncomingThreatEmissions_.erase(emission);
         }
 
         if (!integratedObservation && !incomingThreatTracks_.AdvanceTo(simulationTimeSeconds))
@@ -1195,6 +1213,8 @@ private:
     Perception::TrackManager destroyerTracks_;
     Perception::TrackManager playerTorpedoSeekerTracks_;
     Perception::TrackManager incomingThreatTracks_;
+    std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
+    double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;
     Weapons::TorpedoSeekerConfig playerTorpedoSeekerConfig_{
         .minimumTrackConfidence = 0.35F,
         .maximumBearingUncertaintyRadians = 0.20F,

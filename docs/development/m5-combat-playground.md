@@ -18,9 +18,10 @@ the ~1.7 km scenario. Gameplay speed/guidance/damage were unchanged. Stable evid
 Status: ACCEPTED when this documented tree passes the normal Debug/Release CI gate.
 
 J3 does not expose hostile torpedo position, range, Transform or PhysicsBodyHandle to commander UI. A dedicated
-passive-acoustic perceived-world path samples the simulated hostile weapon only as an AcousticEmission, feeds
-the production player passive receiver through AcousticWorld, converts observations through SensorObservation
-and TrackManager, and projects only lifecycle, bearing, bearing uncertainty and confidence. The warning naturally
+passive-acoustic perceived-world path samples the simulated hostile weapon only as timestamped AcousticEmission
+values, preserves propagation delay before they can reach the production player passive receiver through
+AcousticWorld, converts observations through SensorObservation and TrackManager, and projects only lifecycle,
+bearing, bearing uncertainty and confidence. The warning naturally
 coasts/clears after the physical threat is consumed. No tactical pause or generic command queue is introduced.
 
 ## M5-H.1-B — automated windowed visual acceptance
