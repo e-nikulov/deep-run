@@ -21,3 +21,4 @@ jobs:
       - name: Apply H4 visual acceptance fix
         shell: pwsh
         run: ./Tools/CI/apply_h4_visual_acceptance_fix.ps1
+        # Strict anchor replacement; the script removes this workflow after a successful patch.
