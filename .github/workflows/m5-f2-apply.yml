@@ -1,0 +1,40 @@
+name: M5 F2 Apply Reciprocal Torpedo
+
+on:
+  push:
+    branches:
+      - tmp/m5-f2-enemy-torpedo-threat
+    paths:
+      - Tools/CI/apply_m5_f2_enemy_torpedo.ps1
+      - .github/workflows/m5-f2-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/m5-f2-enemy-torpedo-threat
+          fetch-depth: 0
+
+      - name: Apply M5-F.2 reciprocal enemy torpedo
+        shell: pwsh
+        run: ./Tools/CI/apply_m5_f2_enemy_torpedo.ps1
+
+      - name: Commit clean implementation
+        shell: pwsh
+        run: |
+          Remove-Item Tools/CI/apply_m5_f2_enemy_torpedo.ps1
+          Remove-Item .github/workflows/m5-f2-apply.yml
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "feat: materialize reciprocal destroyer torpedo threat"
+            git push origin HEAD:tmp/m5-f2-enemy-torpedo-threat
+          }
