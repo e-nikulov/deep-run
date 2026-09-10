@@ -9,6 +9,7 @@ void InputState::BeginFrame() noexcept
 {
     std::ranges::fill(pressed_, false);
     std::ranges::fill(released_, false);
+    cameraZoomSteps_ = 0.0F;
 }
 
 void InputState::SetActionDown(const InputAction action, const bool down) noexcept
@@ -35,6 +36,14 @@ void InputState::SetMousePosition(const int x, const int y) noexcept
 {
     mouseX_ = x;
     mouseY_ = y;
+}
+
+void InputState::AddCameraZoomSteps(const float steps) noexcept
+{
+    if (std::isfinite(steps))
+    {
+        cameraZoomSteps_ += steps;
+    }
 }
 
 void InputState::SetGamepad(GamepadState gamepad) noexcept
@@ -79,6 +88,11 @@ int InputState::MouseX() const noexcept
 int InputState::MouseY() const noexcept
 {
     return mouseY_;
+}
+
+float InputState::CameraZoomSteps() const noexcept
+{
+    return cameraZoomSteps_;
 }
 
 const GamepadState& InputState::Gamepad() const noexcept
