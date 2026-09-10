@@ -22,6 +22,47 @@ if (-not $text.Contains($needle)) {
     throw 'diagnostic insertion point not found'
 }
 $text = $text.Replace($needle, $helper)
+
+$summaryNeedle = '    const auto destroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);'
+$summaryBlock = @'
+    const auto destroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);
+    std::cerr << "[M5-F.2 summary]"
+              << " spatial=" << sawDestroyerSpatialFireControlTrack
+              << " launch=" << sawDestroyerLaunch
+              << " materialized=" << sawDestroyerTorpedoMaterialized
+              << " no_identity=" << sawDestroyerTorpedoUnderwaterWithoutBodyIdentity
+              << " impact=" << sawDestroyerTorpedoImpact
+              << " hidden=" << sawDestroyerTorpedoHiddenAfterImpact
+              << " present_draw=" << sawPresentationDestroyerTorpedo
+              << " mine_draw=" << sawPresentationMine
+              << " player_impact=" << sawImpact
+              << " decoy_diversion=" << sawDecoyDiversion
+              << " decoy_recovery=" << sawPostDecoyRecovery
+              << " gradual_ascent=" << sawGradualAscent
+              << " tactical=" << sawTacticalCamera
+              << " stable_ticks=" << stableTacticalTicks;
+    if (runtime.DestroyerTorpedo())
+    {
+        std::cerr << " enemy_domain=" << static_cast<int>(runtime.DestroyerTorpedo()->movementDomain)
+                  << " enemy_x=" << runtime.DestroyerTorpedo()->positionMeters.x
+                  << " enemy_y=" << runtime.DestroyerTorpedo()->positionMeters.y
+                  << " enemy_impacted=" << runtime.DestroyerTorpedo()->impactedBody.has_value();
+    }
+    else
+    {
+        std::cerr << " enemy_domain=-1";
+    }
+    std::cerr << " player_integrity="
+              << (runtime.PlayerIntegrity() ? runtime.PlayerIntegrity()->remainingIntegrity : -1.0F)
+              << " destroyer_integrity=" << runtime.Destroyer().integrity.remainingIntegrity
+              << " mine_detonated=" << (runtime.Mine() ? runtime.Mine()->detonated : true)
+              << '\n';
+'@.Replace("`r`n", "`n")
+if (-not $text.Contains($summaryNeedle)) {
+    throw 'summary insertion point not found'
+}
+$text = $text.Replace($summaryNeedle, $summaryBlock)
+
 [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))
 
 cmake --preset windows-debug
