@@ -87,17 +87,12 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
         return {};
     }
 
-    constexpr float TriggerPressedThreshold = 0.50F;
-    const float leftTrigger = std::isfinite(gamepad.leftTrigger)
-                                  ? std::clamp(gamepad.leftTrigger, 0.0F, 1.0F)
-                                  : 0.0F;
-    const float rightTrigger = std::isfinite(gamepad.rightTrigger)
-                                   ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
-                                   : 0.0F;
+    // H.2 already owns both triggers for camera zoom. Keep combat on independent face-button edges so
+    // preparing/firing a weapon can never change tactical camera scale as a side effect.
     return ControllerSemanticActions{
         .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
-        .prepareWeapon = leftTrigger >= TriggerPressedThreshold,
-        .fireWeapon = rightTrigger >= TriggerPressedThreshold};
+        .prepareWeapon = HasGamepadButton(gamepad, GamepadButton::X),
+        .fireWeapon = HasGamepadButton(gamepad, GamepadButton::A)};
 }
 
 float ResolveSemanticAxis(
@@ -161,6 +156,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 selectContactKeyDown_ = true;
             }
+            else if (event.key == Platform::Key::R)
+            {
+                prepareWeaponKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Space)
+            {
+                fireWeaponKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::A)
             {
                 throttleAsternKeyDown_ = true;
@@ -215,6 +218,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::Tab)
             {
                 selectContactKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::R)
+            {
+                prepareWeaponKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Space)
+            {
+                fireWeaponKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -337,10 +348,14 @@ void InputSystem::RefreshSemanticActions() noexcept
     state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);
     state_.SetActionDown(
         InputAction::PrepareWeapon,
-        state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Right)) || controller.prepareWeapon);
+        prepareWeaponKeyDown_ ||
+            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Right)) ||
+            controller.prepareWeapon);
     state_.SetActionDown(
         InputAction::FireWeapon,
-        state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) || controller.fireWeapon);
+        fireWeaponKeyDown_ ||
+            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
+            controller.fireWeapon);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept
