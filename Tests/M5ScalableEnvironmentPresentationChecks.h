@@ -15,6 +15,10 @@ namespace DeepRun::Tests
     };
 
     if (!Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 600.0F) ||
+        !Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 680.0F) ||
+        Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 681.0F) ||
+        !Game::HorizontalPresentationBoundsCoverView(-320.0F, 320.0F, 0.0F, 640.0F) ||
+        Game::HorizontalPresentationBoundsCoverView(-320.0F, 320.0F, 0.0F, 641.0F) ||
         Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 1'600.0F) ||
         Game::HorizontalPresentationBoundsCoverView(-320.0F, 320.0F, 120.0F, 600.0F))
     {
