@@ -3,6 +3,7 @@
 #include "Engine/Diagnostics/Logger.h"
 #include "Engine/Input/InputSystem.h"
 #include "Game/Camera/MultiScaleTacticalCamera.h"
+#include "Game/Combat/CalmLaunchCameraAssist.h"
 
 #include <array>
 #include <cmath>
@@ -23,9 +24,9 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // H.2 never exposes a framing narrower than the accepted 600 m local playground. Positive wheel steps
-    // zoom inward logarithmically and settle smoothly without SimulationTime driving presentation state.
-    auto close = camera.Update({.wheelSteps = 12.0F}, 1.0 / 60.0);
+    // H.3 extends the normal-play presentation below the historical 600 m local reference so the production
+    // Antey can be inspected in detail. Positive wheel steps zoom inward logarithmically and settle smoothly.
+    auto close = camera.Update({.wheelSteps = 20.0F}, 1.0 / 60.0);
     if (!close || close->requestedHorizontalSpanMeters != MultiScaleMinimumHorizontalSpanMeters)
     {
         return false;
@@ -42,6 +43,37 @@ namespace DeepRun::Tests
         close->band != MultiScaleCameraBand::Detail ||
         close->presentationTier != MultiScalePresentationTier::FullDetail ||
         close->targetOffsetXMeters != 0.0F || close->targetOffsetYMeters != 0.0F)
+    {
+        return false;
+    }
+
+    // At 80 m the camera may pan along the production hull, but close inspection is bounded and remains
+    // presentation-only. Releasing the stick must not introduce any autonomous chase.
+    for (int frame = 0; frame < 240; ++frame)
+    {
+        close = camera.Update({.panX = 1.0F}, 1.0 / 60.0);
+        if (!close)
+        {
+            return false;
+        }
+    }
+    if (close->targetOffsetXMeters < MultiScaleCloseInspectionMaximumOffsetMeters - 0.1F ||
+        close->targetOffsetXMeters > MultiScaleCloseInspectionMaximumOffsetMeters + 0.1F ||
+        close->targetOffsetYMeters != 0.0F)
+    {
+        return false;
+    }
+    const float closeStableX = close->targetOffsetXMeters;
+    for (int frame = 0; frame < 60; ++frame)
+    {
+        close = camera.Update({}, 1.0 / 60.0);
+        if (!close || close->targetOffsetXMeters != closeStableX)
+        {
+            return false;
+        }
+    }
+    camera.FocusOwnship();
+    if (camera.Framing().targetOffsetXMeters != 0.0F)
     {
         return false;
     }
@@ -102,7 +134,7 @@ namespace DeepRun::Tests
     }
 
     // Horizontal pan is explicit player presentation input only. Vertical semantic input is deliberately
-    // reserved and must not alter H.2 framing. Once released, the camera target must not chase contacts.
+    // reserved and must not alter H.3 framing. Once released, the camera target must not chase contacts.
     const auto panned = camera.Update({.panX = 1.0F, .panY = -1.0F}, 1.0 / 60.0);
     if (!panned || panned->targetOffsetXMeters <= 0.0F || panned->targetOffsetYMeters != 0.0F)
     {
@@ -118,27 +150,27 @@ namespace DeepRun::Tests
         }
     }
 
-    // A direct vertical focus request is rejected in this bounded slice. Horizontal focus is clamped so the
-    // full accepted 600 m local viewport always remains inside the wider H.2 camera.
+    // Direct vertical focus remains outside this bounded slice. Horizontal focus is clamped to a bounded
+    // close-inspection corridor or the wider ownship-anchored tactical range, whichever is larger.
     if (camera.FocusAtOffsets(1'000.0F, 1.0F) || !camera.FocusAtOffsets(1.0e9F, 0.0F))
     {
         return false;
     }
     const auto clampedWide = camera.Framing();
-    const float maximumWideOffset =
-        0.5F * (clampedWide.horizontalSpanMeters - MultiScaleMinimumHorizontalSpanMeters);
+    const float maximumWideOffset = (std::max)(
+        MultiScaleCloseInspectionMaximumOffsetMeters,
+        0.5F * (clampedWide.horizontalSpanMeters - MultiScaleLocalReferenceHorizontalSpanMeters));
     if (std::abs(clampedWide.targetOffsetXMeters - maximumWideOffset) > 1.0F ||
         clampedWide.targetOffsetYMeters != 0.0F)
     {
         return false;
     }
 
-    // Zooming all the way back into the accepted local frame collapses available pan to zero, proving that
-    // camera navigation cannot crop the original M2/M3 viewport and trip its existing fit invariants.
     if (!camera.SetRequestedHorizontalSpanMeters(MultiScaleMinimumHorizontalSpanMeters))
     {
         return false;
     }
+    camera.FocusOwnship();
     for (int frame = 0; frame < 300; ++frame)
     {
         close = camera.Update({}, 1.0 / 60.0);
@@ -153,15 +185,75 @@ namespace DeepRun::Tests
         return false;
     }
 
-    camera.FocusOwnship();
-    if (camera.Framing().targetOffsetXMeters != 0.0F || camera.Framing().targetOffsetYMeters != 0.0F ||
-        camera.Update({}, -1.0))
+    if (camera.Update({}, -1.0))
     {
         return false;
     }
 
+    // Calm launch framing is one-shot and zoom-only. It does nothing before launch, gently opens a centered
+    // frame after launch, never pans, and permanently yields as soon as the player takes manual camera control.
+    {
+        using Game::Combat::CalmLaunchCameraAssist;
+        using Game::Combat::CalmLaunchCameraAssistState;
+        MultiScaleTacticalCamera assistedCamera;
+        CalmLaunchCameraAssist assist;
+        auto manual = MultiScaleCameraInput{};
+        auto assistedInput = assist.Update(false, assistedCamera.Framing(), manual);
+        if (assist.State() != CalmLaunchCameraAssistState::WaitingForLaunch ||
+            assistedInput.zoom != 0.0F || assistedInput.panX != 0.0F)
+        {
+            return false;
+        }
+
+        assistedInput = assist.Update(true, assistedCamera.Framing(), manual);
+        if (assist.State() != CalmLaunchCameraAssistState::Transitioning ||
+            std::abs(assistedInput.zoom - CalmLaunchCameraAssist::AutoZoomCommand) > 0.001F)
+        {
+            return false;
+        }
+        float previousRequestedSpan = assistedCamera.Framing().requestedHorizontalSpanMeters;
+        for (int frame = 0; frame < 240 && assist.State() == CalmLaunchCameraAssistState::Transitioning; ++frame)
+        {
+            const auto updated = assistedCamera.Update(assistedInput, 1.0 / 60.0);
+            if (!updated || updated->targetOffsetXMeters != 0.0F ||
+                updated->requestedHorizontalSpanMeters < previousRequestedSpan)
+            {
+                return false;
+            }
+            previousRequestedSpan = updated->requestedHorizontalSpanMeters;
+            assistedInput = assist.Update(true, *updated, manual);
+        }
+        const auto assistedFraming = assistedCamera.Framing();
+        if (assist.State() != CalmLaunchCameraAssistState::Completed ||
+            assistedFraming.requestedHorizontalSpanMeters < CalmLaunchCameraAssist::TargetHorizontalSpanMeters * 0.995F ||
+            assistedFraming.targetOffsetXMeters != 0.0F || assistedInput.zoom != 0.0F)
+        {
+            return false;
+        }
+
+        CalmLaunchCameraAssist cancelledBeforeLaunch;
+        const MultiScaleCameraInput wheelOwned{.wheelSteps = 1.0F};
+        const auto unchanged = cancelledBeforeLaunch.Update(false, assistedCamera.Framing(), wheelOwned);
+        static_cast<void>(cancelledBeforeLaunch.Update(true, assistedCamera.Framing(), {}));
+        if (cancelledBeforeLaunch.State() != CalmLaunchCameraAssistState::CancelledByPlayer ||
+            unchanged.wheelSteps != wheelOwned.wheelSteps)
+        {
+            return false;
+        }
+
+        CalmLaunchCameraAssist cancelledDuringTransition;
+        static_cast<void>(cancelledDuringTransition.Update(true, MultiScaleTacticalCamera{}.Framing(), {}));
+        const MultiScaleCameraInput playerPan{.panX = 0.5F};
+        const auto yielded = cancelledDuringTransition.Update(true, MultiScaleTacticalCamera{}.Framing(), playerPan);
+        if (cancelledDuringTransition.State() != CalmLaunchCameraAssistState::CancelledByPlayer ||
+            yielded.panX != playerPan.panX || yielded.zoom != playerPan.zoom)
+        {
+            return false;
+        }
+    }
+
     // Controller mapping remains semantic before Game consumes it: right stick X pans, right trigger zooms out,
-    // left trigger zooms in. The reserved Y axis may exist in Input, but H.2 camera policy above ignores it.
+    // left trigger zooms in. The reserved Y axis may exist in Input, but H.3 camera policy above ignores it.
     const Input::ControllerSemanticAxes controller = Input::SemanticAxesForGamepad(Input::GamepadState{
         .connected = true,
         .rightX = 0.8F,

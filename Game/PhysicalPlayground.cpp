@@ -1462,11 +1462,9 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected(draws.error());
     }
 
-    // Camera policy (B2.1 fixed-world contract, D2/E3 target): the 600 m orthographic side view keeps its
-    // target at the INITIAL body world center — a world-space point derived from WaterBody truth, not an
-    // asset-space value — so any physical drift remains visible and the surface stays a
-    // constant ~100 m above camera center. The transformed world bounds only set the near/far depth range;
-    // they must never change the horizontal zoom (covered by tests). No follow/smoothing in D2.
+    // Camera policy (B2.1 fixed-world contract, D2/E3 target): the retained presentation target starts at the
+    // INITIAL body world center. The default benchmark remains the accepted 600 m fixed view; normal M5 play
+    // may explicitly opt into wider tactical framing or narrower close inspection without moving simulation.
     const auto worldBounds = TransformBounds(modelAsset_->bounds, modelToWorld);
     if (!worldBounds)
     {
@@ -1504,16 +1502,23 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return std::unexpected(camera.error());
     }
-    if (!Render::BoundsFitInCamera(*worldBounds, *camera))
+
+    // Keep the historical M2/M3 full-scene invariant strict for untouched benchmark instances. Normal M5
+    // free-presentation framing explicitly permits crop for close inspection and player-directed tactical pan;
+    // this changes presentation only and never relaxes physics/environment authority.
+    if (!freePresentationCameraFraming_)
     {
-        return std::unexpected("physical playground production Antey bounds do not fit the fixed camera");
-    }
-    if (!Render::BoundsFitInCamera(floraField_->renderGeometry.bounds, *camera) ||
-        !Render::BoundsFitInCamera(iceField_->renderGeometry.bounds, *camera) ||
-        !Render::BoundsFitInCamera(*faunaWorldBounds, *camera) ||
-        !Render::BoundsFitInCamera(*surfaceFloatWorldBounds, *camera))
-    {
-        return std::unexpected("physical playground existing environment bounds do not fit the fixed camera");
+        if (!Render::BoundsFitInCamera(*worldBounds, *camera))
+        {
+            return std::unexpected("physical playground production Antey bounds do not fit the fixed camera");
+        }
+        if (!Render::BoundsFitInCamera(floraField_->renderGeometry.bounds, *camera) ||
+            !Render::BoundsFitInCamera(iceField_->renderGeometry.bounds, *camera) ||
+            !Render::BoundsFitInCamera(*faunaWorldBounds, *camera) ||
+            !Render::BoundsFitInCamera(*surfaceFloatWorldBounds, *camera))
+        {
+            return std::unexpected("physical playground existing environment bounds do not fit the fixed camera");
+        }
     }
 
     // M3-C/C.1 authority boundary: WaterBody remains in Game/Simulation. Game derives only the authoritative
@@ -1533,15 +1538,29 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());
     }
 
-    // M3-E keeps the Game-owned full above-water clear, then draws its one displaced presentation backdrop.
-    // Its profile is centered on the authoritative level but never feeds back into WaterBody, simulation,
-    // depth lighting, fog, collision, or particles. The renderer receives only bounded visual tuning.
+    // M3-E keeps the Game-owned full above-water clear. H.3 then derives a full-width underwater underlay
+    // from the authoritative WaterBody surface and the actual camera before drawing the existing bounded
+    // Gerstner wave-detail strip. The underlay scales with framing without reallocating a kilometre-scale wave
+    // mesh; at the historical 600 m benchmark the Gerstner strip fully covers it, preserving the accepted view.
     const auto aboveWaterCleared = renderer.ClearViewportRect(
         Render::ViewportRect{}, // full viewport: default {0, 0, 1, 1}
         M2AboveWaterBackgroundColor);
     if (!aboveWaterCleared)
     {
         return std::unexpected(aboveWaterCleared.error());
+    }
+    const auto underwaterRegion = UnderwaterRegionForSurface(*camera, water_->Config().surfaceLevelY);
+    if (!underwaterRegion)
+    {
+        return std::unexpected("physical playground scalable underwater region failed: " + underwaterRegion.error());
+    }
+    if (underwaterRegion->has_value())
+    {
+        const auto underwaterCleared = renderer.ClearViewportRect(**underwaterRegion, M2UnderwaterBackgroundColor);
+        if (!underwaterCleared)
+        {
+            return std::unexpected("physical playground scalable underwater clear failed: " + underwaterCleared.error());
+        }
     }
 
     const auto gerstnerStats = renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
