@@ -1,0 +1,47 @@
+name: M5 I2 Apply Live Naval Mine
+
+on:
+  push:
+    branches:
+      - tmp/m5-i2-live-naval-mine
+    paths:
+      - '.github/workflows/m5-i2-apply.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/m5-i2-live-naval-mine
+          fetch-depth: 0
+
+      - name: Apply M5-I.2 live naval mine integration
+        shell: bash
+        run: |
+          python Tools/CI/apply_m5_i2_live_mine.py
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Tests/M5NavalMineChecks.h')
+          text = p.read_text(encoding='utf-8')
+          anchor = '#include "Game/Combat/CombatPlaygroundRuntime.h"'
+          replacement = '#include "Game/Combat/CombatPlaygroundPresentation.h"\n' + anchor
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected one runtime include anchor, found {text.count(anchor)}')
+          p.write_text(text.replace(anchor, replacement, 1), encoding='utf-8', newline='\n')
+          PY
+
+      - name: Commit clean implementation
+        shell: bash
+        run: |
+          rm -f Tools/CI/apply_m5_i2_live_mine.py .github/workflows/m5-i2-apply.yml
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "feat: integrate live M5 naval mine hazard"
+          git push origin HEAD:tmp/m5-i2-live-naval-mine
