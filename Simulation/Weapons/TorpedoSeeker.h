@@ -153,6 +153,8 @@ struct TorpedoSeekerRuntimeState final
     const float maximumTurn = definition.maximumTurnRateRadiansPerSecond * static_cast<float>(deltaSeconds);
     torpedo.headingRadians = WrapWeaponHeading(
         torpedo.headingRadians + std::clamp(headingDelta, -maximumTurn, maximumTurn));
+    torpedo.headingRadians = ClampConventionalTorpedoVerticalCourse(
+        torpedo.headingRadians, definition.maximumVerticalCourseAngleRadians);
 
     const float distanceMeters = torpedo.speedMetersPerSecond * static_cast<float>(deltaSeconds);
     torpedo.positionMeters.x += static_cast<float>(std::cos(static_cast<double>(torpedo.headingRadians))) * distanceMeters;
@@ -160,5 +162,81 @@ struct TorpedoSeekerRuntimeState final
     torpedo.lastUpdateTimeSeconds = simulationTimeSeconds;
     torpedo.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;
     return {};
+}
+
+// M5-E.1 live composition variant: seeker-local bearing guidance still uses the same authoritative swept
+// collision contract as ordinary torpedo guidance. The seeker never receives a target body; a PhysicsWorld hit
+// is the first point where body identity can enter terminal weapon state.
+[[nodiscard]] inline std::expected<std::optional<ConventionalTorpedoImpact>, std::string>
+AdvanceConventionalTorpedoWithSeekerCueAndCollision(
+    const ConventionalTorpedoDefinition& definition,
+    const TorpedoSeekerConfig& seekerConfig,
+    ConventionalTorpedoRuntimeState& torpedo,
+    const TorpedoSeekerCue& cue,
+    Physics::PhysicsWorld& physicsWorld,
+    const double simulationTimeSeconds,
+    const Physics::PhysicsBodyHandle ignoredBody = {})
+{
+    if (torpedo.movementDomain != MovementDomain::Underwater || torpedo.impactedBody.has_value())
+    {
+        return std::unexpected("spent/non-underwater conventional torpedo cannot advance with seeker collision");
+    }
+
+    const Physics::PhysicsVector3 startPosition = torpedo.positionMeters;
+    ConventionalTorpedoRuntimeState candidate = torpedo;
+    const auto movement = AdvanceConventionalTorpedoWithSeekerCue(
+        definition, seekerConfig, candidate, cue, simulationTimeSeconds);
+    if (!movement)
+    {
+        return std::unexpected(movement.error());
+    }
+
+    const Physics::PhysicsVector3 displacement{
+        .x = candidate.positionMeters.x - startPosition.x,
+        .y = candidate.positionMeters.y - startPosition.y,
+        .z = candidate.positionMeters.z - startPosition.z};
+    if (displacement.x == 0.0F && displacement.y == 0.0F && displacement.z == 0.0F)
+    {
+        torpedo = candidate;
+        return std::optional<ConventionalTorpedoImpact>{};
+    }
+
+    const auto sweep = physicsWorld.SweepBoxClosest(Physics::PhysicsBoxSweepQuery{
+        .halfExtentsMeters = definition.collisionHalfExtentsMeters,
+        .startPositionMeters = startPosition,
+        .orientation = WeaponHeadingQuaternion(candidate.headingRadians),
+        .displacementMeters = displacement,
+        .ignoredBody = ignoredBody});
+    if (!sweep)
+    {
+        return std::unexpected("torpedo seeker physics sweep failed: " + sweep.error().message);
+    }
+    if (!*sweep)
+    {
+        torpedo = candidate;
+        return std::optional<ConventionalTorpedoImpact>{};
+    }
+
+    const Physics::PhysicsSweepHit hit = **sweep;
+    candidate.positionMeters = hit.positionMeters;
+    candidate.speedMetersPerSecond = 0.0F;
+    candidate.movementDomain = MovementDomain::Spent;
+    candidate.impactedBody = hit.body;
+    candidate.lastUpdateTimeSeconds = simulationTimeSeconds;
+    candidate.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;
+    torpedo = candidate;
+
+    return std::optional<ConventionalTorpedoImpact>{ConventionalTorpedoImpact{
+        .physicsHit = hit,
+        .damage = Combat::CombatDamageEvent{
+            .targetBody = hit.body,
+            .positionMeters = hit.positionMeters,
+            .damage = definition.directImpactDamage,
+            .simulationTimeSeconds = simulationTimeSeconds},
+        .explosion = Combat::CombatExplosionEvent{
+            .positionMeters = hit.positionMeters,
+            .nominalDamage = definition.directImpactDamage,
+            .radiusMeters = definition.explosionRadiusMeters,
+            .simulationTimeSeconds = simulationTimeSeconds}}};
 }
 } // namespace DeepRun::Weapons

@@ -64,6 +64,9 @@ namespace DeepRun::Tests
     bool sawDestroyerPreparation = false;
     bool sawTorpedo = false;
     bool sawDecoy = false;
+    bool sawLiveSeekerSelection = false;
+    bool sawDecoyDiversion = false;
+    bool sawPostDecoyRecovery = false;
     bool sawImpact = false;
     bool sawPresentationTorpedo = false;
     bool sawPresentationDecoy = false;
@@ -152,6 +155,7 @@ namespace DeepRun::Tests
             frame->destroyerDecision.action == Game::Combat::SimpleDestroyerCombatAction::PrepareWeapon;
         sawTorpedo = sawTorpedo || runtime.PlayerTorpedo().has_value();
         sawDecoy = sawDecoy || (runtime.Decoy().has_value() && runtime.Decoy()->active);
+        sawLiveSeekerSelection = sawLiveSeekerSelection || runtime.PlayerTorpedoSeekerState().selectedTrackId.has_value();
 
         if (runtime.PlayerTorpedo() && runtime.PlayerTorpedo()->movementDomain == Weapons::MovementDomain::Underwater)
         {
@@ -178,6 +182,17 @@ namespace DeepRun::Tests
             }
 
             const float forwardProgress = torpedo.positionMeters.x - launchPosition->x;
+            if (forwardProgress > Game::Combat::M5CombatTorpedoStraightRunMeters + 20.0F &&
+                runtime.Decoy() && runtime.Decoy()->active &&
+                runtime.PlayerTorpedoSeekerState().selectedTrackId.has_value() && torpedo.headingRadians < -0.002F)
+            {
+                sawDecoyDiversion = true;
+            }
+            if (sawDecoyDiversion && runtime.Decoy() && !runtime.Decoy()->active && torpedo.headingRadians > 0.01F)
+            {
+                sawPostDecoyRecovery = true;
+            }
+
             if (forwardProgress >= 120.0F &&
                 forwardProgress <= Game::Combat::M5CombatTorpedoStraightRunMeters - 2.0F)
             {
@@ -258,7 +273,8 @@ namespace DeepRun::Tests
 
     const auto destroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);
     if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerPreparation || !sawTorpedo ||
-        !sawDecoy || !sawImpact || !sawPresentationTorpedo || !sawPresentationDecoy ||
+        !sawDecoy || !sawLiveSeekerSelection || !sawDecoyDiversion || !sawPostDecoyRecovery ||
+        !sawImpact || !sawPresentationTorpedo || !sawPresentationDecoy ||
         !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
         !sawStraightRunout || !sawGradualAscent || !sawCameraTransition || !sawTacticalCamera ||
         stableTacticalTicks < 60U || !destroyerState ||
