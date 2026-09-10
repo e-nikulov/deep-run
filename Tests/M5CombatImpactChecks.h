@@ -11,6 +11,7 @@
 #include "Tests/M5PlayerCombatCommandChecks.h"
 #include "Tests/M5PlayerCombatInputChecks.h"
 #include "Tests/M5PlayerControlledCombatChecks.h"
+#include "Tests/M5ScalableEnvironmentPresentationChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -226,6 +227,10 @@ namespace M5CombatImpactDetail
     if (!RunM5MultiScaleCameraChecks())
     {
         return fail("M5-H.2 multi-scale tactical camera and semantic input");
+    }
+    if (!RunM5ScalableEnvironmentPresentationChecks())
+    {
+        return fail("M5-H.4 scalable environment presentation coverage and bounded tiling");
     }
     if (!RunM5PlayerCombatCommandChecks())
     {
