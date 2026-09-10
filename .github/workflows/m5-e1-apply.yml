@@ -1,0 +1,43 @@
+name: M5 E1 Apply Live Decoy Seeker
+
+on:
+  push:
+    branches:
+      - tmp/m5-e1-live-decoy-seeker
+    paths:
+      - Tools/CI/apply_m5_e1_live_decoy_seeker.ps1
+      - .github/workflows/m5-e1-apply.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: m5-e1-apply-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/m5-e1-live-decoy-seeker
+          fetch-depth: 0
+
+      - name: Apply M5-E.1 live decoy seeker integration
+        shell: pwsh
+        run: .\Tools\CI\apply_m5_e1_live_decoy_seeker.ps1
+
+      - name: Commit clean implementation
+        shell: pwsh
+        run: |
+          Remove-Item .\Tools\CI\apply_m5_e1_live_decoy_seeker.ps1
+          Remove-Item .\.github\workflows\m5-e1-apply.yml
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: integrate live torpedo seeker and acoustic decoy"
+          git push origin HEAD:tmp/m5-e1-live-decoy-seeker
