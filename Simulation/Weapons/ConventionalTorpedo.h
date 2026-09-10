@@ -25,6 +25,11 @@ struct ConventionalTorpedoDefinition final
     float underwaterSpeedMetersPerSecond = 20.0F;
     float maximumTurnRateRadiansPerSecond = 0.25F;
 
+    // Gameplay-authored 2.5D depth-course limit. pi/2 preserves the pre-M5-C behaviour by default; concrete
+    // scenarios may choose a smaller value to prevent a conventional underwater weapon from visually behaving
+    // like a missile. This is not claimed real-world torpedo performance data.
+    float maximumVerticalCourseAngleRadians = 1.5707963F;
+
     // M5-D coarse physical/payload representation. These are gameplay-authored values, not claimed real-world
     // performance data. The box is swept by PhysicsWorld each fixed movement update.
     Physics::PhysicsVector3 collisionHalfExtentsMeters{2.0F, 0.25F, 0.25F};
@@ -61,6 +66,27 @@ struct ConventionalTorpedoImpact final
     return std::remainder(radians, 6.2831853F);
 }
 
+// Limits the course angle relative to the nearest horizontal direction (+X or -X). The generic torpedo remains
+// free to steer left/right in the 2.5D gameplay plane, but its vertical component cannot exceed the authored
+// conventional-underwater profile. A value of pi/2 is effectively unrestricted and preserves legacy tests.
+[[nodiscard]] inline float ClampConventionalTorpedoVerticalCourse(
+    const float headingRadians,
+    const float maximumVerticalCourseAngleRadians) noexcept
+{
+    constexpr float halfPi = 1.5707963F;
+    constexpr float pi = 3.1415927F;
+    const float wrapped = WrapWeaponHeading(headingRadians);
+    if (wrapped >= -halfPi && wrapped <= halfPi)
+    {
+        return std::clamp(wrapped, -maximumVerticalCourseAngleRadians, maximumVerticalCourseAngleRadians);
+    }
+
+    const float horizontalHeading = wrapped > 0.0F ? pi : -pi;
+    const float relativeVerticalCourse = WrapWeaponHeading(wrapped - horizontalHeading);
+    return WrapWeaponHeading(horizontalHeading + std::clamp(
+        relativeVerticalCourse, -maximumVerticalCourseAngleRadians, maximumVerticalCourseAngleRadians));
+}
+
 [[nodiscard]] inline Physics::PhysicsQuaternion WeaponHeadingQuaternion(const float headingRadians) noexcept
 {
     const float halfAngle = 0.5F * headingRadians;
@@ -84,6 +110,9 @@ struct ConventionalTorpedoImpact final
         !std::isfinite(definition.maximumTurnRateRadiansPerSecond) ||
         definition.maximumTurnRateRadiansPerSecond <= 0.0F ||
         definition.maximumTurnRateRadiansPerSecond > 3.1415927F ||
+        !std::isfinite(definition.maximumVerticalCourseAngleRadians) ||
+        definition.maximumVerticalCourseAngleRadians <= 0.0F ||
+        definition.maximumVerticalCourseAngleRadians > 1.5707963F ||
         !definition.collisionHalfExtentsMeters.IsFinite() ||
         definition.collisionHalfExtentsMeters.x <= 0.0F || definition.collisionHalfExtentsMeters.y <= 0.0F ||
         definition.collisionHalfExtentsMeters.z <= 0.0F || !std::isfinite(definition.directImpactDamage) ||
@@ -132,7 +161,8 @@ struct ConventionalTorpedoImpact final
         .weapon = synchronizedWeapon,
         .movementDomain = MovementDomain::Underwater,
         .positionMeters = launchPositionMeters,
-        .headingRadians = WrapWeaponHeading(launchHeadingRadians),
+        .headingRadians = ClampConventionalTorpedoVerticalCourse(
+            launchHeadingRadians, definition.maximumVerticalCourseAngleRadians),
         .speedMetersPerSecond = definition.underwaterSpeedMetersPerSecond,
         .lastUpdateTimeSeconds = simulationTimeSeconds,
         .guidanceTrackId = targetTrack.trackId,
@@ -193,6 +223,8 @@ struct ConventionalTorpedoImpact final
             const float maximumTurn = definition.maximumTurnRateRadiansPerSecond * static_cast<float>(deltaSeconds);
             state.headingRadians = WrapWeaponHeading(
                 state.headingRadians + std::clamp(headingDelta, -maximumTurn, maximumTurn));
+            state.headingRadians = ClampConventionalTorpedoVerticalCourse(
+                state.headingRadians, definition.maximumVerticalCourseAngleRadians);
         }
     }
 
