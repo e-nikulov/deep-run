@@ -212,6 +212,7 @@ target_link_libraries(DeepRunEngine
 
 add_executable(DeepRun
     DeepRun/Main.cpp
+    Game/Combat/CombatCommandUi.cpp
     Game/Environment/EnvironmentSection.cpp
     Game/Environment/UnderwaterFaunaField.cpp
     Game/Environment/UnderwaterFloraField.cpp
@@ -228,7 +229,7 @@ add_executable(DeepRun
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
 # user32/gdi32 are used only by the M2 Slice C2 window frame capture (PrintWindow/BitBlt) in Main.cpp.
-target_link_libraries(DeepRun PRIVATE DeepRunEngine nlohmann_json::nlohmann_json user32 gdi32)
+target_link_libraries(DeepRun PRIVATE DeepRunEngine imgui nlohmann_json::nlohmann_json user32 gdi32)
 add_custom_target(DeepRunConfig ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
