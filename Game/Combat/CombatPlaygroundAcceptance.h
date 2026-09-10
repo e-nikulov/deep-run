@@ -129,6 +129,49 @@ public:
 
             if (torpedo->movementDomain == Weapons::MovementDomain::Underwater)
             {
+                const auto& launchPosition = runtime.PlayerTorpedoLaunchPosition();
+                if (!launchPosition.has_value())
+                {
+                    return std::unexpected("M5 active torpedo has no authored launch position");
+                }
+                const float forwardProgressMeters = torpedo->positionMeters.x - launchPosition->x;
+                if (!torpedoLaunchValidated_)
+                {
+                    if (std::abs(launchPosition->x - antey.emitter.positionMeters.x -
+                                 M5CombatTorpedoLaunchClearanceMeters) > 0.01F ||
+                        std::abs(launchPosition->y - antey.emitter.positionMeters.y) > 0.01F ||
+                        std::abs(launchPosition->z - antey.emitter.positionMeters.z) > 0.01F ||
+                        std::abs(torpedo->headingRadians) > 0.02F)
+                    {
+                        return std::unexpected("M5 torpedo did not leave Antey on the horizontal tube-exit profile");
+                    }
+                    torpedoLaunchValidated_ = true;
+                }
+                if (torpedo->positionMeters.y >= surfaceLevelY_ - M5CombatTorpedoSurfaceSafetyMarginMeters)
+                {
+                    return std::unexpected("M5 conventional torpedo crossed the underwater surface safety margin");
+                }
+                if (std::abs(torpedo->headingRadians) >
+                    M5CombatTorpedoMaximumVerticalCourseAngleRadians + 0.001F)
+                {
+                    return std::unexpected("M5 conventional torpedo exceeded its vertical course limit");
+                }
+                if (forwardProgressMeters >= 30.0F &&
+                    forwardProgressMeters <= M5CombatTorpedoStraightRunMeters - 2.0F)
+                {
+                    if (std::abs(torpedo->positionMeters.y - launchPosition->y) > 0.25F ||
+                        std::abs(torpedo->headingRadians) > 0.02F)
+                    {
+                        return std::unexpected("M5 torpedo straight run-out changed depth or course too early");
+                    }
+                    straightRunoutValidated_ = true;
+                }
+                if (forwardProgressMeters > M5CombatTorpedoStraightRunMeters + 10.0F &&
+                    torpedo->positionMeters.y > launchPosition->y + 1.0F)
+                {
+                    gradualAscentObserved_ = true;
+                }
+
                 if (previousTorpedoPosition_.has_value())
                 {
                     const double deltaSeconds = simulationTimeSeconds - previousTorpedoTimeSeconds_;
@@ -216,7 +259,10 @@ public:
         latestFixedSnapshot_ = snapshot;
         if (!pending_.has_value() && initialSeen_ && !flightSeen_ && snapshot.torpedo &&
                  snapshot.torpedo->movementDomain == Weapons::MovementDomain::Underwater &&
-                 Distance(snapshot.torpedo->positionMeters, snapshot.anteyPositionMeters) > 20.0F &&
+                 runtime.PlayerTorpedoLaunchPosition().has_value() &&
+                 snapshot.torpedo->positionMeters.x - runtime.PlayerTorpedoLaunchPosition()->x >= 30.0F &&
+                 snapshot.torpedo->positionMeters.x - runtime.PlayerTorpedoLaunchPosition()->x <=
+                     M5CombatTorpedoStraightRunMeters - 2.0F &&
                  Distance(snapshot.torpedo->positionMeters, snapshot.destroyerBody.position) > 35.0F)
         {
             pending_ = M5CombatAcceptanceCheckpoint::TorpedoInFlight;
@@ -278,7 +324,10 @@ public:
             !std::isfinite(rendererAspectRatio) || rendererAspectRatio <= 0.0F ||
             !std::isfinite(camera.width) || std::abs(camera.width - 600.0F) > 0.001F ||
             !std::isfinite(camera.height) || camera.height <= 0.0F || camera.nearPlane <= 0.0F ||
-            camera.farPlane <= camera.nearPlane || !gpuPresentationHandleValid ||
+            camera.farPlane <= camera.nearPlane ||
+            std::abs(camera.target.x - latestFixedSnapshot_.anteyPositionMeters.x -
+                     M5CombatCameraTargetOffsetXMeters) > 1.0F ||
+            !gpuPresentationHandleValid ||
             combatDrawStats.drawCalls < 2U || combatDrawStats.drawCalls > 5U ||
             combatDrawStats.submittedPrimitives != combatDrawStats.drawCalls ||
             combatDrawStats.submittedIndices != static_cast<std::uint64_t>(combatDrawStats.drawCalls) * 36U)
@@ -329,7 +378,8 @@ public:
 
     [[nodiscard]] bool AllStateCheckpointsSeen() const noexcept
     {
-        return initialSeen_ && flightSeen_ && preImpactSeen_ && postImpactSeen_ && resizedSeen_ && sawImpact_;
+        return initialSeen_ && flightSeen_ && preImpactSeen_ && postImpactSeen_ && resizedSeen_ && sawImpact_ &&
+               torpedoLaunchValidated_ && straightRunoutValidated_ && gradualAscentObserved_;
     }
 
     [[nodiscard]] static std::size_t CheckpointIndex(const M5CombatAcceptanceCheckpoint checkpoint) noexcept
@@ -363,5 +413,8 @@ private:
     bool postImpactSeen_ = false;
     bool resizedSeen_ = false;
     bool sawImpact_ = false;
+    bool torpedoLaunchValidated_ = false;
+    bool straightRunoutValidated_ = false;
+    bool gradualAscentObserved_ = false;
 };
 } // namespace DeepRun::Game::Combat
