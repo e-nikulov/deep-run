@@ -40,6 +40,11 @@ struct StickAxes final
     const float scale = scaledMagnitude / magnitude;
     return {.x = clampedX * scale, .y = clampedY * scale};
 }
+
+[[nodiscard]] bool HasGamepadButton(const GamepadState& gamepad, const GamepadButton button) noexcept
+{
+    return (gamepad.buttons & static_cast<std::uint16_t>(button)) != 0U;
+}
 }
 
 ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const float normalizedLeftY) noexcept
@@ -73,6 +78,26 @@ ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexc
                                    : 0.0F;
     result.cameraZoom = rightTrigger - leftTrigger;
     return result;
+}
+
+ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad) noexcept
+{
+    if (!gamepad.connected)
+    {
+        return {};
+    }
+
+    constexpr float TriggerPressedThreshold = 0.50F;
+    const float leftTrigger = std::isfinite(gamepad.leftTrigger)
+                                  ? std::clamp(gamepad.leftTrigger, 0.0F, 1.0F)
+                                  : 0.0F;
+    const float rightTrigger = std::isfinite(gamepad.rightTrigger)
+                                   ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
+                                   : 0.0F;
+    return ControllerSemanticActions{
+        .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
+        .prepareWeapon = leftTrigger >= TriggerPressedThreshold,
+        .fireWeapon = rightTrigger >= TriggerPressedThreshold};
 }
 
 float ResolveSemanticAxis(
@@ -132,6 +157,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, true);
             }
+            else if (event.key == Platform::Key::Tab)
+            {
+                selectContactKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::A)
             {
                 throttleAsternKeyDown_ = true;
@@ -182,6 +211,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::F1)
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, false);
+            }
+            else if (event.key == Platform::Key::Tab)
+            {
+                selectContactKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -241,6 +274,7 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
         }
     }
     RefreshSemanticAxes();
+    RefreshSemanticActions();
 }
 
 void InputSystem::UpdateController()
@@ -249,6 +283,7 @@ void InputSystem::UpdateController()
     {
         state_.SetGamepad({});
         RefreshSemanticAxes();
+        RefreshSemanticActions();
         controllerConnected_ = false;
         return;
     }
@@ -256,6 +291,7 @@ void InputSystem::UpdateController()
     const GamepadState gamepad = windowsGamepad_ ? windowsGamepad_->Poll() : GamepadState{};
     state_.SetGamepad(gamepad);
     RefreshSemanticAxes();
+    RefreshSemanticActions();
     controllerConnected_ = gamepad.connected;
 }
 
@@ -293,6 +329,18 @@ void InputSystem::RefreshSemanticAxes() noexcept
     state_.SetAxis(
         InputAxis::CameraZoom,
         ResolveSemanticAxis(cameraZoomInKeyDown_, cameraZoomOutKeyDown_, controller.cameraZoom));
+}
+
+void InputSystem::RefreshSemanticActions() noexcept
+{
+    const ControllerSemanticActions controller = SemanticActionsForGamepad(state_.Gamepad());
+    state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);
+    state_.SetActionDown(
+        InputAction::PrepareWeapon,
+        state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Right)) || controller.prepareWeapon);
+    state_.SetActionDown(
+        InputAction::FireWeapon,
+        state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) || controller.fireWeapon);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept
