@@ -50,6 +50,7 @@ struct CombatPlaygroundPresentationSnapshot final
     float destroyerIntegrityFraction = 1.0F;
     bool destroyerDestroyed = false;
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
+    std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};
     std::optional<CombatPlaygroundDecoyPresentation> decoy{};
     std::optional<CombatPlaygroundMinePresentation> navalMine{};
     std::optional<CombatPlaygroundExplosionPresentation> explosion{};
@@ -60,6 +61,7 @@ enum class CombatPlaygroundPresentationElement
     DestroyerHull,
     DestroyerSuperstructure,
     PlayerTorpedo,
+    DestroyerTorpedo,
     AcousticDecoy,
     NavalMine,
     Explosion,
@@ -114,6 +116,18 @@ BuildCombatPlaygroundPresentationSnapshot(
             return std::unexpected("M5-H.1 torpedo presentation state is invalid");
         }
         snapshot.playerTorpedo = CombatPlaygroundTorpedoPresentation{
+            .positionMeters = torpedo->positionMeters,
+            .headingRadians = torpedo->headingRadians,
+            .movementDomain = torpedo->movementDomain};
+    }
+
+    if (const auto& torpedo = runtime.DestroyerTorpedo(); torpedo.has_value())
+    {
+        if (!torpedo->positionMeters.IsFinite() || !std::isfinite(torpedo->headingRadians))
+        {
+            return std::unexpected("M5-F.2 destroyer torpedo presentation state is invalid");
+        }
+        snapshot.destroyerTorpedo = CombatPlaygroundTorpedoPresentation{
             .positionMeters = torpedo->positionMeters,
             .headingRadians = torpedo->headingRadians,
             .movementDomain = torpedo->movementDomain};
@@ -352,7 +366,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     }
 
     std::vector<CombatPlaygroundPresentationDraw> draws;
-    draws.reserve(6U);
+    draws.reserve(7U);
 
     const auto hullTransform = PoseScaleTransform(
         snapshot.destroyerBody.position,
@@ -400,6 +414,27 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
             CombatPlaygroundPresentationElement::PlayerTorpedo,
             *transform,
             Material("M5PlayerTorpedo", {0.52F, 0.55F, 0.56F, 1.0F}, 0.36F, 0.48F));
+        if (!draw)
+        {
+            return std::unexpected(draw.error());
+        }
+        draws.push_back(std::move(*draw));
+    }
+
+    if (snapshot.destroyerTorpedo && snapshot.destroyerTorpedo->movementDomain == Weapons::MovementDomain::Underwater)
+    {
+        const auto transform = PoseScaleTransform(
+            snapshot.destroyerTorpedo->positionMeters,
+            Weapons::WeaponHeadingQuaternion(snapshot.destroyerTorpedo->headingRadians),
+            {.x = 4.0F, .y = 0.65F, .z = 0.65F});
+        if (!transform)
+        {
+            return std::unexpected(transform.error());
+        }
+        auto draw = MakeDraw(
+            CombatPlaygroundPresentationElement::DestroyerTorpedo,
+            *transform,
+            Material("M5DestroyerTorpedo", {0.64F, 0.42F, 0.24F, 1.0F}, 0.32F, 0.52F));
         if (!draw)
         {
             return std::unexpected(draw.error());

@@ -30,6 +30,8 @@ namespace DeepRun::Game::Combat
 inline constexpr float M5CombatCameraTargetOffsetXMeters = 400.0F;
 inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;
 inline constexpr float M5CombatTorpedoLaunchClearanceMeters = 85.0F;
+inline constexpr float M5CombatDestroyerTorpedoLaunchClearanceMeters = 32.0F;
+inline constexpr float M5CombatDestroyerTorpedoLaunchDepthOffsetMeters = 6.0F;
 inline constexpr float M5CombatTorpedoStraightRunMeters = 250.0F;
 inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
 inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
@@ -50,6 +52,7 @@ struct CombatPlaygroundFrame final
     PlayerCombatPresentationSnapshot playerCombat{};
     SimpleDestroyerCombatDecision destroyerDecision{};
     std::optional<Weapons::ConventionalTorpedoImpact> playerTorpedoImpact{};
+    std::optional<Weapons::ConventionalTorpedoImpact> destroyerTorpedoImpact{};
     std::optional<Weapons::NavalMineDetonation> playerMineDetonation{};
     float playerIntegrityFraction = 1.0F;
     bool playerDestroyed = false;
@@ -169,6 +172,14 @@ public:
             .collisionHalfExtentsMeters = {.x = 2.0F, .y = 0.25F, .z = 0.25F},
             .directImpactDamage = 60.0F,
             .explosionRadiusMeters = 8.0F};
+        const Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition{
+            .weapon = destroyerDefinition.weapon,
+            .underwaterSpeedMetersPerSecond = 44.0F,
+            .maximumTurnRateRadiansPerSecond = 0.35F,
+            .maximumVerticalCourseAngleRadians = M5CombatTorpedoMaximumVerticalCourseAngleRadians,
+            .collisionHalfExtentsMeters = {.x = 2.0F, .y = 0.25F, .z = 0.25F},
+            .directImpactDamage = 55.0F,
+            .explosionRadiusMeters = 8.0F};
         const Weapons::AcousticDecoyDefinition decoyDefinition{
             .id = "m5.live-acoustic-decoy",
             .continuousSourceLevelDb = {.levelDb = {158.0F, 154.0F, 149.0F, 143.0F}},
@@ -183,6 +194,7 @@ public:
             *playerTorpedoSeekerTracks,
             destroyerDefinition,
             *destroyer,
+            destroyerTorpedoDefinition,
             playerTorpedoDefinition,
             std::move(*playerCombat),
             decoyDefinition,
@@ -299,6 +311,14 @@ public:
     {
         return playerTorpedoLaunchPosition_;
     }
+    [[nodiscard]] const std::optional<Weapons::ConventionalTorpedoRuntimeState>& DestroyerTorpedo() const noexcept
+    {
+        return destroyerTorpedo_;
+    }
+    [[nodiscard]] const std::optional<Physics::PhysicsVector3>& DestroyerTorpedoLaunchPosition() const noexcept
+    {
+        return destroyerTorpedoLaunchPosition_;
+    }
     [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& Decoy() const noexcept { return decoy_; }
     [[nodiscard]] const Weapons::TorpedoSeekerRuntimeState& PlayerTorpedoSeekerState() const noexcept
     {
@@ -324,6 +344,7 @@ private:
         Perception::TrackManager playerTorpedoSeekerTracks,
         SimpleDestroyerDefinition destroyerDefinition,
         SimpleDestroyerRuntimeState destroyer,
+        Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition,
         Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,
         PlayerCombatCommandRuntime playerCombat,
         Weapons::AcousticDecoyDefinition decoyDefinition,
@@ -335,6 +356,7 @@ private:
           playerTorpedoSeekerTracks_(std::move(playerTorpedoSeekerTracks)),
           destroyerDefinition_(std::move(destroyerDefinition)),
           destroyer_(std::move(destroyer)),
+          destroyerTorpedoDefinition_(std::move(destroyerTorpedoDefinition)),
           playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),
           playerCombat_(std::move(playerCombat)),
           decoyDefinition_(std::move(decoyDefinition)),
@@ -400,8 +422,7 @@ private:
         // from the destroyer's Track; player ground truth is visible solely to the acoustic simulator as a
         // reflector. The returned active echo is converted back into ordinary ranged perceived evidence before
         // the existing Track-only combat controller is allowed to make a fire-control decision.
-        if (!destroyerActivePulse_ && destroyer_.weapon.phase != Weapons::WeaponPhase::Launched &&
-            simulationTimeSeconds >= nextDestroyerActivePulseTimeSeconds_)
+        if (!destroyerActivePulse_ && simulationTimeSeconds >= nextDestroyerActivePulseTimeSeconds_)
         {
             const auto awarenessTrack = SelectBestSimpleDestroyerTrack(
                 destroyerDefinition_.combat, destroyerTracks_.Tracks());
@@ -457,6 +478,24 @@ private:
         if (!destroyerDecision)
         {
             return std::unexpected("M5-H destroyer combat AI failed: " + destroyerDecision.error());
+        }
+
+        // M5-F.2 materializes hostile weapon state only from the Track that the existing F.1 controller actually
+        // accepted for LaunchWeapon. No player body handle or authoritative player Transform is used to create,
+        // target, or steer the torpedo.
+        if (destroyerDecision->action == SimpleDestroyerCombatAction::LaunchWeapon && !destroyerTorpedo_)
+        {
+            const auto targetTrack = FindTrack(destroyerTracks_.Tracks(), destroyer_.weapon.targetTrackId);
+            if (!targetTrack)
+            {
+                return std::unexpected("M5-F.2 destroyer launch lost its perceived fire-control track");
+            }
+            const auto materialized = MaterializeDestroyerLaunch(
+                *destroyerAcoustics, *targetTrack, simulationTimeSeconds);
+            if (!materialized)
+            {
+                return std::unexpected(materialized.error());
+            }
         }
 
         if (!activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
@@ -613,6 +652,36 @@ private:
             }
         }
 
+        std::optional<Weapons::ConventionalTorpedoImpact> destroyerImpact{};
+        if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
+        {
+            const auto perceivedTrack = FindTrack(destroyerTracks_.Tracks(), destroyerTorpedo_->guidanceTrackId);
+            const auto advanced = Weapons::AdvanceConventionalTorpedoWithCollision(
+                destroyerTorpedoDefinition_,
+                *destroyerTorpedo_,
+                perceivedTrack,
+                *physicsWorld_,
+                simulationTimeSeconds,
+                destroyer_.body);
+            if (!advanced)
+            {
+                return std::unexpected("M5-F.2 destroyer torpedo fixed-step advance failed: " + advanced.error());
+            }
+            if (advanced->has_value())
+            {
+                destroyerImpact = **advanced;
+                lastExplosion_ = destroyerImpact->explosion;
+                if (playerIntegrity_ && destroyerImpact->physicsHit.body == playerBody_)
+                {
+                    const auto damaged = DeepRun::Combat::ApplyCombatDamage(*playerIntegrity_, destroyerImpact->damage);
+                    if (!damaged)
+                    {
+                        return std::unexpected("M5-F.2 player torpedo-damage application failed: " + damaged.error());
+                    }
+                }
+            }
+        }
+
         std::optional<Weapons::NavalMineDetonation> mineDetonation{};
         if (mineDefinition_ && mine_ && playerIntegrity_ && previousPlayerPositionMeters_)
         {
@@ -674,6 +743,7 @@ private:
             .playerCombat = playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot),
             .destroyerDecision = *destroyerDecision,
             .playerTorpedoImpact = impact,
+            .destroyerTorpedoImpact = destroyerImpact,
             .playerMineDetonation = mineDetonation,
             .playerIntegrityFraction = playerIntegrityFraction,
             .playerDestroyed = playerDestroyed};
@@ -722,6 +792,53 @@ private:
                 return std::unexpected("M5-H automated commander could not fire on the qualifying perceived track");
             }
         }
+        return {};
+    }
+
+    [[nodiscard]] std::expected<void, std::string> MaterializeDestroyerLaunch(
+        const SimpleDestroyerAcousticSnapshot& destroyerAcoustics,
+        const Perception::Track& targetTrack,
+        const double simulationTimeSeconds)
+    {
+        if (destroyer_.weapon.phase != Weapons::WeaponPhase::Launched ||
+            destroyer_.weapon.targetTrackId != std::optional<std::uint64_t>{targetTrack.trackId} ||
+            !targetTrack.estimatedPositionMeters ||
+            !Weapons::ValidateTrackForWeapon(destroyerTorpedoDefinition_.weapon, targetTrack))
+        {
+            return std::unexpected("M5-F.2 destroyer torpedo materialization requires its accepted ranged Track");
+        }
+        if (!destroyerAcoustics.emitter.positionMeters.IsFinite())
+        {
+            return std::unexpected("M5-F.2 destroyer torpedo launch origin is invalid");
+        }
+
+        const float deltaX = targetTrack.estimatedPositionMeters->x - destroyerAcoustics.emitter.positionMeters.x;
+        if (!std::isfinite(deltaX) || std::abs(deltaX) <= 1.0e-3F)
+        {
+            return std::unexpected("M5-F.2 destroyer torpedo launch has no horizontal target separation");
+        }
+        const float forwardSign = deltaX > 0.0F ? 1.0F : -1.0F;
+        const Physics::PhysicsVector3 launchPosition{
+            .x = destroyerAcoustics.emitter.positionMeters.x +
+                 forwardSign * M5CombatDestroyerTorpedoLaunchClearanceMeters,
+            .y = destroyerAcoustics.emitter.positionMeters.y - M5CombatDestroyerTorpedoLaunchDepthOffsetMeters,
+            .z = destroyerAcoustics.emitter.positionMeters.z};
+        const float launchHeading = static_cast<float>(std::atan2(
+            static_cast<double>(targetTrack.estimatedPositionMeters->y) - launchPosition.y,
+            static_cast<double>(targetTrack.estimatedPositionMeters->x) - launchPosition.x));
+        const auto launched = Weapons::CreateLaunchedConventionalTorpedo(
+            destroyerTorpedoDefinition_,
+            destroyer_.weapon,
+            launchPosition,
+            launchHeading,
+            targetTrack,
+            simulationTimeSeconds);
+        if (!launched)
+        {
+            return std::unexpected("M5-F.2 destroyer torpedo runtime creation failed: " + launched.error());
+        }
+        destroyerTorpedo_ = *launched;
+        destroyerTorpedoLaunchPosition_ = launchPosition;
         return {};
     }
 
@@ -978,6 +1095,9 @@ private:
     double nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ = 0.0;
     SimpleDestroyerDefinition destroyerDefinition_;
     SimpleDestroyerRuntimeState destroyer_;
+    Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition_;
+    std::optional<Weapons::ConventionalTorpedoRuntimeState> destroyerTorpedo_{};
+    std::optional<Physics::PhysicsVector3> destroyerTorpedoLaunchPosition_{};
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;

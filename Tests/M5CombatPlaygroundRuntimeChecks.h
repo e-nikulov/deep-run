@@ -58,6 +58,36 @@ namespace DeepRun::Tests
     }
     const auto playerSnapshot = *playerSnapshotResult;
 
+    // M5-F.2 uses a real PhysicsWorld body and the same I.2 physical-proxy bridge as the windowed production
+    // composition. The hostile torpedo never receives this handle; it can discover it only through swept collision.
+    const Physics::PhysicsVector3 playerHalfExtentsMeters{.x = 75.0F, .y = 8.0F, .z = 8.0F};
+    const auto playerBody = physicsWorld.CreateDynamicBoxBody(Physics::DynamicBoxBodyCreateInfo{
+        .halfExtents = playerHalfExtentsMeters,
+        .mass = 12'000'000.0F,
+        .position = playerSnapshot.emitter.positionMeters,
+        .orientation = {},
+        .gravityEnabled = false,
+        .linearDamping = 0.0F,
+        .angularDamping = 0.0F,
+        .initialLinearVelocity = {},
+        .initialAngularVelocity = {}});
+    if (!playerBody.IsValid())
+    {
+        return false;
+    }
+    const auto boundPlayer = runtime.BindPlayerPhysicalProxy(
+        Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
+            .body = playerBody,
+            .positionMeters = playerSnapshot.emitter.positionMeters,
+            .orientation = {},
+            .halfExtentsMeters = playerHalfExtentsMeters},
+        playerSnapshot,
+        0.0);
+    if (!boundPlayer || !runtime.Mine().has_value())
+    {
+        return false;
+    }
+
     Game::Combat::CombatPlaygroundCameraDirector cameraDirector;
     bool sawPlayerSpatialTrack = false;
     bool sawDestroyerAwareness = false;
@@ -65,6 +95,10 @@ namespace DeepRun::Tests
     bool sawDestroyerSpatialFireControlTrack = false;
     bool sawDestroyerPreparation = false;
     bool sawDestroyerLaunch = false;
+    bool sawDestroyerTorpedoMaterialized = false;
+    bool sawDestroyerTorpedoImpact = false;
+    bool sawDestroyerTorpedoUnderwaterWithoutBodyIdentity = false;
+    bool sawDestroyerTorpedoHiddenAfterImpact = false;
     bool sawTorpedo = false;
     bool sawDecoy = false;
     bool sawLiveSeekerSelection = false;
@@ -72,6 +106,8 @@ namespace DeepRun::Tests
     bool sawPostDecoyRecovery = false;
     bool sawImpact = false;
     bool sawPresentationTorpedo = false;
+    bool sawPresentationDestroyerTorpedo = false;
+    bool sawPresentationMine = false;
     bool sawPresentationDecoy = false;
     bool sawPresentationExplosion = false;
     bool sawPostImpactTorpedoHidden = false;
@@ -85,7 +121,11 @@ namespace DeepRun::Tests
     float previousCameraSpan = Game::Combat::M5CombatLocalCameraHorizontalSpanMeters;
 
     constexpr float fixedDeltaSeconds = 1.0F / 60.0F;
-    constexpr int finalTick = 2700; // 45 s: enough for active echo, 1.8 km run, impact, and post-impact stability.
+    // F.1 active ranging intentionally delays the destroyer's qualified launch. Give the reciprocal F.2 weapon
+    // enough deterministic SimulationTime to traverse the ~1.7 km engagement and prove physical impact/state cleanup.
+    constexpr int finalTick = 4800; // 80 s at 60 Hz.
+    constexpr double finalSimulationTimeSeconds =
+        static_cast<double>(finalTick) * static_cast<double>(fixedDeltaSeconds);
     for (int tick = 0; tick <= finalTick; ++tick)
     {
         const double simulationTimeSeconds = static_cast<double>(tick) * fixedDeltaSeconds;
@@ -178,7 +218,16 @@ namespace DeepRun::Tests
             {
                 return false;
             }
+            if (!runtime.DestroyerTorpedo() || !runtime.DestroyerTorpedoLaunchPosition() ||
+                runtime.DestroyerTorpedo()->movementDomain != Weapons::MovementDomain::Underwater ||
+                runtime.DestroyerTorpedo()->impactedBody.has_value() ||
+                runtime.DestroyerTorpedo()->guidanceTrackId != frame->destroyerDecision.perceivedTrackId ||
+                runtime.DestroyerTorpedo()->weapon.targetTrackId != frame->destroyerDecision.perceivedTrackId)
+            {
+                return false;
+            }
             sawDestroyerLaunch = true;
+            sawDestroyerTorpedoMaterialized = true;
         }
         sawTorpedo = sawTorpedo || runtime.PlayerTorpedo().has_value();
         sawDecoy = sawDecoy || (runtime.Decoy().has_value() && runtime.Decoy()->active);
@@ -237,6 +286,16 @@ namespace DeepRun::Tests
             }
         }
 
+        if (runtime.DestroyerTorpedo() &&
+            runtime.DestroyerTorpedo()->movementDomain == Weapons::MovementDomain::Underwater)
+        {
+            if (runtime.DestroyerTorpedo()->impactedBody.has_value())
+            {
+                return false;
+            }
+            sawDestroyerTorpedoUnderwaterWithoutBodyIdentity = true;
+        }
+
         if (frame->playerTorpedoImpact)
         {
             if (frame->playerTorpedoImpact->physicsHit.body != runtime.Destroyer().body ||
@@ -245,6 +304,16 @@ namespace DeepRun::Tests
                 return false;
             }
             sawImpact = true;
+        }
+        if (frame->destroyerTorpedoImpact)
+        {
+            if (frame->destroyerTorpedoImpact->physicsHit.body != playerBody ||
+                frame->destroyerTorpedoImpact->damage.targetBody != playerBody ||
+                !runtime.PlayerIntegrity().has_value() || runtime.PlayerIntegrity()->destroyed)
+            {
+                return false;
+            }
+            sawDestroyerTorpedoImpact = true;
         }
 
         // M5-H.1-A presentation is a pure read-only projection of already-authoritative combat/physics state.
@@ -265,13 +334,14 @@ namespace DeepRun::Tests
         }
 
         const auto presentationDraws = Game::Combat::BuildCombatPlaygroundPresentationDraws(*presentationSnapshot);
-        if (!presentationDraws || presentationDraws->size() < 2U || presentationDraws->size() > 5U ||
+        if (!presentationDraws || presentationDraws->size() < 2U || presentationDraws->size() > 7U ||
             (*presentationDraws)[0].element != CombatPlaygroundPresentationElement::DestroyerHull ||
             (*presentationDraws)[1].element != CombatPlaygroundPresentationElement::DestroyerSuperstructure)
         {
             return false;
         }
-        if (tick == 0 && presentationDraws->size() != 2U)
+        if (tick == 0 && (presentationDraws->size() != 3U ||
+                          (*presentationDraws)[2].element != CombatPlaygroundPresentationElement::NavalMine))
         {
             return false;
         }
@@ -284,6 +354,10 @@ namespace DeepRun::Tests
         };
         sawPresentationTorpedo = sawPresentationTorpedo ||
             hasElement(CombatPlaygroundPresentationElement::PlayerTorpedo);
+        sawPresentationDestroyerTorpedo = sawPresentationDestroyerTorpedo ||
+            hasElement(CombatPlaygroundPresentationElement::DestroyerTorpedo);
+        sawPresentationMine = sawPresentationMine ||
+            hasElement(CombatPlaygroundPresentationElement::NavalMine);
         sawPresentationDecoy = sawPresentationDecoy ||
             hasElement(CombatPlaygroundPresentationElement::AcousticDecoy);
         sawPresentationExplosion = sawPresentationExplosion ||
@@ -294,28 +368,40 @@ namespace DeepRun::Tests
             sawPostImpactTorpedoHidden = sawPostImpactTorpedoHidden ||
                 !hasElement(CombatPlaygroundPresentationElement::PlayerTorpedo);
         }
+        if (runtime.DestroyerTorpedo() && runtime.DestroyerTorpedo()->movementDomain == Weapons::MovementDomain::Spent)
+        {
+            sawDestroyerTorpedoHiddenAfterImpact = sawDestroyerTorpedoHiddenAfterImpact ||
+                !hasElement(CombatPlaygroundPresentationElement::DestroyerTorpedo);
+        }
 
         physicsWorld.Step(fixedDeltaSeconds);
     }
 
     const auto destroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);
     if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerBearingOnlyAwareness ||
-        !sawDestroyerSpatialFireControlTrack || !sawDestroyerPreparation || !sawDestroyerLaunch || !sawTorpedo ||
+        !sawDestroyerSpatialFireControlTrack || !sawDestroyerPreparation || !sawDestroyerLaunch ||
+        !sawDestroyerTorpedoMaterialized || !sawDestroyerTorpedoImpact ||
+        !sawDestroyerTorpedoUnderwaterWithoutBodyIdentity || !sawDestroyerTorpedoHiddenAfterImpact || !sawTorpedo ||
         !sawDecoy || !sawLiveSeekerSelection || !sawDecoyDiversion || !sawPostDecoyRecovery ||
-        !sawImpact || !sawPresentationTorpedo || !sawPresentationDecoy ||
-        !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
+        !sawImpact || !sawPresentationTorpedo || !sawPresentationDestroyerTorpedo || !sawPresentationMine ||
+        !sawPresentationDecoy || !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
         !sawStraightRunout || !sawGradualAscent || !sawCameraTransition || !sawTacticalCamera ||
         stableTacticalTicks < 60U || !destroyerState ||
         runtime.Destroyer().weapon.phase != Weapons::WeaponPhase::Launched ||
         !runtime.Destroyer().weapon.targetTrackId.has_value() ||
         runtime.Destroyer().integrity.destroyed ||
         std::abs(runtime.Destroyer().integrity.remainingIntegrity - 40.0F) > 0.001F ||
-        !runtime.PlayerTorpedo() || runtime.PlayerTorpedo()->movementDomain != Weapons::MovementDomain::Spent)
+        !runtime.PlayerTorpedo() || runtime.PlayerTorpedo()->movementDomain != Weapons::MovementDomain::Spent ||
+        !runtime.DestroyerTorpedo() || runtime.DestroyerTorpedo()->movementDomain != Weapons::MovementDomain::Spent ||
+        runtime.DestroyerTorpedo()->impactedBody != std::optional<Physics::PhysicsBodyHandle>{playerBody} ||
+        !runtime.PlayerIntegrity() || runtime.PlayerIntegrity()->destroyed ||
+        std::abs(runtime.PlayerIntegrity()->remainingIntegrity - 45.0F) > 0.001F ||
+        !runtime.Mine() || runtime.Mine()->detonated)
     {
         return false;
     }
 
-    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 45.0);
+    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, finalSimulationTimeSeconds);
     if (!finalPresentation || std::abs(finalPresentation->destroyerIntegrityFraction - 0.40F) > 0.001F)
     {
         return false;
@@ -323,14 +409,17 @@ namespace DeepRun::Tests
 
     // The camera transition is one-way and SimulationTime authoritative. A time-reversing request must be
     // rejected instead of rewinding the cinematic framing back toward the submarine.
-    if (cameraDirector.Evaluate(runtime, 44.0))
+    if (cameraDirector.Evaluate(runtime, finalSimulationTimeSeconds - 1.0))
     {
         return false;
     }
 
-    // M5-F.1 closes the previous bearing-only boundary deliberately: launch is now legal only because a
-    // monostatic active echo produced ranged perceived evidence. The controller still receives no player body,
-    // Transform or scenario-ground-truth position.
-    return physicsWorld.DestroyBody(runtime.Destroyer().body);
+    // M5-F.2 now proves the reciprocal physical consequence as well: target identity enters the hostile torpedo
+    // only at PhysicsWorld impact, then the existing combat-integrity authority applies damage to the bound body.
+    const auto mineBody = runtime.Mine()->body;
+    const bool destroyedMine = physicsWorld.DestroyBody(mineBody);
+    const bool destroyedPlayer = physicsWorld.DestroyBody(playerBody);
+    const bool destroyedDestroyer = physicsWorld.DestroyBody(runtime.Destroyer().body);
+    return destroyedMine && destroyedPlayer && destroyedDestroyer;
 }
 } // namespace DeepRun::Tests
