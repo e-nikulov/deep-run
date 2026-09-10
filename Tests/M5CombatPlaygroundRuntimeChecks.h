@@ -99,6 +99,10 @@ namespace DeepRun::Tests
     bool sawDestroyerTorpedoImpact = false;
     bool sawDestroyerTorpedoUnderwaterWithoutBodyIdentity = false;
     bool sawDestroyerTorpedoHiddenAfterImpact = false;
+    bool sawIncomingThreat = false;
+    bool sawIncomingThreatPropagationDelay = false;
+    bool sawIncomingThreatClearedAfterImpact = false;
+    std::optional<double> destroyerLaunchTimeSeconds{};
     bool sawTorpedo = false;
     bool sawDecoy = false;
     bool sawLiveSeekerSelection = false;
@@ -131,6 +135,11 @@ namespace DeepRun::Tests
         const double simulationTimeSeconds = static_cast<double>(tick) * fixedDeltaSeconds;
         const auto frame = runtime.Advance(playerSnapshot, simulationTimeSeconds);
         if (!frame)
+        {
+            return false;
+        }
+
+        if (!runtime.DestroyerTorpedo() && frame->playerCombat.incomingThreatDetected)
         {
             return false;
         }
@@ -204,6 +213,51 @@ namespace DeepRun::Tests
                 }
             }
         }
+        if (frame->playerCombat.incomingThreatDetected)
+        {
+            if (!frame->playerCombat.incomingThreatLifecycle ||
+                !frame->playerCombat.incomingThreatBearingRadians ||
+                !frame->playerCombat.incomingThreatBearingUncertaintyRadians ||
+                !frame->playerCombat.incomingThreatConfidence ||
+                !std::isfinite(*frame->playerCombat.incomingThreatBearingRadians) ||
+                !std::isfinite(*frame->playerCombat.incomingThreatBearingUncertaintyRadians) ||
+                *frame->playerCombat.incomingThreatBearingUncertaintyRadians <= 0.0F ||
+                !std::isfinite(*frame->playerCombat.incomingThreatConfidence) ||
+                *frame->playerCombat.incomingThreatConfidence < 0.0F ||
+                *frame->playerCombat.incomingThreatConfidence > 1.0F)
+            {
+                return false;
+            }
+            if (!sawIncomingThreat)
+            {
+                if (!destroyerLaunchTimeSeconds ||
+                    simulationTimeSeconds - *destroyerLaunchTimeSeconds <= 0.25)
+                {
+                    return false;
+                }
+                sawIncomingThreatPropagationDelay = true;
+            }
+            sawIncomingThreat = true;
+        }
+        else
+        {
+            if (frame->playerCombat.incomingThreatLifecycle ||
+                frame->playerCombat.incomingThreatBearingRadians ||
+                frame->playerCombat.incomingThreatBearingUncertaintyRadians ||
+                frame->playerCombat.incomingThreatConfidence)
+            {
+                return false;
+            }
+            if (!sawDestroyerTorpedoMaterialized && sawIncomingThreat)
+            {
+                return false;
+            }
+            if (sawDestroyerTorpedoImpact)
+            {
+                sawIncomingThreatClearedAfterImpact = true;
+            }
+        }
+
         sawDestroyerPreparation = sawDestroyerPreparation ||
             frame->destroyerDecision.action == Game::Combat::SimpleDestroyerCombatAction::PrepareWeapon;
         if (frame->destroyerDecision.action == Game::Combat::SimpleDestroyerCombatAction::LaunchWeapon)
@@ -228,6 +282,10 @@ namespace DeepRun::Tests
             }
             sawDestroyerLaunch = true;
             sawDestroyerTorpedoMaterialized = true;
+            if (!destroyerLaunchTimeSeconds)
+            {
+                destroyerLaunchTimeSeconds = simulationTimeSeconds;
+            }
         }
         sawTorpedo = sawTorpedo || runtime.PlayerTorpedo().has_value();
         sawDecoy = sawDecoy || (runtime.Decoy().has_value() && runtime.Decoy()->active);
@@ -381,7 +439,9 @@ namespace DeepRun::Tests
     if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerBearingOnlyAwareness ||
         !sawDestroyerSpatialFireControlTrack || !sawDestroyerPreparation || !sawDestroyerLaunch ||
         !sawDestroyerTorpedoMaterialized || !sawDestroyerTorpedoImpact ||
-        !sawDestroyerTorpedoUnderwaterWithoutBodyIdentity || !sawDestroyerTorpedoHiddenAfterImpact || !sawTorpedo ||
+        !sawDestroyerTorpedoUnderwaterWithoutBodyIdentity || !sawDestroyerTorpedoHiddenAfterImpact ||
+        !sawIncomingThreat || !sawIncomingThreatPropagationDelay ||
+        !sawIncomingThreatClearedAfterImpact || !sawTorpedo ||
         !sawDecoy || !sawLiveSeekerSelection || !sawDecoyDiversion || !sawPostDecoyRecovery ||
         !sawImpact || !sawPresentationTorpedo || !sawPresentationDestroyerTorpedo || !sawPresentationMine ||
         !sawPresentationDecoy || !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
@@ -406,6 +466,7 @@ namespace DeepRun::Tests
     {
         return false;
     }
+
 
     // The camera transition is one-way and SimulationTime authoritative. A time-reversing request must be
     // rejected instead of rewinding the cinematic framing back toward the submarine.

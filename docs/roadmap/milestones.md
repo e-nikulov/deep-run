@@ -830,20 +830,22 @@ Hydrodynamic wake is not required for the first working Milestone 4 vertical
 slice. Synthetic/debug emitters and reflectors should be used where practical;
 torpedoes, destroyers, explosions and full combat remain in Milestone 5.
 
-## Future milestones
+## Active milestones
 
 ### Milestone 5 - Combat Playground
 
-Future work:
+Status: IN PROGRESS
 
-- destroyer
-- first conventional heavyweight torpedo
-- decoy
-- mine
-- explosions
-- basic damage
-- simple combat AI using observations/contacts/tracks rather than player ground
-  truth
+Accepted implementation now includes:
+
+- track-constrained weapon readiness and commander sequencing
+- active ranging and spatial perceived tracks with uncertainty
+- conventional heavyweight torpedo movement, seeker guidance and swept physical impact
+- acoustic decoy diversion/recovery through the ordinary perceived-world pipeline
+- live naval mine hazard bound to production Antey collision authority
+- simple destroyer Track-only combat AI, active fire-control ranging and reciprocal torpedo attack
+- bounded combat integrity, explosions, multi-scale presentation and controller-first combat commands
+- J3 passive-acoustic incoming-threat warning projected to combat UI without hostile position/body truth
 <!-- deeprun-m5-command-note:start -->
 
 Commander interaction added in M5:
@@ -858,6 +860,8 @@ Commander interaction added in M5:
 Do not turn M5 into the complete submarine-management milestone.
 
 <!-- deeprun-m5-command-note:end -->
+
+## Future milestones
 
 ### Milestone 6 - Submarine Systems
 

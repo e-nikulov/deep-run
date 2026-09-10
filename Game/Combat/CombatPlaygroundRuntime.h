@@ -44,6 +44,7 @@ inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
 inline constexpr double M5CombatTorpedoSeekerEmissionSampleIntervalSeconds = 0.10;
 inline constexpr float M5CombatTorpedoSeekerAssociationGateRadians = 0.03F;
 inline constexpr float M5CombatDecoyVerticalOffsetMeters = 120.0F;
+inline constexpr double M5CombatIncomingThreatEmissionSampleIntervalSeconds = 0.10;
 
 struct CombatPlaygroundFrame final
 {
@@ -105,9 +106,18 @@ public:
             .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
             .positionUncertaintyGrowthMetersPerSecond = 0.0F,
             .maximumTracks = 8U});
-        if (!playerTracks || !destroyerTracks || !playerTorpedoSeekerTracks)
+        const auto incomingThreatTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+            .associationGateRadians = 0.12F,
+            .observationsToConfirm = 2U,
+            .coastAfterSeconds = 0.75,
+            .lostAfterSeconds = 2.0,
+            .confidenceDecayPerSecond = 0.40F,
+            .bearingUncertaintyGrowthRadiansPerSecond = 0.03F,
+            .positionUncertaintyGrowthMetersPerSecond = 0.0F,
+            .maximumTracks = 4U});
+        if (!playerTracks || !destroyerTracks || !playerTorpedoSeekerTracks || !incomingThreatTracks)
         {
-            return std::unexpected("M5-H/M5-E.1 perception manager creation failed");
+            return std::unexpected("M5-H/M5-E.1/M5-J3 perception manager creation failed");
         }
 
         const SimpleDestroyerDefinition destroyerDefinition{
@@ -192,6 +202,7 @@ public:
             *playerTracks,
             *destroyerTracks,
             *playerTorpedoSeekerTracks,
+            *incomingThreatTracks,
             destroyerDefinition,
             *destroyer,
             destroyerTorpedoDefinition,
@@ -342,6 +353,7 @@ private:
         Perception::TrackManager playerTracks,
         Perception::TrackManager destroyerTracks,
         Perception::TrackManager playerTorpedoSeekerTracks,
+        Perception::TrackManager incomingThreatTracks,
         SimpleDestroyerDefinition destroyerDefinition,
         SimpleDestroyerRuntimeState destroyer,
         Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition,
@@ -354,6 +366,7 @@ private:
           playerTracks_(std::move(playerTracks)),
           destroyerTracks_(std::move(destroyerTracks)),
           playerTorpedoSeekerTracks_(std::move(playerTorpedoSeekerTracks)),
+          incomingThreatTracks_(std::move(incomingThreatTracks)),
           destroyerDefinition_(std::move(destroyerDefinition)),
           destroyer_(std::move(destroyer)),
           destroyerTorpedoDefinition_(std::move(destroyerTorpedoDefinition)),
@@ -652,6 +665,15 @@ private:
             }
         }
 
+        // M5-J3 warning evidence is produced through the same AcousticWorld -> SensorObservation -> TrackManager
+        // boundary as other perceived-world data. The simulator may know the hostile torpedo position to emit
+        // sound, but the commander projection receives bearing/confidence only.
+        const auto threatPerception = AdvanceIncomingThreatPerception(playerSnapshot, simulationTimeSeconds);
+        if (!threatPerception)
+        {
+            return std::unexpected(threatPerception.error());
+        }
+
         std::optional<Weapons::ConventionalTorpedoImpact> destroyerImpact{};
         if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
@@ -737,10 +759,13 @@ private:
                 playerIntegrity_->remainingIntegrity / playerIntegrity_->maximumIntegrity, 0.0F, 1.0F);
             playerDestroyed = playerIntegrity_->destroyed;
         }
+        PlayerCombatPresentationSnapshot playerCombatPresentation =
+            playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);
+        ApplyIncomingThreatPresentation(playerCombatPresentation);
         return CombatPlaygroundFrame{
             .playerTracks = playerTrackSnapshot,
             .destroyerTracks = destroyerTracks_.Tracks(),
-            .playerCombat = playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot),
+            .playerCombat = std::move(playerCombatPresentation),
             .destroyerDecision = *destroyerDecision,
             .playerTorpedoImpact = impact,
             .destroyerTorpedoImpact = destroyerImpact,
@@ -839,6 +864,8 @@ private:
         }
         destroyerTorpedo_ = *launched;
         destroyerTorpedoLaunchPosition_ = launchPosition;
+        pendingIncomingThreatEmissions_.clear();
+        nextIncomingThreatEmissionSampleTimeSeconds_ = simulationTimeSeconds;
         return {};
     }
 
@@ -986,6 +1013,107 @@ private:
             simulationTimeSeconds);
     }
 
+    [[nodiscard]] std::expected<void, std::string> AdvanceIncomingThreatPerception(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const double simulationTimeSeconds)
+    {
+        if (!playerSnapshot.passiveReceiver.positionMeters.IsFinite() ||
+            !std::isfinite(simulationTimeSeconds))
+        {
+            return std::unexpected("M5-J3 incoming-threat receiver/time input is invalid");
+        }
+
+        // Sample the hostile weapon only while it physically exists underwater. Samples keep the source position
+        // and emission SimulationTime at which sound was actually emitted; they are never backdated to make a newly
+        // launched threat visible immediately.
+        if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater &&
+            destroyerTorpedo_->positionMeters.IsFinite() &&
+            simulationTimeSeconds + 1.0e-9 >= nextIncomingThreatEmissionSampleTimeSeconds_)
+        {
+            pendingIncomingThreatEmissions_.push_back(Acoustics::AcousticEmission{
+                .positionMeters = destroyerTorpedo_->positionMeters,
+                // Gameplay-authored coarse machinery/propulsor signature for the M5 warning slice.
+                .sourceLevelDb = {.levelDb = {176.0F, 172.0F, 164.0F, 156.0F}},
+                .emissionTimeSeconds = simulationTimeSeconds});
+            nextIncomingThreatEmissionSampleTimeSeconds_ =
+                simulationTimeSeconds + M5CombatIncomingThreatEmissionSampleIntervalSeconds;
+        }
+
+        bool integratedObservation = false;
+        auto emission = pendingIncomingThreatEmissions_.begin();
+        while (emission != pendingIncomingThreatEmissions_.end())
+        {
+            const double distanceMeters = Distance(
+                emission->positionMeters, playerSnapshot.passiveReceiver.positionMeters);
+            const double arrivalTimeSeconds = emission->emissionTimeSeconds + distanceMeters /
+                static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
+            if (!std::isfinite(arrivalTimeSeconds))
+            {
+                return std::unexpected("M5-J3 incoming-threat acoustic arrival time is invalid");
+            }
+            if (simulationTimeSeconds + 1.0e-9 < arrivalTimeSeconds)
+            {
+                ++emission;
+                continue;
+            }
+
+            const auto observed = acousticWorld_.CollectPassiveDirectObservation(
+                *emission, playerSnapshot.passiveReceiver, simulationTimeSeconds);
+            if (!observed)
+            {
+                return std::unexpected("M5-J3 incoming-threat acoustic propagation failed: " +
+                                       observed.error().message);
+            }
+            if (observed->has_value())
+            {
+                const auto perceived = Perception::FromAcousticObservation(**observed);
+                if (!perceived || !incomingThreatTracks_.IntegrateObservation(*perceived))
+                {
+                    return std::unexpected("M5-J3 incoming-threat evidence failed perception integration");
+                }
+                integratedObservation = true;
+            }
+            emission = pendingIncomingThreatEmissions_.erase(emission);
+        }
+
+        if (!integratedObservation && !incomingThreatTracks_.AdvanceTo(simulationTimeSeconds))
+        {
+            return std::unexpected("M5-J3 incoming-threat TrackManager failed to advance");
+        }
+        return {};
+    }
+
+    void ApplyIncomingThreatPresentation(PlayerCombatPresentationSnapshot& snapshot) const noexcept
+    {
+        // TrackManager::Tracks() intentionally returns a snapshot by value. Keep the selected perceived Track by
+        // value as well; never retain a pointer/reference into that temporary snapshot beyond the loop.
+        std::optional<Perception::Track> best{};
+        for (const auto& track : incomingThreatTracks_.Tracks())
+        {
+            const bool present = track.lifecycle == Perception::TrackLifecycleState::Confirmed ||
+                                 track.lifecycle == Perception::TrackLifecycleState::Coasting;
+            if (!present)
+            {
+                continue;
+            }
+            if (!best || track.confidence > best->confidence ||
+                (track.confidence == best->confidence && track.trackId < best->trackId))
+            {
+                best = track;
+            }
+        }
+        if (!best)
+        {
+            return;
+        }
+
+        snapshot.incomingThreatDetected = true;
+        snapshot.incomingThreatLifecycle = best->lifecycle;
+        snapshot.incomingThreatBearingRadians = best->estimatedBearingRadians;
+        snapshot.incomingThreatBearingUncertaintyRadians = best->bearingUncertaintyRadians;
+        snapshot.incomingThreatConfidence = best->confidence;
+    }
+
     [[nodiscard]] static double Distance(
         const Physics::PhysicsVector3& first,
         const Physics::PhysicsVector3& second) noexcept
@@ -1086,6 +1214,9 @@ private:
     Perception::TrackManager playerTracks_;
     Perception::TrackManager destroyerTracks_;
     Perception::TrackManager playerTorpedoSeekerTracks_;
+    Perception::TrackManager incomingThreatTracks_;
+    std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
+    double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;
     Weapons::TorpedoSeekerConfig playerTorpedoSeekerConfig_{
         .minimumTrackConfidence = 0.35F,
         .maximumBearingUncertaintyRadians = 0.20F,
