@@ -4,6 +4,7 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/AcousticPlaygroundRuntime.h"
 #include "Game/Camera/MultiScaleTacticalCamera.h"
+#include "Game/Combat/CombatCommandUi.h"
 #include "Game/Combat/CombatPlaygroundAcceptance.h"
 #include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
@@ -13,6 +14,7 @@
 
 #include <Windows.h>
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +24,7 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -243,7 +246,7 @@ const char* M5CheckpointName(const DeepRun::Game::Combat::M5CombatAcceptanceChec
     {
     case Checkpoint::Initial: return "M5_COMBAT_INITIAL";
     case Checkpoint::TorpedoInFlight: return "M5_TORPEDO_IN_FLIGHT";
-    case Checkpoint::PreImpact: return "M5_PRE_IMPACT";
+    case Checkpoint::PreImpact: return "M5_PRE_IMACT";
     case Checkpoint::PostImpact: return "M5_POST_IMPACT";
     case Checkpoint::Resized: return "M5_RESIZED";
     }
@@ -378,10 +381,14 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
         std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
         std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
+        std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;
         DeepRun::Game::Combat::CombatPlaygroundCameraDirector smokeCombatCameraDirector;
         DeepRun::Game::Camera::MultiScaleTacticalCamera multiScaleCamera;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
+        std::uint64_t consumedSelectContactSequence = 0;
+        std::uint64_t consumedPrepareWeaponSequence = 0;
+        std::uint64_t consumedFireWeaponSequence = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
         bool loggedHapticSubmissionFailure = false;
@@ -480,9 +487,10 @@ int main(const int argumentCount, char** argumentValues)
                 return playground.SubmarineModel().IsValid();
             },
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
-             &combatAcceptance, &inputState, &engineServices, &loggedHapticSubmissionFailure,
-             &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack, &loggedCombatRuntime,
-             &loggedCombatImpact](const float fixedDeltaSeconds)
+             &combatAcceptance, &combatUiSnapshot, &inputState, &engineServices,
+             &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
+             &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
+             &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
                 const auto command = (options.smokeTest || options.benchmarkM3)
                                          ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
@@ -556,12 +564,49 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] M5 live combat physics authority is unavailable\n";
                         return false;
                     }
-                    const auto combatFrame = combatPlayground->Advance(*acousticSnapshot, *physics, simulationTimeSeconds);
+
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 3> playerCommands{};
+                    std::size_t playerCommandCount = 0;
+                    if (!options.smokeTest && inputState != nullptr)
+                    {
+                        const auto consume = [&playerCommands, &playerCommandCount](
+                            const DeepRun::Input::InputState& state,
+                            const DeepRun::Input::InputAction action,
+                            const DeepRun::Game::Combat::PlayerCombatCommandType commandType,
+                            std::uint64_t& consumedSequence)
+                        {
+                            const std::uint64_t sequence = state.PressSequence(action);
+                            if (sequence != consumedSequence)
+                            {
+                                consumedSequence = sequence;
+                                playerCommands[playerCommandCount++] = {.type = commandType};
+                            }
+                        };
+                        consume(*inputState, DeepRun::Input::InputAction::SelectContact,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::SelectNextTrack,
+                                consumedSelectContactSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::PrepareWeapon,
+                                consumedPrepareWeaponSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::FireWeapon,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::FireWeapon,
+                                consumedFireWeaponSequence);
+                    }
+
+                    const auto combatFrame = options.smokeTest
+                        ? combatPlayground->Advance(*acousticSnapshot, *physics, simulationTimeSeconds)
+                        : combatPlayground->AdvancePlayerControlled(
+                              *acousticSnapshot,
+                              *physics,
+                              std::span<const DeepRun::Game::Combat::PlayerCombatCommand>{
+                                  playerCommands.data(), playerCommandCount},
+                              simulationTimeSeconds);
                     if (!combatFrame)
                     {
                         std::cerr << "[Game][ERROR] " << combatFrame.error() << '\n';
                         return false;
                     }
+                    combatUiSnapshot = combatFrame->playerCombat;
                     if (options.smokeTest)
                     {
                         if (!combatAcceptance.has_value())
@@ -625,9 +670,9 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &combatPlayground, &combatAcceptance, &smokeCombatCameraDirector, &multiScaleCamera,
-             &inputState, &frameCapture, &captureEnabled, &options, &renderFrames, &capturedInitial,
-             &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+            [&playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,
+             &multiScaleCamera, &inputState, &frameCapture, &captureEnabled, &options, &renderFrames,
+             &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const auto& frameState = engineServices->CurrentFrame();
@@ -714,6 +759,10 @@ int main(const int argumentCount, char** argumentValues)
                     {
                         std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
                         return false;
+                    }
+                    if (!options.smokeTest && combatUiSnapshot.has_value())
+                    {
+                        DeepRun::Game::Combat::DrawCombatCommandUi(*combatUiSnapshot);
                     }
                     if (combatAcceptance.has_value())
                     {
