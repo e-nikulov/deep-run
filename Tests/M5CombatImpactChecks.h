@@ -8,6 +8,7 @@
 #include "Tests/M5CombatPlaygroundRuntimeChecks.h"
 #include "Tests/M5MultiScaleCameraChecks.h"
 #include "Tests/M5NavalMineChecks.h"
+#include "Tests/M5PlayerCombatCommandChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -223,6 +224,10 @@ namespace M5CombatImpactDetail
     if (!RunM5MultiScaleCameraChecks())
     {
         return fail("M5-H.2 multi-scale tactical camera and semantic input");
+    }
+    if (!RunM5PlayerCombatCommandChecks())
+    {
+        return fail("M5-J1 player commander track selection, readiness and fire sequencing");
     }
     if (!RunM5AcousticDecoyChecks())
     {
