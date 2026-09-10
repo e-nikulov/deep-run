@@ -1,0 +1,23 @@
+name: H4 Apply Capture Blank Fix
+
+on:
+  push:
+    branches:
+      - tmp/m5-h4-scalable-environment
+    paths:
+      - .github/workflows/h4-capture-blank-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply H4 capture blank-frame fix
+        shell: pwsh
+        run: ./Tools/CI/apply_h4_capture_blank_fix.ps1
