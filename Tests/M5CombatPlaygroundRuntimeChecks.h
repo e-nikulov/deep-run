@@ -121,7 +121,11 @@ namespace DeepRun::Tests
     float previousCameraSpan = Game::Combat::M5CombatLocalCameraHorizontalSpanMeters;
 
     constexpr float fixedDeltaSeconds = 1.0F / 60.0F;
-    constexpr int finalTick = 2700; // 45 s: enough for active echo, 1.8 km run, impact, and post-impact stability.
+    // F.1 active ranging intentionally delays the destroyer's qualified launch. Give the reciprocal F.2 weapon
+    // enough deterministic SimulationTime to traverse the ~1.7 km engagement and prove physical impact/state cleanup.
+    constexpr int finalTick = 4800; // 80 s at 60 Hz.
+    constexpr double finalSimulationTimeSeconds =
+        static_cast<double>(finalTick) * static_cast<double>(fixedDeltaSeconds);
     for (int tick = 0; tick <= finalTick; ++tick)
     {
         const double simulationTimeSeconds = static_cast<double>(tick) * fixedDeltaSeconds;
@@ -397,7 +401,7 @@ namespace DeepRun::Tests
         return false;
     }
 
-    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 45.0);
+    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, finalSimulationTimeSeconds);
     if (!finalPresentation || std::abs(finalPresentation->destroyerIntegrityFraction - 0.40F) > 0.001F)
     {
         return false;
@@ -405,7 +409,7 @@ namespace DeepRun::Tests
 
     // The camera transition is one-way and SimulationTime authoritative. A time-reversing request must be
     // rejected instead of rewinding the cinematic framing back toward the submarine.
-    if (cameraDirector.Evaluate(runtime, 44.0))
+    if (cameraDirector.Evaluate(runtime, finalSimulationTimeSeconds - 1.0))
     {
         return false;
     }
