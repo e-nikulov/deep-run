@@ -17,6 +17,7 @@ enum class Key
     Unknown,
     Escape,
     F1,
+    Tab,
     A,
     D,
     W,
