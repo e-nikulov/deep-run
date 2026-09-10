@@ -7,17 +7,22 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 namespace DeepRun::Tests
 {
 [[nodiscard]] inline bool RunM5CombatPlaygroundRuntimeChecks(Physics::PhysicsWorld& physicsWorld)
 {
+    const auto fail = [](const int line) {
+        std::cerr << "[M5-F.2 diagnostic] failure line " << line << '\n';
+        return fail(__LINE__);
+    };
     using Game::Combat::CombatPlaygroundCameraMode;
     using Game::Combat::CombatPlaygroundPresentationElement;
 
     if (!physicsWorld.IsInitialized())
     {
-        return false;
+        return fail(__LINE__);
     }
 
     const auto presentationModel = Game::Combat::BuildCombatPlaygroundPresentationModel();
@@ -28,13 +33,13 @@ namespace DeepRun::Tests
         !presentationModel->primitives[0].hasNormals ||
         presentationModel->nodes[0].primitiveIndices != std::vector<std::size_t>{0U})
     {
-        return false;
+        return fail(__LINE__);
     }
 
     const auto runtimeResult = Game::Combat::CombatPlaygroundRuntime::Create(physicsWorld, 0.0F, 0.0);
     if (!runtimeResult)
     {
-        return false;
+        return fail(__LINE__);
     }
     auto runtime = *runtimeResult;
 
@@ -42,7 +47,7 @@ namespace DeepRun::Tests
     if (!initialDestroyerState ||
         std::abs(initialDestroyerState->position.x - Game::Combat::M5CombatDestroyerInitialXMeters) > 0.01F)
     {
-        return false;
+        return fail(__LINE__);
     }
 
     const auto playerSnapshotResult = Game::Submarine::BuildAnteyAcousticSnapshot(
@@ -54,7 +59,7 @@ namespace DeepRun::Tests
         Acoustics::AcousticSpectrum{.levelDb = {43.0F, 41.0F, 39.0F, 37.0F}});
     if (!playerSnapshotResult)
     {
-        return false;
+        return fail(__LINE__);
     }
     const auto playerSnapshot = *playerSnapshotResult;
 
@@ -73,7 +78,7 @@ namespace DeepRun::Tests
         .initialAngularVelocity = {}});
     if (!playerBody.IsValid())
     {
-        return false;
+        return fail(__LINE__);
     }
     const auto boundPlayer = runtime.BindPlayerPhysicalProxy(
         Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
@@ -85,7 +90,7 @@ namespace DeepRun::Tests
         0.0);
     if (!boundPlayer || !runtime.Mine().has_value())
     {
-        return false;
+        return fail(__LINE__);
     }
 
     Game::Combat::CombatPlaygroundCameraDirector cameraDirector;
@@ -128,7 +133,7 @@ namespace DeepRun::Tests
         const auto frame = runtime.Advance(playerSnapshot, simulationTimeSeconds);
         if (!frame)
         {
-            return false;
+            return fail(__LINE__);
         }
 
         const auto cameraFraming = cameraDirector.Evaluate(runtime, simulationTimeSeconds);
@@ -138,7 +143,7 @@ namespace DeepRun::Tests
             cameraFraming->horizontalSpanMeters < Game::Combat::M5CombatLocalCameraHorizontalSpanMeters - 0.001F ||
             cameraFraming->horizontalSpanMeters > Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters + 0.001F)
         {
-            return false;
+            return fail(__LINE__);
         }
 
         if (cameraFraming->mode == CombatPlaygroundCameraMode::LocalLaunch)
@@ -148,7 +153,7 @@ namespace DeepRun::Tests
                     0.001F ||
                 cameraFraming->transitionProgress != 0.0F)
             {
-                return false;
+                return fail(__LINE__);
             }
         }
         else if (cameraFraming->mode == CombatPlaygroundCameraMode::TransitionToTactical)
@@ -157,7 +162,7 @@ namespace DeepRun::Tests
             sawCameraTransition = true;
             if (cameraFraming->transitionProgress < 0.0F || cameraFraming->transitionProgress >= 1.0F)
             {
-                return false;
+                return fail(__LINE__);
             }
         }
         else if (cameraFraming->mode == CombatPlaygroundCameraMode::TacticalOverview)
@@ -169,7 +174,7 @@ namespace DeepRun::Tests
                     0.001F ||
                 std::abs(cameraFraming->transitionProgress - 1.0F) > 0.001F)
             {
-                return false;
+                return fail(__LINE__);
             }
         }
         previousCameraSpan = cameraFraming->horizontalSpanMeters;
@@ -190,7 +195,7 @@ namespace DeepRun::Tests
                     if (!track.positionUncertaintyMeters.has_value() ||
                         !std::isfinite(*track.positionUncertaintyMeters) || *track.positionUncertaintyMeters <= 0.0F)
                     {
-                        return false;
+                        return fail(__LINE__);
                     }
                     sawDestroyerSpatialFireControlTrack = true;
                 }
@@ -212,7 +217,7 @@ namespace DeepRun::Tests
             if (!launchHadQualifiedPerceivedTrack ||
                 runtime.Destroyer().weapon.targetTrackId != frame->destroyerDecision.perceivedTrackId)
             {
-                return false;
+                return fail(__LINE__);
             }
             if (!runtime.DestroyerTorpedo() || !runtime.DestroyerTorpedoLaunchPosition() ||
                 runtime.DestroyerTorpedo()->movementDomain != Weapons::MovementDomain::Underwater ||
@@ -220,7 +225,7 @@ namespace DeepRun::Tests
                 runtime.DestroyerTorpedo()->guidanceTrackId != frame->destroyerDecision.perceivedTrackId ||
                 runtime.DestroyerTorpedo()->weapon.targetTrackId != frame->destroyerDecision.perceivedTrackId)
             {
-                return false;
+                return fail(__LINE__);
             }
             sawDestroyerLaunch = true;
             sawDestroyerTorpedoMaterialized = true;
@@ -237,7 +242,7 @@ namespace DeepRun::Tests
                 std::abs(torpedo.headingRadians) >
                     Game::Combat::M5CombatTorpedoMaximumVerticalCourseAngleRadians + 0.001F)
             {
-                return false;
+                return fail(__LINE__);
             }
 
             if (!sawHorizontalLaunch)
@@ -248,7 +253,7 @@ namespace DeepRun::Tests
                     std::abs(launchPosition->z - playerSnapshot.emitter.positionMeters.z) > 0.01F ||
                     std::abs(torpedo.headingRadians) > 0.01F)
                 {
-                    return false;
+                    return fail(__LINE__);
                 }
                 sawHorizontalLaunch = true;
             }
@@ -271,7 +276,7 @@ namespace DeepRun::Tests
                 if (std::abs(torpedo.positionMeters.y - launchPosition->y) > 0.25F ||
                     std::abs(torpedo.headingRadians) > 0.01F)
                 {
-                    return false;
+                    return fail(__LINE__);
                 }
                 sawStraightRunout = true;
             }
@@ -287,7 +292,7 @@ namespace DeepRun::Tests
         {
             if (runtime.DestroyerTorpedo()->impactedBody.has_value())
             {
-                return false;
+                return fail(__LINE__);
             }
             sawDestroyerTorpedoUnderwaterWithoutBodyIdentity = true;
         }
@@ -297,7 +302,7 @@ namespace DeepRun::Tests
             if (frame->playerTorpedoImpact->physicsHit.body != runtime.Destroyer().body ||
                 !runtime.LastExplosion().has_value())
             {
-                return false;
+                return fail(__LINE__);
             }
             sawImpact = true;
         }
@@ -307,7 +312,7 @@ namespace DeepRun::Tests
                 frame->destroyerTorpedoImpact->damage.targetBody != playerBody ||
                 !runtime.PlayerIntegrity().has_value() || runtime.PlayerIntegrity()->destroyed)
             {
-                return false;
+                return fail(__LINE__);
             }
             sawDestroyerTorpedoImpact = true;
         }
@@ -318,7 +323,7 @@ namespace DeepRun::Tests
             runtime, physicsWorld, simulationTimeSeconds);
         if (!presentationSnapshot)
         {
-            return false;
+            return fail(__LINE__);
         }
         const auto currentDestroyerBody = physicsWorld.GetBodyState(runtime.Destroyer().body);
         if (!currentDestroyerBody || presentationSnapshot->destroyerBody.position != currentDestroyerBody->position ||
@@ -326,7 +331,7 @@ namespace DeepRun::Tests
                 presentationSnapshot->destroyerBody.orientation, currentDestroyerBody->orientation) ||
             presentationSnapshot->destroyerDestroyed != runtime.Destroyer().integrity.destroyed)
         {
-            return false;
+            return fail(__LINE__);
         }
 
         const auto presentationDraws = Game::Combat::BuildCombatPlaygroundPresentationDraws(*presentationSnapshot);
@@ -334,12 +339,12 @@ namespace DeepRun::Tests
             (*presentationDraws)[0].element != CombatPlaygroundPresentationElement::DestroyerHull ||
             (*presentationDraws)[1].element != CombatPlaygroundPresentationElement::DestroyerSuperstructure)
         {
-            return false;
+            return fail(__LINE__);
         }
         if (tick == 0 && (presentationDraws->size() != 3U ||
                           (*presentationDraws)[2].element != CombatPlaygroundPresentationElement::NavalMine))
         {
-            return false;
+            return fail(__LINE__);
         }
 
         const auto hasElement = [&presentationDraws](const CombatPlaygroundPresentationElement element)
@@ -394,20 +399,20 @@ namespace DeepRun::Tests
         std::abs(runtime.PlayerIntegrity()->remainingIntegrity - 45.0F) > 0.001F ||
         !runtime.Mine() || runtime.Mine()->detonated)
     {
-        return false;
+        return fail(__LINE__);
     }
 
     const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 45.0);
     if (!finalPresentation || std::abs(finalPresentation->destroyerIntegrityFraction - 0.40F) > 0.001F)
     {
-        return false;
+        return fail(__LINE__);
     }
 
     // The camera transition is one-way and SimulationTime authoritative. A time-reversing request must be
     // rejected instead of rewinding the cinematic framing back toward the submarine.
     if (cameraDirector.Evaluate(runtime, 44.0))
     {
-        return false;
+        return fail(__LINE__);
     }
 
     // M5-F.2 now proves the reciprocal physical consequence as well: target identity enters the hostile torpedo
