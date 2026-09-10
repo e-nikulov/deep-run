@@ -29,6 +29,7 @@ inline constexpr float M5CombatTorpedoStraightRunMeters = 250.0F;
 inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
 inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
 inline constexpr float M5CombatTorpedoSurfaceSafetyMarginMeters = 0.25F;
+inline constexpr double M5CombatActiveRangingIntervalSeconds = 3.0;
 
 struct CombatPlaygroundFrame final
 {
@@ -222,10 +223,10 @@ public:
             return std::unexpected("M5-H destroyer combat AI failed: " + destroyerDecision.error());
         }
 
-        // Emit one deterministic active pulse when the live scenario first has both participants. The reflector
-        // position is simulator truth scoped to the active-echo calculation only; the player later receives only
-        // the resulting ranged SensorObservation/Track.
-        if (!activePulse_.has_value())
+        // Active ranging is deliberately repeated at a bounded cadence for the kilometer-scale engagement.
+        // The simulator samples the current physical reflector only when emitting a pulse; weapon guidance never
+        // receives that state directly. Every update still crosses ActiveEcho -> SensorObservation -> TrackManager.
+        if (!activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
         {
             const Physics::PhysicsVector3 delta = Difference(
                 destroyerAcoustics->emitter.positionMeters, playerSnapshot.passiveReceiver.positionMeters);
@@ -245,7 +246,8 @@ public:
                 .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
         }
 
-        if (!activeEchoConsumed_ && activePulse_ && activeReflector_)
+        bool integratedActiveEcho = false;
+        if (activePulse_ && activeReflector_)
         {
             Acoustics::AcousticReceiver activeReceiver = playerSnapshot.passiveReceiver;
             activeReceiver.positionMeters = activePulse_->originMeters;
@@ -263,10 +265,13 @@ public:
                 {
                     return std::unexpected("M5-H active echo failed perception integration");
                 }
-                activeEchoConsumed_ = true;
+                integratedActiveEcho = true;
+                activePulse_.reset();
+                activeReflector_.reset();
+                nextActivePulseTimeSeconds_ = simulationTimeSeconds + M5CombatActiveRangingIntervalSeconds;
             }
         }
-        else if (!playerTracks_.AdvanceTo(simulationTimeSeconds))
+        if (!integratedActiveEcho && !playerTracks_.AdvanceTo(simulationTimeSeconds))
         {
             return std::unexpected("M5-H player TrackManager failed to advance");
         }
@@ -405,6 +410,7 @@ private:
           playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),
           playerWeapon_(std::move(playerWeapon)),
           decoyDefinition_(std::move(decoyDefinition)),
+          nextActivePulseTimeSeconds_(simulationTimeSeconds),
           lastUpdateTimeSeconds_(simulationTimeSeconds)
     {
     }
@@ -523,7 +529,7 @@ private:
     float playerTorpedoForwardSign_ = 1.0F;
     std::optional<Acoustics::ActiveAcousticPulse> activePulse_{};
     std::optional<Acoustics::AcousticReflector> activeReflector_{};
-    bool activeEchoConsumed_ = false;
+    double nextActivePulseTimeSeconds_ = 0.0;
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
 };
