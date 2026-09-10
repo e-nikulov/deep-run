@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -120,6 +121,19 @@ public:
         return *snapshot;
     }
 
+    // M5 combat framing is presentation policy only. The simulation body remains at its authoritative Jolt
+    // position; this offset changes only the fixed side-view target used by Render and presentation consumers.
+    // Zero preserves the accepted M2/M3 centered camera contract (including the dedicated M3 benchmark).
+    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraTargetOffsetXMeters(const float offsetMeters)
+    {
+        if (!std::isfinite(offsetMeters))
+        {
+            return std::unexpected("physical playground presentation camera offset must be finite");
+        }
+        presentationCameraTargetOffsetXMeters_ = offsetMeters;
+        return {};
+    }
+
     // M5-H.1-B read-only camera bridge for additional Game presentation consumers. This deliberately mirrors
     // the accepted B2.1/M3 camera inputs from Render without exposing WaterBody, ModelAsset, body handles or
     // renderer internals to the combat runtime. It never steps physics or mutates simulation. The bridge exists
@@ -182,8 +196,10 @@ public:
                 *faunaWorldBounds),
             *surfaceFloatWorldBounds);
         const Assets::ModelVector3 target{
-            initialBodyWorldCenter_.x, initialBodyWorldCenter_.y, initialBodyWorldCenter_.z};
-        constexpr float fixedHorizontalSpanMeters = 600.0F; // accepted B2.1 camera policy
+            initialBodyWorldCenter_.x + presentationCameraTargetOffsetXMeters_,
+            initialBodyWorldCenter_.y,
+            initialBodyWorldCenter_.z};
+        constexpr float fixedHorizontalSpanMeters = 600.0F; // accepted B2.1 span; M5 only changes framing offset
         return Render::BuildFixedWorldSideViewCamera(
             target, renderer.AspectRatio(), fixedHorizontalSpanMeters, cameraDepthBounds);
     }
@@ -249,8 +265,10 @@ private:
     std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
 
     // World-space initial body center: X/Z from the production collision reference point, Y from WaterBody
-    // surface level and M2InitialSubmarineDepthMeters. Also the fixed B2.1 camera target.
+    // surface level and M2InitialSubmarineDepthMeters. The fixed camera uses this base plus the explicit
+    // presentation-only horizontal framing offset below.
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
+    float presentationCameraTargetOffsetXMeters_ = 0.0F;
     Assets::ModelTransform modelToBody_{};
     // Game tuning points are authored in the production vessel frame and shifted once into the production
     // collision body's local frame. The canonical collision center is source origin, so this is unchanged.
