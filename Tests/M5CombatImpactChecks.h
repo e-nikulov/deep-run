@@ -126,7 +126,7 @@ namespace M5CombatImpactDetail
     auto weapon = *weaponResult;
     if (!PrepareWeapon(definition.weapon, weapon, 0.0) ||
         !AssignWeaponTarget(definition.weapon, weapon, track, 0.0) ||
-        !LaunchWeapon(definition.weapon, weapon, track, 0.0))
+        !LaunchWeapon(definition.weapon, weapon, 0.0))
     {
         return fail("weapon preparation/target/launch");
     }
