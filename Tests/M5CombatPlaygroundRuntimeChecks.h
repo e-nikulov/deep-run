@@ -59,9 +59,12 @@ namespace DeepRun::Tests
     bool sawPresentationDecoy = false;
     bool sawPresentationExplosion = false;
     bool sawPostImpactTorpedoHidden = false;
+    bool sawHorizontalLaunch = false;
+    bool sawStraightRunout = false;
+    bool sawGradualAscent = false;
 
     constexpr float fixedDeltaSeconds = 1.0F / 60.0F;
-    for (int tick = 0; tick <= 240; ++tick)
+    for (int tick = 0; tick <= 600; ++tick)
     {
         const double simulationTimeSeconds = static_cast<double>(tick) * fixedDeltaSeconds;
         const auto frame = runtime.Advance(playerSnapshot, simulationTimeSeconds);
@@ -90,6 +93,48 @@ namespace DeepRun::Tests
             frame->destroyerDecision.action == Game::Combat::SimpleDestroyerCombatAction::PrepareWeapon;
         sawTorpedo = sawTorpedo || runtime.PlayerTorpedo().has_value();
         sawDecoy = sawDecoy || (runtime.Decoy().has_value() && runtime.Decoy()->active);
+
+        if (runtime.PlayerTorpedo() && runtime.PlayerTorpedo()->movementDomain == Weapons::MovementDomain::Underwater)
+        {
+            const auto& torpedo = *runtime.PlayerTorpedo();
+            const auto& launchPosition = runtime.PlayerTorpedoLaunchPosition();
+            if (!launchPosition || torpedo.positionMeters.y >= -Game::Combat::M5CombatTorpedoSurfaceSafetyMarginMeters ||
+                std::abs(torpedo.headingRadians) >
+                    Game::Combat::M5CombatTorpedoMaximumVerticalCourseAngleRadians + 0.001F)
+            {
+                return false;
+            }
+
+            if (!sawHorizontalLaunch)
+            {
+                if (std::abs(launchPosition->x - playerSnapshot.emitter.positionMeters.x -
+                             Game::Combat::M5CombatTorpedoLaunchClearanceMeters) > 0.01F ||
+                    std::abs(launchPosition->y - playerSnapshot.emitter.positionMeters.y) > 0.01F ||
+                    std::abs(launchPosition->z - playerSnapshot.emitter.positionMeters.z) > 0.01F ||
+                    std::abs(torpedo.headingRadians) > 0.01F)
+                {
+                    return false;
+                }
+                sawHorizontalLaunch = true;
+            }
+
+            const float forwardProgress = torpedo.positionMeters.x - launchPosition->x;
+            if (forwardProgress >= 35.0F &&
+                forwardProgress <= Game::Combat::M5CombatTorpedoStraightRunMeters - 2.0F)
+            {
+                if (std::abs(torpedo.positionMeters.y - launchPosition->y) > 0.25F ||
+                    std::abs(torpedo.headingRadians) > 0.01F)
+                {
+                    return false;
+                }
+                sawStraightRunout = true;
+            }
+            if (forwardProgress > Game::Combat::M5CombatTorpedoStraightRunMeters + 10.0F &&
+                torpedo.positionMeters.y > launchPosition->y + 1.0F)
+            {
+                sawGradualAscent = true;
+            }
+        }
 
         if (frame->playerTorpedoImpact)
         {
@@ -155,7 +200,8 @@ namespace DeepRun::Tests
     const auto destroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);
     if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerPreparation || !sawTorpedo ||
         !sawDecoy || !sawImpact || !sawPresentationTorpedo || !sawPresentationDecoy ||
-        !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !destroyerState ||
+        !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
+        !sawStraightRunout || !sawGradualAscent || !destroyerState ||
         runtime.Destroyer().weapon.phase == Weapons::WeaponPhase::Launched ||
         runtime.Destroyer().integrity.destroyed ||
         std::abs(runtime.Destroyer().integrity.remainingIntegrity - 40.0F) > 0.001F ||
@@ -164,7 +210,7 @@ namespace DeepRun::Tests
         return false;
     }
 
-    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 4.0);
+    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 10.0);
     if (!finalPresentation || std::abs(finalPresentation->destroyerIntegrityFraction - 0.40F) > 0.001F)
     {
         return false;
