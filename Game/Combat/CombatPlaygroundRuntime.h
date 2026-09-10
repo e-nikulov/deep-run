@@ -125,7 +125,7 @@ public:
 
         const Weapons::WeaponDefinition playerWeapon{
             .id = "m5.live-player-heavyweight",
-            .preparationSeconds = 0.0,
+            .preparationSeconds = 1.0,
             .targeting = Weapons::WeaponTargetingRequirements{
                 .minimumTrackConfidence = 0.65F,
                 .maximumBearingUncertaintyRadians = 0.10F,
@@ -249,9 +249,6 @@ private:
             return std::unexpected("M5-H destroyer acoustic snapshot failed: " + destroyerAcoustics.error());
         }
 
-        // Destroyer awareness consumes a normal passive observation generated from the player's current
-        // acoustic signature. The scenario knows both participants only to run propagation; source identity is
-        // stripped before the observation crosses into its TrackManager/AI.
         const double passiveDistance = Distance(
             playerSnapshot.emitter.positionMeters,
             destroyerAcoustics->passiveReceiver.positionMeters);
@@ -290,9 +287,6 @@ private:
             return std::unexpected("M5-H destroyer combat AI failed: " + destroyerDecision.error());
         }
 
-        // Active ranging is deliberately repeated at a bounded cadence for the kilometer-scale engagement.
-        // The simulator samples the current physical reflector only when emitting a pulse; weapon guidance never
-        // receives that state directly. Every update still crosses ActiveEcho -> SensorObservation -> TrackManager.
         if (!activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
         {
             const Physics::PhysicsVector3 delta = Difference(
@@ -443,8 +437,6 @@ private:
             return {};
         }
 
-        // Deterministic test/smoke automation reaches the same public commander contract as a player. It cycles
-        // perceived tracks rather than writing selected IDs or WeaponRuntimeState directly.
         for (std::size_t attempt = 0; attempt < tracks.size() && playerCombat_.SelectedTrackId() != qualifyingTrack->trackId;
              ++attempt)
         {
@@ -597,14 +589,10 @@ private:
             (playerTorpedo_->positionMeters.x - playerTorpedoLaunchPosition_->x) * playerTorpedoForwardSign_;
         if (forwardProgressMeters < M5CombatTorpedoStraightRunMeters)
         {
-            // Tube exit/run-out: preserve launch depth while still using the perceived track's horizontal
-            // coordinate. This is a weapon waypoint derived from perceived evidence, not hostile ground truth.
             guidanceTrack.estimatedPositionMeters->y = playerTorpedoLaunchPosition_->y;
         }
         else
         {
-            // Aim slightly below the perceived surface-target reference so the conventional torpedo attacks
-            // the underwater physical hull rather than steering toward an above-water visual superstructure.
             guidanceTrack.estimatedPositionMeters->y -= M5CombatTorpedoAttackPointBelowPerceivedTargetMeters;
         }
         return guidanceTrack;
