@@ -15,6 +15,7 @@
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
+#include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/BuoyancySystem.h"
@@ -119,6 +120,29 @@ public:
             return std::unexpected("physical playground live acoustic snapshot failed: " + snapshot.error());
         }
         return *snapshot;
+    }
+
+    // M5-I.2 live hazard bridge. The snapshot is a value copy of the already-authoritative production collision
+    // body and proxy dimensions. Combat may use it for generic sweeps but cannot mutate physics through it.
+    [[nodiscard]] std::expected<Submarine::AnteyPhysicalCollisionProxySnapshot, std::string>
+    BuildPhysicalCollisionProxySnapshot() const
+    {
+        if (physics_ == nullptr || !physicsBody_.IsValid() || !submarineCollisionHalfExtents_.IsFinite() ||
+            submarineCollisionHalfExtents_.x <= 0.0F || submarineCollisionHalfExtents_.y <= 0.0F ||
+            submarineCollisionHalfExtents_.z <= 0.0F)
+        {
+            return std::unexpected("physical playground production collision proxy is unavailable");
+        }
+        const auto bodyState = physics_->GetBodyState(physicsBody_);
+        if (!bodyState || !bodyState->position.IsFinite() || !bodyState->orientation.IsFinite())
+        {
+            return std::unexpected("physical playground production collision body state is unavailable");
+        }
+        return Submarine::AnteyPhysicalCollisionProxySnapshot{
+            .body = physicsBody_,
+            .positionMeters = bodyState->position,
+            .orientation = bodyState->orientation,
+            .halfExtentsMeters = submarineCollisionHalfExtents_};
     }
 
     // Presentation-only framing. The default untouched 0/0/600 frame preserves the accepted M2/M3 benchmark.
@@ -279,6 +303,8 @@ private:
     Render::GpuModelHandle faunaModel_;
     Render::ModelDrawInstance faunaBaseDraw_{};
     Physics::PhysicsBodyHandle physicsBody_;
+    // IG1-C production collision BOX dimensions retained only for read-only M5 physical query composition.
+    Physics::PhysicsVector3 submarineCollisionHalfExtents_{};
     // M3-F representative surface float: Game owns the small model, opaque physics handle and explicit
     // wave-aware buoyancy configuration. It is separate from every canonical submarine member.
     std::optional<Assets::ModelAsset> surfaceFloatModel_;

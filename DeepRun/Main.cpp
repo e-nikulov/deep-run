@@ -595,6 +595,14 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
 
+                    const auto playerCollisionProxy = playground.BuildPhysicalCollisionProxySnapshot();
+                    if (!playerCollisionProxy)
+                    {
+                        std::cerr << "[Game][ERROR] M5-I.2 player collision proxy snapshot failed: "
+                                  << playerCollisionProxy.error() << '\n';
+                        return false;
+                    }
+
                     std::array<DeepRun::Game::Combat::PlayerCombatCommand, 3> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
@@ -624,9 +632,11 @@ int main(const int argumentCount, char** argumentValues)
                     }
 
                     const auto combatFrame = options.smokeTest
-                        ? combatPlayground->Advance(*acousticSnapshot, *physics, simulationTimeSeconds)
+                        ? combatPlayground->Advance(
+                              *acousticSnapshot, *playerCollisionProxy, *physics, simulationTimeSeconds)
                         : combatPlayground->AdvancePlayerControlled(
                               *acousticSnapshot,
+                              *playerCollisionProxy,
                               *physics,
                               std::span<const DeepRun::Game::Combat::PlayerCombatCommand>{
                                   playerCommands.data(), playerCommandCount},
