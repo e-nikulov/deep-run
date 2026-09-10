@@ -37,6 +37,7 @@ Key TranslateKey(const WPARAM virtualKey)
     {
     case VK_ESCAPE: return Key::Escape;
     case VK_F1: return Key::F1;
+    case VK_TAB: return Key::Tab;
     case 'A': return Key::A;
     case 'D': return Key::D;
     case 'W': return Key::W;
@@ -309,5 +310,4 @@ std::uint32_t Window::Height() const noexcept
 void* Window::NativeHandle() const noexcept
 {
     return impl_->handle_;
-}
 }
