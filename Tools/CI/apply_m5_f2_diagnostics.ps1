@@ -9,20 +9,14 @@ if ($text.Contains('#include <iostream>')) {
 }
 $text = $text.Replace("#include <cmath>`n", "#include <cmath>`n#include <iostream>`n")
 
-$needle = @'
-[[nodiscard]] inline bool RunM5CombatPlaygroundRuntimeChecks(Physics::PhysicsWorld& physicsWorld)
-{
-    using Game::Combat::CombatPlaygroundCameraMode;
-'@
+$needle = '    using Game::Combat::CombatPlaygroundCameraMode;'
 $replacement = @'
-[[nodiscard]] inline bool RunM5CombatPlaygroundRuntimeChecks(Physics::PhysicsWorld& physicsWorld)
-{
     const auto fail = [](const int line) {
         std::cerr << "[M5-F.2 diagnostic] failure line " << line << '\n';
         return false;
     };
     using Game::Combat::CombatPlaygroundCameraMode;
-'@
+'@.Replace("`r`n", "`n")
 if (-not $text.Contains($needle)) {
     throw 'Could not insert M5-F.2 diagnostic fail helper'
 }
