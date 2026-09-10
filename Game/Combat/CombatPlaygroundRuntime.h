@@ -246,10 +246,30 @@ public:
 
         playerBody_ = proxy.body;
         playerCollisionHalfExtentsMeters_ = proxy.halfExtentsMeters;
-        previousPlayerPositionMeters_ = playerSnapshot.emitter.positionMeters;
+        previousPlayerPositionMeters_ = proxy.positionMeters;
+        currentPlayerPhysicalProxy_ = proxy;
         playerIntegrity_ = *integrity;
         mineDefinition_ = std::move(definition);
         mine_ = *mine;
+        return {};
+    }
+
+    // Refreshes the read-only production physical snapshot for the upcoming fixed combat tick. The acoustic
+    // body-reference position must agree with the physical bridge, but the physical snapshot owns sweep geometry.
+    [[nodiscard]] std::expected<void, std::string> UpdatePlayerPhysicalProxy(
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& proxy,
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot)
+    {
+        if (!playerIntegrity_ || !mine_ || !previousPlayerPositionMeters_ || !playerBody_.IsValid() ||
+            proxy.body != playerBody_ || !proxy.positionMeters.IsFinite() || !proxy.orientation.IsFinite() ||
+            !proxy.halfExtentsMeters.IsFinite() ||
+            Distance(proxy.positionMeters, playerSnapshot.emitter.positionMeters) > 0.05 ||
+            Distance(proxy.halfExtentsMeters, playerCollisionHalfExtentsMeters_) > 1.0e-4 ||
+            physicsWorld_ == nullptr || !physicsWorld_->GetBodyState(proxy.body).has_value())
+        {
+            return std::unexpected("M5-I.2 player physical proxy update is invalid or disagrees with acoustic authority");
+        }
+        currentPlayerPhysicalProxy_ = proxy;
         return {};
     }
 
@@ -485,17 +505,13 @@ private:
         std::optional<Weapons::NavalMineDetonation> mineDetonation{};
         if (mineDefinition_ && mine_ && playerIntegrity_ && previousPlayerPositionMeters_)
         {
-            if (playerIntegrity_->body != playerBody_ || !playerCollisionHalfExtentsMeters_.IsFinite())
+            if (playerIntegrity_->body != playerBody_ || !playerCollisionHalfExtentsMeters_.IsFinite() ||
+                !currentPlayerPhysicalProxy_ || currentPlayerPhysicalProxy_->body != playerBody_)
             {
                 return std::unexpected("M5-I.2 bound player combat/physical identity is inconsistent");
             }
-            const auto playerBodyState = physicsWorld_->GetBodyState(playerBody_);
-            if (!playerBodyState || !playerBodyState->orientation.IsFinite())
-            {
-                return std::unexpected("M5-I.2 live player body orientation is unavailable");
-            }
             const Physics::PhysicsVector3 displacement = Difference(
-                playerSnapshot.emitter.positionMeters, *previousPlayerPositionMeters_);
+                currentPlayerPhysicalProxy_->positionMeters, *previousPlayerPositionMeters_);
             const double displacementSquared =
                 static_cast<double>(displacement.x) * displacement.x +
                 static_cast<double>(displacement.y) * displacement.y +
@@ -509,7 +525,7 @@ private:
                     Physics::PhysicsBoxSweepQuery{
                         .halfExtentsMeters = playerCollisionHalfExtentsMeters_,
                         .startPositionMeters = *previousPlayerPositionMeters_,
-                        .orientation = playerBodyState->orientation,
+                        .orientation = currentPlayerPhysicalProxy_->orientation,
                         .displacementMeters = displacement},
                     *physicsWorld_,
                     simulationTimeSeconds);
@@ -528,7 +544,7 @@ private:
                     lastExplosion_ = mineDetonation->explosion;
                 }
             }
-            previousPlayerPositionMeters_ = playerSnapshot.emitter.positionMeters;
+            previousPlayerPositionMeters_ = currentPlayerPhysicalProxy_->positionMeters;
         }
 
         if (decoy_)
@@ -766,6 +782,7 @@ private:
     Physics::PhysicsBodyHandle playerBody_{};
     Physics::PhysicsVector3 playerCollisionHalfExtentsMeters_{};
     std::optional<Physics::PhysicsVector3> previousPlayerPositionMeters_{};
+    std::optional<Submarine::AnteyPhysicalCollisionProxySnapshot> currentPlayerPhysicalProxy_{};
     std::optional<DeepRun::Combat::CombatIntegrityState> playerIntegrity_{};
     std::optional<Weapons::ConventionalTorpedoRuntimeState> playerTorpedo_{};
     std::optional<Physics::PhysicsVector3> playerTorpedoLaunchPosition_{};

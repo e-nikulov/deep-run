@@ -41,6 +41,11 @@ public:
         {
             return std::unexpected(ready.error());
         }
+        const auto synced = runtime_->UpdatePlayerPhysicalProxy(playerCollisionProxy, playerSnapshot);
+        if (!synced)
+        {
+            return std::unexpected("M5-I.2 windowed player physical proxy update failed: " + synced.error());
+        }
         const auto frame = runtime_->Advance(playerSnapshot, simulationTimeSeconds);
         if (!frame)
         {
@@ -62,6 +67,11 @@ public:
         if (!ready)
         {
             return std::unexpected(ready.error());
+        }
+        const auto synced = runtime_->UpdatePlayerPhysicalProxy(playerCollisionProxy, playerSnapshot);
+        if (!synced)
+        {
+            return std::unexpected("M5-I.2 windowed player physical proxy update failed: " + synced.error());
         }
         const auto frame = runtime_->AdvancePlayerControlled(playerSnapshot, commands, simulationTimeSeconds);
         if (!frame)

@@ -127,13 +127,13 @@ namespace DeepRun::Tests
             .shaftRpm = 0.0F,
             .signedDepthMeters = 100.0F},
         Acoustics::AcousticSpectrum{.levelDb = {43.0F, 41.0F, 39.0F, 37.0F}});
-    const auto liveRuntimeResult = Game::Combat::CombatPlaygroundRuntime::Create(physicsWorld, 0.0F, 10.0);
+    auto liveRuntimeResult = Game::Combat::CombatPlaygroundRuntime::Create(physicsWorld, 0.0F, 10.0);
     if (!initialAcoustic || !liveRuntimeResult)
     {
         (void)physicsWorld.DestroyBody(livePlayerBody);
         return false;
     }
-    auto liveRuntime = *liveRuntimeResult;
+    auto liveRuntime = std::move(*liveRuntimeResult);
     const auto bound = liveRuntime.BindPlayerPhysicalProxy(
         Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
             .body = livePlayerBody,
@@ -166,9 +166,17 @@ namespace DeepRun::Tests
             .shaftRpm = 80.0F,
             .signedDepthMeters = 135.0F},
         Acoustics::AcousticSpectrum{.levelDb = {43.0F, 41.0F, 39.0F, 37.0F}});
-    const auto liveFrame = movedAcoustic ? liveRuntime.Advance(*movedAcoustic, 11.0)
-                                         : std::expected<Game::Combat::CombatPlaygroundFrame, std::string>{
-                                               std::unexpected("fixture acoustic snapshot failed")};
+    const auto movedProxy = Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
+        .body = livePlayerBody,
+        .positionMeters = liveEnd,
+        .orientation = {},
+        .halfExtentsMeters = liveHalfExtents};
+    const auto physicalUpdate = movedAcoustic
+        ? liveRuntime.UpdatePlayerPhysicalProxy(movedProxy, *movedAcoustic)
+        : std::expected<void, std::string>{std::unexpected("fixture acoustic snapshot failed")};
+    const auto liveFrame = physicalUpdate ? liveRuntime.Advance(*movedAcoustic, 11.0)
+                                          : std::expected<Game::Combat::CombatPlaygroundFrame, std::string>{
+                                                std::unexpected("fixture physical proxy update failed")};
     const bool liveAccepted = liveFrame && liveFrame->playerMineDetonation.has_value() &&
         std::abs(liveFrame->playerIntegrityFraction - 0.20F) <= 0.001F && !liveFrame->playerDestroyed &&
         liveRuntime.Mine() && liveRuntime.Mine()->detonated && !liveRuntime.Mine()->body.IsValid() &&
