@@ -4,6 +4,7 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/AcousticPlaygroundRuntime.h"
 #include "Game/Camera/MultiScaleTacticalCamera.h"
+#include "Game/Combat/CalmLaunchCameraAssist.h"
 #include "Game/Combat/CombatCommandUi.h"
 #include "Game/Combat/CombatPlaygroundAcceptance.h"
 #include "Game/Combat/CombatPlaygroundCamera.h"
@@ -383,6 +384,7 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
         std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;
         DeepRun::Game::Combat::CombatPlaygroundCameraDirector smokeCombatCameraDirector;
+        DeepRun::Game::Combat::CalmLaunchCameraAssist calmLaunchCameraAssist;
         DeepRun::Game::Camera::MultiScaleTacticalCamera multiScaleCamera;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
@@ -671,8 +673,8 @@ int main(const int argumentCount, char** argumentValues)
                 return true;
             },
             [&playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,
-             &multiScaleCamera, &inputState, &frameCapture, &captureEnabled, &options, &renderFrames,
-             &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+             &calmLaunchCameraAssist, &multiScaleCamera, &inputState, &frameCapture, &captureEnabled, &options,
+             &renderFrames, &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const auto& frameState = engineServices->CurrentFrame();
@@ -701,10 +703,14 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     else
                     {
-                        const DeepRun::Game::Camera::MultiScaleCameraInput cameraInput =
+                        DeepRun::Game::Camera::MultiScaleCameraInput cameraInput =
                             inputState != nullptr
                                 ? DeepRun::Game::Camera::MultiScaleCameraInputFromState(*inputState)
                                 : DeepRun::Game::Camera::MultiScaleCameraInput{};
+                        const bool weaponLaunched = combatUiSnapshot.has_value() &&
+                            combatUiSnapshot->weaponPhase == DeepRun::Weapons::WeaponPhase::Launched;
+                        cameraInput = calmLaunchCameraAssist.Update(
+                            weaponLaunched, multiScaleCamera.Framing(), cameraInput);
                         const auto cameraFraming = multiScaleCamera.Update(cameraInput, frameState.deltaSeconds);
                         if (!cameraFraming)
                         {
