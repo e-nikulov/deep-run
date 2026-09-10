@@ -121,24 +121,24 @@ public:
         return *snapshot;
     }
 
-    // M5 combat framing is presentation policy only. The simulation body remains at its authoritative Jolt
-    // position; this offset changes only the fixed side-view target used by Render and presentation consumers.
-    // Zero preserves the accepted M2/M3 centered camera contract (including the dedicated M3 benchmark).
+    // M5 combat framing is presentation policy only. initialBodyWorldCenter_ is the stored fixed camera target
+    // after Initialize; the physical body was already created from the local initialization value and does not
+    // read this member again. Applying an offset therefore cannot move Jolt/world truth. Zero restores the
+    // accepted M2/M3 centered camera contract used by the dedicated M3 benchmark.
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraTargetOffsetXMeters(const float offsetMeters)
     {
         if (!std::isfinite(offsetMeters))
         {
             return std::unexpected("physical playground presentation camera offset must be finite");
         }
+        initialBodyWorldCenter_.x += offsetMeters - presentationCameraTargetOffsetXMeters_;
         presentationCameraTargetOffsetXMeters_ = offsetMeters;
         return {};
     }
 
     // M5-H.1-B read-only camera bridge for additional Game presentation consumers. This deliberately mirrors
-    // the accepted B2.1/M3 camera inputs from Render without exposing WaterBody, ModelAsset, body handles or
-    // renderer internals to the combat runtime. It never steps physics or mutates simulation. The bridge exists
-    // so a bounded combat view can share the exact fixed-world target/span/depth policy instead of inventing a
-    // second projection in Main; the existing Render path remains the authoritative owner of scene presentation.
+    // the same target/span/depth policy consumed by PhysicalPlayground::Render, so combat proxies and the
+    // production scene share one projection rather than drifting through separate camera transforms.
     [[nodiscard]] std::expected<Render::OrthographicCamera, std::string> BuildPresentationCamera(
         Render::D3D12Renderer& renderer,
         const double presentationTimeSeconds) const
@@ -196,10 +196,8 @@ public:
                 *faunaWorldBounds),
             *surfaceFloatWorldBounds);
         const Assets::ModelVector3 target{
-            initialBodyWorldCenter_.x + presentationCameraTargetOffsetXMeters_,
-            initialBodyWorldCenter_.y,
-            initialBodyWorldCenter_.z};
-        constexpr float fixedHorizontalSpanMeters = 600.0F; // accepted B2.1 span; M5 only changes framing offset
+            initialBodyWorldCenter_.x, initialBodyWorldCenter_.y, initialBodyWorldCenter_.z};
+        constexpr float fixedHorizontalSpanMeters = 600.0F; // accepted B2.1 span; M5 changes framing only
         return Render::BuildFixedWorldSideViewCamera(
             target, renderer.AspectRatio(), fixedHorizontalSpanMeters, cameraDepthBounds);
     }
@@ -264,9 +262,9 @@ private:
     Marine::PropulsionState propulsionState_{};
     std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
 
-    // World-space initial body center: X/Z from the production collision reference point, Y from WaterBody
-    // surface level and M2InitialSubmarineDepthMeters. The fixed camera uses this base plus the explicit
-    // presentation-only horizontal framing offset below.
+    // World-space fixed camera target initialized from the production body's initial center. The body itself is
+    // already created before this member is retained; M5 may shift this stored presentation target without
+    // changing physics authority.
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     float presentationCameraTargetOffsetXMeters_ = 0.0F;
     Assets::ModelTransform modelToBody_{};
