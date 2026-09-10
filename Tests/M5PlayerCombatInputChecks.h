@@ -6,7 +6,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 
 namespace DeepRun::Tests
 {
@@ -14,12 +13,15 @@ namespace DeepRun::Tests
 {
     using namespace Input;
 
-    const std::uint16_t yButton = static_cast<std::uint16_t>(GamepadButton::Y);
+    const std::uint16_t combatButtons =
+        static_cast<std::uint16_t>(GamepadButton::Y) |
+        static_cast<std::uint16_t>(GamepadButton::X) |
+        static_cast<std::uint16_t>(GamepadButton::A);
     const auto disconnected = SemanticActionsForGamepad(GamepadState{
         .connected = false,
         .leftTrigger = 1.0F,
         .rightTrigger = 1.0F,
-        .buttons = yButton});
+        .buttons = combatButtons});
     if (disconnected.selectContact || disconnected.prepareWeapon || disconnected.fireWeapon)
     {
         return false;
@@ -27,20 +29,21 @@ namespace DeepRun::Tests
 
     const auto controller = SemanticActionsForGamepad(GamepadState{
         .connected = true,
-        .leftTrigger = 0.75F,
-        .rightTrigger = 0.80F,
-        .buttons = yButton});
+        .buttons = combatButtons});
     if (!controller.selectContact || !controller.prepareWeapon || !controller.fireWeapon)
     {
         return false;
     }
 
-    const auto belowThreshold = SemanticActionsForGamepad(GamepadState{
+    const GamepadState triggerOnly{
         .connected = true,
-        .leftTrigger = 0.49F,
-        .rightTrigger = std::numeric_limits<float>::quiet_NaN(),
-        .buttons = 0U});
-    if (belowThreshold.selectContact || belowThreshold.prepareWeapon || belowThreshold.fireWeapon)
+        .leftTrigger = 0.20F,
+        .rightTrigger = 0.80F,
+        .buttons = 0U};
+    const auto triggerActions = SemanticActionsForGamepad(triggerOnly);
+    const auto triggerAxes = SemanticAxesForGamepad(triggerOnly);
+    if (triggerActions.selectContact || triggerActions.prepareWeapon || triggerActions.fireWeapon ||
+        std::abs(triggerAxes.cameraZoom - 0.60F) > 0.001F)
     {
         return false;
     }
@@ -52,16 +55,19 @@ namespace DeepRun::Tests
     const std::array selectDown{
         Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::Tab}};
     input.ProcessEvents(selectDown);
+    const std::uint64_t selectSequence = input.State().PressSequence(InputAction::SelectContact);
     if (!input.State().WasPressed(InputAction::SelectContact) ||
-        !input.State().IsDown(InputAction::SelectContact))
+        !input.State().IsDown(InputAction::SelectContact) || selectSequence == 0U)
     {
         return false;
     }
 
+    // BeginFrame clears presentation edges but not the monotonic command sequence consumed by fixed-step Game.
     input.BeginFrame();
     input.ProcessEvents({});
     if (input.State().WasPressed(InputAction::SelectContact) ||
-        !input.State().IsDown(InputAction::SelectContact))
+        !input.State().IsDown(InputAction::SelectContact) ||
+        input.State().PressSequence(InputAction::SelectContact) != selectSequence)
     {
         return false;
     }
@@ -70,7 +76,8 @@ namespace DeepRun::Tests
         Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::Tab}};
     input.ProcessEvents(selectUp);
     if (!input.State().WasReleased(InputAction::SelectContact) ||
-        input.State().IsDown(InputAction::SelectContact))
+        input.State().IsDown(InputAction::SelectContact) ||
+        input.State().PressSequence(InputAction::SelectContact) != selectSequence)
     {
         return false;
     }
@@ -83,30 +90,58 @@ namespace DeepRun::Tests
             .repeated = true}};
     input.ProcessEvents(repeatedSelect);
     if (input.State().WasPressed(InputAction::SelectContact) ||
-        input.State().IsDown(InputAction::SelectContact))
+        input.State().IsDown(InputAction::SelectContact) ||
+        input.State().PressSequence(InputAction::SelectContact) != selectSequence)
     {
         return false;
     }
 
     input.BeginFrame();
-    const std::array prepareDown{
+    const std::array prepareKeyDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::R}};
+    input.ProcessEvents(prepareKeyDown);
+    if (!input.State().WasPressed(InputAction::PrepareWeapon) ||
+        !input.State().IsDown(InputAction::PrepareWeapon) || input.State().IsDown(InputAction::FireWeapon) ||
+        input.State().PressSequence(InputAction::PrepareWeapon) == 0U)
+    {
+        return false;
+    }
+    const std::array prepareKeyUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::R}};
+    input.ProcessEvents(prepareKeyUp);
+
+    input.BeginFrame();
+    const std::array fireKeyDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::Space}};
+    input.ProcessEvents(fireKeyDown);
+    if (!input.State().WasPressed(InputAction::FireWeapon) ||
+        !input.State().IsDown(InputAction::FireWeapon) || input.State().IsDown(InputAction::PrepareWeapon) ||
+        input.State().PressSequence(InputAction::FireWeapon) == 0U)
+    {
+        return false;
+    }
+    const std::array fireKeyUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::Space}};
+    input.ProcessEvents(fireKeyUp);
+
+    input.BeginFrame();
+    const std::array prepareMouseDown{
         Platform::WindowEvent{
             .type = Platform::WindowEventType::MouseButtonDown,
             .mouseButton = Platform::MouseButton::Right}};
-    input.ProcessEvents(prepareDown);
+    input.ProcessEvents(prepareMouseDown);
     if (!input.State().WasPressed(InputAction::PrepareWeapon) ||
-        !input.State().IsDown(InputAction::PrepareWeapon) ||
-        input.State().IsDown(InputAction::FireWeapon))
+        !input.State().IsDown(InputAction::PrepareWeapon))
     {
         return false;
     }
 
     input.BeginFrame();
-    const std::array fireDown{
+    const std::array fireMouseDown{
         Platform::WindowEvent{
             .type = Platform::WindowEventType::MouseButtonDown,
             .mouseButton = Platform::MouseButton::Left}};
-    input.ProcessEvents(fireDown);
+    input.ProcessEvents(fireMouseDown);
     if (!input.State().WasPressed(InputAction::FireWeapon) ||
         !input.State().IsDown(InputAction::FireWeapon) ||
         !input.State().IsDown(InputAction::PrepareWeapon))
