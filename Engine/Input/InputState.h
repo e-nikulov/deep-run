@@ -10,6 +10,9 @@ enum class InputAction
 {
     Quit,
     ToggleDebugUi,
+    SelectContact,
+    PrepareWeapon,
+    FireWeapon,
     Count,
 };
 
