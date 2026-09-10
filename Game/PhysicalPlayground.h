@@ -121,19 +121,40 @@ public:
         return *snapshot;
     }
 
-    // M5 combat framing is presentation policy only. initialBodyWorldCenter_ is the stored fixed camera target
-    // after Initialize; the physical body was already created from the local initialization value and does not
-    // read this member again. Applying an offset therefore cannot move Jolt/world truth. Zero restores the
-    // accepted M2/M3 centered camera contract used by the dedicated M3 benchmark.
+    // Presentation-only framing. The physical body was already created before these retained camera values are
+    // changed; neither value can feed Jolt, water, sonar or weapon state. The default 0/600 framing preserves
+    // the accepted centered M2/M3 benchmark contract. M5 can choose a wider local/tactical frame without
+    // changing world coordinates or pretending the engagement itself is only hundreds of metres wide.
+    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
+        const float targetOffsetXMeters,
+        const float horizontalSpanMeters)
+    {
+        if (!std::isfinite(targetOffsetXMeters) || !std::isfinite(horizontalSpanMeters) ||
+            horizontalSpanMeters <= 0.0F)
+        {
+            return std::unexpected("physical playground presentation camera framing must be finite and positive");
+        }
+        initialBodyWorldCenter_.x += targetOffsetXMeters - presentationCameraTargetOffsetXMeters_;
+        presentationCameraTargetOffsetXMeters_ = targetOffsetXMeters;
+        M2GameplayCameraHorizontalSpanMeters = horizontalSpanMeters;
+        return {};
+    }
+
+    // Compatibility helper for the previously introduced M5-H.1-B call site. New combat presentation should
+    // use SetPresentationCameraFraming so offset and span are updated atomically.
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraTargetOffsetXMeters(const float offsetMeters)
     {
-        if (!std::isfinite(offsetMeters))
-        {
-            return std::unexpected("physical playground presentation camera offset must be finite");
-        }
-        initialBodyWorldCenter_.x += offsetMeters - presentationCameraTargetOffsetXMeters_;
-        presentationCameraTargetOffsetXMeters_ = offsetMeters;
-        return {};
+        return SetPresentationCameraFraming(offsetMeters, M2GameplayCameraHorizontalSpanMeters);
+    }
+
+    [[nodiscard]] float PresentationCameraHorizontalSpanMeters() const noexcept
+    {
+        return M2GameplayCameraHorizontalSpanMeters;
+    }
+
+    [[nodiscard]] float PresentationCameraTargetOffsetXMeters() const noexcept
+    {
+        return presentationCameraTargetOffsetXMeters_;
     }
 
     // M5-H.1-B read-only camera bridge for additional Game presentation consumers. This deliberately mirrors
@@ -197,9 +218,8 @@ public:
             *surfaceFloatWorldBounds);
         const Assets::ModelVector3 target{
             initialBodyWorldCenter_.x, initialBodyWorldCenter_.y, initialBodyWorldCenter_.z};
-        constexpr float fixedHorizontalSpanMeters = 600.0F; // accepted B2.1 span; M5 changes framing only
         return Render::BuildFixedWorldSideViewCamera(
-            target, renderer.AspectRatio(), fixedHorizontalSpanMeters, cameraDepthBounds);
+            target, renderer.AspectRatio(), M2GameplayCameraHorizontalSpanMeters, cameraDepthBounds);
     }
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
@@ -267,6 +287,10 @@ private:
     // changing physics authority.
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     float presentationCameraTargetOffsetXMeters_ = 0.0F;
+    // Intentionally uses the historical identifier so unqualified lookup inside PhysicalPlayground::Render
+    // resolves the per-instance framing value before the legacy translation-unit constant of the same name.
+    // This keeps the accepted M2/M3 implementation intact while allowing M5 to widen the presentation only.
+    float M2GameplayCameraHorizontalSpanMeters = 600.0F;
     Assets::ModelTransform modelToBody_{};
     // Game tuning points are authored in the production vessel frame and shifted once into the production
     // collision body's local frame. The canonical collision center is source origin, so this is unchanged.
@@ -286,4 +310,4 @@ private:
     // is intentionally deferred beyond IG1-B; this state remains M2 simulation-compatible but is not drawn.
     float propellerPresentationAngleRadians_ = 0.0F;
 };
-}
+} // namespace DeepRun::Game
