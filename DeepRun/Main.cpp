@@ -246,7 +246,7 @@ const char* M5CheckpointName(const DeepRun::Game::Combat::M5CombatAcceptanceChec
     {
     case Checkpoint::Initial: return "M5_COMBAT_INITIAL";
     case Checkpoint::TorpedoInFlight: return "M5_TORPEDO_IN_FLIGHT";
-    case Checkpoint::PreImpact: return "M5_PRE_IMACT";
+    case Checkpoint::PreImpact: return "M5_PRE_IMPACT";
     case Checkpoint::PostImpact: return "M5_POST_IMPACT";
     case Checkpoint::Resized: return "M5_RESIZED";
     }
