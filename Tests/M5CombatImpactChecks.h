@@ -6,6 +6,7 @@
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Tests/M5AcousticDecoyChecks.h"
 #include "Tests/M5CombatPlaygroundRuntimeChecks.h"
+#include "Tests/M5MultiScaleCameraChecks.h"
 #include "Tests/M5NavalMineChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
@@ -125,7 +126,7 @@ namespace M5CombatImpactDetail
     auto weapon = *weaponResult;
     if (!PrepareWeapon(definition.weapon, weapon, 0.0) ||
         !AssignWeaponTarget(definition.weapon, weapon, track, 0.0) ||
-        !LaunchWeapon(definition.weapon, weapon, 0.0))
+        !LaunchWeapon(definition.weapon, weapon, track, 0.0))
     {
         return fail("weapon preparation/target/launch");
     }
@@ -219,6 +220,10 @@ namespace M5CombatImpactDetail
         return fail("M5-D fixture cleanup before shared-world composition");
     }
 
+    if (!RunM5MultiScaleCameraChecks())
+    {
+        return fail("M5-H.2 multi-scale tactical camera and semantic input");
+    }
     if (!RunM5AcousticDecoyChecks())
     {
         return fail("M5-E acoustic decoy/seeker perceived-world interaction");
