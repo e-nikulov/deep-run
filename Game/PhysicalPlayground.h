@@ -121,30 +121,41 @@ public:
         return *snapshot;
     }
 
-    // Presentation-only framing. The physical body was already created before these retained camera values are
-    // changed; neither value can feed Jolt, water, sonar or weapon state. The default 0/600 framing preserves
-    // the accepted centered M2/M3 benchmark contract. M5 can choose a wider local/tactical frame without
-    // changing world coordinates or pretending the engagement itself is only hundreds of metres wide.
+    // Presentation-only framing. The default untouched 0/0/600 frame preserves the accepted M2/M3 benchmark.
+    // Calling this enables free M5 navigation: cropping the old playground bounds is then intentional and can
+    // never move Jolt, WaterBody, acoustics, tracks or weapon state.
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
         const float targetOffsetXMeters,
+        const float targetOffsetYMeters,
         const float horizontalSpanMeters)
     {
-        if (!std::isfinite(targetOffsetXMeters) || !std::isfinite(horizontalSpanMeters) ||
-            horizontalSpanMeters <= 0.0F)
+        if (!std::isfinite(targetOffsetXMeters) || !std::isfinite(targetOffsetYMeters) ||
+            !std::isfinite(horizontalSpanMeters) || horizontalSpanMeters <= 0.0F)
         {
             return std::unexpected("physical playground presentation camera framing must be finite and positive");
         }
         initialBodyWorldCenter_.x += targetOffsetXMeters - presentationCameraTargetOffsetXMeters_;
+        initialBodyWorldCenter_.y += targetOffsetYMeters - presentationCameraTargetOffsetYMeters_;
         presentationCameraTargetOffsetXMeters_ = targetOffsetXMeters;
+        presentationCameraTargetOffsetYMeters_ = targetOffsetYMeters;
         M2GameplayCameraHorizontalSpanMeters = horizontalSpanMeters;
+        freePresentationCameraFraming_ = true;
         return {};
     }
 
-    // Compatibility helper for the previously introduced M5-H.1-B call site. New combat presentation should
-    // use SetPresentationCameraFraming so offset and span are updated atomically.
+    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
+        const float targetOffsetXMeters,
+        const float horizontalSpanMeters)
+    {
+        return SetPresentationCameraFraming(
+            targetOffsetXMeters, presentationCameraTargetOffsetYMeters_, horizontalSpanMeters);
+    }
+
+    // Compatibility helper for the previously introduced M5-H.1-B call site.
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraTargetOffsetXMeters(const float offsetMeters)
     {
-        return SetPresentationCameraFraming(offsetMeters, M2GameplayCameraHorizontalSpanMeters);
+        return SetPresentationCameraFraming(
+            offsetMeters, presentationCameraTargetOffsetYMeters_, M2GameplayCameraHorizontalSpanMeters);
     }
 
     [[nodiscard]] float PresentationCameraHorizontalSpanMeters() const noexcept
@@ -157,9 +168,18 @@ public:
         return presentationCameraTargetOffsetXMeters_;
     }
 
-    // M5-H.1-B read-only camera bridge for additional Game presentation consumers. This deliberately mirrors
-    // the same target/span/depth policy consumed by PhysicalPlayground::Render, so combat proxies and the
-    // production scene share one projection rather than drifting through separate camera transforms.
+    [[nodiscard]] float PresentationCameraTargetOffsetYMeters() const noexcept
+    {
+        return presentationCameraTargetOffsetYMeters_;
+    }
+
+    [[nodiscard]] bool FreePresentationCameraFramingEnabled() const noexcept
+    {
+        return freePresentationCameraFraming_;
+    }
+
+    // Read-only camera bridge for additional Game presentation consumers. Combat proxies and the production
+    // scene consume one framing/projection and therefore cannot drift through separate camera transforms.
     [[nodiscard]] std::expected<Render::OrthographicCamera, std::string> BuildPresentationCamera(
         Render::D3D12Renderer& renderer,
         const double presentationTimeSeconds) const
@@ -282,14 +302,14 @@ private:
     Marine::PropulsionState propulsionState_{};
     std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
 
-    // World-space fixed camera target initialized from the production body's initial center. The body itself is
-    // already created before this member is retained; M5 may shift this stored presentation target without
-    // changing physics authority.
+    // World-space fixed camera target initialized from the production body's initial center. M5 free navigation
+    // shifts only this retained presentation target, never the body or any simulation authority.
     Physics::PhysicsVector3 initialBodyWorldCenter_{};
     float presentationCameraTargetOffsetXMeters_ = 0.0F;
-    // Intentionally uses the historical identifier so unqualified lookup inside PhysicalPlayground::Render
-    // resolves the per-instance framing value before the legacy translation-unit constant of the same name.
-    // This keeps the accepted M2/M3 implementation intact while allowing M5 to widen the presentation only.
+    float presentationCameraTargetOffsetYMeters_ = 0.0F;
+    bool freePresentationCameraFraming_ = false;
+    // Historical identifier intentionally retained so PhysicalPlayground::Render resolves the per-instance
+    // framing value before the old translation-unit constant. Untouched benchmark instances remain 600 m.
     float M2GameplayCameraHorizontalSpanMeters = 600.0F;
     Assets::ModelTransform modelToBody_{};
     // Game tuning points are authored in the production vessel frame and shifted once into the production
