@@ -119,9 +119,9 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
     }
 
     ImGui::Separator();
-    ImGui::TextUnformatted("Y / Tab    Select contact");
-    ImGui::TextUnformatted("LT / RMB   Prepare weapon");
-    ImGui::TextUnformatted("RT / LMB   Fire weapon");
+    ImGui::TextUnformatted("Y / Tab          Select contact");
+    ImGui::TextUnformatted("X / R / RMB      Prepare weapon");
+    ImGui::TextUnformatted("A / Space / LMB  Fire weapon");
     ImGui::End();
 }
 } // namespace DeepRun::Game::Combat
