@@ -4,6 +4,7 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/AcousticPlaygroundRuntime.h"
 #include "Game/Combat/CombatPlaygroundAcceptance.h"
+#include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicalPlayground.h"
@@ -396,6 +397,7 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
         std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
         std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
+        DeepRun::Game::Combat::CombatPlaygroundCameraDirector combatCameraDirector;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
@@ -470,8 +472,9 @@ int main(const int argumentCount, char** argumentValues)
                 // is not created for that dedicated benchmark path. Normal and smoke windowed runs opt in.
                 if (!options.benchmarkM3)
                 {
-                    const auto framing = playground.SetPresentationCameraTargetOffsetXMeters(
-                        DeepRun::Game::Combat::M5CombatCameraTargetOffsetXMeters);
+                    const auto localFraming = DeepRun::Game::Combat::CombatPlaygroundCameraDirector::LocalFraming();
+                    const auto framing = playground.SetPresentationCameraFraming(
+                        localFraming.targetOffsetXMeters, localFraming.horizontalSpanMeters);
                     if (!framing)
                     {
                         std::cerr << "[Game][ERROR] M5 combat framing failed: " << framing.error() << '\n';
@@ -635,11 +638,34 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &combatPlayground, &combatAcceptance, &frameCapture, &captureEnabled, &options, &renderFrames,
+            [&playground, &combatPlayground, &combatAcceptance, &combatCameraDirector,
+             &frameCapture, &captureEnabled, &options, &renderFrames,
              &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const double presentationTimeSeconds = engineServices->CurrentFrame().elapsedSeconds;
+
+                // M5 camera presentation has exactly one state progression: stable local launch framing,
+                // one smooth zoom-out after the torpedo clears the submarine, then a stable tactical overview.
+                // The target offset never chases the torpedo, so physics/render truth cannot produce camera jitter.
+                if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
+                {
+                    const auto cameraFraming = combatCameraDirector.Evaluate(
+                        *combatPlayground->Runtime(), simulationTimeSeconds);
+                    if (!cameraFraming)
+                    {
+                        std::cerr << "[Game][ERROR] M5 combat camera failed: " << cameraFraming.error() << '\n';
+                        return false;
+                    }
+                    const auto appliedFraming = playground.SetPresentationCameraFraming(
+                        cameraFraming->targetOffsetXMeters, cameraFraming->horizontalSpanMeters);
+                    if (!appliedFraming)
+                    {
+                        std::cerr << "[Game][ERROR] M5 combat camera framing failed: " << appliedFraming.error() << '\n';
+                        return false;
+                    }
+                }
+
                 const auto rendered = playground.Render(
                     renderer, simulationTimeSeconds, presentationTimeSeconds);
                 if (!rendered)
@@ -648,10 +674,10 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                // M5-H.1-B uses the same fixed-world camera policy/data as PhysicalPlayground. The combat
-                // presentation remains a separate draw/stat contract so the accepted 74/72/364380 physical
-                // regression counters below stay unchanged. H.1 is presentation-only and cannot feed results
-                // back into combat runtime, physics, sonar or targeting.
+                // M5-H.1-B uses the same camera policy/data as PhysicalPlayground. The combat presentation
+                // remains a separate draw/stat contract so the accepted 74/72/364380 physical regression
+                // counters below stay unchanged. H.1 is presentation-only and cannot feed results back into
+                // combat runtime, physics, sonar or targeting.
                 if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
                 {
                     DeepRun::Physics::PhysicsWorld* physics = engineServices->Physics();
@@ -734,8 +760,8 @@ int main(const int argumentCount, char** argumentValues)
 
                 // Bounded M3-H.1/M5-H.1 visual validation: the existing initial/later captures now include
                 // the live combat presentation in normal smoke runs while preserving their historical paths.
-                // The smoke run resizes at engine frame 30 from 16:9 to 16:10 (1280x720 -> 1024x640), so the
-                // later capture also proves the shared fixed 600 m view through a changed projection.
+                // The smoke run resizes at engine frame 30 from 16:9 to 16:10 (1280x720 -> 1024x640), while
+                // M5 camera width itself follows the stable local-to-tactical director above.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;
