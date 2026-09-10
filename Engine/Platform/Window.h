@@ -21,6 +21,12 @@ enum class Key
     D,
     W,
     S,
+    Left,
+    Right,
+    Up,
+    Down,
+    Q,
+    E,
 };
 
 enum class MouseButton
@@ -41,6 +47,7 @@ enum class WindowEventType
     MouseMove,
     MouseButtonDown,
     MouseButtonUp,
+    MouseWheel,
 };
 
 struct WindowEvent
@@ -52,6 +59,7 @@ struct WindowEvent
     std::uint32_t height = 0;
     int mouseX = 0;
     int mouseY = 0;
+    float mouseWheelSteps = 0.0F;
     bool repeated = false;
 };
 
