@@ -76,7 +76,7 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Fire without a selected track is a normal commander rejection and must not create physical weapon state.
+    // Fire without selection/readiness is a normal commander rejection and creates no physical weapon state.
     const std::array rejectedFire{
         PlayerCombatCommand{.type = PlayerCombatCommandType::FireWeapon}};
     const auto rejected = runtime.AdvancePlayerControlled(playerSnapshot, rejectedFire, commandTimeSeconds);
@@ -88,12 +88,61 @@ namespace DeepRun::Tests
     physicsWorld.Step(fixedDeltaSeconds);
 
     commandTimeSeconds += fixedDeltaSeconds;
-    // The zero-second M5 playground preparation profile allows the canonical command sequence on one fixed tick.
-    const std::array commands{
+    const std::array selectAndPrepare{
         PlayerCombatCommand{.type = PlayerCombatCommandType::SelectNextTrack},
-        PlayerCombatCommand{.type = PlayerCombatCommandType::PrepareWeapon},
+        PlayerCombatCommand{.type = PlayerCombatCommandType::PrepareWeapon}};
+    const auto preparing = runtime.AdvancePlayerControlled(playerSnapshot, selectAndPrepare, commandTimeSeconds);
+    if (!preparing || preparing->playerCombat.weaponPhase != Weapons::WeaponPhase::Preparing ||
+        !preparing->playerCombat.selectedTrackId.has_value() || preparing->playerCombat.canFireWeapon ||
+        !preparing->playerCombat.lastCommand || !preparing->playerCombat.lastCommand->accepted ||
+        preparing->playerCombat.lastCommand->command != PlayerCombatCommandType::PrepareWeapon ||
+        runtime.PlayerTorpedo().has_value())
+    {
+        return false;
+    }
+    physicsWorld.Step(fixedDeltaSeconds);
+
+    // A fire edge while still Preparing must be rejected and must not leave a target assignment behind.
+    commandTimeSeconds += fixedDeltaSeconds;
+    const auto earlyFire = runtime.AdvancePlayerControlled(playerSnapshot, rejectedFire, commandTimeSeconds);
+    if (!earlyFire || !earlyFire->playerCombat.lastCommand || earlyFire->playerCombat.lastCommand->accepted ||
+        earlyFire->playerCombat.weaponPhase != Weapons::WeaponPhase::Preparing ||
+        runtime.PlayerCombat().Weapon().targetTrackId.has_value() || runtime.PlayerTorpedo().has_value())
+    {
+        return false;
+    }
+    physicsWorld.Step(fixedDeltaSeconds);
+
+    // Advance normal SimulationTime with no commands until readiness becomes visible in the presentation snapshot.
+    bool sawReady = false;
+    for (int tick = 0; tick < 90; ++tick)
+    {
+        commandTimeSeconds += fixedDeltaSeconds;
+        const auto frame = runtime.AdvancePlayerControlled(playerSnapshot, {}, commandTimeSeconds);
+        if (!frame || runtime.PlayerTorpedo().has_value())
+        {
+            return false;
+        }
+        physicsWorld.Step(fixedDeltaSeconds);
+        if (frame->playerCombat.weaponPhase == Weapons::WeaponPhase::Ready)
+        {
+            if (!frame->playerCombat.canFireWeapon || !frame->playerCombat.selectedTrackWeaponQualified)
+            {
+                return false;
+            }
+            sawReady = true;
+            break;
+        }
+    }
+    if (!sawReady)
+    {
+        return false;
+    }
+
+    commandTimeSeconds += fixedDeltaSeconds;
+    const std::array fire{
         PlayerCombatCommand{.type = PlayerCombatCommandType::FireWeapon}};
-    const auto launched = runtime.AdvancePlayerControlled(playerSnapshot, commands, commandTimeSeconds);
+    const auto launched = runtime.AdvancePlayerControlled(playerSnapshot, fire, commandTimeSeconds);
     if (!launched || !launched->playerCombat.lastCommand || !launched->playerCombat.lastCommand->accepted ||
         launched->playerCombat.lastCommand->command != PlayerCombatCommandType::FireWeapon ||
         launched->playerCombat.weaponPhase != Weapons::WeaponPhase::Launched ||
