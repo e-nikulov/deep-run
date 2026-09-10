@@ -10,8 +10,8 @@
 namespace DeepRun::Game::Camera
 {
 // M5-H.2 presentation scale. World/simulation coordinates never change when the player zooms or pans.
-// The current lower bound deliberately preserves the accepted M2/M3 full-scene camera-fit contract while the
-// upper bound already spans future operational/strategic contact presentation without loading a giant world.
+// The lower bound preserves the accepted local M2/M3 framing contract; wider spans expose tactical,
+// operational and strategic presentation without implying a physically loaded 600 km scene.
 inline constexpr float MultiScaleMinimumHorizontalSpanMeters = 600.0F;
 inline constexpr float MultiScaleMaximumHorizontalSpanMeters = 600'000.0F;
 inline constexpr float MultiScaleInitialHorizontalSpanMeters = 1'600.0F;
@@ -37,6 +37,8 @@ enum class MultiScalePresentationTier
 struct MultiScaleCameraFraming final
 {
     float targetOffsetXMeters = 0.0F;
+    // Reserved for a future vertical/depth-navigation slice. H.2 keeps it pinned to zero so the existing
+    // M2/M3 vertical framing and water-surface composition remain authoritative.
     float targetOffsetYMeters = 0.0F;
     float horizontalSpanMeters = MultiScaleInitialHorizontalSpanMeters;
     float requestedHorizontalSpanMeters = MultiScaleInitialHorizontalSpanMeters;
@@ -47,6 +49,7 @@ struct MultiScaleCameraFraming final
 struct MultiScaleCameraInput final
 {
     float panX = 0.0F;
+    // Input keeps the semantic vertical axis reserved, but H.2 intentionally does not consume it.
     float panY = 0.0F;
     // Positive continuous zoom increases visible world span (zoom out); negative zooms in.
     float zoom = 0.0F;
@@ -93,7 +96,6 @@ public:
         }
 
         const float panX = std::clamp(input.panX, -1.0F, 1.0F);
-        const float panY = std::clamp(input.panY, -1.0F, 1.0F);
         const float zoom = std::clamp(input.zoom, -1.0F, 1.0F);
         const float deltaSeconds = static_cast<float>(presentationDeltaSeconds);
 
@@ -111,8 +113,6 @@ public:
                 MultiScaleMaximumHorizontalSpanMeters);
         }
 
-        // Smooth only the zoom value. Camera position changes solely from explicit player pan/focus commands;
-        // there is no target chasing, auto recenter, torpedo following, or band-triggered camera jump.
         if (deltaSeconds > 0.0F)
         {
             constexpr float ZoomSmoothingSeconds = 0.16F;
@@ -127,9 +127,9 @@ public:
 
             constexpr float PanScreensPerSecond = 0.55F;
             targetOffsetXMeters_ += panX * spanMeters_ * PanScreensPerSecond * deltaSeconds;
-            targetOffsetYMeters_ += panY * spanMeters_ * PanScreensPerSecond * deltaSeconds;
         }
 
+        ClampHorizontalPanToAcceptedLocalFrame();
         UpdateBandWithHysteresis();
         return Framing();
     }
@@ -153,22 +153,25 @@ public:
         {
             return std::unexpected("multi-scale camera focus offsets must be finite");
         }
+        if (std::abs(offsetYMeters) > 1.0e-4F)
+        {
+            return std::unexpected("M5-H.2 vertical camera focus is not supported");
+        }
         targetOffsetXMeters_ = offsetXMeters;
-        targetOffsetYMeters_ = offsetYMeters;
+        ClampHorizontalPanToAcceptedLocalFrame();
         return {};
     }
 
     void FocusOwnship() noexcept
     {
         targetOffsetXMeters_ = 0.0F;
-        targetOffsetYMeters_ = 0.0F;
     }
 
     [[nodiscard]] MultiScaleCameraFraming Framing() const noexcept
     {
         return MultiScaleCameraFraming{
             .targetOffsetXMeters = targetOffsetXMeters_,
-            .targetOffsetYMeters = targetOffsetYMeters_,
+            .targetOffsetYMeters = 0.0F,
             .horizontalSpanMeters = spanMeters_,
             .requestedHorizontalSpanMeters = requestedSpanMeters_,
             .band = band_,
@@ -176,10 +179,22 @@ public:
     }
 
 private:
+    void ClampHorizontalPanToAcceptedLocalFrame() noexcept
+    {
+        // Preserve the complete accepted 600 m local viewport inside every wider H.2 frame. At minimum zoom
+        // the camera is therefore ownship-centered; as the span grows, explicit player pan gains proportionally
+        // more room without ever cropping out the accepted local scene that PhysicalPlayground validates.
+        const float maximumOffsetMeters = (std::max)(
+            0.0F,
+            0.5F * (spanMeters_ - MultiScaleMinimumHorizontalSpanMeters));
+        targetOffsetXMeters_ = std::clamp(
+            targetOffsetXMeters_, -maximumOffsetMeters, maximumOffsetMeters);
+    }
+
     void UpdateBandWithHysteresis() noexcept
     {
-        // Enter/leave thresholds deliberately differ so tiny wheel/trigger changes at a representation boundary
-        // cannot flicker LOD/symbol policy every frame. Large zoom jumps may cross several bands in one update.
+        // The engineering representation contract remains approximately 0-2 km full detail, 2-8 km
+        // simplified and 8 km+ contact/symbol presentation. Enter/leave thresholds differ to prevent flicker.
         bool changed = true;
         while (changed)
         {
@@ -195,10 +210,10 @@ private:
                 break;
             case MultiScaleCameraBand::Tactical:
                 if (spanMeters_ < 1'700.0F) { band_ = MultiScaleCameraBand::Local; changed = true; }
-                else if (spanMeters_ > 18'000.0F) { band_ = MultiScaleCameraBand::Operational; changed = true; }
+                else if (spanMeters_ > 9'000.0F) { band_ = MultiScaleCameraBand::Operational; changed = true; }
                 break;
             case MultiScaleCameraBand::Operational:
-                if (spanMeters_ < 12'000.0F) { band_ = MultiScaleCameraBand::Tactical; changed = true; }
+                if (spanMeters_ < 7'000.0F) { band_ = MultiScaleCameraBand::Tactical; changed = true; }
                 else if (spanMeters_ > 120'000.0F) { band_ = MultiScaleCameraBand::Strategic; changed = true; }
                 break;
             case MultiScaleCameraBand::Strategic:
@@ -209,7 +224,6 @@ private:
     }
 
     float targetOffsetXMeters_ = 0.0F;
-    float targetOffsetYMeters_ = 0.0F;
     float spanMeters_ = MultiScaleInitialHorizontalSpanMeters;
     float requestedSpanMeters_ = MultiScaleInitialHorizontalSpanMeters;
     MultiScaleCameraBand band_ = MultiScaleCameraBand::Local;

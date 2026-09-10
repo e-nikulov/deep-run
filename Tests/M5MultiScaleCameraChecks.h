@@ -23,8 +23,8 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Positive mouse-wheel steps zoom inward logarithmically. Repeated presentation updates settle smoothly
-    // to the requested close-inspection span without SimulationTime or a gameplay target driving the camera.
+    // H.2 never exposes a framing narrower than the accepted 600 m local playground. Positive wheel steps
+    // zoom inward logarithmically and settle smoothly without SimulationTime driving presentation state.
     auto close = camera.Update({.wheelSteps = 12.0F}, 1.0 / 60.0);
     if (!close || close->requestedHorizontalSpanMeters != MultiScaleMinimumHorizontalSpanMeters)
     {
@@ -40,7 +40,8 @@ namespace DeepRun::Tests
     }
     if (std::abs(close->horizontalSpanMeters - MultiScaleMinimumHorizontalSpanMeters) > 0.01F ||
         close->band != MultiScaleCameraBand::Detail ||
-        close->presentationTier != MultiScalePresentationTier::FullDetail)
+        close->presentationTier != MultiScalePresentationTier::FullDetail ||
+        close->targetOffsetXMeters != 0.0F || close->targetOffsetYMeters != 0.0F)
     {
         return false;
     }
@@ -66,7 +67,7 @@ namespace DeepRun::Tests
     }
 
     // Strategic -> Operational requires crossing the lower 80 km hysteresis threshold. Returning to 100 km
-    // must then remain Operational until the distinct 120 km upper threshold is crossed.
+    // remains Operational until the distinct 120 km upper threshold is crossed.
     if (!camera.SetRequestedHorizontalSpanMeters(70'000.0F))
     {
         return false;
@@ -100,23 +101,58 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Pan is explicit player input only. Once released, the camera target must not chase a weapon/contact or
-    // drift merely because presentation frames continue advancing.
-    const auto panned = camera.Update({.panX = 1.0F, .panY = -0.5F}, 1.0 / 60.0);
-    if (!panned || panned->targetOffsetXMeters <= 0.0F || panned->targetOffsetYMeters >= 0.0F)
+    // Horizontal pan is explicit player presentation input only. Vertical semantic input is deliberately
+    // reserved and must not alter H.2 framing. Once released, the camera target must not chase contacts.
+    const auto panned = camera.Update({.panX = 1.0F, .panY = -1.0F}, 1.0 / 60.0);
+    if (!panned || panned->targetOffsetXMeters <= 0.0F || panned->targetOffsetYMeters != 0.0F)
     {
         return false;
     }
     const float stableX = panned->targetOffsetXMeters;
-    const float stableY = panned->targetOffsetYMeters;
     for (int frame = 0; frame < 120; ++frame)
     {
         const auto stable = camera.Update({}, 1.0 / 60.0);
-        if (!stable || stable->targetOffsetXMeters != stableX || stable->targetOffsetYMeters != stableY)
+        if (!stable || stable->targetOffsetXMeters != stableX || stable->targetOffsetYMeters != 0.0F)
         {
             return false;
         }
     }
+
+    // A direct vertical focus request is rejected in this bounded slice. Horizontal focus is clamped so the
+    // full accepted 600 m local viewport always remains inside the wider H.2 camera.
+    if (camera.FocusAtOffsets(1'000.0F, 1.0F) || !camera.FocusAtOffsets(1.0e9F, 0.0F))
+    {
+        return false;
+    }
+    const auto clampedWide = camera.Framing();
+    const float maximumWideOffset =
+        0.5F * (clampedWide.horizontalSpanMeters - MultiScaleMinimumHorizontalSpanMeters);
+    if (std::abs(clampedWide.targetOffsetXMeters - maximumWideOffset) > 1.0F ||
+        clampedWide.targetOffsetYMeters != 0.0F)
+    {
+        return false;
+    }
+
+    // Zooming all the way back into the accepted local frame collapses available pan to zero, proving that
+    // camera navigation cannot crop the original M2/M3 viewport and trip its existing fit invariants.
+    if (!camera.SetRequestedHorizontalSpanMeters(MultiScaleMinimumHorizontalSpanMeters))
+    {
+        return false;
+    }
+    for (int frame = 0; frame < 300; ++frame)
+    {
+        close = camera.Update({}, 1.0 / 60.0);
+        if (!close)
+        {
+            return false;
+        }
+    }
+    if (std::abs(close->horizontalSpanMeters - MultiScaleMinimumHorizontalSpanMeters) > 0.01F ||
+        std::abs(close->targetOffsetXMeters) > 0.01F || close->targetOffsetYMeters != 0.0F)
+    {
+        return false;
+    }
+
     camera.FocusOwnship();
     if (camera.Framing().targetOffsetXMeters != 0.0F || camera.Framing().targetOffsetYMeters != 0.0F ||
         camera.Update({}, -1.0))
@@ -124,8 +160,8 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Controller mapping is semantic before Game consumes it: right stick pans, right trigger zooms out,
-    // left trigger zooms in, while a disconnected controller contributes no camera command.
+    // Controller mapping remains semantic before Game consumes it: right stick X pans, right trigger zooms out,
+    // left trigger zooms in. The reserved Y axis may exist in Input, but H.2 camera policy above ignores it.
     const Input::ControllerSemanticAxes controller = Input::SemanticAxesForGamepad(Input::GamepadState{
         .connected = true,
         .rightX = 0.8F,
@@ -148,8 +184,8 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Synthetic platform events prove that keyboard/mouse device details terminate inside InputSystem. Game
-    // receives only normalized camera axes plus an accumulated wheel-step impulse that resets each frame.
+    // Synthetic platform events prove keyboard/mouse details terminate inside InputSystem. Game receives only
+    // normalized semantic camera axes plus an accumulated wheel-step impulse that resets each frame.
     Diagnostics::Logger logger;
     Input::InputSystem input(logger, false);
     input.BeginFrame();
