@@ -18,6 +18,9 @@ enum class InputAxis
 {
     Throttle,
     Depth,
+    CameraPanX,
+    CameraPanY,
+    CameraZoom,
     Count,
 };
 
@@ -58,6 +61,7 @@ public:
     void SetActionDown(InputAction action, bool down) noexcept;
     void SetMouseButtonDown(std::size_t button, bool down) noexcept;
     void SetMousePosition(int x, int y) noexcept;
+    void AddCameraZoomSteps(float steps) noexcept;
     void SetGamepad(GamepadState gamepad) noexcept;
     void SetAxis(InputAxis axis, float value) noexcept;
 
@@ -67,6 +71,7 @@ public:
     [[nodiscard]] bool IsMouseButtonDown(std::size_t button) const noexcept;
     [[nodiscard]] int MouseX() const noexcept;
     [[nodiscard]] int MouseY() const noexcept;
+    [[nodiscard]] float CameraZoomSteps() const noexcept;
     [[nodiscard]] const GamepadState& Gamepad() const noexcept;
     [[nodiscard]] float Axis(InputAxis axis) const noexcept;
 
@@ -81,5 +86,6 @@ private:
     GamepadState gamepad_{};
     int mouseX_ = 0;
     int mouseY_ = 0;
+    float cameraZoomSteps_ = 0.0F;
 };
 }
