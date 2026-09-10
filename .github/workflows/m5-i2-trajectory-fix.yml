@@ -1,0 +1,35 @@
+name: M5 I2 Apply Physical Trajectory Fix
+
+on:
+  push:
+    branches:
+      - tmp/m5-i2-live-naval-mine
+    paths:
+      - '.github/workflows/m5-i2-trajectory-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: tmp/m5-i2-live-naval-mine
+          fetch-depth: 0
+
+      - name: Apply M5-I.2 physical trajectory authority fix
+        run: python Tools/CI/apply_m5_i2_physical_trajectory_fix.py
+
+      - name: Commit clean fix
+        shell: bash
+        run: |
+          rm -f Tools/CI/apply_m5_i2_physical_trajectory_fix.py .github/workflows/m5-i2-trajectory-fix.yml
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "fix: keep M5 mine sweep on production physical trajectory"
+          git push origin HEAD:tmp/m5-i2-live-naval-mine
