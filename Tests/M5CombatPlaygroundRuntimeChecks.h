@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
@@ -11,6 +12,7 @@ namespace DeepRun::Tests
 {
 [[nodiscard]] inline bool RunM5CombatPlaygroundRuntimeChecks(Physics::PhysicsWorld& physicsWorld)
 {
+    using Game::Combat::CombatPlaygroundCameraMode;
     using Game::Combat::CombatPlaygroundPresentationElement;
 
     if (!physicsWorld.IsInitialized())
@@ -36,6 +38,13 @@ namespace DeepRun::Tests
     }
     auto runtime = *runtimeResult;
 
+    const auto initialDestroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);
+    if (!initialDestroyerState ||
+        std::abs(initialDestroyerState->position.x - Game::Combat::M5CombatDestroyerInitialXMeters) > 0.01F)
+    {
+        return false;
+    }
+
     const auto playerSnapshotResult = Game::Submarine::BuildAnteyAcousticSnapshot(
         Game::Submarine::AnteyAcousticRuntimeState{
             .bodyReferencePositionMeters = {.x = 0.0F, .y = -100.0F, .z = 0.0F},
@@ -49,6 +58,7 @@ namespace DeepRun::Tests
     }
     const auto playerSnapshot = *playerSnapshotResult;
 
+    Game::Combat::CombatPlaygroundCameraDirector cameraDirector;
     bool sawPlayerSpatialTrack = false;
     bool sawDestroyerAwareness = false;
     bool sawDestroyerPreparation = false;
@@ -62,9 +72,15 @@ namespace DeepRun::Tests
     bool sawHorizontalLaunch = false;
     bool sawStraightRunout = false;
     bool sawGradualAscent = false;
+    bool sawCameraTransition = false;
+    bool sawTacticalCamera = false;
+    bool cameraEverLeftLocal = false;
+    std::uint32_t stableTacticalTicks = 0U;
+    float previousCameraSpan = Game::Combat::M5CombatLocalCameraHorizontalSpanMeters;
 
     constexpr float fixedDeltaSeconds = 1.0F / 60.0F;
-    for (int tick = 0; tick <= 600; ++tick)
+    constexpr int finalTick = 2700; // 45 s: enough for active echo, 1.8 km run, impact, and post-impact stability.
+    for (int tick = 0; tick <= finalTick; ++tick)
     {
         const double simulationTimeSeconds = static_cast<double>(tick) * fixedDeltaSeconds;
         const auto frame = runtime.Advance(playerSnapshot, simulationTimeSeconds);
@@ -72,6 +88,49 @@ namespace DeepRun::Tests
         {
             return false;
         }
+
+        const auto cameraFraming = cameraDirector.Evaluate(runtime, simulationTimeSeconds);
+        if (!cameraFraming ||
+            std::abs(cameraFraming->targetOffsetXMeters - Game::Combat::M5CombatCameraTargetOffsetXMeters) > 0.001F ||
+            cameraFraming->horizontalSpanMeters + 0.001F < previousCameraSpan ||
+            cameraFraming->horizontalSpanMeters < Game::Combat::M5CombatLocalCameraHorizontalSpanMeters - 0.001F ||
+            cameraFraming->horizontalSpanMeters > Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters + 0.001F)
+        {
+            return false;
+        }
+
+        if (cameraFraming->mode == CombatPlaygroundCameraMode::LocalLaunch)
+        {
+            if (cameraEverLeftLocal ||
+                std::abs(cameraFraming->horizontalSpanMeters - Game::Combat::M5CombatLocalCameraHorizontalSpanMeters) >
+                    0.001F ||
+                cameraFraming->transitionProgress != 0.0F)
+            {
+                return false;
+            }
+        }
+        else if (cameraFraming->mode == CombatPlaygroundCameraMode::TransitionToTactical)
+        {
+            cameraEverLeftLocal = true;
+            sawCameraTransition = true;
+            if (cameraFraming->transitionProgress < 0.0F || cameraFraming->transitionProgress >= 1.0F)
+            {
+                return false;
+            }
+        }
+        else if (cameraFraming->mode == CombatPlaygroundCameraMode::TacticalOverview)
+        {
+            cameraEverLeftLocal = true;
+            sawTacticalCamera = true;
+            ++stableTacticalTicks;
+            if (std::abs(cameraFraming->horizontalSpanMeters - Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters) >
+                    0.001F ||
+                std::abs(cameraFraming->transitionProgress - 1.0F) > 0.001F)
+            {
+                return false;
+            }
+        }
+        previousCameraSpan = cameraFraming->horizontalSpanMeters;
 
         for (const auto& track : frame->playerTracks)
         {
@@ -119,7 +178,7 @@ namespace DeepRun::Tests
             }
 
             const float forwardProgress = torpedo.positionMeters.x - launchPosition->x;
-            if (forwardProgress >= 35.0F &&
+            if (forwardProgress >= 120.0F &&
                 forwardProgress <= Game::Combat::M5CombatTorpedoStraightRunMeters - 2.0F)
             {
                 if (std::abs(torpedo.positionMeters.y - launchPosition->y) > 0.25F ||
@@ -129,7 +188,7 @@ namespace DeepRun::Tests
                 }
                 sawStraightRunout = true;
             }
-            if (forwardProgress > Game::Combat::M5CombatTorpedoStraightRunMeters + 10.0F &&
+            if (forwardProgress > Game::Combat::M5CombatTorpedoStraightRunMeters + 40.0F &&
                 torpedo.positionMeters.y > launchPosition->y + 1.0F)
             {
                 sawGradualAscent = true;
@@ -201,7 +260,8 @@ namespace DeepRun::Tests
     if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerPreparation || !sawTorpedo ||
         !sawDecoy || !sawImpact || !sawPresentationTorpedo || !sawPresentationDecoy ||
         !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
-        !sawStraightRunout || !sawGradualAscent || !destroyerState ||
+        !sawStraightRunout || !sawGradualAscent || !sawCameraTransition || !sawTacticalCamera ||
+        stableTacticalTicks < 60U || !destroyerState ||
         runtime.Destroyer().weapon.phase == Weapons::WeaponPhase::Launched ||
         runtime.Destroyer().integrity.destroyed ||
         std::abs(runtime.Destroyer().integrity.remainingIntegrity - 40.0F) > 0.001F ||
@@ -210,8 +270,15 @@ namespace DeepRun::Tests
         return false;
     }
 
-    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 10.0);
+    const auto finalPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, 45.0);
     if (!finalPresentation || std::abs(finalPresentation->destroyerIntegrityFraction - 0.40F) > 0.001F)
+    {
+        return false;
+    }
+
+    // The camera transition is one-way and SimulationTime authoritative. A time-reversing request must be
+    // rejected instead of rewinding the cinematic framing back toward the submarine.
+    if (cameraDirector.Evaluate(runtime, 44.0))
     {
         return false;
     }
