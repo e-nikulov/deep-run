@@ -32,13 +32,19 @@ public:
     // Deterministic H/H.1 smoke path retained unchanged in behavior.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> Advance(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& playerCollisionProxy,
         Physics::PhysicsWorld& physicsWorld,
         const double simulationTimeSeconds)
     {
-        const auto ready = EnsureRuntime(playerSnapshot, physicsWorld, simulationTimeSeconds);
+        const auto ready = EnsureRuntime(playerSnapshot, playerCollisionProxy, physicsWorld, simulationTimeSeconds);
         if (!ready)
         {
             return std::unexpected(ready.error());
+        }
+        const auto synced = runtime_->UpdatePlayerPhysicalProxy(playerCollisionProxy, playerSnapshot);
+        if (!synced)
+        {
+            return std::unexpected("M5-I.2 windowed player physical proxy update failed: " + synced.error());
         }
         const auto frame = runtime_->Advance(playerSnapshot, simulationTimeSeconds);
         if (!frame)
@@ -52,14 +58,20 @@ public:
     // know physical bindings and does not retain a command queue between fixed ticks.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvancePlayerControlled(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& playerCollisionProxy,
         Physics::PhysicsWorld& physicsWorld,
         const std::span<const PlayerCombatCommand> commands,
         const double simulationTimeSeconds)
     {
-        const auto ready = EnsureRuntime(playerSnapshot, physicsWorld, simulationTimeSeconds);
+        const auto ready = EnsureRuntime(playerSnapshot, playerCollisionProxy, physicsWorld, simulationTimeSeconds);
         if (!ready)
         {
             return std::unexpected(ready.error());
+        }
+        const auto synced = runtime_->UpdatePlayerPhysicalProxy(playerCollisionProxy, playerSnapshot);
+        if (!synced)
+        {
+            return std::unexpected("M5-I.2 windowed player physical proxy update failed: " + synced.error());
         }
         const auto frame = runtime_->AdvancePlayerControlled(playerSnapshot, commands, simulationTimeSeconds);
         if (!frame)
@@ -102,6 +114,7 @@ private:
 
     [[nodiscard]] std::expected<void, std::string> EnsureRuntime(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& playerCollisionProxy,
         Physics::PhysicsWorld& physicsWorld,
         const double simulationTimeSeconds)
     {
@@ -125,6 +138,12 @@ private:
         if (!runtime)
         {
             return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());
+        }
+        const auto boundPlayer = runtime->BindPlayerPhysicalProxy(
+            playerCollisionProxy, playerSnapshot, simulationTimeSeconds);
+        if (!boundPlayer)
+        {
+            return std::unexpected("M5-I.2 windowed player physical proxy binding failed: " + boundPlayer.error());
         }
         runtime_ = std::move(*runtime);
         return {};

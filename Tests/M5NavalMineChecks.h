@@ -1,5 +1,9 @@
 #pragma once
 
+#include "Game/Combat/CombatPlaygroundPresentation.h"
+#include "Game/Combat/CombatPlaygroundRuntime.h"
+#include "Game/Submarine/AnteyAcousticModel.h"
+#include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Simulation/Weapons/NavalMine.h"
 
 #include <cmath>
@@ -102,6 +106,90 @@ namespace DeepRun::Tests
         return false;
     }
 
-    return physicsWorld.DestroyBody(targetBody);
+    if (!physicsWorld.DestroyBody(targetBody))
+    {
+        return false;
+    }
+
+    // M5-I.2: prove the existing physical mine contract is actually bound into the live combat runtime.
+    const Physics::PhysicsVector3 liveStart{.x = 0.0F, .y = -100.0F, .z = 0.0F};
+    const Physics::PhysicsVector3 liveHalfExtents{.x = 10.0F, .y = 5.0F, .z = 5.0F};
+    const auto livePlayerBody = physicsWorld.CreateStaticBoxBody(
+        Physics::StaticBoxBodyCreateInfo{.halfExtents = liveHalfExtents, .position = liveStart});
+    if (!livePlayerBody.IsValid())
+    {
+        return false;
+    }
+    const auto initialAcoustic = Game::Submarine::BuildAnteyAcousticSnapshot(
+        Game::Submarine::AnteyAcousticRuntimeState{
+            .bodyReferencePositionMeters = liveStart,
+            .linearVelocityMetersPerSecond = {},
+            .shaftRpm = 0.0F,
+            .signedDepthMeters = 100.0F},
+        Acoustics::AcousticSpectrum{.levelDb = {43.0F, 41.0F, 39.0F, 37.0F}});
+    auto liveRuntimeResult = Game::Combat::CombatPlaygroundRuntime::Create(physicsWorld, 0.0F, 10.0);
+    if (!initialAcoustic || !liveRuntimeResult)
+    {
+        (void)physicsWorld.DestroyBody(livePlayerBody);
+        return false;
+    }
+    auto liveRuntime = std::move(*liveRuntimeResult);
+    const auto bound = liveRuntime.BindPlayerPhysicalProxy(
+        Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
+            .body = livePlayerBody,
+            .positionMeters = liveStart,
+            .orientation = {},
+            .halfExtentsMeters = liveHalfExtents},
+        *initialAcoustic,
+        10.0);
+    if (!bound || !liveRuntime.Mine() || !liveRuntime.Mine()->armed || !liveRuntime.PlayerIntegrity())
+    {
+        (void)physicsWorld.DestroyBody(liveRuntime.Destroyer().body);
+        (void)physicsWorld.DestroyBody(livePlayerBody);
+        return false;
+    }
+
+    const auto armedPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(
+        liveRuntime, physicsWorld, 10.0);
+    if (!armedPresentation || !armedPresentation->navalMine.has_value())
+    {
+        (void)physicsWorld.DestroyBody(liveRuntime.Destroyer().body);
+        (void)physicsWorld.DestroyBody(livePlayerBody);
+        return false;
+    }
+
+    const Physics::PhysicsVector3 liveEnd{.x = 600.0F, .y = -135.0F, .z = 0.0F};
+    const auto movedAcoustic = Game::Submarine::BuildAnteyAcousticSnapshot(
+        Game::Submarine::AnteyAcousticRuntimeState{
+            .bodyReferencePositionMeters = liveEnd,
+            .linearVelocityMetersPerSecond = {.x = 20.0F, .y = -1.0F, .z = 0.0F},
+            .shaftRpm = 80.0F,
+            .signedDepthMeters = 135.0F},
+        Acoustics::AcousticSpectrum{.levelDb = {43.0F, 41.0F, 39.0F, 37.0F}});
+    const auto movedProxy = Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
+        .body = livePlayerBody,
+        .positionMeters = liveEnd,
+        .orientation = {},
+        .halfExtentsMeters = liveHalfExtents};
+    const auto physicalUpdate = movedAcoustic
+        ? liveRuntime.UpdatePlayerPhysicalProxy(movedProxy, *movedAcoustic)
+        : std::expected<void, std::string>{std::unexpected("fixture acoustic snapshot failed")};
+    const auto liveFrame = physicalUpdate ? liveRuntime.Advance(*movedAcoustic, 11.0)
+                                          : std::expected<Game::Combat::CombatPlaygroundFrame, std::string>{
+                                                std::unexpected("fixture physical proxy update failed")};
+    const bool liveAccepted = liveFrame && liveFrame->playerMineDetonation.has_value() &&
+        std::abs(liveFrame->playerIntegrityFraction - 0.20F) <= 0.001F && !liveFrame->playerDestroyed &&
+        liveRuntime.Mine() && liveRuntime.Mine()->detonated && !liveRuntime.Mine()->body.IsValid() &&
+        liveRuntime.PlayerIntegrity() &&
+        std::abs(liveRuntime.PlayerIntegrity()->remainingIntegrity - 20.0F) <= 0.001F &&
+        liveRuntime.LastExplosion().has_value();
+    const auto consumedPresentation = Game::Combat::BuildCombatPlaygroundPresentationSnapshot(
+        liveRuntime, physicsWorld, 11.0);
+    const bool presentationAccepted = consumedPresentation && !consumedPresentation->navalMine.has_value() &&
+        consumedPresentation->explosion.has_value();
+
+    const bool cleanupDestroyer = physicsWorld.DestroyBody(liveRuntime.Destroyer().body);
+    const bool cleanupPlayer = physicsWorld.DestroyBody(livePlayerBody);
+    return liveAccepted && presentationAccepted && cleanupDestroyer && cleanupPlayer;
 }
 } // namespace DeepRun::Tests

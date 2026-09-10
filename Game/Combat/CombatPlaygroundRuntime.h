@@ -3,11 +3,13 @@
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
+#include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Perception/SensorObservation.h"
 #include "Simulation/Perception/TrackManager.h"
 #include "Simulation/Weapons/AcousticDecoy.h"
 #include "Simulation/Weapons/ConventionalTorpedo.h"
+#include "Simulation/Weapons/NavalMine.h"
 
 #include <algorithm>
 #include <cmath>
@@ -32,6 +34,9 @@ inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
 inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
 inline constexpr float M5CombatTorpedoSurfaceSafetyMarginMeters = 0.25F;
 inline constexpr double M5CombatActiveRangingIntervalSeconds = 3.0;
+inline constexpr float M5CombatMineForwardOffsetMeters = 520.0F;
+inline constexpr float M5CombatMineDepthOffsetMeters = 35.0F;
+inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
 
 struct CombatPlaygroundFrame final
 {
@@ -40,6 +45,9 @@ struct CombatPlaygroundFrame final
     PlayerCombatPresentationSnapshot playerCombat{};
     SimpleDestroyerCombatDecision destroyerDecision{};
     std::optional<Weapons::ConventionalTorpedoImpact> playerTorpedoImpact{};
+    std::optional<Weapons::NavalMineDetonation> playerMineDetonation{};
+    float playerIntegrityFraction = 1.0F;
+    bool playerDestroyed = false;
 };
 
 // M5-H live fixed-step combat composition. Authoritative scenario truth is used only where a simulator must
@@ -185,6 +193,86 @@ public:
         return AdvanceImpl(playerSnapshot, commands, simulationTimeSeconds, false);
     }
 
+    // M5-I.2 binds the production Antey physical proxy once after the windowed composition has both the
+    // PhysicalPlayground and CombatPlayground alive. The mine is a physical hazard, not perceived target truth.
+    [[nodiscard]] std::expected<void, std::string> BindPlayerPhysicalProxy(
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& proxy,
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const double simulationTimeSeconds)
+    {
+        if (physicsWorld_ == nullptr || playerIntegrity_.has_value() || mine_.has_value() ||
+            previousPlayerPositionMeters_.has_value() || !proxy.body.IsValid() ||
+            !proxy.positionMeters.IsFinite() || !proxy.orientation.IsFinite() ||
+            !proxy.halfExtentsMeters.IsFinite() || proxy.halfExtentsMeters.x <= 0.0F ||
+            proxy.halfExtentsMeters.y <= 0.0F || proxy.halfExtentsMeters.z <= 0.0F ||
+            !playerSnapshot.emitter.positionMeters.IsFinite() || !std::isfinite(simulationTimeSeconds) ||
+            simulationTimeSeconds < lastUpdateTimeSeconds_)
+        {
+            return std::unexpected("M5-I.2 player physical proxy binding input is invalid or already bound");
+        }
+
+        const auto authoritativeBody = physicsWorld_->GetBodyState(proxy.body);
+        if (!authoritativeBody || !authoritativeBody->position.IsFinite() ||
+            !authoritativeBody->orientation.IsFinite() ||
+            Distance(authoritativeBody->position, proxy.positionMeters) > 0.05 ||
+            !Physics::PhysicsQuaternion::SameRotation(authoritativeBody->orientation, proxy.orientation) ||
+            Distance(proxy.positionMeters, playerSnapshot.emitter.positionMeters) > 0.05)
+        {
+            return std::unexpected("M5-I.2 player physical proxy does not match live physics/acoustic authority");
+        }
+
+        const auto integrity = DeepRun::Combat::CreateCombatIntegrity(
+            proxy.body, M5CombatPlayerMaximumIntegrity, simulationTimeSeconds);
+        if (!integrity)
+        {
+            return std::unexpected("M5-I.2 player integrity creation failed: " + integrity.error());
+        }
+
+        Weapons::NavalMineDefinition definition{
+            .id = "m5.live-contact-mine",
+            .collisionHalfExtentsMeters = {.x = 2.0F, .y = 2.0F, .z = 2.0F},
+            .contactDamage = 80.0F,
+            .explosionRadiusMeters = 10.0F};
+        const Physics::PhysicsVector3 minePosition{
+            .x = playerSnapshot.emitter.positionMeters.x + M5CombatMineForwardOffsetMeters,
+            .y = playerSnapshot.emitter.positionMeters.y - M5CombatMineDepthOffsetMeters,
+            .z = playerSnapshot.emitter.positionMeters.z};
+        const auto mine = Weapons::CreateNavalMineRuntime(
+            definition, *physicsWorld_, minePosition, simulationTimeSeconds);
+        if (!mine)
+        {
+            return std::unexpected("M5-I.2 live naval mine creation failed: " + mine.error());
+        }
+
+        playerBody_ = proxy.body;
+        playerCollisionHalfExtentsMeters_ = proxy.halfExtentsMeters;
+        previousPlayerPositionMeters_ = proxy.positionMeters;
+        currentPlayerPhysicalProxy_ = proxy;
+        playerIntegrity_ = *integrity;
+        mineDefinition_ = std::move(definition);
+        mine_ = *mine;
+        return {};
+    }
+
+    // Refreshes the read-only production physical snapshot for the upcoming fixed combat tick. The acoustic
+    // body-reference position must agree with the physical bridge, but the physical snapshot owns sweep geometry.
+    [[nodiscard]] std::expected<void, std::string> UpdatePlayerPhysicalProxy(
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& proxy,
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot)
+    {
+        if (!playerIntegrity_ || !mine_ || !previousPlayerPositionMeters_ || !playerBody_.IsValid() ||
+            proxy.body != playerBody_ || !proxy.positionMeters.IsFinite() || !proxy.orientation.IsFinite() ||
+            !proxy.halfExtentsMeters.IsFinite() ||
+            Distance(proxy.positionMeters, playerSnapshot.emitter.positionMeters) > 0.05 ||
+            Distance(proxy.halfExtentsMeters, playerCollisionHalfExtentsMeters_) > 1.0e-4 ||
+            physicsWorld_ == nullptr || !physicsWorld_->GetBodyState(proxy.body).has_value())
+        {
+            return std::unexpected("M5-I.2 player physical proxy update is invalid or disagrees with acoustic authority");
+        }
+        currentPlayerPhysicalProxy_ = proxy;
+        return {};
+    }
+
     [[nodiscard]] const SimpleDestroyerRuntimeState& Destroyer() const noexcept { return destroyer_; }
     [[nodiscard]] const SimpleDestroyerDefinition& DestroyerDefinition() const noexcept { return destroyerDefinition_; }
     [[nodiscard]] const PlayerCombatCommandRuntime& PlayerCombat() const noexcept { return playerCombat_; }
@@ -197,6 +285,12 @@ public:
         return playerTorpedoLaunchPosition_;
     }
     [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& Decoy() const noexcept { return decoy_; }
+    [[nodiscard]] const std::optional<Weapons::NavalMineDefinition>& MineDefinition() const noexcept { return mineDefinition_; }
+    [[nodiscard]] const std::optional<Weapons::NavalMineRuntimeState>& Mine() const noexcept { return mine_; }
+    [[nodiscard]] const std::optional<DeepRun::Combat::CombatIntegrityState>& PlayerIntegrity() const noexcept
+    {
+        return playerIntegrity_;
+    }
     [[nodiscard]] const std::optional<DeepRun::Combat::CombatExplosionEvent>& LastExplosion() const noexcept
     {
         return lastExplosion_;
@@ -408,6 +502,51 @@ private:
             }
         }
 
+        std::optional<Weapons::NavalMineDetonation> mineDetonation{};
+        if (mineDefinition_ && mine_ && playerIntegrity_ && previousPlayerPositionMeters_)
+        {
+            if (playerIntegrity_->body != playerBody_ || !playerCollisionHalfExtentsMeters_.IsFinite() ||
+                !currentPlayerPhysicalProxy_ || currentPlayerPhysicalProxy_->body != playerBody_)
+            {
+                return std::unexpected("M5-I.2 bound player combat/physical identity is inconsistent");
+            }
+            const Physics::PhysicsVector3 displacement = Difference(
+                currentPlayerPhysicalProxy_->positionMeters, *previousPlayerPositionMeters_);
+            const double displacementSquared =
+                static_cast<double>(displacement.x) * displacement.x +
+                static_cast<double>(displacement.y) * displacement.y +
+                static_cast<double>(displacement.z) * displacement.z;
+            if (displacementSquared > 1.0e-10 && !mine_->detonated)
+            {
+                const auto detonated = Weapons::AdvanceNavalMineAgainstSweep(
+                    *mineDefinition_,
+                    *mine_,
+                    playerBody_,
+                    Physics::PhysicsBoxSweepQuery{
+                        .halfExtentsMeters = playerCollisionHalfExtentsMeters_,
+                        .startPositionMeters = *previousPlayerPositionMeters_,
+                        .orientation = currentPlayerPhysicalProxy_->orientation,
+                        .displacementMeters = displacement},
+                    *physicsWorld_,
+                    simulationTimeSeconds);
+                if (!detonated)
+                {
+                    return std::unexpected("M5-I.2 live naval mine sweep failed: " + detonated.error());
+                }
+                if (detonated->has_value())
+                {
+                    mineDetonation = **detonated;
+                    const auto damaged = DeepRun::Combat::ApplyCombatDamage(*playerIntegrity_, mineDetonation->damage);
+                    if (!damaged)
+                    {
+                        return std::unexpected("M5-I.2 player mine damage application failed: " + damaged.error());
+                    }
+                    lastExplosion_ = mineDetonation->explosion;
+                }
+            }
+            previousPlayerPositionMeters_ = currentPlayerPhysicalProxy_->positionMeters;
+        }
+
         if (decoy_)
         {
             const auto advanced = Weapons::AdvanceAcousticDecoy(decoyDefinition_, *decoy_, simulationTimeSeconds);
@@ -419,12 +558,23 @@ private:
 
         lastUpdateTimeSeconds_ = simulationTimeSeconds;
         const std::vector<Perception::Track> playerTrackSnapshot = playerTracks_.Tracks();
+        float playerIntegrityFraction = 1.0F;
+        bool playerDestroyed = false;
+        if (playerIntegrity_)
+        {
+            playerIntegrityFraction = std::clamp(
+                playerIntegrity_->remainingIntegrity / playerIntegrity_->maximumIntegrity, 0.0F, 1.0F);
+            playerDestroyed = playerIntegrity_->destroyed;
+        }
         return CombatPlaygroundFrame{
             .playerTracks = playerTrackSnapshot,
             .destroyerTracks = destroyerTracks_.Tracks(),
             .playerCombat = playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot),
             .destroyerDecision = *destroyerDecision,
-            .playerTorpedoImpact = impact};
+            .playerTorpedoImpact = impact,
+            .playerMineDetonation = mineDetonation,
+            .playerIntegrityFraction = playerIntegrityFraction,
+            .playerDestroyed = playerDestroyed};
     }
 
     [[nodiscard]] std::expected<void, std::string> AdvanceAutomatedPlayerCommander(
@@ -626,6 +776,14 @@ private:
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
+    // M5-I.2 live mine state is bound only when a real production player physical proxy is supplied.
+    std::optional<Weapons::NavalMineDefinition> mineDefinition_{};
+    std::optional<Weapons::NavalMineRuntimeState> mine_{};
+    Physics::PhysicsBodyHandle playerBody_{};
+    Physics::PhysicsVector3 playerCollisionHalfExtentsMeters_{};
+    std::optional<Physics::PhysicsVector3> previousPlayerPositionMeters_{};
+    std::optional<Submarine::AnteyPhysicalCollisionProxySnapshot> currentPlayerPhysicalProxy_{};
+    std::optional<DeepRun::Combat::CombatIntegrityState> playerIntegrity_{};
     std::optional<Weapons::ConventionalTorpedoRuntimeState> playerTorpedo_{};
     std::optional<Physics::PhysicsVector3> playerTorpedoLaunchPosition_{};
     float playerTorpedoForwardSign_ = 1.0F;

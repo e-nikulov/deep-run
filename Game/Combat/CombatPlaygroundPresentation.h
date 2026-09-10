@@ -31,6 +31,12 @@ struct CombatPlaygroundDecoyPresentation final
     bool active = false;
 };
 
+struct CombatPlaygroundMinePresentation final
+{
+    Physics::PhysicsVector3 positionMeters{};
+    Physics::PhysicsVector3 halfExtentsMeters{};
+};
+
 struct CombatPlaygroundExplosionPresentation final
 {
     Physics::PhysicsVector3 positionMeters{};
@@ -45,6 +51,7 @@ struct CombatPlaygroundPresentationSnapshot final
     bool destroyerDestroyed = false;
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
     std::optional<CombatPlaygroundDecoyPresentation> decoy{};
+    std::optional<CombatPlaygroundMinePresentation> navalMine{};
     std::optional<CombatPlaygroundExplosionPresentation> explosion{};
 };
 
@@ -54,6 +61,7 @@ enum class CombatPlaygroundPresentationElement
     DestroyerSuperstructure,
     PlayerTorpedo,
     AcousticDecoy,
+    NavalMine,
     Explosion,
 };
 
@@ -120,6 +128,24 @@ BuildCombatPlaygroundPresentationSnapshot(
         snapshot.decoy = CombatPlaygroundDecoyPresentation{
             .positionMeters = decoy->emitter.positionMeters,
             .active = decoy->active};
+    }
+
+    if (const auto& mine = runtime.Mine(); mine.has_value() && mine->armed && !mine->detonated)
+    {
+        const auto& definition = runtime.MineDefinition();
+        if (!definition || definition->id != mine->definitionId || !mine->body.IsValid() ||
+            !definition->collisionHalfExtentsMeters.IsFinite())
+        {
+            return std::unexpected("M5-I.2 armed mine presentation authority is invalid");
+        }
+        const auto mineBody = physicsWorld.GetBodyState(mine->body);
+        if (!mineBody || !mineBody->position.IsFinite())
+        {
+            return std::unexpected("M5-I.2 armed mine physical snapshot is unavailable");
+        }
+        snapshot.navalMine = CombatPlaygroundMinePresentation{
+            .positionMeters = mineBody->position,
+            .halfExtentsMeters = definition->collisionHalfExtentsMeters};
     }
 
     if (const auto& explosion = runtime.LastExplosion(); explosion.has_value())
@@ -326,7 +352,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     }
 
     std::vector<CombatPlaygroundPresentationDraw> draws;
-    draws.reserve(5U);
+    draws.reserve(6U);
 
     const auto hullTransform = PoseScaleTransform(
         snapshot.destroyerBody.position,
@@ -395,6 +421,29 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
             CombatPlaygroundPresentationElement::AcousticDecoy,
             *transform,
             Material("M5AcousticDecoy", {0.18F, 0.68F, 0.76F, 1.0F}, 0.08F, 0.42F));
+        if (!draw)
+        {
+            return std::unexpected(draw.error());
+        }
+        draws.push_back(std::move(*draw));
+    }
+
+    if (snapshot.navalMine)
+    {
+        const auto transform = PoseScaleTransform(
+            snapshot.navalMine->positionMeters,
+            {},
+            {.x = snapshot.navalMine->halfExtentsMeters.x * 2.0F,
+             .y = snapshot.navalMine->halfExtentsMeters.y * 2.0F,
+             .z = snapshot.navalMine->halfExtentsMeters.z * 2.0F});
+        if (!transform)
+        {
+            return std::unexpected(transform.error());
+        }
+        auto draw = MakeDraw(
+            CombatPlaygroundPresentationElement::NavalMine,
+            *transform,
+            Material("M5NavalMine", {0.30F, 0.25F, 0.14F, 1.0F}, 0.42F, 0.66F));
         if (!draw)
         {
             return std::unexpected(draw.error());

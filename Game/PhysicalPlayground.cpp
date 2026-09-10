@@ -971,6 +971,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     faunaModel_ = faunaUpload->handle;
     faunaBaseDraw_ = faunaDraws->front();
     physicsBody_ = body;
+    submarineCollisionHalfExtents_ = collisionHalfExtents;
     surfaceFloatModel_ = std::move(surfaceFloatModel);
     surfaceFloatModelGpu_ = surfaceFloatUpload->handle;
     surfaceFloatBaseDraw_ = surfaceFloatDraws->front();
