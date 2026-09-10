@@ -256,7 +256,11 @@ public:
         {
             window->SetClientSize(1024, 640);
         }
-        if (options.smokeTest && timer.FrameIndex() >= 120)
+        // Keep the historical 120-frame resize/render floor, but do not let a fast CI runner terminate before
+        // the longer M5 conventional-torpedo profile can complete its real fixed-step/Jolt impact path.
+        constexpr double m5SmokeMinimumSimulationTimeSeconds = 8.0;
+        if (options.smokeTest && timer.FrameIndex() >= 120 &&
+            simulationTimeSeconds >= m5SmokeMinimumSimulationTimeSeconds)
         {
             RequestShutdown();
             return false;
