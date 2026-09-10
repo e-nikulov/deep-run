@@ -89,5 +89,7 @@ private:
     bool cameraZoomInKeyDown_ = false;
     bool cameraZoomOutKeyDown_ = false;
     bool selectContactKeyDown_ = false;
+    bool prepareWeaponKeyDown_ = false;
+    bool fireWeaponKeyDown_ = false;
 };
 }
