@@ -506,3 +506,4 @@ int Engine::ExitCode() const noexcept
 {
     return impl_->exitCode;
 }
+} // namespace DeepRun::Core
