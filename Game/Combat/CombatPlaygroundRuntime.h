@@ -18,13 +18,14 @@
 
 namespace DeepRun::Game::Combat
 {
-// M5 playground framing/weapon-profile tuning. These values exist to make the bounded side-view combat scenario
-// readable and to distinguish a conventional heavyweight torpedo from a future P-700 water-exit/airborne path.
-// They are gameplay-authored values, not claimed real-world Project 949A or torpedo performance data.
-inline constexpr float M5CombatCameraTargetOffsetXMeters = 150.0F;
-inline constexpr float M5CombatDestroyerInitialXMeters = 380.0F;
+// M5 playground framing/weapon-profile tuning. The physical engagement is authored in kilometres; camera span
+// is presentation policy and must not dictate target placement. The local launch frame places Antey at roughly
+// one quarter of the view, while the later tactical overview reveals the remote target. These are gameplay
+// values, not claimed real-world Project 949A or torpedo performance data.
+inline constexpr float M5CombatCameraTargetOffsetXMeters = 400.0F;
+inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;
 inline constexpr float M5CombatTorpedoLaunchClearanceMeters = 85.0F;
-inline constexpr float M5CombatTorpedoStraightRunMeters = 60.0F;
+inline constexpr float M5CombatTorpedoStraightRunMeters = 250.0F;
 inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
 inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
 inline constexpr float M5CombatTorpedoSurfaceSafetyMarginMeters = 0.25F;
