@@ -851,8 +851,16 @@ int main(const int argumentCount, char** argumentValues)
                               << " submitted_triangles=" << rendered->submittedIndices / 3U << '\n';
                 }
                 ++renderFrames;
-                return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
-                       rendered->submittedIndices == 364380;
+                if (options.benchmarkM3)
+                {
+                    // Historical M3 benchmark remains an exact regression gate. Normal M5 framing may
+                    // intentionally add presentation-only environment tiles or suppress bounded local-detail
+                    // passes, so applying M3 draw totals to it would incorrectly make valid zoom/pan fail.
+                    return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
+                           rendered->submittedIndices == 364380;
+                }
+                return rendered->drawCalls > 0U && rendered->submittedPrimitives > 0U &&
+                       rendered->submittedIndices > 0U;
             });
         const int applicationExitCode = application.Run();
         if (combatAcceptance.has_value())

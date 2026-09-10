@@ -12,6 +12,7 @@
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Submarine/ProductionAnteyLodPolicy.h"
 #include "Game/SurfaceFloatModel.h"
+#include "Game/Environment/ScalableEnvironmentPresentation.h"
 #include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
@@ -1563,35 +1564,140 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
 
-    const auto gerstnerStats = renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
+    // M5-H.4 scalable presentation: the accepted M3 section remains the sole local environment/physics
+    // authority. Wider tactical views reuse only presentation draw instances. No additional Jolt bodies,
+    // WaterBody state, acoustic terrain, navigation authority or gameplay objects are created here.
+    std::span<const Render::ModelDrawInstance> seabedPresentationDraws{seabedDraws_};
+    std::span<const Render::ModelDrawInstance> floraPresentationDraws{floraDraws_};
+    std::span<const Render::ModelDrawInstance> icePresentationDraws{iceDraws_};
+    Render::ModelDrawInstance faunaDraw = faunaBaseDraw_;
+    faunaDraw.modelToWorld = *faunaModelToWorld;
+    std::span<const Render::ModelDrawInstance> faunaPresentationDraws(&faunaDraw, 1U);
+
+    std::vector<Render::ModelDrawInstance> scalableSeabedDraws;
+    std::vector<Render::ModelDrawInstance> scalableFloraDraws;
+    std::vector<Render::ModelDrawInstance> scalableIceDraws;
+    std::vector<Render::ModelDrawInstance> scalableFaunaDraws;
+
+    if (freePresentationCameraFraming_)
+    {
+        if (UseDetailedEnvironmentPresentation(camera->width))
+        {
+            // The canonical section ends five metres lower on the east edge than on the west edge. Applying
+            // the same -5 m step to repeated seabed/flora tiles joins adjacent profile endpoints exactly,
+            // avoiding the vertical walls/seams that exposed the old M3 rectangle in wide views.
+            constexpr float SeabedTileVerticalStepMeters = -5.0F;
+            const auto terrainTiles = BuildEnvironmentPresentationTiles(
+                seabedSection_->renderGeometry.bounds.minimum.x,
+                seabedSection_->renderGeometry.bounds.maximum.x,
+                camera->target.x,
+                camera->width,
+                SeabedTileVerticalStepMeters);
+            if (!terrainTiles)
+            {
+                return std::unexpected("physical playground scalable environment tiling failed: " +
+                                       terrainTiles.error());
+            }
+
+            scalableSeabedDraws = BuildEnvironmentPresentationDraws(
+                std::span<const Render::ModelDrawInstance>(seabedDraws_),
+                std::span<const EnvironmentPresentationTile>(*terrainTiles));
+            scalableFloraDraws = BuildEnvironmentPresentationDraws(
+                std::span<const Render::ModelDrawInstance>(floraDraws_),
+                std::span<const EnvironmentPresentationTile>(*terrainTiles));
+            seabedPresentationDraws = scalableSeabedDraws;
+            floraPresentationDraws = scalableFloraDraws;
+
+            // Upper-water ice and the fish school remain tied to sea/depth presentation rather than the
+            // sloping seabed continuation, so only X repeats; Y is deliberately unchanged.
+            std::vector<EnvironmentPresentationTile> waterColumnTiles = *terrainTiles;
+            for (EnvironmentPresentationTile& tile : waterColumnTiles)
+            {
+                tile.offsetYMeters = 0.0F;
+            }
+            scalableIceDraws = BuildEnvironmentPresentationDraws(
+                std::span<const Render::ModelDrawInstance>(iceDraws_),
+                std::span<const EnvironmentPresentationTile>(waterColumnTiles));
+            scalableFaunaDraws = BuildEnvironmentPresentationDraws(
+                std::span<const Render::ModelDrawInstance>(&faunaDraw, 1U),
+                std::span<const EnvironmentPresentationTile>(waterColumnTiles));
+            icePresentationDraws = scalableIceDraws;
+            faunaPresentationDraws = scalableFaunaDraws;
+        }
+        else
+        {
+            // Operational/strategic bands intentionally do not multiply local M3 decoration. Higher-level
+            // contact/symbol presentation owns those scales; rendering a tiny bounded terrain tile would
+            // recreate the exact rectangular artifact H.4 removes.
+            seabedPresentationDraws = {};
+            floraPresentationDraws = {};
+            icePresentationDraws = {};
+            faunaPresentationDraws = {};
+        }
+    }
+
+    // The M3 Gerstner surface and suspended-particle field are authored as bounded local-detail envelopes.
+    // Draw them only while that envelope fully covers the viewport. At wider/panned framing the full-width
+    // WaterBody-derived underlay + depth/fog presentation remains, so no differently shaded rectangle can
+    // reveal the local mesh/field bounds. Untouched 600 m M3 still takes the original draw path exactly once.
+    const Render::GerstnerSurfacePresentationParameters gerstnerPresentation =
+        BuildGerstnerSurfacePresentation(*water_);
+    const bool gerstnerCoversView = HorizontalPresentationBoundsCoverView(
+        gerstnerPresentation.minimumX,
+        gerstnerPresentation.maximumX,
+        camera->target.x,
+        camera->width);
+    std::expected<Render::GerstnerSurfaceDrawStats, std::string> gerstnerStats =
+        Render::GerstnerSurfaceDrawStats{};
+    if (gerstnerCoversView)
+    {
+        gerstnerStats = renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
+    }
     if (!gerstnerStats)
     {
         return std::unexpected("physical playground Gerstner surface draw failed: " + gerstnerStats.error());
     }
 
-    const auto seabedStats = renderer.DrawModel(seabedModel_, seabedDraws_, *camera);
+    std::expected<Render::ModelDrawStats, std::string> seabedStats = Render::ModelDrawStats{};
+    if (!seabedPresentationDraws.empty())
+    {
+        seabedStats = renderer.DrawModel(seabedModel_, seabedPresentationDraws, *camera);
+    }
     if (!seabedStats)
     {
         return seabedStats;
     }
-    const auto floraStats = renderer.DrawModel(floraModel_, floraDraws_, *camera);
+
+    std::expected<Render::ModelDrawStats, std::string> floraStats = Render::ModelDrawStats{};
+    if (!floraPresentationDraws.empty())
+    {
+        floraStats = renderer.DrawModel(floraModel_, floraPresentationDraws, *camera);
+    }
     if (!floraStats)
     {
         return floraStats;
     }
-    const auto iceStats = renderer.DrawModel(iceModel_, iceDraws_, *camera);
+
+    std::expected<Render::ModelDrawStats, std::string> iceStats = Render::ModelDrawStats{};
+    if (!icePresentationDraws.empty())
+    {
+        iceStats = renderer.DrawModel(iceModel_, icePresentationDraws, *camera);
+    }
     if (!iceStats)
     {
         return iceStats;
     }
-    Render::ModelDrawInstance faunaDraw = faunaBaseDraw_;
-    faunaDraw.modelToWorld = *faunaModelToWorld;
-    const auto faunaStats = renderer.DrawModel(
-        faunaModel_, std::span<const Render::ModelDrawInstance>(&faunaDraw, 1U), *camera);
+
+    std::expected<Render::ModelDrawStats, std::string> faunaStats = Render::ModelDrawStats{};
+    if (!faunaPresentationDraws.empty())
+    {
+        faunaStats = renderer.DrawModel(faunaModel_, faunaPresentationDraws, *camera);
+    }
     if (!faunaStats)
     {
         return faunaStats;
     }
+
     const auto submarineStats = renderer.DrawModel(submarineModel_, *draws, *camera);
     if (!submarineStats)
     {
@@ -1603,15 +1709,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return surfaceFloatStats;
     }
-    // M3-D runs after opaque terrain and submarine draws, so its deliberately approximate transparent quads
-    // still fail the existing depth test when they are behind opaque geometry. The renderer reuses the exact
-    // immutable M3-C.1 scene presentation CBV rather than accepting another Game snapshot for this pass.
-    const auto particleStats = renderer.DrawSuspendedParticleField(*camera);
+
+    const bool particleFieldCoversView = HorizontalPresentationBoundsCoverView(
+        M3UnderwaterParticleField.minimumWorldPosition[0],
+        M3UnderwaterParticleField.maximumWorldPosition[0],
+        camera->target.x,
+        camera->width);
+    std::expected<Render::SuspendedParticleDrawStats, std::string> particleStats =
+        Render::SuspendedParticleDrawStats{};
+    if (particleFieldCoversView)
+    {
+        particleStats = renderer.DrawSuspendedParticleField(*camera);
+    }
     if (!particleStats)
     {
         return std::unexpected("physical playground particle draw failed: " + particleStats.error());
     }
-
     // Physics diagnostics live in FixedUpdate. Render logs only the bounded presentation contract once, so
     // camera/waterline evidence is not duplicated with authoritative physical samples.
     if (!loggedRenderPresentation_)
