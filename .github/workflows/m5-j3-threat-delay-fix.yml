@@ -1,0 +1,33 @@
+name: M5 J3 Threat Delay Fix
+
+on:
+  push:
+    branches:
+      - tmp/m5-j3-incoming-threat-ui
+    paths:
+      - Tools/CI/apply_m5_j3_threat_delay_fix.py
+      - .github/workflows/m5-j3-threat-delay-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply fix
+        shell: pwsh
+        run: python Tools/CI/apply_m5_j3_threat_delay_fix.py
+      - name: Commit clean tree
+        shell: pwsh
+        run: |
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git rm Tools/CI/apply_m5_j3_threat_delay_fix.py .github/workflows/m5-j3-threat-delay-fix.yml
+          git add Game/Combat/CombatPlaygroundRuntime.h Tests/M5CombatPlaygroundRuntimeChecks.h docs/development/m5-combat-playground.md
+          git commit -m "fix: preserve M5 J3 acoustic threat propagation delay"
+          git push origin HEAD:tmp/m5-j3-incoming-threat-ui
