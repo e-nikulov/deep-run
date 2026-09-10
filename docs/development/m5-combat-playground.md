@@ -2,6 +2,43 @@
 
 Status: IN PROGRESS
 
+## M5-H.1-B — automated windowed visual acceptance
+
+Status: IMPLEMENTED — local Debug/Release verification passed; CI run ID pending the workflow execution for
+the resulting commit.
+
+The existing Win32 `WindowFrameCapture` path is now also used by a bounded M5 acceptance harness. The
+harness observes authoritative `SimulationTime`, PhysicsWorld body snapshots, the real Jolt-backed torpedo
+impact event, and the existing combat presentation draw statistics. It does not perform a second hit or
+distance-based collision detector and it does not score subjective image quality.
+
+Required deterministic checkpoints are:
+
+- `M5_COMBAT_INITIAL` — production Antey and surface destroyer are present before launch.
+- `M5_TORPEDO_IN_FLIGHT` — the active torpedo is separated from Antey and destroyer.
+- `M5_PRE_IMPACT` — the active torpedo is close to the destroyer without an emitted impact.
+- `M5_POST_IMPACT` — the Jolt hit targets the destroyer body, the torpedo is spent, integrity is reduced,
+  and the explosion uses the physical hit position.
+- `M5_RESIZED` — the existing 1280x720 to 1024x640 smoke resize preserves the fixed 600 m side-view,
+  finite camera matrices, and the combat GPU presentation handle.
+
+Each checkpoint writes `m5-combat-acceptance.json` state alongside a best-effort BMP capture named
+`m5-combat-initial.bmp`, `m5-torpedo-flight.bmp`, `m5-pre-impact.bmp`, `m5-post-impact.bmp`, or
+`m5-resized.bmp`. The machine gate validates finite transforms, the destroyer surface band, bounded and
+forward torpedo movement, decoy separation, physical impact-body identity, explosion/impact position
+agreement, spent-torpedo immobility, the M5 draw contract, camera/aspect stability, GPU handle validity,
+and the historical PhysicalPlayground `74/72/364380` regression counters. Image-diff gating is deferred:
+the current Win32 compositor capture is not sufficiently driver-deterministic for a useful mandatory pixel
+threshold, while the numerical/state gate is deterministic and mandatory.
+
+Automation does not replace human review of apparent destroyer scale relative to Antey, natural torpedo
+motion, decoy visual distinction, whether impact/explosion reads on the destroyer, or scene coherence after
+resize.
+
+CI run ID: pending (this worktree has no CI run for its uncommitted changes).
+Accepted commit SHA: `41ed6422fa79aa56c48b38476af7bedda6c11774` base; update this line with the resulting
+commit SHA and CI run ID when the workflow accepts the change.
+
 Milestone 5 begins from the accepted M4 perceived-world boundary. Combat systems must consume observations/contacts/tracks appropriate to their role and must not gain authoritative hostile entity state merely because Simulation knows it.
 
 ## M5-A — weapon readiness and track-constrained targeting

@@ -3,6 +3,7 @@
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/AcousticPlaygroundRuntime.h"
+#include "Game/Combat/CombatPlaygroundAcceptance.h"
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicalPlayground.h"
@@ -17,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -251,6 +253,130 @@ bool WriteBmp(
     output.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
     return static_cast<bool>(output);
 }
+
+const char* M5CheckpointName(const DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint checkpoint) noexcept
+{
+    using Checkpoint = DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint;
+    switch (checkpoint)
+    {
+    case Checkpoint::Initial: return "M5_COMBAT_INITIAL";
+    case Checkpoint::TorpedoInFlight: return "M5_TORPEDO_IN_FLIGHT";
+    case Checkpoint::PreImpact: return "M5_PRE_IMPACT";
+    case Checkpoint::PostImpact: return "M5_POST_IMPACT";
+    case Checkpoint::Resized: return "M5_RESIZED";
+    }
+    return "M5_UNKNOWN";
+}
+
+const char* WeaponPhaseName(const DeepRun::Weapons::WeaponPhase phase) noexcept
+{
+    using Phase = DeepRun::Weapons::WeaponPhase;
+    switch (phase)
+    {
+    case Phase::Stored: return "Stored";
+    case Phase::Preparing: return "Preparing";
+    case Phase::Ready: return "Ready";
+    case Phase::Launched: return "Launched";
+    }
+    return "Unknown";
+}
+
+const char* MovementDomainName(const DeepRun::Weapons::MovementDomain domain) noexcept
+{
+    using Domain = DeepRun::Weapons::MovementDomain;
+    switch (domain)
+    {
+    case Domain::Attached: return "Attached";
+    case Domain::Underwater: return "Underwater";
+    case Domain::Spent: return "Spent";
+    }
+    return "Unknown";
+}
+
+nlohmann::json JsonVector(const DeepRun::Physics::PhysicsVector3& value)
+{
+    return { {"x", value.x}, {"y", value.y}, {"z", value.z} };
+}
+
+bool WriteM5AcceptanceReport(
+    const std::filesystem::path& path,
+    const DeepRun::Game::Combat::M5CombatVisualAcceptance& acceptance)
+{
+    nlohmann::json report;
+    report["schema"] = "deeprun.m5.combat.visual-acceptance.v1";
+    report["all_state_checkpoints_seen"] = acceptance.AllStateCheckpointsSeen();
+    report["image_diff_gate"] = "deferred: renderer capture is driver/compositor dependent; numerical state gate is mandatory";
+    report["checkpoints"] = nlohmann::json::array();
+    for (const auto& record : acceptance.Records())
+    {
+        if (!record.has_value())
+        {
+            continue;
+        }
+        const auto& state = record->state;
+        nlohmann::json entry{
+            {"name", M5CheckpointName(record->checkpoint)},
+            {"simulation_time_seconds", state.simulationTimeSeconds},
+            {"antey_position_meters", JsonVector(state.anteyPositionMeters)},
+            {"destroyer_position_meters", JsonVector(state.destroyerBody.position)},
+            {"destroyer_integrity", state.destroyerIntegrity},
+            {"destroyer_body_active", state.destroyerBody.active},
+            {"combat_draw_calls", state.combatDrawCalls},
+            {"combat_submitted_primitives", state.combatSubmittedPrimitives},
+            {"combat_submitted_indices", state.combatSubmittedIndices},
+            {"camera_aspect_ratio", state.cameraAspectRatio},
+            {"camera_horizontal_span_meters", state.cameraHorizontalSpanMeters},
+            {"gpu_presentation_handle_valid", state.gpuPresentationHandleValid},
+            {"image_captured", record->imageCaptured},
+            {"image_path", record->imagePath}};
+        if (state.torpedo.has_value())
+        {
+            entry["torpedo"] = {
+                {"position_meters", JsonVector(state.torpedo->positionMeters)},
+                {"heading_radians", state.torpedo->headingRadians},
+                {"weapon_phase", WeaponPhaseName(state.torpedo->weaponPhase)},
+                {"movement_domain", MovementDomainName(state.torpedo->movementDomain)}};
+        }
+        else
+        {
+            entry["torpedo"] = nullptr;
+        }
+        entry["decoy_active"] = state.decoyActive;
+        if (state.decoyPositionMeters.has_value())
+        {
+            entry["decoy_position_meters"] = JsonVector(*state.decoyPositionMeters);
+        }
+        else
+        {
+            entry["decoy_position_meters"] = nullptr;
+        }
+        entry["impact"] = {
+            {"present", state.hasImpact},
+            {"body_handle_valid", state.impactBodyHandleValid},
+            {"target_is_destroyer_body", state.impactTargetIsDestroyer}};
+        if (state.impactPositionMeters.has_value())
+        {
+            entry["impact"]["position_meters"] = JsonVector(*state.impactPositionMeters);
+        }
+        if (state.explosionPositionMeters.has_value())
+        {
+            entry["explosion_position_meters"] = JsonVector(*state.explosionPositionMeters);
+        }
+        else
+        {
+            entry["explosion_position_meters"] = nullptr;
+        }
+        report["checkpoints"].push_back(std::move(entry));
+    }
+
+    std::ofstream output(path);
+    if (!output)
+    {
+        return false;
+    }
+    output << report.dump(2) << '\n';
+    return static_cast<bool>(output);
+}
 } // namespace
 
 int main(const int argumentCount, char** argumentValues)
@@ -269,6 +395,7 @@ int main(const int argumentCount, char** argumentValues)
         DeepRun::Game::HapticFeedbackSystem hapticFeedback;
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
         std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
+        std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
@@ -354,6 +481,7 @@ int main(const int argumentCount, char** argumentValues)
                 return playground.SubmarineModel().IsValid();
             },
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
+             &combatAcceptance,
              &inputState, &engineServices, &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation,
              &loggedConfirmedAcousticTrack, &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
@@ -440,6 +568,21 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combatFrame.error() << '\n';
                         return false;
                     }
+                    if (!combatAcceptance.has_value())
+                    {
+                        combatAcceptance.emplace(static_cast<float>(
+                            acousticSnapshot->emitter.positionMeters.y + acousticSnapshot->signedDepthMeters));
+                    }
+                    const auto acceptanceObserved = combatAcceptance->ObserveFixed(
+                        *combatPlayground->Runtime(), *physics, *acousticSnapshot, *combatFrame,
+                        simulationTimeSeconds,
+                        physics != nullptr && engineServices->Renderer() != nullptr &&
+                            std::abs(engineServices->Renderer()->AspectRatio() - (1280.0F / 720.0F)) > 0.001F);
+                    if (!acceptanceObserved)
+                    {
+                        std::cerr << "[Game][ERROR] " << acceptanceObserved.error() << '\n';
+                        return false;
+                    }
                     if (!loggedCombatRuntime)
                     {
                         loggedCombatRuntime = true;
@@ -485,7 +628,7 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &combatPlayground, &frameCapture, &captureEnabled, &options, &renderFrames,
+            [&playground, &combatPlayground, &combatAcceptance, &frameCapture, &captureEnabled, &options, &renderFrames,
              &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
@@ -529,6 +672,56 @@ int main(const int argumentCount, char** argumentValues)
                     {
                         std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
                         return false;
+                    }
+                    if (combatAcceptance.has_value())
+                    {
+                        const auto acceptanceRendered = combatAcceptance->ObserveRender(
+                            *combatPlayground->Runtime(),
+                            *physics,
+                            *camera,
+                            *combatRendered,
+                            renderer.AspectRatio(),
+                            combatPlayground->PresentationModelValid(renderer));
+                        if (!acceptanceRendered)
+                        {
+                            std::cerr << "[Game][ERROR] " << acceptanceRendered.error() << '\n';
+                            return false;
+                        }
+                        if (acceptanceRendered->has_value())
+                        {
+                            const auto checkpoint = acceptanceRendered->value().checkpoint;
+                            const std::filesystem::path imagePath = [&checkpoint]() {
+                                switch (checkpoint)
+                                {
+                                case DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint::Initial:
+                                    return std::filesystem::path("m5-combat-initial.bmp");
+                                case DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint::TorpedoInFlight:
+                                    return std::filesystem::path("m5-torpedo-flight.bmp");
+                                case DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint::PreImpact:
+                                    return std::filesystem::path("m5-pre-impact.bmp");
+                                case DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint::PostImpact:
+                                    return std::filesystem::path("m5-post-impact.bmp");
+                                case DeepRun::Game::Combat::M5CombatAcceptanceCheckpoint::Resized:
+                                    return std::filesystem::path("m5-resized.bmp");
+                                }
+                                return std::filesystem::path("m5-unknown.bmp");
+                            }();
+                            if (captureEnabled)
+                            {
+                                std::vector<std::byte> pixels;
+                                std::uint32_t width = 0;
+                                std::uint32_t height = 0;
+                                if (frameCapture.Capture(pixels, width, height) &&
+                                    WriteBmp(imagePath, pixels, width, height))
+                                {
+                                    combatAcceptance->MarkImageCaptured(checkpoint, imagePath.string());
+                                    std::cout << "[Game][M5] Captured " << M5CheckpointName(checkpoint)
+                                              << " to " << imagePath.string() << '\n';
+                                }
+                            }
+                            static_cast<void>(WriteM5AcceptanceReport(
+                                "m5-combat-acceptance.json", *combatAcceptance));
+                        }
                     }
                 }
 
@@ -575,7 +768,17 @@ int main(const int argumentCount, char** argumentValues)
                 return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
                        rendered->submittedIndices == 364380;
             });
-        return application.Run();
+        const int applicationExitCode = application.Run();
+        if (combatAcceptance.has_value())
+        {
+            static_cast<void>(WriteM5AcceptanceReport("m5-combat-acceptance.json", *combatAcceptance));
+            if (applicationExitCode == 0 && options.smokeTest && !combatAcceptance->AllStateCheckpointsSeen())
+            {
+                std::cerr << "[Game][ERROR] M5 visual acceptance did not observe every required checkpoint\n";
+                return 13;
+            }
+        }
+        return applicationExitCode;
     }
     catch (const std::exception& exception)
     {

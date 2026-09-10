@@ -81,6 +81,13 @@ public:
         return runtime_;
     }
 
+    // Read-only resize acceptance hook. The view remains the owner of the opaque upload; callers only get
+    // the renderer's validity result and cannot inspect or replace the GPU handle.
+    [[nodiscard]] bool PresentationModelValid(const Render::D3D12Renderer& renderer) const noexcept
+    {
+        return view_.Model().IsValid() && renderer.IsGpuModelValid(view_.Model());
+    }
+
 private:
     explicit CombatPlaygroundWindowedComposition(CombatPlaygroundView view)
         : view_(std::move(view))
