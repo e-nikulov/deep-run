@@ -35,6 +35,7 @@ inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
 inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
 inline constexpr float M5CombatTorpedoSurfaceSafetyMarginMeters = 0.25F;
 inline constexpr double M5CombatActiveRangingIntervalSeconds = 3.0;
+inline constexpr double M5CombatDestroyerActiveRangingIntervalSeconds = 6.0;
 inline constexpr float M5CombatMineForwardOffsetMeters = 520.0F;
 inline constexpr float M5CombatMineDepthOffsetMeters = 35.0F;
 inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
@@ -338,6 +339,7 @@ private:
           playerCombat_(std::move(playerCombat)),
           decoyDefinition_(std::move(decoyDefinition)),
           nextActivePulseTimeSeconds_(simulationTimeSeconds),
+          nextDestroyerActivePulseTimeSeconds_(simulationTimeSeconds),
           lastUpdateTimeSeconds_(simulationTimeSeconds)
     {
     }
@@ -392,6 +394,62 @@ private:
         else if (!destroyerTracks_.AdvanceTo(simulationTimeSeconds))
         {
             return std::unexpected("M5-H destroyer TrackManager failed to advance");
+        }
+
+        // M5-F.1: active ranging is initiated from perceived passive awareness only. The beam direction comes
+        // from the destroyer's Track; player ground truth is visible solely to the acoustic simulator as a
+        // reflector. The returned active echo is converted back into ordinary ranged perceived evidence before
+        // the existing Track-only combat controller is allowed to make a fire-control decision.
+        if (!destroyerActivePulse_ && destroyer_.weapon.phase != Weapons::WeaponPhase::Launched &&
+            simulationTimeSeconds >= nextDestroyerActivePulseTimeSeconds_)
+        {
+            const auto awarenessTrack = SelectBestSimpleDestroyerTrack(
+                destroyerDefinition_.combat, destroyerTracks_.Tracks());
+            if (awarenessTrack)
+            {
+                const float bearing = awarenessTrack->estimatedBearingRadians;
+                destroyerActivePulse_ = Acoustics::ActiveAcousticPulse{
+                    .originMeters = destroyerAcoustics->passiveReceiver.positionMeters,
+                    .forwardUnitVector = {
+                        .x = static_cast<float>(std::cos(static_cast<double>(bearing))),
+                        .y = static_cast<float>(std::sin(static_cast<double>(bearing))),
+                        .z = 0.0F},
+                    .sourceLevelDb = {.levelDb = {228.0F, 232.0F, 234.0F, 230.0F}},
+                    .beamHalfAngleRadians = 0.30F,
+                    .emissionTimeSeconds = simulationTimeSeconds};
+                destroyerActiveReflector_ = Acoustics::AcousticReflector{
+                    .positionMeters = playerSnapshot.emitter.positionMeters,
+                    .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
+            }
+        }
+
+        if (destroyerActivePulse_ && destroyerActiveReflector_)
+        {
+            Acoustics::AcousticReceiver activeReceiver = destroyerAcoustics->passiveReceiver;
+            activeReceiver.positionMeters = destroyerActivePulse_->originMeters;
+            const auto activeEcho = Acoustics::CollectMonostaticActiveEchoObservation(
+                acousticWorld_,
+                *destroyerActivePulse_,
+                *destroyerActiveReflector_,
+                activeReceiver,
+                simulationTimeSeconds);
+            if (!activeEcho)
+            {
+                return std::unexpected("M5-F.1 destroyer active echo failed: " + activeEcho.error());
+            }
+            if (activeEcho->has_value())
+            {
+                const auto perceived = Perception::FromAcousticObservation(
+                    **activeEcho, destroyerActivePulse_->originMeters);
+                if (!perceived || !destroyerTracks_.IntegrateObservation(*perceived))
+                {
+                    return std::unexpected("M5-F.1 destroyer ranged evidence failed perception integration");
+                }
+                destroyerActivePulse_.reset();
+                destroyerActiveReflector_.reset();
+                nextDestroyerActivePulseTimeSeconds_ =
+                    simulationTimeSeconds + M5CombatDestroyerActiveRangingIntervalSeconds;
+            }
         }
 
         const auto destroyerDecision = AdvanceSimpleDestroyerCombatRuntime(
@@ -938,6 +996,9 @@ private:
     std::optional<Acoustics::ActiveAcousticPulse> activePulse_{};
     std::optional<Acoustics::AcousticReflector> activeReflector_{};
     double nextActivePulseTimeSeconds_ = 0.0;
+    std::optional<Acoustics::ActiveAcousticPulse> destroyerActivePulse_{};
+    std::optional<Acoustics::AcousticReflector> destroyerActiveReflector_{};
+    double nextDestroyerActivePulseTimeSeconds_ = 0.0;
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
 };

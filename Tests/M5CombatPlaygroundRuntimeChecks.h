@@ -61,7 +61,10 @@ namespace DeepRun::Tests
     Game::Combat::CombatPlaygroundCameraDirector cameraDirector;
     bool sawPlayerSpatialTrack = false;
     bool sawDestroyerAwareness = false;
+    bool sawDestroyerBearingOnlyAwareness = false;
+    bool sawDestroyerSpatialFireControlTrack = false;
     bool sawDestroyerPreparation = false;
+    bool sawDestroyerLaunch = false;
     bool sawTorpedo = false;
     bool sawDecoy = false;
     bool sawLiveSeekerSelection = false;
@@ -143,16 +146,40 @@ namespace DeepRun::Tests
         }
         for (const auto& track : frame->destroyerTracks)
         {
-            sawDestroyerAwareness = sawDestroyerAwareness ||
-                track.lifecycle == Perception::TrackLifecycleState::Confirmed;
-            // Passive destroyer awareness must remain bearing-only in this live composition.
-            if (track.estimatedPositionMeters.has_value())
+            if (track.lifecycle == Perception::TrackLifecycleState::Confirmed)
             {
-                return false;
+                sawDestroyerAwareness = true;
+                if (track.estimatedPositionMeters.has_value())
+                {
+                    if (!track.positionUncertaintyMeters.has_value() ||
+                        !std::isfinite(*track.positionUncertaintyMeters) || *track.positionUncertaintyMeters <= 0.0F)
+                    {
+                        return false;
+                    }
+                    sawDestroyerSpatialFireControlTrack = true;
+                }
+                else
+                {
+                    sawDestroyerBearingOnlyAwareness = true;
+                }
             }
         }
         sawDestroyerPreparation = sawDestroyerPreparation ||
             frame->destroyerDecision.action == Game::Combat::SimpleDestroyerCombatAction::PrepareWeapon;
+        if (frame->destroyerDecision.action == Game::Combat::SimpleDestroyerCombatAction::LaunchWeapon)
+        {
+            const bool launchHadQualifiedPerceivedTrack = frame->destroyerDecision.perceivedTrackId.has_value() &&
+                std::ranges::any_of(frame->destroyerTracks, [&runtime, &frame](const auto& track) {
+                    return track.trackId == *frame->destroyerDecision.perceivedTrackId &&
+                        Weapons::ValidateTrackForWeapon(runtime.DestroyerDefinition().weapon, track).has_value();
+                });
+            if (!launchHadQualifiedPerceivedTrack ||
+                runtime.Destroyer().weapon.targetTrackId != frame->destroyerDecision.perceivedTrackId)
+            {
+                return false;
+            }
+            sawDestroyerLaunch = true;
+        }
         sawTorpedo = sawTorpedo || runtime.PlayerTorpedo().has_value();
         sawDecoy = sawDecoy || (runtime.Decoy().has_value() && runtime.Decoy()->active);
         sawLiveSeekerSelection = sawLiveSeekerSelection || runtime.PlayerTorpedoSeekerState().selectedTrackId.has_value();
@@ -272,13 +299,15 @@ namespace DeepRun::Tests
     }
 
     const auto destroyerState = physicsWorld.GetBodyState(runtime.Destroyer().body);
-    if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerPreparation || !sawTorpedo ||
+    if (!sawPlayerSpatialTrack || !sawDestroyerAwareness || !sawDestroyerBearingOnlyAwareness ||
+        !sawDestroyerSpatialFireControlTrack || !sawDestroyerPreparation || !sawDestroyerLaunch || !sawTorpedo ||
         !sawDecoy || !sawLiveSeekerSelection || !sawDecoyDiversion || !sawPostDecoyRecovery ||
         !sawImpact || !sawPresentationTorpedo || !sawPresentationDecoy ||
         !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
         !sawStraightRunout || !sawGradualAscent || !sawCameraTransition || !sawTacticalCamera ||
         stableTacticalTicks < 60U || !destroyerState ||
-        runtime.Destroyer().weapon.phase == Weapons::WeaponPhase::Launched ||
+        runtime.Destroyer().weapon.phase != Weapons::WeaponPhase::Launched ||
+        !runtime.Destroyer().weapon.targetTrackId.has_value() ||
         runtime.Destroyer().integrity.destroyed ||
         std::abs(runtime.Destroyer().integrity.remainingIntegrity - 40.0F) > 0.001F ||
         !runtime.PlayerTorpedo() || runtime.PlayerTorpedo()->movementDomain != Weapons::MovementDomain::Spent)
@@ -299,13 +328,9 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // The destroyer AI heard and reacted to the player but never received a ranged target solution, so it must
-    // not launch merely because the scenario simulator knows where the player is.
-    if (runtime.Destroyer().weapon.targetTrackId.has_value())
-    {
-        return false;
-    }
-
+    // M5-F.1 closes the previous bearing-only boundary deliberately: launch is now legal only because a
+    // monostatic active echo produced ranged perceived evidence. The controller still receives no player body,
+    // Transform or scenario-ground-truth position.
     return physicsWorld.DestroyBody(runtime.Destroyer().body);
 }
 } // namespace DeepRun::Tests
