@@ -257,8 +257,8 @@ public:
             window->SetClientSize(1024, 640);
         }
         // Keep the historical 120-frame resize/render floor, but do not let a fast CI runner terminate before
-        // the longer M5 conventional-torpedo profile can complete its real fixed-step/Jolt impact path.
-        constexpr double m5SmokeMinimumSimulationTimeSeconds = 8.0;
+        // the kilometer-scale M5 conventional-torpedo profile can complete its real fixed-step/Jolt impact path.
+        constexpr double m5SmokeMinimumSimulationTimeSeconds = 40.0;
         if (options.smokeTest && timer.FrameIndex() >= 120 &&
             simulationTimeSeconds >= m5SmokeMinimumSimulationTimeSeconds)
         {
@@ -505,5 +505,4 @@ std::expected<void, std::string> Engine::SubmitHapticEffect(const Input::HapticE
 int Engine::ExitCode() const noexcept
 {
     return impl_->exitCode;
-}
 }
