@@ -49,6 +49,14 @@ struct PlayerCombatPresentationSnapshot final
     bool selectedTrackWeaponQualified = false;
     bool canPrepareWeapon = false;
     bool canFireWeapon = false;
+
+    // M5-J3 is populated by CombatPlaygroundRuntime from a dedicated passive-acoustic perceived-world path.
+    // No hostile transform, range estimate, weapon runtime pointer, or PhysicsBodyHandle is exposed to UI.
+    bool incomingThreatDetected = false;
+    std::optional<Perception::TrackLifecycleState> incomingThreatLifecycle{};
+    std::optional<float> incomingThreatBearingRadians{};
+    std::optional<float> incomingThreatBearingUncertaintyRadians{};
+    std::optional<float> incomingThreatConfidence{};
     std::optional<PlayerCombatCommandFeedback> lastCommand{};
 };
 

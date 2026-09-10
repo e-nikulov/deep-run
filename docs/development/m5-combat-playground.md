@@ -2,6 +2,27 @@
 
 Status: IN PROGRESS
 
+## Current accepted baseline
+
+The stable M5 branch now includes the A-D weapon/perception/impact foundation; live decoy seeker integration;
+simple destroyer AI with active fire-control ranging; production-bound live naval mine collision; J1/J2
+controller-first commander commands; H/H.4 combat/environment presentation; and F.2 reciprocal destroyer
+torpedo threat. F.2 was stabilized by extending only the deterministic headless engagement horizon from
+45 s to 80 s so the legitimately delayed F.1 ranged fire-control launch has enough SimulationTime to traverse
+the ~1.7 km scenario. Gameplay speed/guidance/damage were unchanged. Stable evidence: clean candidate SHA
+`3fd4cad9faf9d89787348523dfcb4e20ed1aaac9` passed Debug and Release twice, and feature commit
+`1d90159ac236cc3cc2df0a1d07b6fbf4c4d5fdc1` passed post-merge CI run `34520094788` in both configurations.
+
+### M5-J3 — perceived incoming-threat combat UI
+
+Status: ACCEPTED when this documented tree passes the normal Debug/Release CI gate.
+
+J3 does not expose hostile torpedo position, range, Transform or PhysicsBodyHandle to commander UI. A dedicated
+passive-acoustic perceived-world path samples the simulated hostile weapon only as an AcousticEmission, feeds
+the production player passive receiver through AcousticWorld, converts observations through SensorObservation
+and TrackManager, and projects only lifecycle, bearing, bearing uncertainty and confidence. The warning naturally
+coasts/clears after the physical threat is consumed. No tactical pause or generic command queue is introduced.
+
 ## M5-H.1-B — automated windowed visual acceptance
 
 Status: IMPLEMENTED — local Debug/Release verification passed; CI run ID pending the workflow execution for
@@ -107,7 +128,7 @@ Acceptance evidence: GitHub Actions run `34224207370` on code commit `c7856774c0
 
 ## M5-D — swept collision, impact, explosion event and bounded combat damage
 
-Status: IMPLEMENTED — acceptance pending CI.
+Status: ACCEPTED.
 
 M5-D closes the physical-impact boundary without allowing Weapons to reproduce collision logic themselves.
 

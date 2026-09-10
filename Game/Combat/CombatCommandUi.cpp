@@ -107,6 +107,36 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
     }
 
     ImGui::Separator();
+    ImGui::TextUnformatted("THREAT");
+    if (!snapshot.incomingThreatDetected)
+    {
+        ImGui::TextUnformatted("Incoming acoustic threat: NONE");
+    }
+    else
+    {
+        ImGui::TextUnformatted("Incoming acoustic threat: DETECTED");
+        if (snapshot.incomingThreatLifecycle)
+        {
+            ImGui::Text("Threat track: %s", TrackLifecycleName(*snapshot.incomingThreatLifecycle));
+        }
+        if (snapshot.incomingThreatBearingRadians)
+        {
+            constexpr float radiansToDegrees = 57.2957795F;
+            ImGui::Text("Threat bearing: %.1f deg", *snapshot.incomingThreatBearingRadians * radiansToDegrees);
+        }
+        if (snapshot.incomingThreatBearingUncertaintyRadians)
+        {
+            constexpr float radiansToDegrees = 57.2957795F;
+            ImGui::Text("Threat bearing uncertainty: +/- %.1f deg",
+                        *snapshot.incomingThreatBearingUncertaintyRadians * radiansToDegrees);
+        }
+        if (snapshot.incomingThreatConfidence)
+        {
+            ImGui::Text("Threat confidence: %.0f%%", *snapshot.incomingThreatConfidence * 100.0F);
+        }
+    }
+
+    ImGui::Separator();
     ImGui::Text("Prepare available: %s", snapshot.canPrepareWeapon ? "YES" : "NO");
     ImGui::Text("Fire available: %s", snapshot.canFireWeapon ? "YES" : "NO");
     if (snapshot.lastCommand)
