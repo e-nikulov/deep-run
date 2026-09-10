@@ -9,6 +9,8 @@
 #include "Tests/M5MultiScaleCameraChecks.h"
 #include "Tests/M5NavalMineChecks.h"
 #include "Tests/M5PlayerCombatCommandChecks.h"
+#include "Tests/M5PlayerCombatInputChecks.h"
+#include "Tests/M5PlayerControlledCombatChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
 
@@ -229,6 +231,10 @@ namespace M5CombatImpactDetail
     {
         return fail("M5-J1 player commander track selection, readiness and fire sequencing");
     }
+    if (!RunM5PlayerCombatInputChecks())
+    {
+        return fail("M5-J2-A controller-first combat semantic input bindings");
+    }
     if (!RunM5AcousticDecoyChecks())
     {
         return fail("M5-E acoustic decoy/seeker perceived-world interaction");
@@ -240,6 +246,10 @@ namespace M5CombatImpactDetail
     if (!RunM5SimpleDestroyerRuntimeChecks(physicsWorld))
     {
         return fail("M5-G physical destroyer runtime and Jolt combat composition");
+    }
+    if (!RunM5PlayerControlledCombatChecks(physicsWorld))
+    {
+        return fail("M5-J2-B normal-play commander gating and explicit prepare-ready-fire sequence");
     }
     if (!RunM5CombatPlaygroundRuntimeChecks(physicsWorld))
     {

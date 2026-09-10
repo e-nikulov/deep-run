@@ -40,11 +40,15 @@ struct StickAxes final
     const float scale = scaledMagnitude / magnitude;
     return {.x = clampedX * scale, .y = clampedY * scale};
 }
+
+[[nodiscard]] bool HasGamepadButton(const GamepadState& gamepad, const GamepadButton button) noexcept
+{
+    return (gamepad.buttons & static_cast<std::uint16_t>(button)) != 0U;
+}
 }
 
 ControllerSemanticAxes MapControllerLeftStick(const float normalizedLeftX, const float normalizedLeftY) noexcept
 {
-    // Preserve the accepted normalized threshold derived from the former XInput backend (7849 / 32767).
     constexpr float LeftThumbDeadZone = 7'849.0F / 32'767.0F;
     const StickAxes mapped = MapRadialStick(normalizedLeftX, normalizedLeftY, LeftThumbDeadZone);
     return {.throttle = mapped.x, .depth = -mapped.y};
@@ -58,8 +62,6 @@ ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexc
     }
 
     ControllerSemanticAxes result = MapControllerLeftStick(gamepad.leftX, gamepad.leftY);
-    // Keep camera navigation comfortably outside ordinary controller noise without exposing any Windows API
-    // threshold to Game. The backend values have already been normalized to [-1, 1].
     constexpr float CameraStickDeadZone = 0.24F;
     const StickAxes camera = MapRadialStick(gamepad.rightX, gamepad.rightY, CameraStickDeadZone);
     result.cameraPanX = camera.x;
@@ -75,13 +77,24 @@ ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexc
     return result;
 }
 
+ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad) noexcept
+{
+    if (!gamepad.connected)
+    {
+        return {};
+    }
+
+    return ControllerSemanticActions{
+        .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
+        .prepareWeapon = HasGamepadButton(gamepad, GamepadButton::X),
+        .fireWeapon = HasGamepadButton(gamepad, GamepadButton::A)};
+}
+
 float ResolveSemanticAxis(
     const bool negativeKeyboardDown,
     const bool positiveKeyboardDown,
     const float controllerValue) noexcept
 {
-    // Any held direction owns that semantic axis. Opposite held keys intentionally produce a keyboard-owned
-    // neutral command instead of leaking a controller value through.
     if (negativeKeyboardDown || positiveKeyboardDown)
     {
         return (positiveKeyboardDown ? 1.0F : 0.0F) - (negativeKeyboardDown ? 1.0F : 0.0F);
@@ -108,7 +121,6 @@ InputSystem::InputSystem(
 
 InputSystem::~InputSystem()
 {
-    // Ordinary shutdown always requests exact silence before the physical Windows backend disappears.
     static_cast<void>(ApplyGamepadVibration({}));
     logger_.Info(Diagnostics::LogCategory::Input, "Input system shut down");
 }
@@ -131,6 +143,18 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::F1)
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, true);
+            }
+            else if (event.key == Platform::Key::Tab)
+            {
+                selectContactKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::R)
+            {
+                prepareWeaponKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Space)
+            {
+                fireWeaponKeyDown_ = true;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -182,6 +206,18 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::F1)
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, false);
+            }
+            else if (event.key == Platform::Key::Tab)
+            {
+                selectContactKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::R)
+            {
+                prepareWeaponKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Space)
+            {
+                fireWeaponKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -241,6 +277,7 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
         }
     }
     RefreshSemanticAxes();
+    RefreshSemanticActions();
 }
 
 void InputSystem::UpdateController()
@@ -249,6 +286,7 @@ void InputSystem::UpdateController()
     {
         state_.SetGamepad({});
         RefreshSemanticAxes();
+        RefreshSemanticActions();
         controllerConnected_ = false;
         return;
     }
@@ -256,6 +294,7 @@ void InputSystem::UpdateController()
     const GamepadState gamepad = windowsGamepad_ ? windowsGamepad_->Poll() : GamepadState{};
     state_.SetGamepad(gamepad);
     RefreshSemanticAxes();
+    RefreshSemanticActions();
     controllerConnected_ = gamepad.connected;
 }
 
@@ -293,6 +332,22 @@ void InputSystem::RefreshSemanticAxes() noexcept
     state_.SetAxis(
         InputAxis::CameraZoom,
         ResolveSemanticAxis(cameraZoomInKeyDown_, cameraZoomOutKeyDown_, controller.cameraZoom));
+}
+
+void InputSystem::RefreshSemanticActions() noexcept
+{
+    const ControllerSemanticActions controller = SemanticActionsForGamepad(state_.Gamepad());
+    state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);
+    state_.SetActionDown(
+        InputAction::PrepareWeapon,
+        prepareWeaponKeyDown_ ||
+            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Right)) ||
+            controller.prepareWeapon);
+    state_.SetActionDown(
+        InputAction::FireWeapon,
+        fireWeaponKeyDown_ ||
+            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
+            controller.fireWeapon);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept

@@ -31,8 +31,16 @@ struct ControllerSemanticAxes final
     float cameraZoom = 0.0F;
 };
 
+struct ControllerSemanticActions final
+{
+    bool selectContact = false;
+    bool prepareWeapon = false;
+    bool fireWeapon = false;
+};
+
 [[nodiscard]] ControllerSemanticAxes MapControllerLeftStick(float normalizedLeftX, float normalizedLeftY) noexcept;
 [[nodiscard]] ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexcept;
+[[nodiscard]] ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad) noexcept;
 [[nodiscard]] float ResolveSemanticAxis(
     bool negativeKeyboardDown,
     bool positiveKeyboardDown,
@@ -63,6 +71,7 @@ public:
 
 private:
     void RefreshSemanticAxes() noexcept;
+    void RefreshSemanticActions() noexcept;
 
     Diagnostics::Logger& logger_;
     std::unique_ptr<Windows::WindowsGamingInputGamepad> windowsGamepad_;
@@ -79,5 +88,8 @@ private:
     bool cameraPanDownKeyDown_ = false;
     bool cameraZoomInKeyDown_ = false;
     bool cameraZoomOutKeyDown_ = false;
+    bool selectContactKeyDown_ = false;
+    bool prepareWeaponKeyDown_ = false;
+    bool fireWeaponKeyDown_ = false;
 };
 }

@@ -10,6 +10,9 @@ enum class InputAction
 {
     Quit,
     ToggleDebugUi,
+    SelectContact,
+    PrepareWeapon,
+    FireWeapon,
     Count,
 };
 
@@ -68,6 +71,9 @@ public:
     [[nodiscard]] bool IsDown(InputAction action) const noexcept;
     [[nodiscard]] bool WasPressed(InputAction action) const noexcept;
     [[nodiscard]] bool WasReleased(InputAction action) const noexcept;
+    // Monotonic edge sequence survives BeginFrame so fixed-step gameplay cannot miss a command on a render
+    // frame with zero fixed ticks. Consumers remember the last sequence they processed; this is not a queue.
+    [[nodiscard]] std::uint64_t PressSequence(InputAction action) const noexcept;
     [[nodiscard]] bool IsMouseButtonDown(std::size_t button) const noexcept;
     [[nodiscard]] int MouseX() const noexcept;
     [[nodiscard]] int MouseY() const noexcept;
@@ -81,6 +87,7 @@ private:
     std::array<bool, ActionCount> down_{};
     std::array<bool, ActionCount> pressed_{};
     std::array<bool, ActionCount> released_{};
+    std::array<std::uint64_t, ActionCount> pressSequence_{};
     std::array<bool, 3> mouseButtons_{};
     std::array<float, AxisCount> axes_{};
     GamepadState gamepad_{};

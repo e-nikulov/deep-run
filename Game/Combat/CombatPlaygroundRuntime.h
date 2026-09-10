@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/PlayerCombatCommandRuntime.h"
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,6 +37,7 @@ struct CombatPlaygroundFrame final
 {
     std::vector<Perception::Track> playerTracks;
     std::vector<Perception::Track> destroyerTracks;
+    PlayerCombatPresentationSnapshot playerCombat{};
     SimpleDestroyerCombatDecision destroyerDecision{};
     std::optional<Weapons::ConventionalTorpedoImpact> playerTorpedoImpact{};
 };
@@ -122,18 +125,18 @@ public:
 
         const Weapons::WeaponDefinition playerWeapon{
             .id = "m5.live-player-heavyweight",
-            .preparationSeconds = 0.0,
+            .preparationSeconds = 1.0,
             .targeting = Weapons::WeaponTargetingRequirements{
                 .minimumTrackConfidence = 0.65F,
                 .maximumBearingUncertaintyRadians = 0.10F,
                 .maximumPositionUncertaintyMeters = 150.0F,
                 .requiresEstimatedPosition = true,
                 .allowCoastingTrack = false}};
-        auto playerWeaponState = Weapons::CreateWeaponRuntime(playerWeapon, simulationTimeSeconds);
-        if (!playerWeaponState)
+        auto playerCombat = PlayerCombatCommandRuntime::Create(playerWeapon, simulationTimeSeconds);
+        if (!playerCombat)
         {
             (void)physicsWorld.DestroyBody(destroyer->body);
-            return std::unexpected("M5-H player weapon creation failed: " + playerWeaponState.error());
+            return std::unexpected("M5-H player commander runtime creation failed: " + playerCombat.error());
         }
 
         const Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition{
@@ -158,14 +161,78 @@ public:
             destroyerDefinition,
             *destroyer,
             playerTorpedoDefinition,
-            *playerWeaponState,
+            std::move(*playerCombat),
             decoyDefinition,
             simulationTimeSeconds);
     }
 
+    // Accepted H/H.1 smoke and headless regression path. It deliberately retains deterministic automatic
+    // commander decisions so existing combat/capture gates remain reproducible after J2 introduces live input.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> Advance(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const double simulationTimeSeconds)
+    {
+        return AdvanceImpl(playerSnapshot, {}, simulationTimeSeconds, true);
+    }
+
+    // Normal-play J2 path. Commands are already semantic edge events; this runtime does not inspect keyboard,
+    // mouse or controller state and does not maintain a generic command queue.
+    [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvancePlayerControlled(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const std::span<const PlayerCombatCommand> commands,
+        const double simulationTimeSeconds)
+    {
+        return AdvanceImpl(playerSnapshot, commands, simulationTimeSeconds, false);
+    }
+
+    [[nodiscard]] const SimpleDestroyerRuntimeState& Destroyer() const noexcept { return destroyer_; }
+    [[nodiscard]] const SimpleDestroyerDefinition& DestroyerDefinition() const noexcept { return destroyerDefinition_; }
+    [[nodiscard]] const PlayerCombatCommandRuntime& PlayerCombat() const noexcept { return playerCombat_; }
+    [[nodiscard]] const std::optional<Weapons::ConventionalTorpedoRuntimeState>& PlayerTorpedo() const noexcept
+    {
+        return playerTorpedo_;
+    }
+    [[nodiscard]] const std::optional<Physics::PhysicsVector3>& PlayerTorpedoLaunchPosition() const noexcept
+    {
+        return playerTorpedoLaunchPosition_;
+    }
+    [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& Decoy() const noexcept { return decoy_; }
+    [[nodiscard]] const std::optional<DeepRun::Combat::CombatExplosionEvent>& LastExplosion() const noexcept
+    {
+        return lastExplosion_;
+    }
+
+private:
+    CombatPlaygroundRuntime(
+        Physics::PhysicsWorld& physicsWorld,
+        Acoustics::AcousticWorld acousticWorld,
+        Perception::TrackManager playerTracks,
+        Perception::TrackManager destroyerTracks,
+        SimpleDestroyerDefinition destroyerDefinition,
+        SimpleDestroyerRuntimeState destroyer,
+        Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,
+        PlayerCombatCommandRuntime playerCombat,
+        Weapons::AcousticDecoyDefinition decoyDefinition,
+        const double simulationTimeSeconds)
+        : physicsWorld_(&physicsWorld),
+          acousticWorld_(std::move(acousticWorld)),
+          playerTracks_(std::move(playerTracks)),
+          destroyerTracks_(std::move(destroyerTracks)),
+          destroyerDefinition_(std::move(destroyerDefinition)),
+          destroyer_(std::move(destroyer)),
+          playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),
+          playerCombat_(std::move(playerCombat)),
+          decoyDefinition_(std::move(decoyDefinition)),
+          nextActivePulseTimeSeconds_(simulationTimeSeconds),
+          lastUpdateTimeSeconds_(simulationTimeSeconds)
+    {
+    }
+
+    [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvanceImpl(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const std::span<const PlayerCombatCommand> commands,
+        const double simulationTimeSeconds,
+        const bool automatedPlayer)
     {
         if (!playerSnapshot.emitter.positionMeters.IsFinite() || !playerSnapshot.emitter.velocityMetersPerSecond.IsFinite() ||
             !playerSnapshot.emitter.continuousSourceLevelDb.IsFinite() ||
@@ -182,9 +249,6 @@ public:
             return std::unexpected("M5-H destroyer acoustic snapshot failed: " + destroyerAcoustics.error());
         }
 
-        // Destroyer awareness consumes a normal passive observation generated from the player's current
-        // acoustic signature. The scenario knows both participants only to run propagation; source identity is
-        // stripped before the observation crosses into its TrackManager/AI.
         const double passiveDistance = Distance(
             playerSnapshot.emitter.positionMeters,
             destroyerAcoustics->passiveReceiver.positionMeters);
@@ -223,9 +287,6 @@ public:
             return std::unexpected("M5-H destroyer combat AI failed: " + destroyerDecision.error());
         }
 
-        // Active ranging is deliberately repeated at a bounded cadence for the kilometer-scale engagement.
-        // The simulator samples the current physical reflector only when emitting a pulse; weapon guidance never
-        // receives that state directly. Every update still crosses ActiveEcho -> SensorObservation -> TrackManager.
         if (!activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
         {
             const Physics::PhysicsVector3 delta = Difference(
@@ -276,56 +337,47 @@ public:
             return std::unexpected("M5-H player TrackManager failed to advance");
         }
 
+        const auto readiness = playerCombat_.Advance(simulationTimeSeconds);
+        if (!readiness)
+        {
+            return std::unexpected("M5-J2 player commander readiness failed: " + readiness.error());
+        }
+
         if (!playerTorpedo_.has_value())
         {
-            const auto qualifyingTrack = BestPlayerWeaponTrack(playerTracks_.Tracks());
-            if (qualifyingTrack)
+            if (automatedPlayer)
             {
-                if (playerWeapon_.phase == Weapons::WeaponPhase::Stored &&
-                    !Weapons::PrepareWeapon(playerTorpedoDefinition_.weapon, playerWeapon_, simulationTimeSeconds))
+                const auto automated = AdvanceAutomatedPlayerCommander(simulationTimeSeconds);
+                if (!automated)
                 {
-                    return std::unexpected("M5-H player weapon preparation failed");
+                    return std::unexpected(automated.error());
                 }
-                if (!Weapons::AssignWeaponTarget(
-                        playerTorpedoDefinition_.weapon, playerWeapon_, *qualifyingTrack, simulationTimeSeconds) ||
-                    !Weapons::LaunchWeapon(playerTorpedoDefinition_.weapon, playerWeapon_, simulationTimeSeconds))
+            }
+            else
+            {
+                for (const PlayerCombatCommand command : commands)
                 {
-                    return std::unexpected("M5-H player weapon target/launch failed");
+                    const auto executed = playerCombat_.Execute(command, playerTracks_.Tracks(), simulationTimeSeconds);
+                    if (!executed)
+                    {
+                        return std::unexpected("M5-J2 player command failed: " + executed.error());
+                    }
                 }
+            }
 
-                const float targetDeltaX = qualifyingTrack->estimatedPositionMeters->x - playerSnapshot.emitter.positionMeters.x;
-                if (!std::isfinite(targetDeltaX) || std::abs(targetDeltaX) <= 1.0e-3F)
+            if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
+            {
+                const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);
+                if (!targetTrack)
                 {
-                    return std::unexpected("M5-H torpedo launch has no horizontal separation from its perceived track");
+                    return std::unexpected("M5-J2 launched weapon lost its perceived launch track on the launch tick");
                 }
-                playerTorpedoForwardSign_ = targetDeltaX > 0.0F ? 1.0F : -1.0F;
-                const Physics::PhysicsVector3 launchPosition{
-                    .x = playerSnapshot.emitter.positionMeters.x +
-                         playerTorpedoForwardSign_ * M5CombatTorpedoLaunchClearanceMeters,
-                    .y = playerSnapshot.emitter.positionMeters.y,
-                    .z = playerSnapshot.emitter.positionMeters.z};
-                const float launchHeading = playerTorpedoForwardSign_ > 0.0F ? 0.0F : 3.1415927F;
-                const auto launched = Weapons::CreateLaunchedConventionalTorpedo(
-                    playerTorpedoDefinition_, playerWeapon_, launchPosition, launchHeading,
-                    *qualifyingTrack, simulationTimeSeconds);
-                if (!launched)
+                const auto launch = MaterializePlayerLaunch(
+                    playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);
+                if (!launch)
                 {
-                    return std::unexpected("M5-H torpedo runtime creation failed: " + launched.error());
+                    return std::unexpected(launch.error());
                 }
-                playerTorpedo_ = *launched;
-                playerTorpedoLaunchPosition_ = launchPosition;
-
-                const Physics::PhysicsVector3 decoyPosition{
-                    .x = destroyerAcoustics->emitter.positionMeters.x - 20.0F,
-                    .y = destroyerAcoustics->emitter.positionMeters.y - 15.0F,
-                    .z = destroyerAcoustics->emitter.positionMeters.z};
-                const auto decoy = Weapons::DeployAcousticDecoy(
-                    decoyDefinition_, decoyPosition, simulationTimeSeconds);
-                if (!decoy)
-                {
-                    return std::unexpected("M5-H decoy deployment failed: " + decoy.error());
-                }
-                decoy_ = *decoy;
             }
         }
 
@@ -366,53 +418,107 @@ public:
         }
 
         lastUpdateTimeSeconds_ = simulationTimeSeconds;
+        const std::vector<Perception::Track> playerTrackSnapshot = playerTracks_.Tracks();
         return CombatPlaygroundFrame{
-            .playerTracks = playerTracks_.Tracks(),
+            .playerTracks = playerTrackSnapshot,
             .destroyerTracks = destroyerTracks_.Tracks(),
+            .playerCombat = playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot),
             .destroyerDecision = *destroyerDecision,
             .playerTorpedoImpact = impact};
     }
 
-    [[nodiscard]] const SimpleDestroyerRuntimeState& Destroyer() const noexcept { return destroyer_; }
-    [[nodiscard]] const SimpleDestroyerDefinition& DestroyerDefinition() const noexcept { return destroyerDefinition_; }
-    [[nodiscard]] const std::optional<Weapons::ConventionalTorpedoRuntimeState>& PlayerTorpedo() const noexcept
+    [[nodiscard]] std::expected<void, std::string> AdvanceAutomatedPlayerCommander(
+        const double simulationTimeSeconds)
     {
-        return playerTorpedo_;
-    }
-    [[nodiscard]] const std::optional<Physics::PhysicsVector3>& PlayerTorpedoLaunchPosition() const noexcept
-    {
-        return playerTorpedoLaunchPosition_;
-    }
-    [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& Decoy() const noexcept { return decoy_; }
-    [[nodiscard]] const std::optional<DeepRun::Combat::CombatExplosionEvent>& LastExplosion() const noexcept
-    {
-        return lastExplosion_;
+        const std::vector<Perception::Track> tracks = playerTracks_.Tracks();
+        const auto qualifyingTrack = BestPlayerWeaponTrack(tracks);
+        if (!qualifyingTrack)
+        {
+            return {};
+        }
+
+        for (std::size_t attempt = 0; attempt < tracks.size() && playerCombat_.SelectedTrackId() != qualifyingTrack->trackId;
+             ++attempt)
+        {
+            const auto selected = playerCombat_.Execute(
+                {.type = PlayerCombatCommandType::SelectNextTrack}, tracks, simulationTimeSeconds);
+            if (!selected || !selected->accepted)
+            {
+                return std::unexpected("M5-H automated commander could not select a perceived track");
+            }
+        }
+        if (playerCombat_.SelectedTrackId() != qualifyingTrack->trackId)
+        {
+            return std::unexpected("M5-H automated commander could not reach the qualifying perceived track");
+        }
+
+        if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
+        {
+            const auto prepared = playerCombat_.Execute(
+                {.type = PlayerCombatCommandType::PrepareWeapon}, tracks, simulationTimeSeconds);
+            if (!prepared || !prepared->accepted)
+            {
+                return std::unexpected("M5-H automated commander could not prepare the player weapon");
+            }
+        }
+        if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
+        {
+            const auto fired = playerCombat_.Execute(
+                {.type = PlayerCombatCommandType::FireWeapon}, tracks, simulationTimeSeconds);
+            if (!fired || !fired->accepted)
+            {
+                return std::unexpected("M5-H automated commander could not fire on the qualifying perceived track");
+            }
+        }
+        return {};
     }
 
-private:
-    CombatPlaygroundRuntime(
-        Physics::PhysicsWorld& physicsWorld,
-        Acoustics::AcousticWorld acousticWorld,
-        Perception::TrackManager playerTracks,
-        Perception::TrackManager destroyerTracks,
-        SimpleDestroyerDefinition destroyerDefinition,
-        SimpleDestroyerRuntimeState destroyer,
-        Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,
-        Weapons::WeaponRuntimeState playerWeapon,
-        Weapons::AcousticDecoyDefinition decoyDefinition,
+    [[nodiscard]] std::expected<void, std::string> MaterializePlayerLaunch(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const SimpleDestroyerAcousticSnapshot& destroyerAcoustics,
+        const Perception::Track& targetTrack,
         const double simulationTimeSeconds)
-        : physicsWorld_(&physicsWorld),
-          acousticWorld_(std::move(acousticWorld)),
-          playerTracks_(std::move(playerTracks)),
-          destroyerTracks_(std::move(destroyerTracks)),
-          destroyerDefinition_(std::move(destroyerDefinition)),
-          destroyer_(std::move(destroyer)),
-          playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),
-          playerWeapon_(std::move(playerWeapon)),
-          decoyDefinition_(std::move(decoyDefinition)),
-          nextActivePulseTimeSeconds_(simulationTimeSeconds),
-          lastUpdateTimeSeconds_(simulationTimeSeconds)
     {
+        if (!targetTrack.estimatedPositionMeters ||
+            !Weapons::ValidateTrackForWeapon(playerTorpedoDefinition_.weapon, targetTrack))
+        {
+            return std::unexpected("M5-J2 launch materialization requires the accepted perceived spatial track");
+        }
+
+        const float targetDeltaX = targetTrack.estimatedPositionMeters->x - playerSnapshot.emitter.positionMeters.x;
+        if (!std::isfinite(targetDeltaX) || std::abs(targetDeltaX) <= 1.0e-3F)
+        {
+            return std::unexpected("M5-H torpedo launch has no horizontal separation from its perceived track");
+        }
+        playerTorpedoForwardSign_ = targetDeltaX > 0.0F ? 1.0F : -1.0F;
+        const Physics::PhysicsVector3 launchPosition{
+            .x = playerSnapshot.emitter.positionMeters.x +
+                 playerTorpedoForwardSign_ * M5CombatTorpedoLaunchClearanceMeters,
+            .y = playerSnapshot.emitter.positionMeters.y,
+            .z = playerSnapshot.emitter.positionMeters.z};
+        const float launchHeading = playerTorpedoForwardSign_ > 0.0F ? 0.0F : 3.1415927F;
+        const auto launched = Weapons::CreateLaunchedConventionalTorpedo(
+            playerTorpedoDefinition_, playerCombat_.Weapon(), launchPosition, launchHeading,
+            targetTrack, simulationTimeSeconds);
+        if (!launched)
+        {
+            return std::unexpected("M5-H torpedo runtime creation failed: " + launched.error());
+        }
+        playerTorpedo_ = *launched;
+        playerTorpedoLaunchPosition_ = launchPosition;
+
+        const Physics::PhysicsVector3 decoyPosition{
+            .x = destroyerAcoustics.emitter.positionMeters.x - 20.0F,
+            .y = destroyerAcoustics.emitter.positionMeters.y - 15.0F,
+            .z = destroyerAcoustics.emitter.positionMeters.z};
+        const auto decoy = Weapons::DeployAcousticDecoy(
+            decoyDefinition_, decoyPosition, simulationTimeSeconds);
+        if (!decoy)
+        {
+            return std::unexpected("M5-H decoy deployment failed: " + decoy.error());
+        }
+        decoy_ = *decoy;
+        return {};
     }
 
     [[nodiscard]] static double Distance(
@@ -483,14 +589,10 @@ private:
             (playerTorpedo_->positionMeters.x - playerTorpedoLaunchPosition_->x) * playerTorpedoForwardSign_;
         if (forwardProgressMeters < M5CombatTorpedoStraightRunMeters)
         {
-            // Tube exit/run-out: preserve launch depth while still using the perceived track's horizontal
-            // coordinate. This is a weapon waypoint derived from perceived evidence, not hostile ground truth.
             guidanceTrack.estimatedPositionMeters->y = playerTorpedoLaunchPosition_->y;
         }
         else
         {
-            // Aim slightly below the perceived surface-target reference so the conventional torpedo attacks
-            // the underwater physical hull rather than steering toward an above-water visual superstructure.
             guidanceTrack.estimatedPositionMeters->y -= M5CombatTorpedoAttackPointBelowPerceivedTargetMeters;
         }
         return guidanceTrack;
@@ -521,7 +623,7 @@ private:
     SimpleDestroyerDefinition destroyerDefinition_;
     SimpleDestroyerRuntimeState destroyer_;
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
-    Weapons::WeaponRuntimeState playerWeapon_;
+    PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
     std::optional<Weapons::ConventionalTorpedoRuntimeState> playerTorpedo_{};

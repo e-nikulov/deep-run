@@ -22,6 +22,10 @@ void InputState::SetActionDown(const InputAction action, const bool down) noexce
     down_[index] = down;
     pressed_[index] = down;
     released_[index] = !down;
+    if (down)
+    {
+        ++pressSequence_[index];
+    }
 }
 
 void InputState::SetMouseButtonDown(const std::size_t button, const bool down) noexcept
@@ -62,17 +66,26 @@ void InputState::SetAxis(const InputAxis axis, const float value) noexcept
 
 bool InputState::IsDown(const InputAction action) const noexcept
 {
-    return down_[static_cast<std::size_t>(action)];
+    const std::size_t index = static_cast<std::size_t>(action);
+    return index < ActionCount && down_[index];
 }
 
 bool InputState::WasPressed(const InputAction action) const noexcept
 {
-    return pressed_[static_cast<std::size_t>(action)];
+    const std::size_t index = static_cast<std::size_t>(action);
+    return index < ActionCount && pressed_[index];
 }
 
 bool InputState::WasReleased(const InputAction action) const noexcept
 {
-    return released_[static_cast<std::size_t>(action)];
+    const std::size_t index = static_cast<std::size_t>(action);
+    return index < ActionCount && released_[index];
+}
+
+std::uint64_t InputState::PressSequence(const InputAction action) const noexcept
+{
+    const std::size_t index = static_cast<std::size_t>(action);
+    return index < ActionCount ? pressSequence_[index] : 0U;
 }
 
 bool InputState::IsMouseButtonDown(const std::size_t button) const noexcept
