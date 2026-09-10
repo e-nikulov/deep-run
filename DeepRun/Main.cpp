@@ -163,27 +163,49 @@ private:
 
     static bool IsBlankFrame(const void* bits, const std::uint32_t width, const std::uint32_t height) noexcept
     {
-        const auto* pixels = static_cast<const std::uint8_t*>(bits);
-        bool allBlack = true;
-        bool allWhite = true;
-        for (std::uint32_t y = 0; y < height; ++y)
+        if (bits == nullptr || width < 4U || height < 4U)
         {
-            for (std::uint32_t x = 0; x < width; ++x)
+            return true;
+        }
+
+        // PrintWindow may paint top-level non-client chrome into a DIB sized from GetClientRect. A completely
+        // white D3D12 client can therefore appear "non-blank" because the title bar/border contributes a few
+        // dark pixels. Judge the central 80% instead: real Deep Run presentation is strongly non-uniform there,
+        // while compositor startup white/black remains near-uniform. The tolerance also ignores a few driver or
+        // window-decoration pixels without turning this into an image-quality gate.
+        const std::uint32_t marginX = (std::max)(1U, width / 10U);
+        const std::uint32_t marginY = (std::max)(1U, height / 10U);
+        const std::uint32_t endX = width - marginX;
+        const std::uint32_t endY = height - marginY;
+        if (endX <= marginX || endY <= marginY)
+        {
+            return true;
+        }
+
+        const auto* pixels = static_cast<const std::uint8_t*>(bits);
+        std::uint64_t blackPixels = 0U;
+        std::uint64_t whitePixels = 0U;
+        std::uint64_t sampledPixels = 0U;
+        for (std::uint32_t y = marginY; y < endY; ++y)
+        {
+            for (std::uint32_t x = marginX; x < endX; ++x)
             {
                 const std::size_t offset = (static_cast<std::size_t>(y) * width + x) * 4U;
                 const bool blackPixel = pixels[offset] <= 8 && pixels[offset + 1] <= 8 && pixels[offset + 2] <= 8;
                 const bool whitePixel = pixels[offset] >= 247 && pixels[offset + 1] >= 247 && pixels[offset + 2] >= 247;
-                allBlack = allBlack && blackPixel;
-                allWhite = allWhite && whitePixel;
-                if (!allBlack && !allWhite)
-                {
-                    return false;
-                }
+                blackPixels += blackPixel ? 1U : 0U;
+                whitePixels += whitePixel ? 1U : 0U;
+                ++sampledPixels;
             }
         }
-        return allBlack || allWhite;
+        if (sampledPixels == 0U)
+        {
+            return true;
+        }
+        constexpr std::uint64_t BlankPercent = 98U;
+        return blackPixels * 100U >= sampledPixels * BlankPercent ||
+               whitePixels * 100U >= sampledPixels * BlankPercent;
     }
-
     bool logged_ = false;
 };
 
