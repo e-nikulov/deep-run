@@ -1,15 +1,19 @@
 $ErrorActionPreference = 'Stop'
 
+function Convert-ToLf([string] $text) {
+    return $text.Replace("`r`n", "`n")
+}
+
 $physicalPath = 'Game/PhysicalPlayground.cpp'
 $physical = [System.IO.File]::ReadAllText($physicalPath)
 
-$colorAnchor = @'
+$colorAnchor = Convert-ToLf @'
 constexpr std::array<float, 3> M3FogColorRgb{
     M2UnderwaterBackgroundColor.r,
     M2UnderwaterBackgroundColor.g,
     M2UnderwaterBackgroundColor.b};
 '@
-$colorReplacement = @'
+$colorReplacement = Convert-ToLf @'
 constexpr std::array<float, 3> M3FogColorRgb{
     M2UnderwaterBackgroundColor.r,
     M2UnderwaterBackgroundColor.g,
@@ -25,7 +29,7 @@ constexpr float M5ScalableSeabedContinuationOverlapMeters = 32.0F;
 if (-not $physical.Contains($colorAnchor)) { throw 'PhysicalPlayground H4 colour anchor not found' }
 $physical = $physical.Replace($colorAnchor, $colorReplacement)
 
-$tileAnchor = @'
+$tileAnchor = Convert-ToLf @'
             if (!terrainTiles)
             {
                 return std::unexpected("physical playground scalable environment tiling failed: " +
@@ -34,7 +38,7 @@ $tileAnchor = @'
 
             scalableSeabedDraws = BuildEnvironmentPresentationDraws(
 '@
-$tileReplacement = @'
+$tileReplacement = Convert-ToLf @'
             if (!terrainTiles)
             {
                 return std::unexpected("physical playground scalable environment tiling failed: " +
@@ -85,7 +89,7 @@ $physical = $physical.Replace($tileAnchor, $tileReplacement)
 
 $acceptancePath = 'Game/Combat/CombatPlaygroundAcceptance.h'
 $acceptance = [System.IO.File]::ReadAllText($acceptancePath)
-$acceptanceAnchor = @'
+$acceptanceAnchor = Convert-ToLf @'
         // Select the initial checkpoint at render time. Startup can spend enough wall time loading the
         // production scene for several fixed ticks to execute before the first present; choosing here keeps
         // the JSON state and the pixels from the same live frame while still requiring no impact and intact
@@ -93,7 +97,7 @@ $acceptanceAnchor = @'
         if (!pending_.has_value() && !initialSeen_ && !latestFixedSnapshot_.hasImpact &&
             latestFixedSnapshot_.destroyerIntegrity >= 99.999F)
 '@
-$acceptanceReplacement = @'
+$acceptanceReplacement = Convert-ToLf @'
         // WindowFrameCapture reads the most recently presented client image, while this callback runs before
         // the current Present. The first render therefore has no valid D3D12 frame for PrintWindow/BitBlt yet.
         // Warm up exactly one render observation, then select Initial from the next live render so state and
@@ -106,11 +110,11 @@ $acceptanceReplacement = @'
 if (-not $acceptance.Contains($acceptanceAnchor)) { throw 'Combat acceptance initial checkpoint anchor not found' }
 $acceptance = $acceptance.Replace($acceptanceAnchor, $acceptanceReplacement)
 
-$fieldAnchor = @'
+$fieldAnchor = Convert-ToLf @'
     bool gradualAscentObserved_ = false;
 };
 '@
-$fieldReplacement = @'
+$fieldReplacement = Convert-ToLf @'
     bool gradualAscentObserved_ = false;
     bool renderWarmupObserved_ = false;
 };
@@ -122,7 +126,7 @@ $acceptance = $acceptance.Replace($fieldAnchor, $fieldReplacement)
 $mainPath = 'DeepRun/Main.cpp'
 $main = [System.IO.File]::ReadAllText($mainPath)
 $main = $main.Replace('!IsAllBlack(bits, width, height)', '!IsBlankFrame(bits, width, height)')
-$blankAnchor = @'
+$blankAnchor = Convert-ToLf @'
     static bool IsAllBlack(const void* bits, const std::uint32_t width, const std::uint32_t height) noexcept
     {
         const auto* pixels = static_cast<const std::uint8_t*>(bits);
@@ -140,7 +144,7 @@ $blankAnchor = @'
         return true;
     }
 '@
-$blankReplacement = @'
+$blankReplacement = Convert-ToLf @'
     static bool IsBlankFrame(const void* bits, const std::uint32_t width, const std::uint32_t height) noexcept
     {
         const auto* pixels = static_cast<const std::uint8_t*>(bits);
