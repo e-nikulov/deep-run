@@ -121,10 +121,56 @@ namespace M5ConventionalTorpedoDetail
     {
         return false;
     }
+    invalidDefinition = definition;
+    invalidDefinition.maximumVerticalCourseAngleRadians = 0.0F;
+    if (ValidateConventionalTorpedoDefinition(invalidDefinition))
+    {
+        return false;
+    }
+    invalidDefinition = definition;
+    invalidDefinition.maximumVerticalCourseAngleRadians = 1.6F;
+    if (ValidateConventionalTorpedoDefinition(invalidDefinition))
+    {
+        return false;
+    }
 
     auto unlaunchedWeaponResult = CreateWeaponRuntime(definition.weapon, 10.0);
     if (!unlaunchedWeaponResult || CreateLaunchedConventionalTorpedo(
         definition, *unlaunchedWeaponResult, {.x = 0.0F, .y = 0.0F, .z = 0.0F}, 0.0F, initialTrack, 10.0))
+    {
+        return false;
+    }
+
+    // M5 visual-regression boundary: a conventional underwater weapon may have a much larger turn-rate
+    // authority than its authored vertical course permits. The course limit wins and prevents an immediate
+    // missile-like climb even when the perceived target is far above the launch depth.
+    auto constrainedDefinition = definition;
+    constrainedDefinition.maximumTurnRateRadiansPerSecond = 1.0F;
+    constrainedDefinition.maximumVerticalCourseAngleRadians = 0.20F;
+    const auto elevatedTrack = MakeSpatialTrack(77U, {.x = 1000.0F, .y = 1000.0F, .z = 0.0F});
+    auto constrainedWeaponResult = CreateWeaponRuntime(constrainedDefinition.weapon, 0.0);
+    if (!constrainedWeaponResult)
+    {
+        return false;
+    }
+    auto constrainedWeapon = *constrainedWeaponResult;
+    if (!PrepareWeapon(constrainedDefinition.weapon, constrainedWeapon, 0.0) ||
+        !AssignWeaponTarget(constrainedDefinition.weapon, constrainedWeapon, elevatedTrack, 0.0) ||
+        !LaunchWeapon(constrainedDefinition.weapon, constrainedWeapon, 0.0))
+    {
+        return false;
+    }
+    auto constrainedTorpedo = CreateLaunchedConventionalTorpedo(
+        constrainedDefinition,
+        constrainedWeapon,
+        {.x = 0.0F, .y = -100.0F, .z = 0.0F},
+        0.0F,
+        elevatedTrack,
+        0.0);
+    if (!constrainedTorpedo ||
+        !UpdateConventionalTorpedoGuidance(constrainedDefinition, *constrainedTorpedo, elevatedTrack, 1.0) ||
+        std::abs(constrainedTorpedo->headingRadians - 0.20F) > 0.001F ||
+        constrainedTorpedo->positionMeters.y <= -100.0F)
     {
         return false;
     }
