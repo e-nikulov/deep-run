@@ -3,6 +3,7 @@
 #include "Engine/Input/InputState.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Game/AcousticPlaygroundRuntime.h"
+#include "Game/Camera/MultiScaleTacticalCamera.h"
 #include "Game/Combat/CombatPlaygroundAcceptance.h"
 #include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
@@ -27,11 +28,8 @@
 
 namespace
 {
-// The Win32 window class registered by Engine/Platform (WinWindow.cpp). Capture is developer tooling only:
-// it finds the game window by this class name and never feeds data back into gameplay or rendering.
 constexpr wchar_t GameWindowClassName[] = L"DeepRunEngineWindow";
 
-// EnumWindows callback state for finding THIS process's game window (see WindowFrameCapture::Capture).
 struct FindContext final
 {
     DWORD processId = 0;
@@ -51,21 +49,14 @@ BOOL CALLBACK FindGameWindowCallback(HWND handle, LPARAM parameter)
     if (windowProcessId == context->processId)
     {
         context->window = handle;
-        return FALSE; // stop enumeration: first match wins
+        return FALSE;
     }
     return TRUE;
 }
 
-// Minimal window frame capture for M2 Slice C2 visual validation. It renders the game window into a memory
-// bitmap with PrintWindow(PW_RENDERFULLCONTENT) and falls back to a screen BitBlt of the window's client
-// rectangle when that yields nothing (e.g. a compositor that does not support off-screen D3D12 swap-chain
-// rendering). Any failure degrades to "no screenshot", never a failed run.
 class WindowFrameCapture final
 {
 public:
-    // Returns captured 8-bit BGRA pixels plus their dimensions. The window is matched by class name AND the
-    // current process ID: FindWindowW alone can return another DeepRun instance's leftover window (e.g. from
-    // a previous session), which would capture foreign content at an unrelated size.
     bool Capture(std::vector<std::byte>& bgraPixels, std::uint32_t& width, std::uint32_t& height)
     {
         FindContext findContext{.processId = GetCurrentProcessId(), .window = nullptr};
@@ -98,7 +89,7 @@ public:
         BITMAPINFO info{};
         info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         info.bmiHeader.biWidth = static_cast<LONG>(width);
-        info.bmiHeader.biHeight = -static_cast<LONG>(height); // top-down 32-bit BGRA
+        info.bmiHeader.biHeight = -static_cast<LONG>(height);
         info.bmiHeader.biPlanes = 1;
         info.bmiHeader.biBitCount = 32;
         info.bmiHeader.biCompression = BI_RGB;
@@ -113,15 +104,12 @@ public:
             {
                 haveBits = true;
                 const HGDIOBJ previous = SelectObject(memoryDc, dib);
-                // PW_RENDERFULLCONTENT asks the window to render its content even when not visible on a
-                // composited desktop; without it D3D swap-chain windows frequently come back black.
                 if (PrintWindow(window, memoryDc, PW_RENDERFULLCONTENT) && !IsAllBlack(bits, width, height))
                 {
                     captured = true;
                 }
                 else
                 {
-                    // Fallback: copy whatever the desktop compositor shows at the window's client rect.
                     POINT origin{0, 0};
                     if (ClientToScreen(window, &origin))
                     {
@@ -137,7 +125,6 @@ public:
                 }
                 if (captured)
                 {
-                    // Copy out while the DIB section is still alive.
                     bgraPixels.resize(static_cast<std::size_t>(width) * height * 4);
                     std::memcpy(bgraPixels.data(), bits, bgraPixels.size());
                 }
@@ -160,7 +147,6 @@ public:
     }
 
 private:
-    // One diagnostic line per process so a blocked capture is visible in the smoke log without spamming.
     void LogOnce(const std::string_view reason)
     {
         if (!logged_)
@@ -171,8 +157,6 @@ private:
         }
     }
 
-    // Full scan of the top-down 32-bit BGRA buffer (at most a couple of million pixels, run twice per
-    // process); used to reject black captures.
     static bool IsAllBlack(const void* bits, const std::uint32_t width, const std::uint32_t height) noexcept
     {
         const auto* pixels = static_cast<const std::uint8_t*>(bits);
@@ -204,7 +188,6 @@ bool WriteBmp(
         return false;
     }
 
-    // 24-bit BGR, bottom-up rows padded to 4 bytes.
     const std::uint32_t rowBytes = width * 3;
     const std::uint32_t paddedRow = (rowBytes + 3U) & ~3U;
     const std::uint32_t pixelDataSize = paddedRow * height;
@@ -221,7 +204,7 @@ bool WriteBmp(
         file[offset + 1] = static_cast<std::byte>((value >> 8U) & 0xFFU);
     };
 
-    put32(0, 0x4D42U); // "BM"
+    put32(0, 0x4D42U);
     put32(2, static_cast<std::uint32_t>(file.size()));
     put32(10, 14 + 40);
     put32(14, 40);
@@ -233,16 +216,14 @@ bool WriteBmp(
     std::byte* data = file.data() + 54;
     for (std::uint32_t y = 0; y < height; ++y)
     {
-        const std::uint32_t sourceRow = height - 1U - y; // bottom-up
+        const std::uint32_t sourceRow = height - 1U - y;
         std::byte* targetRow = data + static_cast<std::size_t>(y) * paddedRow;
         for (std::uint32_t x = 0; x < width; ++x)
         {
             const std::size_t sourceOffset = (static_cast<std::size_t>(sourceRow) * width + x) * 4;
-            // The capture buffer is a top-down 32-bit BGRA DIB section: byte order in memory is B,G,R,A.
-            // A 24-bit BMP row stores B,G,R per pixel, so the channels map straight through (no swap).
-            targetRow[x * 3 + 0] = bgraPixels[sourceOffset + 0]; // B
-            targetRow[x * 3 + 1] = bgraPixels[sourceOffset + 1]; // G
-            targetRow[x * 3 + 2] = bgraPixels[sourceOffset + 2]; // R
+            targetRow[x * 3 + 0] = bgraPixels[sourceOffset + 0];
+            targetRow[x * 3 + 1] = bgraPixels[sourceOffset + 1];
+            targetRow[x * 3 + 2] = bgraPixels[sourceOffset + 2];
         }
     }
 
@@ -397,7 +378,8 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
         std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
         std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
-        DeepRun::Game::Combat::CombatPlaygroundCameraDirector combatCameraDirector;
+        DeepRun::Game::Combat::CombatPlaygroundCameraDirector smokeCombatCameraDirector;
+        DeepRun::Game::Camera::MultiScaleTacticalCamera multiScaleCamera;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         bool capturedInitial = false;
@@ -409,9 +391,6 @@ int main(const int argumentCount, char** argumentValues)
         bool loggedCombatImpact = false;
         DeepRun::Core::Engine* engineServices = nullptr;
         const DeepRun::Input::InputState* inputState = nullptr;
-        // Bisection aid: DR_NO_CAPTURE=1 disables window frame capture entirely so the physics/render path
-        // can be tested in isolation. _dupenv_s allocates with malloc (not new), so the pointer must be
-        // released with std::free.
         char* noCaptureValue = nullptr;
         std::size_t noCaptureSize = 0;
         const bool captureDisabledByEnvironment =
@@ -421,7 +400,7 @@ int main(const int argumentCount, char** argumentValues)
 
         DeepRun::Core::Application application(
             options,
-            [&options, &playground, &acousticPlaygroundRuntime, &combatPlayground,
+            [&options, &playground, &acousticPlaygroundRuntime, &combatPlayground, &multiScaleCamera,
              &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
                 engineServices = &engine;
@@ -436,15 +415,12 @@ int main(const int argumentCount, char** argumentValues)
                     std::cerr << "[Game][ERROR] Physical playground requires a windowed renderer\n";
                     return false;
                 }
-
-                // The Engine owns the PhysicsWorld and outlives all playground rendering during Run.
                 DeepRun::Physics::PhysicsWorld* physics = engine.Physics();
                 if (physics == nullptr || !physics->IsInitialized())
                 {
                     std::cerr << "[Game][ERROR] Physical playground requires an initialized physics world\n";
                     return false;
                 }
-
                 inputState = engine.InputState();
                 if (inputState == nullptr)
                 {
@@ -452,8 +428,7 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                const auto initialized =
-                    playground.Initialize(engine.Assets(), *physics, *renderer, options.smokeTest);
+                const auto initialized = playground.Initialize(engine.Assets(), *physics, *renderer, options.smokeTest);
                 if (!initialized)
                 {
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
@@ -468,18 +443,32 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 acousticPlaygroundRuntime = *acousticRuntime;
 
-                // M3 benchmark remains byte-for-byte comparable at the scene level: the live M5 composition
-                // is not created for that dedicated benchmark path. Normal and smoke windowed runs opt in.
                 if (!options.benchmarkM3)
                 {
-                    const auto localFraming = DeepRun::Game::Combat::CombatPlaygroundCameraDirector::LocalFraming();
-                    const auto framing = playground.SetPresentationCameraFraming(
-                        localFraming.targetOffsetXMeters, localFraming.horizontalSpanMeters);
-                    if (!framing)
+                    if (options.smokeTest)
                     {
-                        std::cerr << "[Game][ERROR] M5 combat framing failed: " << framing.error() << '\n';
-                        return false;
+                        const auto localFraming = DeepRun::Game::Combat::CombatPlaygroundCameraDirector::LocalFraming();
+                        const auto framing = playground.SetPresentationCameraFraming(
+                            localFraming.targetOffsetXMeters, 0.0F, localFraming.horizontalSpanMeters);
+                        if (!framing)
+                        {
+                            std::cerr << "[Game][ERROR] M5 smoke camera framing failed: " << framing.error() << '\n';
+                            return false;
+                        }
                     }
+                    else
+                    {
+                        const auto framing = multiScaleCamera.Framing();
+                        const auto applied = playground.SetPresentationCameraFraming(
+                            framing.targetOffsetXMeters, framing.targetOffsetYMeters, framing.horizontalSpanMeters);
+                        if (!applied)
+                        {
+                            std::cerr << "[Game][ERROR] M5 multi-scale camera initialization failed: "
+                                      << applied.error() << '\n';
+                            return false;
+                        }
+                    }
+
                     const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer);
                     if (!combat)
                     {
@@ -491,12 +480,10 @@ int main(const int argumentCount, char** argumentValues)
                 return playground.SubmarineModel().IsValid();
             },
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
-             &combatAcceptance,
-             &inputState, &engineServices, &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation,
-             &loggedConfirmedAcousticTrack, &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
+             &combatAcceptance, &inputState, &engineServices, &loggedHapticSubmissionFailure,
+             &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack, &loggedCombatRuntime,
+             &loggedCombatImpact](const float fixedDeltaSeconds)
             {
-                // Smoke runs deliberately consume an explicit neutral command, insulating deterministic
-                // automated validation from any live controller connected to the developer machine.
                 const auto command = (options.smokeTest || options.benchmarkM3)
                                          ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
                                                DeepRun::Game::VesselCommandState{}}
@@ -523,8 +510,7 @@ int main(const int argumentCount, char** argumentValues)
                             {
                                 loggedHapticSubmissionFailure = true;
                                 std::cerr << "[Game][WARN] Haptic presentation suppressed: "
-                                          << (effect ? "engine haptic service is unavailable" : effect.error())
-                                          << '\n';
+                                          << (effect ? "engine haptic service is unavailable" : effect.error()) << '\n';
                             }
                             return;
                         }
@@ -555,8 +541,7 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
-                const auto acousticFrame = acousticPlaygroundRuntime->Advance(
-                    *acousticSnapshot, simulationTimeSeconds);
+                const auto acousticFrame = acousticPlaygroundRuntime->Advance(*acousticSnapshot, simulationTimeSeconds);
                 if (!acousticFrame)
                 {
                     std::cerr << "[Game][ERROR] " << acousticFrame.error() << '\n';
@@ -571,27 +556,29 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] M5 live combat physics authority is unavailable\n";
                         return false;
                     }
-                    const auto combatFrame = combatPlayground->Advance(
-                        *acousticSnapshot, *physics, simulationTimeSeconds);
+                    const auto combatFrame = combatPlayground->Advance(*acousticSnapshot, *physics, simulationTimeSeconds);
                     if (!combatFrame)
                     {
                         std::cerr << "[Game][ERROR] " << combatFrame.error() << '\n';
                         return false;
                     }
-                    if (!combatAcceptance.has_value())
+                    if (options.smokeTest)
                     {
-                        combatAcceptance.emplace(static_cast<float>(
-                            acousticSnapshot->emitter.positionMeters.y + acousticSnapshot->signedDepthMeters));
-                    }
-                    const auto acceptanceObserved = combatAcceptance->ObserveFixed(
-                        *combatPlayground->Runtime(), *physics, *acousticSnapshot, *combatFrame,
-                        simulationTimeSeconds,
-                        physics != nullptr && engineServices->Renderer() != nullptr &&
-                            std::abs(engineServices->Renderer()->AspectRatio() - (1280.0F / 720.0F)) > 0.001F);
-                    if (!acceptanceObserved)
-                    {
-                        std::cerr << "[Game][ERROR] " << acceptanceObserved.error() << '\n';
-                        return false;
+                        if (!combatAcceptance.has_value())
+                        {
+                            combatAcceptance.emplace(static_cast<float>(
+                                acousticSnapshot->emitter.positionMeters.y + acousticSnapshot->signedDepthMeters));
+                        }
+                        const auto acceptanceObserved = combatAcceptance->ObserveFixed(
+                            *combatPlayground->Runtime(), *physics, *acousticSnapshot, *combatFrame,
+                            simulationTimeSeconds,
+                            engineServices->Renderer() != nullptr &&
+                                std::abs(engineServices->Renderer()->AspectRatio() - (1280.0F / 720.0F)) > 0.001F);
+                        if (!acceptanceObserved)
+                        {
+                            std::cerr << "[Game][ERROR] " << acceptanceObserved.error() << '\n';
+                            return false;
+                        }
                     }
                     if (!loggedCombatRuntime)
                     {
@@ -638,46 +625,68 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &combatPlayground, &combatAcceptance, &combatCameraDirector,
-             &frameCapture, &captureEnabled, &options, &renderFrames,
-             &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+            [&playground, &combatPlayground, &combatAcceptance, &smokeCombatCameraDirector, &multiScaleCamera,
+             &inputState, &frameCapture, &captureEnabled, &options, &renderFrames, &capturedInitial,
+             &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
-                const double presentationTimeSeconds = engineServices->CurrentFrame().elapsedSeconds;
+                const auto& frameState = engineServices->CurrentFrame();
+                const double presentationTimeSeconds = frameState.elapsedSeconds;
 
-                // M5 camera presentation has exactly one state progression: stable local launch framing,
-                // one smooth zoom-out after the torpedo clears the submarine, then a stable tactical overview.
-                // The target offset never chases the torpedo, so physics/render truth cannot produce camera jitter.
                 if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
                 {
-                    const auto cameraFraming = combatCameraDirector.Evaluate(
-                        *combatPlayground->Runtime(), simulationTimeSeconds);
-                    if (!cameraFraming)
+                    if (options.smokeTest)
                     {
-                        std::cerr << "[Game][ERROR] M5 combat camera failed: " << cameraFraming.error() << '\n';
-                        return false;
+                        const auto cameraFraming = smokeCombatCameraDirector.Evaluate(
+                            *combatPlayground->Runtime(), simulationTimeSeconds);
+                        if (!cameraFraming)
+                        {
+                            std::cerr << "[Game][ERROR] M5 smoke combat camera failed: "
+                                      << cameraFraming.error() << '\n';
+                            return false;
+                        }
+                        const auto appliedFraming = playground.SetPresentationCameraFraming(
+                            cameraFraming->targetOffsetXMeters, 0.0F, cameraFraming->horizontalSpanMeters);
+                        if (!appliedFraming)
+                        {
+                            std::cerr << "[Game][ERROR] M5 smoke camera framing failed: "
+                                      << appliedFraming.error() << '\n';
+                            return false;
+                        }
                     }
-                    const auto appliedFraming = playground.SetPresentationCameraFraming(
-                        cameraFraming->targetOffsetXMeters, cameraFraming->horizontalSpanMeters);
-                    if (!appliedFraming)
+                    else
                     {
-                        std::cerr << "[Game][ERROR] M5 combat camera framing failed: " << appliedFraming.error() << '\n';
-                        return false;
+                        const DeepRun::Game::Camera::MultiScaleCameraInput cameraInput =
+                            inputState != nullptr
+                                ? DeepRun::Game::Camera::MultiScaleCameraInputFromState(*inputState)
+                                : DeepRun::Game::Camera::MultiScaleCameraInput{};
+                        const auto cameraFraming = multiScaleCamera.Update(cameraInput, frameState.deltaSeconds);
+                        if (!cameraFraming)
+                        {
+                            std::cerr << "[Game][ERROR] M5 multi-scale camera failed: "
+                                      << cameraFraming.error() << '\n';
+                            return false;
+                        }
+                        const auto appliedFraming = playground.SetPresentationCameraFraming(
+                            cameraFraming->targetOffsetXMeters,
+                            cameraFraming->targetOffsetYMeters,
+                            cameraFraming->horizontalSpanMeters);
+                        if (!appliedFraming)
+                        {
+                            std::cerr << "[Game][ERROR] M5 multi-scale camera framing failed: "
+                                      << appliedFraming.error() << '\n';
+                            return false;
+                        }
                     }
                 }
 
-                const auto rendered = playground.Render(
-                    renderer, simulationTimeSeconds, presentationTimeSeconds);
+                const auto rendered = playground.Render(renderer, simulationTimeSeconds, presentationTimeSeconds);
                 if (!rendered)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
                     return false;
                 }
 
-                // M5-H.1-B uses the same camera policy/data as PhysicalPlayground. The combat presentation
-                // remains a separate draw/stat contract so the accepted 74/72/364380 physical regression
-                // counters below stay unchanged. H.1 is presentation-only and cannot feed results back into
-                // combat runtime, physics, sonar or targeting.
                 if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
                 {
                     DeepRun::Physics::PhysicsWorld* physics = engineServices->Physics();
@@ -709,12 +718,8 @@ int main(const int argumentCount, char** argumentValues)
                     if (combatAcceptance.has_value())
                     {
                         const auto acceptanceRendered = combatAcceptance->ObserveRender(
-                            *combatPlayground->Runtime(),
-                            *physics,
-                            *camera,
-                            *combatRendered,
-                            renderer.AspectRatio(),
-                            combatPlayground->PresentationModelValid(renderer));
+                            *combatPlayground->Runtime(), *physics, *camera, *combatRendered,
+                            renderer.AspectRatio(), combatPlayground->PresentationModelValid(renderer));
                         if (!acceptanceRendered)
                         {
                             std::cerr << "[Game][ERROR] " << acceptanceRendered.error() << '\n';
@@ -758,10 +763,6 @@ int main(const int argumentCount, char** argumentValues)
                     }
                 }
 
-                // Bounded M3-H.1/M5-H.1 visual validation: the existing initial/later captures now include
-                // the live combat presentation in normal smoke runs while preserving their historical paths.
-                // The smoke run resizes at engine frame 30 from 16:9 to 16:10 (1280x720 -> 1024x640), while
-                // M5 camera width itself follows the stable local-to-tactical director above.
                 if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;
@@ -795,9 +796,6 @@ int main(const int argumentCount, char** argumentValues)
                               << " submitted_triangles=" << rendered->submittedIndices / 3U << '\n';
                 }
                 ++renderFrames;
-                // IG1-B replaces the four-primitive prototype submarine with the actual 66-primitive staged
-                // Antey LOD0. Model primitives remain model draws only; the Gerstner surface and particles
-                // remain their existing non-model batches. M5 combat draws are separately validated above.
                 return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
                        rendered->submittedIndices == 364380;
             });
