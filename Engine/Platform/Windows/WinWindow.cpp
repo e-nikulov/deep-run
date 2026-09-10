@@ -38,10 +38,12 @@ Key TranslateKey(const WPARAM virtualKey)
     case VK_ESCAPE: return Key::Escape;
     case VK_F1: return Key::F1;
     case VK_TAB: return Key::Tab;
+    case VK_SPACE: return Key::Space;
     case 'A': return Key::A;
     case 'D': return Key::D;
     case 'W': return Key::W;
     case 'S': return Key::S;
+    case 'R': return Key::R;
     case VK_LEFT: return Key::Left;
     case VK_RIGHT: return Key::Right;
     case VK_UP: return Key::Up;
@@ -311,4 +313,4 @@ void* Window::NativeHandle() const noexcept
 {
     return impl_->handle_;
 }
-} // namespace DeepRun::Platform
+}
