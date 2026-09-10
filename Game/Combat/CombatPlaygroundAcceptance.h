@@ -3,6 +3,7 @@
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 
@@ -322,7 +323,9 @@ public:
             !Render::IsFinite(camera.viewProjection) || !std::isfinite(camera.width) ||
             !std::isfinite(camera.height) || !std::isfinite(camera.nearPlane) || !std::isfinite(camera.farPlane) ||
             !std::isfinite(rendererAspectRatio) || rendererAspectRatio <= 0.0F ||
-            !std::isfinite(camera.width) || std::abs(camera.width - 600.0F) > 0.001F ||
+            !std::isfinite(camera.width) ||
+            camera.width < M5CombatLocalCameraHorizontalSpanMeters - 0.001F ||
+            camera.width > M5CombatTacticalCameraHorizontalSpanMeters + 0.001F ||
             !std::isfinite(camera.height) || camera.height <= 0.0F || camera.nearPlane <= 0.0F ||
             camera.farPlane <= camera.nearPlane ||
             std::abs(camera.target.x - latestFixedSnapshot_.anteyPositionMeters.x -
@@ -333,6 +336,19 @@ public:
             combatDrawStats.submittedIndices != static_cast<std::uint64_t>(combatDrawStats.drawCalls) * 36U)
         {
             return std::unexpected("M5 visual acceptance render/camera/GPU contract failed");
+        }
+
+        // The first two captures belong to the stationary local launch framing. By the time the weapon is near
+        // the remote target the one-way camera transition must have completed and the view must be stationary
+        // at the tactical span. This catches accidental camera chasing/oscillation without pixel comparison.
+        const bool localCheckpoint = *pending_ == M5CombatAcceptanceCheckpoint::Initial ||
+                                     *pending_ == M5CombatAcceptanceCheckpoint::TorpedoInFlight;
+        const float expectedSpan = localCheckpoint
+            ? M5CombatLocalCameraHorizontalSpanMeters
+            : M5CombatTacticalCameraHorizontalSpanMeters;
+        if (std::abs(camera.width - expectedSpan) > 0.01F)
+        {
+            return std::unexpected("M5 visual acceptance camera checkpoint framing is unstable");
         }
         M5CombatAcceptanceSnapshot renderedSnapshot = pendingSnapshot_.value_or(latestFixedSnapshot_);
         const auto currentDestroyerBody = physicsWorld.GetBodyState(runtime.Destroyer().body);
