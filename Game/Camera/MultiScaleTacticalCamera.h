@@ -10,11 +10,11 @@
 namespace DeepRun::Game::Camera
 {
 // M5-H.2 presentation scale. World/simulation coordinates never change when the player zooms or pans.
-// The same continuous controller therefore spans close inspection of a production submarine and the future
-// operational/strategic contact picture without making the renderer or camera authoritative gameplay state.
-inline constexpr float MultiScaleMinimumHorizontalSpanMeters = 80.0F;
+// The current lower bound deliberately preserves the accepted M2/M3 full-scene camera-fit contract while the
+// upper bound already spans future operational/strategic contact presentation without loading a giant world.
+inline constexpr float MultiScaleMinimumHorizontalSpanMeters = 600.0F;
 inline constexpr float MultiScaleMaximumHorizontalSpanMeters = 600'000.0F;
-inline constexpr float MultiScaleInitialHorizontalSpanMeters = 600.0F;
+inline constexpr float MultiScaleInitialHorizontalSpanMeters = 1'600.0F;
 
 enum class MultiScaleCameraBand
 {
@@ -97,7 +97,7 @@ public:
         const float zoom = std::clamp(input.zoom, -1.0F, 1.0F);
         const float deltaSeconds = static_cast<float>(presentationDeltaSeconds);
 
-        // Multiplicative/logarithmic zoom makes one wheel notch meaningful at both 100 m and 100 km. Analog
+        // Multiplicative/logarithmic zoom makes one wheel notch meaningful at both 1 km and 100 km. Analog
         // controller zoom is deliberately slower and continuous. Neither path depends on SimulationTime.
         constexpr float WheelOctavesPerStep = 0.25F;
         constexpr float AnalogOctavesPerSecond = 1.35F;
@@ -139,7 +139,7 @@ public:
         if (!std::isfinite(spanMeters) || spanMeters < MultiScaleMinimumHorizontalSpanMeters ||
             spanMeters > MultiScaleMaximumHorizontalSpanMeters)
         {
-            return std::unexpected("multi-scale camera requested span is outside the supported 80 m..600 km range");
+            return std::unexpected("multi-scale camera requested span is outside the supported 600 m..600 km range");
         }
         requestedSpanMeters_ = spanMeters;
         return {};
@@ -187,10 +187,10 @@ private:
             switch (band_)
             {
             case MultiScaleCameraBand::Detail:
-                if (spanMeters_ > 240.0F) { band_ = MultiScaleCameraBand::Local; changed = true; }
+                if (spanMeters_ > 900.0F) { band_ = MultiScaleCameraBand::Local; changed = true; }
                 break;
             case MultiScaleCameraBand::Local:
-                if (spanMeters_ < 180.0F) { band_ = MultiScaleCameraBand::Detail; changed = true; }
+                if (spanMeters_ < 700.0F) { band_ = MultiScaleCameraBand::Detail; changed = true; }
                 else if (spanMeters_ > 2'300.0F) { band_ = MultiScaleCameraBand::Tactical; changed = true; }
                 break;
             case MultiScaleCameraBand::Tactical:
