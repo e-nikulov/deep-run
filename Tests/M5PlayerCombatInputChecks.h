@@ -16,13 +16,15 @@ namespace DeepRun::Tests
     const std::uint16_t combatButtons =
         static_cast<std::uint16_t>(GamepadButton::Y) |
         static_cast<std::uint16_t>(GamepadButton::X) |
-        static_cast<std::uint16_t>(GamepadButton::A);
+        static_cast<std::uint16_t>(GamepadButton::A) |
+        static_cast<std::uint16_t>(GamepadButton::B);
     const auto disconnected = SemanticActionsForGamepad(GamepadState{
         .connected = false,
         .leftTrigger = 1.0F,
         .rightTrigger = 1.0F,
         .buttons = combatButtons});
-    if (disconnected.selectContact || disconnected.prepareWeapon || disconnected.fireWeapon)
+    if (disconnected.selectContact || disconnected.prepareWeapon || disconnected.fireWeapon ||
+        disconnected.deployDecoy)
     {
         return false;
     }
@@ -30,7 +32,8 @@ namespace DeepRun::Tests
     const auto controller = SemanticActionsForGamepad(GamepadState{
         .connected = true,
         .buttons = combatButtons});
-    if (!controller.selectContact || !controller.prepareWeapon || !controller.fireWeapon)
+    if (!controller.selectContact || !controller.prepareWeapon || !controller.fireWeapon ||
+        !controller.deployDecoy)
     {
         return false;
     }
@@ -43,7 +46,7 @@ namespace DeepRun::Tests
     const auto triggerActions = SemanticActionsForGamepad(triggerOnly);
     const auto triggerAxes = SemanticAxesForGamepad(triggerOnly);
     if (triggerActions.selectContact || triggerActions.prepareWeapon || triggerActions.fireWeapon ||
-        std::abs(triggerAxes.cameraZoom - 0.60F) > 0.001F)
+        triggerActions.deployDecoy || std::abs(triggerAxes.cameraZoom - 0.60F) > 0.001F)
     {
         return false;
     }
@@ -123,6 +126,25 @@ namespace DeepRun::Tests
     const std::array fireKeyUp{
         Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::Space}};
     input.ProcessEvents(fireKeyUp);
+
+    input.BeginFrame();
+    const std::array decoyKeyDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::F}};
+    input.ProcessEvents(decoyKeyDown);
+    if (!input.State().WasPressed(InputAction::DeployDecoy) ||
+        !input.State().IsDown(InputAction::DeployDecoy) || input.State().IsDown(InputAction::FireWeapon) ||
+        input.State().IsDown(InputAction::PrepareWeapon) ||
+        input.State().PressSequence(InputAction::DeployDecoy) == 0U)
+    {
+        return false;
+    }
+    const std::array decoyKeyUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::F}};
+    input.ProcessEvents(decoyKeyUp);
+    if (!input.State().WasReleased(InputAction::DeployDecoy) || input.State().IsDown(InputAction::DeployDecoy))
+    {
+        return false;
+    }
 
     input.BeginFrame();
     const std::array prepareMouseDown{

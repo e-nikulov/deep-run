@@ -87,7 +87,8 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
     return ControllerSemanticActions{
         .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
         .prepareWeapon = HasGamepadButton(gamepad, GamepadButton::X),
-        .fireWeapon = HasGamepadButton(gamepad, GamepadButton::A)};
+        .fireWeapon = HasGamepadButton(gamepad, GamepadButton::A),
+        .deployDecoy = HasGamepadButton(gamepad, GamepadButton::B)};
 }
 
 float ResolveSemanticAxis(
@@ -156,6 +157,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 fireWeaponKeyDown_ = true;
             }
+            else if (event.key == Platform::Key::F)
+            {
+                deployDecoyKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::A)
             {
                 throttleAsternKeyDown_ = true;
@@ -218,6 +223,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::Space)
             {
                 fireWeaponKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::F)
+            {
+                deployDecoyKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -348,6 +357,7 @@ void InputSystem::RefreshSemanticActions() noexcept
         fireWeaponKeyDown_ ||
             state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
             controller.fireWeapon);
+    state_.SetActionDown(InputAction::DeployDecoy, deployDecoyKeyDown_ || controller.deployDecoy);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept

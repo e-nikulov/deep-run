@@ -18,6 +18,7 @@ enum class PlayerCombatCommandType
     SelectNextTrack,
     PrepareWeapon,
     FireWeapon,
+    DeployDecoy,
 };
 
 struct PlayerCombatCommand final
@@ -57,6 +58,8 @@ struct PlayerCombatPresentationSnapshot final
     std::optional<float> incomingThreatBearingRadians{};
     std::optional<float> incomingThreatBearingUncertaintyRadians{};
     std::optional<float> incomingThreatConfidence{};
+    bool canDeployDecoy = false;
+    bool playerDecoyActive = false;
     std::optional<PlayerCombatCommandFeedback> lastCommand{};
 };
 
@@ -105,6 +108,8 @@ public:
             return Prepare(simulationTimeSeconds);
         case PlayerCombatCommandType::FireWeapon:
             return Fire(tracks, simulationTimeSeconds);
+        case PlayerCombatCommandType::DeployDecoy:
+            return std::unexpected("M5-J4 DeployDecoy is owned by CombatPlaygroundRuntime, not weapon runtime");
         }
         return std::unexpected("M5-J1 received an unknown player combat command");
     }

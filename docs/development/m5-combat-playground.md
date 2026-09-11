@@ -12,10 +12,12 @@ torpedo threat. F.2 was stabilized by extending only the deterministic headless 
 the ~1.7 km scenario. Gameplay speed/guidance/damage were unchanged. Stable evidence: clean candidate SHA
 `3fd4cad9faf9d89787348523dfcb4e20ed1aaac9` passed Debug and Release twice, and feature commit
 `1d90159ac236cc3cc2df0a1d07b6fbf4c4d5fdc1` passed post-merge CI run `34520094788` in both configurations.
+J3 is additionally accepted at feature commit `3a6fef335878046808e9caa08d3b4df8ceb1bcaf`; post-merge CI
+run `34523462484` passed Debug and Release configure, build, CTest, windowed smoke and visual artifacts.
 
 ### M5-J3 — perceived incoming-threat combat UI
 
-Status: ACCEPTED when this documented tree passes the normal Debug/Release CI gate.
+Status: ACCEPTED.
 
 J3 does not expose hostile torpedo position, range, Transform or PhysicsBodyHandle to commander UI. A dedicated
 passive-acoustic perceived-world path samples the simulated hostile weapon only as timestamped AcousticEmission
@@ -23,6 +25,23 @@ values, preserves propagation delay before they can reach the production player 
 AcousticWorld, converts observations through SensorObservation and TrackManager, and projects only lifecycle,
 bearing, bearing uncertainty and confidence. The warning naturally
 coasts/clears after the physical threat is consumed. No tactical pause or generic command queue is introduced.
+
+### M5-J4 — player defensive acoustic countermeasure
+
+Status: ACCEPTED after the normal Debug/Release candidate gate used for promotion to the stable M5 branch.
+
+J4 wires the already-canonical `DeployDecoy` semantic action into normal combat play (`B` on the reference
+controller and `F` on keyboard). The command is a one-shot M5 playground resource only; it does not introduce
+M6 inventory, compartment, crew or launcher-system simulation. Deployment creates an ordinary moving
+`AcousticEmitter` through the existing `AcousticDecoy` contract and projects availability/active state plus
+accepted/rejected command feedback to the combat UI.
+
+The reciprocal F.2 torpedo now owns a local passive seeker with its own TrackManager. It samples timestamped
+emissions from Antey and the player decoy through `AcousticWorld`, waits for acoustic propagation, converts only
+observations into perceived tracks, and chooses a bearing-only cue through the same `TorpedoSeeker` policy used
+by the player's weapon. The decoy therefore diverts the torpedo by winning perceived-track selection; no decoy
+flag, player body handle, authoritative target Transform, or source identity crosses into seeker guidance.
+The accepted automated smoke path never deploys the player decoy, preserving the deterministic F.2 baseline.
 
 ## M5-H.1-B — automated windowed visual acceptance
 
