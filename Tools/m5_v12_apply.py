@@ -28,7 +28,7 @@ def replace_between(path: str, start: str, end: str, replacement: str) -> None:
     last = text.find(end, first + len(start))
     if last < 0:
         raise RuntimeError(f"{path}: missing end marker: {end!r}")
-    write(path, text[:first] + replacement + text[last:])
+    write(path, text[:first] + replacement + text[last + len(end):])
 
 
 write("Game/Combat/CombatPlaygroundCamera.h", """#pragma once
@@ -331,48 +331,17 @@ replace_between(
     return tiles;
 }""")
 
-replace_once(
+replace_between(
     "Game/PhysicalPlayground.h",
     """    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
         const float targetOffsetXMeters,
         const float targetOffsetYMeters,
         const float horizontalSpanMeters)
-    {
-        if (!std::isfinite(targetOffsetXMeters) || !std::isfinite(targetOffsetYMeters) ||
-            !std::isfinite(horizontalSpanMeters) || horizontalSpanMeters <= 0.0F)
-        {
-            return std::unexpected(\"physical playground presentation camera framing is invalid\");
-        }
-
-        // M5-V1 combat is underwater-first: when normal gameplay does not explicitly pan vertically, keep the
-        // WaterBody surface near the upper 15% of a normal 16:9 view instead of centring the camera on the hull.
-        // Explicit vertical camera input remains authoritative and the untouched 600 m M2/M3 path never calls
-        // this setter, so its accepted fixed composition is unchanged.
-        float effectiveTargetOffsetYMeters = targetOffsetYMeters;
-        constexpr float M5NormalCombatReferenceAspectRatio = 16.0F / 9.0F;
-        constexpr float M5NormalCombatAboveWaterFraction = 0.15F;
-        constexpr float M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters = 600.0F;
-        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
-            horizontalSpanMeters >= M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters)
-        {
-            const float unshiftedTargetYMeters =
-                initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
-            const float referenceVerticalSpanMeters =
-                horizontalSpanMeters / M5NormalCombatReferenceAspectRatio;
-            const float desiredTargetWorldYMeters =
-                water_->Config().surfaceLevelY +
-                (M5NormalCombatAboveWaterFraction - 0.5F) * referenceVerticalSpanMeters;
-            effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;
-        }
-
-        initialBodyWorldCenter_.x += targetOffsetXMeters - presentationCameraTargetOffsetXMeters_;
-        initialBodyWorldCenter_.y += effectiveTargetOffsetYMeters - presentationCameraTargetOffsetYMeters_;
-        presentationCameraTargetOffsetXMeters_ = targetOffsetXMeters;
-        presentationCameraTargetOffsetYMeters_ = effectiveTargetOffsetYMeters;
-        presentationCameraHorizontalSpanMeters_ = horizontalSpanMeters;
-        freePresentationCameraFraming_ = true;
-        return {};
-    }""",
+    {""",
+    """    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
+        const float targetOffsetXMeters,
+        const float horizontalSpanMeters)
+    {""",
     """    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
         const float targetOffsetXMeters,
         const float targetOffsetYMeters,
@@ -383,13 +352,12 @@ replace_once(
             !std::isfinite(horizontalSpanMeters) || horizontalSpanMeters <= 0.0F ||
             !std::isfinite(cameraAspectRatio) || cameraAspectRatio <= 0.0F)
         {
-            return std::unexpected(\"physical playground presentation camera framing is invalid\");
+            return std::unexpected(\"physical playground presentation camera framing must be finite and positive\");
         }
 
-        // M5-V1.2 underwater-first composition derives the vertical offset from the actual render-target aspect
-        // every frame. This keeps the authoritative WaterBody surface at ~15% from the top through resize while
-        // explicit vertical input remains authoritative. The untouched M2/M3 fixed path never calls this setter.
         float effectiveTargetOffsetYMeters = targetOffsetYMeters;
+        // M5-V1.2 underwater-first composition derives vertical framing from the live renderer aspect.
+        // Y=0 remains the production normal-play opt-in; explicit future vertical framing is untouched.
         constexpr float M5NormalCombatAboveWaterFraction = 0.15F;
         constexpr float M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters = 600.0F;
         if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
@@ -398,8 +366,7 @@ replace_once(
             const float unshiftedTargetYMeters =
                 initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
             const float verticalSpanMeters = horizontalSpanMeters / cameraAspectRatio;
-            const float desiredTargetWorldYMeters =
-                water_->Config().surfaceLevelY +
+            const float desiredTargetWorldYMeters = water_->Config().surfaceLevelY +
                 (M5NormalCombatAboveWaterFraction - 0.5F) * verticalSpanMeters;
             effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;
         }
@@ -408,13 +375,13 @@ replace_once(
         initialBodyWorldCenter_.y += effectiveTargetOffsetYMeters - presentationCameraTargetOffsetYMeters_;
         presentationCameraTargetOffsetXMeters_ = targetOffsetXMeters;
         presentationCameraTargetOffsetYMeters_ = effectiveTargetOffsetYMeters;
-        presentationCameraHorizontalSpanMeters_ = horizontalSpanMeters;
+        M2GameplayCameraHorizontalSpanMeters = horizontalSpanMeters;
         freePresentationCameraFraming_ = true;
         return {};
     }
 
-    // Compatibility overload for older presentation-only call sites. Production M5 always supplies the live
-    // renderer aspect through the four-argument overload so resize composition remains exact.
+    // Compatibility overload for older presentation-only call sites. Production M5 supplies the live
+    // renderer aspect so resize composition remains exact.
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
         const float targetOffsetXMeters,
         const float targetOffsetYMeters,
@@ -422,7 +389,12 @@ replace_once(
     {
         return SetPresentationCameraFraming(
             targetOffsetXMeters, targetOffsetYMeters, horizontalSpanMeters, 16.0F / 9.0F);
-    }""")
+    }
+
+    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
+        const float targetOffsetXMeters,
+        const float horizontalSpanMeters)
+    {""")
 
 replace_between(
     "Game/PhysicalPlayground.cpp",
@@ -475,40 +447,13 @@ replace_between(
     // The M3 Gerstner surface and suspended-particle field are authored as bounded local-detail envelopes.""")
 
 main = read("DeepRun/Main.cpp")
+framing_tail = "cameraFraming->horizontalSpanMeters);"
+if main.count(framing_tail) != 2:
+    raise RuntimeError(
+        f"DeepRun/Main.cpp: expected two production camera framing tails, found {main.count(framing_tail)}")
 main = main.replace(
-    """cameraFraming.targetOffsetXMeters,
-                    0.0F,
-                    cameraFraming.horizontalSpanMeters);""",
-    """cameraFraming.targetOffsetXMeters,
-                    0.0F,
-                    cameraFraming.horizontalSpanMeters,
-                    renderer->AspectRatio());""", 1)
-main = main.replace(
-    """multiScaleCamera.Framing().targetOffsetXMeters,
-                    multiScaleCamera.Framing().targetOffsetYMeters,
-                    multiScaleCamera.Framing().horizontalSpanMeters);""",
-    """multiScaleCamera.Framing().targetOffsetXMeters,
-                    multiScaleCamera.Framing().targetOffsetYMeters,
-                    multiScaleCamera.Framing().horizontalSpanMeters,
-                    renderer->AspectRatio());""", 1)
-main = main.replace(
-    """cameraFraming->targetOffsetXMeters,
-                                0.0F,
-                                cameraFraming->horizontalSpanMeters);""",
-    """cameraFraming->targetOffsetXMeters,
-                                0.0F,
-                                cameraFraming->horizontalSpanMeters,
-                                renderer.AspectRatio());""", 1)
-main = main.replace(
-    """cameraFraming->targetOffsetXMeters,
-                            cameraFraming->targetOffsetYMeters,
-                            cameraFraming->horizontalSpanMeters);""",
-    """cameraFraming->targetOffsetXMeters,
-                            cameraFraming->targetOffsetYMeters,
-                            cameraFraming->horizontalSpanMeters,
-                            renderer.AspectRatio());""", 1)
-if main.count("renderer->AspectRatio());") < 2 or main.count("renderer.AspectRatio());") < 2:
-    raise RuntimeError("DeepRun/Main.cpp: production aspect wiring failed")
+    framing_tail,
+    "cameraFraming->horizontalSpanMeters, renderer.AspectRatio());")
 # Existing early visual capture becomes the explicit normal-local M5 evidence in combat smoke.
 main = main.replace(
     """const auto path = std::filesystem::path(\"m3_h1_frame_004.bmp\");

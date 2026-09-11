@@ -740,7 +740,7 @@ int main(const int argumentCount, char** argumentValues)
                             return false;
                         }
                         const auto appliedFraming = playground.SetPresentationCameraFraming(
-                            cameraFraming->targetOffsetXMeters, 0.0F, cameraFraming->horizontalSpanMeters);
+                            cameraFraming->targetOffsetXMeters, 0.0F, cameraFraming->horizontalSpanMeters, renderer.AspectRatio());
                         if (!appliedFraming)
                         {
                             std::cerr << "[Game][ERROR] M5 smoke camera framing failed: "
@@ -768,7 +768,7 @@ int main(const int argumentCount, char** argumentValues)
                         const auto appliedFraming = playground.SetPresentationCameraFraming(
                             cameraFraming->targetOffsetXMeters,
                             cameraFraming->targetOffsetYMeters,
-                            cameraFraming->horizontalSpanMeters);
+                            cameraFraming->horizontalSpanMeters, renderer.AspectRatio());
                         if (!appliedFraming)
                         {
                             std::cerr << "[Game][ERROR] M5 multi-scale camera framing failed: "
@@ -873,7 +873,8 @@ int main(const int argumentCount, char** argumentValues)
                     std::uint32_t height = 0;
                     if (frameCapture.Capture(pixels, width, height))
                     {
-                        const auto path = std::filesystem::path("m3_h1_frame_004.bmp");
+                        const auto path = std::filesystem::path(
+                            combatPlayground.has_value() ? "m5-normal-local.bmp" : "m3_h1_frame_004.bmp");
                         capturedInitial = WriteBmp(path, pixels, width, height);
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }

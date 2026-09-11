@@ -119,11 +119,10 @@ namespace DeepRun::Tests
     bool sawHorizontalLaunch = false;
     bool sawStraightRunout = false;
     bool sawGradualAscent = false;
-    bool sawCameraTransition = false;
-    bool sawTacticalCamera = false;
-    bool cameraEverLeftLocal = false;
-    std::uint32_t stableTacticalTicks = 0U;
-    float previousCameraSpan = Game::Combat::M5CombatLocalCameraHorizontalSpanMeters;
+    bool sawLocalCamera = false;
+    bool sawTorpedoFollowCamera = false;
+    bool sawImpactFocusCamera = false;
+    bool automaticCameraUsedTacticalOverview = false;
 
     constexpr float fixedDeltaSeconds = 1.0F / 60.0F;
     // F.1 active ranging intentionally delays the destroyer's qualified launch. Give the reciprocal F.2 weapon
@@ -147,46 +146,46 @@ namespace DeepRun::Tests
 
         const auto cameraFraming = cameraDirector.Evaluate(runtime, simulationTimeSeconds);
         if (!cameraFraming ||
-            std::abs(cameraFraming->targetOffsetXMeters - Game::Combat::M5CombatCameraTargetOffsetXMeters) > 0.001F ||
-            cameraFraming->horizontalSpanMeters + 0.001F < previousCameraSpan ||
-            cameraFraming->horizontalSpanMeters < Game::Combat::M5CombatLocalCameraHorizontalSpanMeters - 0.001F ||
-            cameraFraming->horizontalSpanMeters > Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters + 0.001F)
+            std::abs(cameraFraming->horizontalSpanMeters -
+                     Game::Combat::M5CombatLocalCameraHorizontalSpanMeters) > 0.001F)
         {
             return false;
         }
 
         if (cameraFraming->mode == CombatPlaygroundCameraMode::LocalLaunch)
         {
-            if (cameraEverLeftLocal ||
-                std::abs(cameraFraming->horizontalSpanMeters - Game::Combat::M5CombatLocalCameraHorizontalSpanMeters) >
-                    0.001F ||
+            sawLocalCamera = true;
+            if (std::abs(cameraFraming->targetOffsetXMeters -
+                         Game::Combat::M5CombatCameraTargetOffsetXMeters) > 0.001F ||
                 cameraFraming->transitionProgress != 0.0F)
             {
                 return false;
             }
         }
-        else if (cameraFraming->mode == CombatPlaygroundCameraMode::TransitionToTactical)
+        else if (cameraFraming->mode == CombatPlaygroundCameraMode::TorpedoFollow ||
+                 cameraFraming->mode == CombatPlaygroundCameraMode::ImpactFocus)
         {
-            cameraEverLeftLocal = true;
-            sawCameraTransition = true;
-            if (cameraFraming->transitionProgress < 0.0F || cameraFraming->transitionProgress >= 1.0F)
+            if (!runtime.PlayerTorpedo() || !runtime.PlayerTorpedoLaunchPosition())
             {
                 return false;
             }
-        }
-        else if (cameraFraming->mode == CombatPlaygroundCameraMode::TacticalOverview)
-        {
-            cameraEverLeftLocal = true;
-            sawTacticalCamera = true;
-            ++stableTacticalTicks;
-            if (std::abs(cameraFraming->horizontalSpanMeters - Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters) >
-                    0.001F ||
+            const float ownshipReferenceXMeters =
+                runtime.PlayerTorpedoLaunchPosition()->x - Game::Combat::M5CombatTorpedoLaunchClearanceMeters;
+            const float expectedOffset = runtime.PlayerTorpedo()->positionMeters.x - ownshipReferenceXMeters;
+            if (std::abs(cameraFraming->targetOffsetXMeters - expectedOffset) > 0.01F ||
                 std::abs(cameraFraming->transitionProgress - 1.0F) > 0.001F)
             {
                 return false;
             }
+            sawTorpedoFollowCamera = sawTorpedoFollowCamera ||
+                cameraFraming->mode == CombatPlaygroundCameraMode::TorpedoFollow;
+            sawImpactFocusCamera = sawImpactFocusCamera ||
+                cameraFraming->mode == CombatPlaygroundCameraMode::ImpactFocus;
         }
-        previousCameraSpan = cameraFraming->horizontalSpanMeters;
+        else if (cameraFraming->mode == CombatPlaygroundCameraMode::TacticalOverview)
+        {
+            automaticCameraUsedTacticalOverview = true;
+        }
 
         for (const auto& track : frame->playerTracks)
         {
@@ -459,8 +458,8 @@ namespace DeepRun::Tests
         !sawDecoy || !sawLiveSeekerSelection || !sawDecoyDiversion || !sawPostDecoyRecovery ||
         !sawImpact || !sawPresentationTorpedo || !sawPresentationDestroyerTorpedo || !sawPresentationMine ||
         !sawPresentationDecoy || !sawPresentationExplosion || !sawPostImpactTorpedoHidden || !sawHorizontalLaunch ||
-        !sawStraightRunout || !sawGradualAscent || !sawCameraTransition || !sawTacticalCamera ||
-        stableTacticalTicks < 60U || !destroyerState ||
+        !sawStraightRunout || !sawGradualAscent || !sawLocalCamera || !sawTorpedoFollowCamera ||
+        !sawImpactFocusCamera || automaticCameraUsedTacticalOverview || !destroyerState ||
         runtime.Destroyer().weapon.phase != Weapons::WeaponPhase::Launched ||
         !runtime.Destroyer().weapon.targetTrackId.has_value() ||
         runtime.Destroyer().integrity.destroyed ||
@@ -482,9 +481,15 @@ namespace DeepRun::Tests
     }
 
 
-    // The camera transition is one-way and SimulationTime authoritative. A time-reversing request must be
-    // rejected instead of rewinding the cinematic framing back toward the submarine.
-    if (cameraDirector.Evaluate(runtime, finalSimulationTimeSeconds - 1.0))
+    // Automatic combat framing stays local/contextual. The kilometre-scale composition remains available
+    // only as an explicit tactical view, and SimulationTime reversal is still rejected.
+    const auto tacticalFraming = CombatPlaygroundCameraDirector::TacticalFraming();
+    if (tacticalFraming.mode != CombatPlaygroundCameraMode::TacticalOverview ||
+        std::abs(tacticalFraming.horizontalSpanMeters -
+                 Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters) > 0.001F ||
+        std::abs(tacticalFraming.targetOffsetXMeters -
+                 Game::Combat::M5CombatCameraTargetOffsetXMeters) > 0.001F ||
+        cameraDirector.Evaluate(runtime, finalSimulationTimeSeconds - 1.0))
     {
         return false;
     }

@@ -9,15 +9,14 @@
 
 namespace DeepRun::Game::Camera
 {
-// M5-H.3 presentation scale. World/simulation coordinates never change when the player zooms or pans.
-// 80 m exposes close production-model inspection; 600 m remains the accepted M2/M3 local reference span;
-// wider spans expose tactical, operational and strategic presentation without implying a physically loaded
-// 600 km scene. M5-V1 starts normal combat at 500 m: with the authored ~100 m ownship depth this leaves the
-// surface in the intended ~15% upper band while keeping the local seabed a secondary part of the frame.
+// M5-H.3/M5-V1.2 presentation scale. World/simulation coordinates never change when the player zooms or pans.
+// 80 m exposes close production-model inspection; 600 m remains the accepted M2/M3 reference; 800 m is the
+// normal M5 underwater combat composition and the exact width of the canonical authored M3 local section.
+// Wider spans are explicit tactical/operational/strategic presentation, not the default gameplay camera.
 inline constexpr float MultiScaleMinimumHorizontalSpanMeters = 80.0F;
 inline constexpr float MultiScaleLocalReferenceHorizontalSpanMeters = 600.0F;
 inline constexpr float MultiScaleMaximumHorizontalSpanMeters = 600'000.0F;
-inline constexpr float MultiScaleInitialHorizontalSpanMeters = 500.0F;
+inline constexpr float MultiScaleInitialHorizontalSpanMeters = 800.0F;
 inline constexpr float MultiScaleCloseInspectionMaximumOffsetMeters = 120.0F;
 
 enum class MultiScaleCameraBand

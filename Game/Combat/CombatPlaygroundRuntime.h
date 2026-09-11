@@ -24,10 +24,10 @@
 namespace DeepRun::Game::Combat
 {
 // M5 playground framing/weapon-profile tuning. The physical engagement is authored in kilometres; camera span
-// is presentation policy and must not dictate target placement. The local launch frame places Antey at roughly
-// one quarter of the view, while the later tactical overview reveals the remote target. These are gameplay
-// values, not claimed real-world Project 949A or torpedo performance data.
-inline constexpr float M5CombatCameraTargetOffsetXMeters = 400.0F;
+// is presentation policy and must not dictate target placement. M5-V1.2 restores normal local framing around
+// ownship; contextual follow/pan belongs to the production presentation camera and never changes actor state.
+// These are gameplay values, not claimed real-world Project 949A or torpedo performance data.
+inline constexpr float M5CombatCameraTargetOffsetXMeters = 0.0F;
 inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;
 inline constexpr float M5CombatTorpedoLaunchClearanceMeters = 85.0F;
 inline constexpr float M5CombatDestroyerTorpedoLaunchClearanceMeters = 32.0F;

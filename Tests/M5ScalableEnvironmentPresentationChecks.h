@@ -1,131 +1,87 @@
 #pragma once
 
+#include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Environment/ScalableEnvironmentPresentation.h"
 
 #include <cmath>
-#include <iostream>
+#include <span>
+#include <vector>
 
 namespace DeepRun::Tests
 {
 [[nodiscard]] inline bool RunM5ScalableEnvironmentPresentationChecks()
 {
-    const auto fail = [](const char* message) {
-        std::cerr << "M5 scalable environment presentation check failed: " << message << '\n';
+    using namespace Game;
+
+    if (!UseDetailedEnvironmentPresentation(600.0F) ||
+        !UseDetailedEnvironmentPresentation(M5DetailedEnvironmentMaximumHorizontalSpanMeters) ||
+        UseDetailedEnvironmentPresentation(M5DetailedEnvironmentMaximumHorizontalSpanMeters + 1.0F) ||
+        UseDetailedEnvironmentPresentation(0.0F))
+    {
         return false;
-    };
-
-    if (!Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 600.0F) ||
-        !Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 680.0F) ||
-        Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 681.0F) ||
-        !Game::HorizontalPresentationBoundsCoverView(-320.0F, 320.0F, 0.0F, 640.0F) ||
-        Game::HorizontalPresentationBoundsCoverView(-320.0F, 320.0F, 0.0F, 641.0F) ||
-        Game::HorizontalPresentationBoundsCoverView(-340.0F, 340.0F, 0.0F, 1'600.0F) ||
-        Game::HorizontalPresentationBoundsCoverView(-320.0F, 320.0F, 120.0F, 600.0F))
-    {
-        return fail("bounded wave/particle detail coverage detection");
     }
-    if (!Game::UseDetailedEnvironmentPresentation(600.0F) ||
-        !Game::UseDetailedEnvironmentPresentation(2'000.0F) ||
-        Game::UseDetailedEnvironmentPresentation(2'001.0F) ||
-        Game::UseDetailedEnvironmentPresentation(0.0F))
+    if (!UseStrategicSeabedPresentation(600.0F) ||
+        !UseStrategicSeabedPresentation(Combat::M5CombatLocalCameraHorizontalSpanMeters) ||
+        !UseStrategicSeabedPresentation(3'600.0F) ||
+        !UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters) ||
+        UseStrategicSeabedPresentation(0.0F) ||
+        UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters + 1.0F))
     {
-        return fail("local detailed presentation tier boundary");
-    }
-    if (Game::UseStrategicSeabedPresentation(2'000.0F) ||
-        !Game::UseStrategicSeabedPresentation(3'200.0F) ||
-        !Game::UseStrategicSeabedPresentation(3'600.0F) ||
-        !Game::UseStrategicSeabedPresentation(12'000.0F) ||
-        Game::UseStrategicSeabedPresentation(12'001.0F))
-    {
-        return fail("strategic seabed presentation span boundary");
-    }
-    const auto strategicSeabed = Game::BuildStrategicSeabedPresentationModel();
-    if (!strategicSeabed || strategicSeabed->materials.size() != 1U ||
-        strategicSeabed->primitives.size() != 1U || strategicSeabed->nodes.size() != 1U ||
-        strategicSeabed->primitives.front().vertices.size() != 256U ||
-        strategicSeabed->primitives.front().indices.size() != 384U ||
-        strategicSeabed->bounds.minimum.x != -12'000.0F || strategicSeabed->bounds.maximum.x != 12'000.0F ||
-        strategicSeabed->bounds.maximum.y >= 0.0F ||
-        strategicSeabed->bounds.minimum.y != Game::M5StrategicSeabedFillBottomYMeters)
-    {
-        return fail("fixed strategic seabed model contract");
+        return false;
     }
 
-    const auto localTiles = Game::BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 0.0F, 600.0F, -5.0F);
-    if (!localTiles || localTiles->size() != 1U || localTiles->front().index != 0 ||
-        localTiles->front().offsetXMeters != 0.0F || localTiles->front().offsetYMeters != 0.0F)
+    const auto strategic = BuildStrategicSeabedPresentationModel();
+    if (!strategic || strategic->primitives.size() != 1U ||
+        strategic->primitives[0].vertices.size() != 192U ||
+        strategic->primitives[0].indices.size() != 288U ||
+        std::abs(strategic->bounds.minimum.y - M5StrategicSeabedExtrusionBottomYMeters) > 0.001F)
     {
-        return fail("accepted 600 m local view must remain one authoritative presentation tile");
+        return false;
     }
 
-    const auto initialTacticalTiles = Game::BuildEnvironmentPresentationTiles(
-        -400.0F, 400.0F, 0.0F, 1'600.0F, -5.0F);
-    if (!initialTacticalTiles || initialTacticalTiles->size() != 3U ||
-        initialTacticalTiles->front().index != -1 || initialTacticalTiles->back().index != 1 ||
-        std::abs(initialTacticalTiles->front().offsetXMeters + 800.0F) > 0.001F ||
-        std::abs(initialTacticalTiles->front().offsetYMeters - 5.0F) > 0.001F ||
-        std::abs(initialTacticalTiles->back().offsetXMeters - 800.0F) > 0.001F ||
-        std::abs(initialTacticalTiles->back().offsetYMeters + 5.0F) > 0.001F)
+    if (!HorizontalPresentationBoundsCoverView(-400.0F, 400.0F, 0.0F, 600.0F) ||
+        !HorizontalPresentationBoundsCoverView(-400.0F, 400.0F, 0.0F, 800.0F) ||
+        HorizontalPresentationBoundsCoverView(-400.0F, 400.0F, 120.0F, 600.0F) ||
+        HorizontalPresentationBoundsCoverView(-400.0F, 400.0F, 0.0F, 801.0F))
     {
-        return fail("1.6 km local frame must be covered by three continuous seabed tiles");
+        return false;
     }
 
-    const auto tacticalWideTiles = Game::BuildEnvironmentPresentationTiles(
-        -400.0F, 400.0F, 0.0F, 4'000.0F, -5.0F);
-    if (!tacticalWideTiles || !tacticalWideTiles->empty())
+    const auto localTiles = BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 0.0F, 600.0F, -5.0F);
+    const auto exactLocalTiles = BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 0.0F, 800.0F, -5.0F);
+    const auto pannedTiles = BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 120.0F, 600.0F, -5.0F);
+    const auto widerTiles = BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 0.0F, 801.0F, -5.0F);
+    if (!localTiles || !exactLocalTiles || !pannedTiles || !widerTiles ||
+        localTiles->size() != 1U || exactLocalTiles->size() != 1U ||
+        !pannedTiles->empty() || !widerTiles->empty() ||
+        localTiles->front().index != 0 || localTiles->front().offsetXMeters != 0.0F ||
+        localTiles->front().offsetYMeters != 0.0F)
     {
-        return fail("tactical-wide framing must not wallpaper repeated local terrain");
+        return false;
     }
 
-    const auto pannedTiles = Game::BuildEnvironmentPresentationTiles(
-        -400.0F, 400.0F, 700.0F, 1'600.0F, -5.0F);
-    if (!pannedTiles || pannedTiles->size() != 3U || pannedTiles->front().index != 0 ||
-        pannedTiles->back().index != 2)
+    Render::ModelDrawInstance source{};
+    source.modelToWorld.translation = {10.0F, 20.0F, 30.0F};
+    source.materialBaseColorMultiplier = 0.5F;
+    const std::vector<Render::ModelDrawInstance> localDraws = BuildEnvironmentPresentationDraws(
+        std::span<const Render::ModelDrawInstance>(&source, 1U),
+        std::span<const EnvironmentPresentationTile>(*localTiles));
+    if (localDraws.size() != 1U ||
+        std::abs(localDraws[0].modelToWorld.translation.x - 10.0F) > 0.001F ||
+        std::abs(localDraws[0].modelToWorld.translation.y - 20.0F) > 0.001F ||
+        std::abs(localDraws[0].materialBaseColorMultiplier - 0.5F) > 0.001F)
     {
-        return fail("player-directed local pan must move the bounded presentation tile window");
+        return false;
     }
 
-    const auto operationalTiles = Game::BuildEnvironmentPresentationTiles(
-        -400.0F, 400.0F, 0.0F, 20'000.0F, -5.0F);
-    if (!operationalTiles || !operationalTiles->empty())
-    {
-        return fail("operational/strategic framing must not multiply local environment geometry");
-    }
-
-    Render::ModelDrawInstance baseDraw;
-    baseDraw.modelToWorld.values[12] = 10.0F;
-    baseDraw.material.baseColorFactor = {0.5F, 0.5F, 0.5F, 1.0F};
-    const auto translated = Game::BuildEnvironmentPresentationDraws(
-        std::span<const Render::ModelDrawInstance>(&baseDraw, 1U),
-        std::span<const Game::EnvironmentPresentationTile>(*initialTacticalTiles));
-    if (translated.size() != 3U ||
-        std::abs(translated.front().modelToWorld.values[12] + 790.0F) > 0.001F ||
-        std::abs(translated.front().modelToWorld.values[13] - 5.0F) > 0.001F ||
-        std::abs(translated.back().modelToWorld.values[12] - 810.0F) > 0.001F ||
-        std::abs(translated.back().modelToWorld.values[13] + 5.0F) > 0.001F ||
-        std::abs(translated[1].material.baseColorFactor[0] - 0.5F) > 0.001F)
-    {
-        return fail("presentation-only tile transforms and canonical centre material");
-    }
-    if (std::abs(translated.front().material.baseColorFactor[0] - translated[1].material.baseColorFactor[0]) < 0.001F)
-    {
-        return fail("repeated local presentation tiles must receive deterministic visual variation");
-    }
-
-    Render::ModelDrawInstance iceDraw = baseDraw;
-    iceDraw.material.name = "UnderwaterIce";
-    const auto genericCombatIce = Game::BuildEnvironmentPresentationDraws(
-        std::span<const Render::ModelDrawInstance>(&iceDraw, 1U),
-        std::span<const Game::EnvironmentPresentationTile>(*initialTacticalTiles));
-    const auto authoredScenarioIce = Game::BuildEnvironmentPresentationDraws(
-        std::span<const Render::ModelDrawInstance>(&iceDraw, 1U),
-        std::span<const Game::EnvironmentPresentationTile>(*initialTacticalTiles),
-        true);
-    if (!genericCombatIce.empty() || authoredScenarioIce.size() != initialTacticalTiles->size())
-    {
-        return fail("generic combat ice gating and explicit scenario opt-in");
-    }
-
-    return true;
+    source.materialName = std::string(ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);
+    const auto genericIce = BuildEnvironmentPresentationDraws(
+        std::span<const Render::ModelDrawInstance>(&source, 1U),
+        std::span<const EnvironmentPresentationTile>(*localTiles));
+    const auto scenarioIce = BuildEnvironmentPresentationDraws(
+        std::span<const Render::ModelDrawInstance>(&source, 1U),
+        std::span<const EnvironmentPresentationTile>(*localTiles),
+        ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);
+    return genericIce.empty() && scenarioIce.size() == 1U;
 }
 } // namespace DeepRun::Tests

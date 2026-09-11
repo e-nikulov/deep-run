@@ -357,17 +357,16 @@ public:
         {
             return std::optional<M5CombatAcceptanceRecord>{};
         }
+        const float aboveWaterFraction =
+            (camera.target.y + 0.5F * camera.height - surfaceLevelY_) / camera.height;
         if (!Render::IsFinite(camera.view) || !Render::IsFinite(camera.projection) ||
             !Render::IsFinite(camera.viewProjection) || !std::isfinite(camera.width) ||
             !std::isfinite(camera.height) || !std::isfinite(camera.nearPlane) || !std::isfinite(camera.farPlane) ||
             !std::isfinite(rendererAspectRatio) || rendererAspectRatio <= 0.0F ||
-            !std::isfinite(camera.width) ||
             camera.width < M5CombatLocalCameraHorizontalSpanMeters - 0.001F ||
             camera.width > M5CombatTacticalCameraHorizontalSpanMeters + 0.001F ||
-            !std::isfinite(camera.height) || camera.height <= 0.0F || camera.nearPlane <= 0.0F ||
-            camera.farPlane <= camera.nearPlane ||
-            std::abs(camera.target.x - latestFixedSnapshot_.anteyPositionMeters.x -
-                     M5CombatCameraTargetOffsetXMeters) > 1.0F ||
+            camera.height <= 0.0F || camera.nearPlane <= 0.0F || camera.farPlane <= camera.nearPlane ||
+            !std::isfinite(aboveWaterFraction) || aboveWaterFraction < 0.099F || aboveWaterFraction > 0.201F ||
             !gpuPresentationHandleValid ||
             combatDrawStats.drawCalls < 2U || combatDrawStats.drawCalls > 5U ||
             combatDrawStats.submittedPrimitives != combatDrawStats.drawCalls ||
@@ -376,17 +375,27 @@ public:
             return std::unexpected("M5 visual acceptance render/camera/GPU contract failed");
         }
 
-        // The first two captures belong to the stationary local launch framing. By the time the weapon is near
-        // the remote target the one-way camera transition must have completed and the view must be stationary
-        // at the tactical span. This catches accidental camera chasing/oscillation without pixel comparison.
-        const bool localCheckpoint = *pending_ == M5CombatAcceptanceCheckpoint::Initial ||
-                                     *pending_ == M5CombatAcceptanceCheckpoint::TorpedoInFlight;
-        const float expectedSpan = localCheckpoint
-            ? M5CombatLocalCameraHorizontalSpanMeters
-            : M5CombatTacticalCameraHorizontalSpanMeters;
-        if (std::abs(camera.width - expectedSpan) > 0.01F)
+        // Automated acceptance uses contextual normal-local framing for every mandatory capture. The explicit
+        // 3.6 km tactical view is a separate player mode and must not be mistaken for normal gameplay framing.
+        if (std::abs(camera.width - M5CombatLocalCameraHorizontalSpanMeters) > 0.01F)
         {
-            return std::unexpected("M5 visual acceptance camera checkpoint framing is unstable");
+            return std::unexpected("M5 visual acceptance camera checkpoint left normal local scale");
+        }
+        const bool ownshipCentredCheckpoint =
+            *pending_ == M5CombatAcceptanceCheckpoint::Initial ||
+            *pending_ == M5CombatAcceptanceCheckpoint::TorpedoInFlight;
+        if (ownshipCentredCheckpoint)
+        {
+            if (std::abs(camera.target.x - latestFixedSnapshot_.anteyPositionMeters.x -
+                         M5CombatCameraTargetOffsetXMeters) > 1.0F)
+            {
+                return std::unexpected("M5 normal local camera is not centred on Antey");
+            }
+        }
+        else if (presentationSnapshot.playerTorpedo.has_value() &&
+                 std::abs(camera.target.x - presentationSnapshot.playerTorpedo->positionMeters.x) > 2.0F)
+        {
+            return std::unexpected("M5 engagement camera is not centred on the live torpedo/impact");
         }
 
         // Capture must be delayed until this exact rendered state has passed through Present. On the first
@@ -395,6 +404,19 @@ public:
         // instead of the previous simulation frame. This is capture synchronization only, never fake state.
         if (!pendingPresentedFrameAvailable_)
         {
+            if (*pending_ == M5CombatAcceptanceCheckpoint::PostImpact)
+            {
+                const auto authoritativeSnapshot = pendingSnapshot_.value_or(latestFixedSnapshot_);
+                if (!presentationSnapshot.explosion.has_value() || !explosionDrawn)
+                {
+                    return std::optional<M5CombatAcceptanceRecord>{};
+                }
+                if (!IsM5PostImpactPresentationReady(authoritativeSnapshot, presentationSnapshot, explosionDrawn))
+                {
+                    return std::unexpected("M5 POST_IMPACT presentation explosion is not the authoritative impact");
+                }
+            }
+
             M5CombatAcceptanceSnapshot renderedSnapshot = pendingSnapshot_.value_or(latestFixedSnapshot_);
             const auto currentDestroyerBody = physicsWorld.GetBodyState(runtime.Destroyer().body);
             if (!currentDestroyerBody || !currentDestroyerBody->position.IsFinite() ||
@@ -419,20 +441,6 @@ public:
             return std::unexpected("M5 visual acceptance lost its presented checkpoint snapshot");
         }
 
-        // POST_IMPACT may only arm its capture after the real production render path has projected the live
-        // explosion and included that element in the current combat draw. The callback itself runs before the
-        // current Present; once armed, the next callback captures this exact already-presented frame.
-        if (*pending_ == M5CombatAcceptanceCheckpoint::PostImpact && !pendingPresentedFrameAvailable_)
-        {
-            if (!presentationSnapshot.explosion.has_value() || !explosionDrawn)
-            {
-                return std::optional<M5CombatAcceptanceRecord>{};
-            }
-            if (!IsM5PostImpactPresentationReady(*pendingSnapshot_, presentationSnapshot, explosionDrawn))
-            {
-                return std::unexpected("M5 POST_IMPACT presentation explosion is not the authoritative impact");
-            }
-        }
         M5CombatAcceptanceRecord record{
             .checkpoint = *pending_,
             .state = *pendingSnapshot_};

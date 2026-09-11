@@ -151,30 +151,29 @@ public:
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
         const float targetOffsetXMeters,
         const float targetOffsetYMeters,
-        const float horizontalSpanMeters)
+        const float horizontalSpanMeters,
+        const float cameraAspectRatio)
     {
         if (!std::isfinite(targetOffsetXMeters) || !std::isfinite(targetOffsetYMeters) ||
-            !std::isfinite(horizontalSpanMeters) || horizontalSpanMeters <= 0.0F)
+            !std::isfinite(horizontalSpanMeters) || horizontalSpanMeters <= 0.0F ||
+            !std::isfinite(cameraAspectRatio) || cameraAspectRatio <= 0.0F)
         {
             return std::unexpected("physical playground presentation camera framing must be finite and positive");
         }
 
         float effectiveTargetOffsetYMeters = targetOffsetYMeters;
-        // M5-V1 normal combat composition is underwater-first. Current normal-play camera producers reserve
-        // vertical input by publishing Y=0, so that value is the opt-in signal for this production default.
-        // Derive the target from the authoritative WaterBody surface; no sea level is copied into renderer or
-        // combat state. The 16:9 reference targets a 15% above-water band. Explicit future vertical framing and
-        // close inspection (<600 m) remain untouched, and the accepted M2/M3 path never calls this setter.
-        constexpr float M5NormalCombatReferenceAspectRatio = 16.0F / 9.0F;
+        // M5-V1.2 underwater-first composition derives vertical framing from the live renderer aspect.
+        // Y=0 remains the production normal-play opt-in; explicit future vertical framing is untouched.
         constexpr float M5NormalCombatAboveWaterFraction = 0.15F;
         constexpr float M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters = 600.0F;
         if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
             horizontalSpanMeters >= M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters)
         {
-            const float unshiftedTargetYMeters = initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
-            const float referenceVerticalSpanMeters = horizontalSpanMeters / M5NormalCombatReferenceAspectRatio;
+            const float unshiftedTargetYMeters =
+                initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
+            const float verticalSpanMeters = horizontalSpanMeters / cameraAspectRatio;
             const float desiredTargetWorldYMeters = water_->Config().surfaceLevelY +
-                (M5NormalCombatAboveWaterFraction - 0.5F) * referenceVerticalSpanMeters;
+                (M5NormalCombatAboveWaterFraction - 0.5F) * verticalSpanMeters;
             effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;
         }
 
@@ -185,6 +184,17 @@ public:
         M2GameplayCameraHorizontalSpanMeters = horizontalSpanMeters;
         freePresentationCameraFraming_ = true;
         return {};
+    }
+
+    // Compatibility overload for older presentation-only call sites. Production M5 supplies the live
+    // renderer aspect so resize composition remains exact.
+    [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(
+        const float targetOffsetXMeters,
+        const float targetOffsetYMeters,
+        const float horizontalSpanMeters)
+    {
+        return SetPresentationCameraFraming(
+            targetOffsetXMeters, targetOffsetYMeters, horizontalSpanMeters, 16.0F / 9.0F);
     }
 
     [[nodiscard]] std::expected<void, std::string> SetPresentationCameraFraming(

@@ -17,10 +17,10 @@ enum class CalmLaunchCameraAssistState
 class CalmLaunchCameraAssist final
 {
 public:
-    // The M5 close-tactical scenario places the surface target around 1.8 km from ownship. A 4 km centered
-    // frame contains both platforms without camera chase. The assist injects only a gentle zoom-out command;
-    // it never pans or follows the torpedo and it runs at most once per launch.
-    static constexpr float TargetHorizontalSpanMeters = 4'000.0F;
+    // M5-V1.2 keeps launch assistance local: it may add a little breathing room for the weapon leaving
+    // ownship, but it must never reveal the whole kilometre-scale engagement automatically. Target/pre-impact
+    // framing is contextual presentation or explicit player navigation, not an all-battlefield zoom.
+    static constexpr float TargetHorizontalSpanMeters = 1'000.0F;
     static constexpr float AutoZoomCommand = 0.65F;
 
     [[nodiscard]] Camera::MultiScaleCameraInput Update(

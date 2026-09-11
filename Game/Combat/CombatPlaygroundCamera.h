@@ -2,30 +2,26 @@
 
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 
-#include <algorithm>
 #include <cmath>
 #include <expected>
-#include <optional>
 #include <string>
 
 namespace DeepRun::Game::Combat
 {
-// M5 camera is deliberately cinematic rather than a continuously chasing follow-camera. The launch view is
-// stable; after the torpedo has cleared the submarine by a substantial distance the director performs exactly
-// one smooth zoom-out to a fixed tactical overview and never oscillates back during that engagement.
-//
-// M5-V1 keeps this presentation-only contract but widens the mandatory combat compositions enough for the
-// production Antey and the authored surface destroyer to coexist in the same human-readable side view. The
-// camera still never changes physics, sonar, tracks, weapon guidance, target placement or any other authority.
-inline constexpr float M5CombatLocalCameraHorizontalSpanMeters = 3'200.0F;
+// M5-V1.2 restores normal combat to a genuinely local underwater side view. The automatic director never
+// zooms out to show the whole engagement: it keeps the accepted 800 m local scale and moves the presentation
+// focus from ownship to the live torpedo/impact only after the weapon has cleared the local launch composition.
+// The 3.6 km framing remains available only as an explicit tactical overview. This is presentation policy only;
+// physics, perception, weapon guidance, target placement and damage authority are unchanged.
+inline constexpr float M5CombatLocalCameraHorizontalSpanMeters = 800.0F;
 inline constexpr float M5CombatTacticalCameraHorizontalSpanMeters = 3'600.0F;
-inline constexpr float M5CombatCameraTransitionTriggerProgressMeters = 250.0F;
-inline constexpr double M5CombatCameraTransitionDurationSeconds = 1.5;
+inline constexpr float M5CombatCameraFollowTriggerProgressMeters = 250.0F;
 
 enum class CombatPlaygroundCameraMode
 {
     LocalLaunch,
-    TransitionToTactical,
+    TorpedoFollow,
+    ImpactFocus,
     TacticalOverview,
 };
 
@@ -50,47 +46,41 @@ public:
         }
         lastSimulationTimeSeconds_ = simulationTimeSeconds;
 
-        if (mode_ == CombatPlaygroundCameraMode::LocalLaunch)
+        const auto& torpedo = runtime.PlayerTorpedo();
+        const auto& launchPosition = runtime.PlayerTorpedoLaunchPosition();
+        if (!torpedo || !launchPosition)
         {
-            const auto& torpedo = runtime.PlayerTorpedo();
-            const auto& launchPosition = runtime.PlayerTorpedoLaunchPosition();
-            if (torpedo && launchPosition)
+            mode_ = CombatPlaygroundCameraMode::LocalLaunch;
+            return LocalFraming();
+        }
+
+        const float ownshipReferenceXMeters = launchPosition->x - M5CombatTorpedoLaunchClearanceMeters;
+        const float torpedoOffsetXMeters = torpedo->positionMeters.x - ownshipReferenceXMeters;
+        if (!std::isfinite(ownshipReferenceXMeters) || !std::isfinite(torpedoOffsetXMeters))
+        {
+            return std::unexpected("M5 combat camera received a non-finite contextual focus");
+        }
+
+        if (torpedo->movementDomain == Weapons::MovementDomain::Underwater)
+        {
+            const float forwardProgressMeters = torpedo->positionMeters.x - launchPosition->x;
+            if (!std::isfinite(forwardProgressMeters))
             {
-                const float forwardProgressMeters = torpedo->positionMeters.x - launchPosition->x;
-                if (std::isfinite(forwardProgressMeters) &&
-                    forwardProgressMeters >= M5CombatCameraTransitionTriggerProgressMeters)
-                {
-                    mode_ = CombatPlaygroundCameraMode::TransitionToTactical;
-                    transitionStartTimeSeconds_ = simulationTimeSeconds;
-                }
+                return std::unexpected("M5 combat camera received non-finite torpedo progress");
+            }
+            if (forwardProgressMeters >= M5CombatCameraFollowTriggerProgressMeters)
+            {
+                mode_ = CombatPlaygroundCameraMode::TorpedoFollow;
+                return ContextualFraming(CombatPlaygroundCameraMode::TorpedoFollow, torpedoOffsetXMeters);
             }
         }
-
-        if (mode_ == CombatPlaygroundCameraMode::TransitionToTactical)
+        else if (torpedo->movementDomain == Weapons::MovementDomain::Spent)
         {
-            const double elapsedSeconds = simulationTimeSeconds - transitionStartTimeSeconds_.value_or(simulationTimeSeconds);
-            const float linearProgress = static_cast<float>(std::clamp(
-                elapsedSeconds / M5CombatCameraTransitionDurationSeconds, 0.0, 1.0));
-            const float smoothProgress = linearProgress * linearProgress * (3.0F - 2.0F * linearProgress);
-            if (linearProgress >= 1.0F)
-            {
-                mode_ = CombatPlaygroundCameraMode::TacticalOverview;
-                return TacticalFraming();
-            }
-            return CombatPlaygroundCameraFraming{
-                .mode = CombatPlaygroundCameraMode::TransitionToTactical,
-                .targetOffsetXMeters = M5CombatCameraTargetOffsetXMeters,
-                .horizontalSpanMeters = M5CombatLocalCameraHorizontalSpanMeters +
-                    (M5CombatTacticalCameraHorizontalSpanMeters - M5CombatLocalCameraHorizontalSpanMeters) *
-                        smoothProgress,
-                .transitionProgress = smoothProgress};
+            mode_ = CombatPlaygroundCameraMode::ImpactFocus;
+            return ContextualFraming(CombatPlaygroundCameraMode::ImpactFocus, torpedoOffsetXMeters);
         }
 
-        if (mode_ == CombatPlaygroundCameraMode::TacticalOverview)
-        {
-            return TacticalFraming();
-        }
-
+        mode_ = CombatPlaygroundCameraMode::LocalLaunch;
         return LocalFraming();
     }
 
@@ -118,8 +108,18 @@ public:
     }
 
 private:
+    [[nodiscard]] static constexpr CombatPlaygroundCameraFraming ContextualFraming(
+        const CombatPlaygroundCameraMode mode,
+        const float targetOffsetXMeters) noexcept
+    {
+        return CombatPlaygroundCameraFraming{
+            .mode = mode,
+            .targetOffsetXMeters = targetOffsetXMeters,
+            .horizontalSpanMeters = M5CombatLocalCameraHorizontalSpanMeters,
+            .transitionProgress = 1.0F};
+    }
+
     CombatPlaygroundCameraMode mode_ = CombatPlaygroundCameraMode::LocalLaunch;
-    std::optional<double> transitionStartTimeSeconds_{};
     double lastSimulationTimeSeconds_ = 0.0;
 };
 } // namespace DeepRun::Game::Combat

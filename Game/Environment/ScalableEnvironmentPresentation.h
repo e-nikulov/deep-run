@@ -16,17 +16,15 @@
 
 namespace DeepRun::Game
 {
-// M5-H.4/M5-V1 presentation policy. The accepted M3 environment remains the only authoritative local section.
-// Reusing that 800 m section is acceptable only while the view is still genuinely local. Beyond 2 km the
-// copied relief becomes more visually misleading than useful, so tactical-wide presentation uses one fixed,
-// coarse strategic silhouette instead of wallpapering identical local geometry.
-// No additional physics, navigation, acoustic terrain or gameplay state exists.
-inline constexpr float M5DetailedEnvironmentMaximumHorizontalSpanMeters = 2'000.0F;
-inline constexpr std::size_t M5DetailedEnvironmentMaximumVisibleTileCount = 16U;
-inline constexpr float M5StrategicSeabedMinimumHorizontalSpanMeters =
-    M5DetailedEnvironmentMaximumHorizontalSpanMeters;
+// M5-V1.2 presentation policy. The accepted M3 800 m section remains the only detailed local section and is
+// never wallpapered across the world. Once the camera no longer fits inside that authored section, a single
+// coarse strategic silhouette is a temporary M5 render-only fallback. It is deliberately replaceable by a
+// future shared deterministic/chunked bathymetry authority; no physics/navigation/acoustic state is created.
+inline constexpr float M5DetailedEnvironmentMaximumHorizontalSpanMeters = 800.0F;
 inline constexpr float M5StrategicSeabedMaximumHorizontalSpanMeters = 12'000.0F;
-inline constexpr float M5StrategicSeabedFillBottomYMeters = -650.0F;
+// Tactical fill is an open vertical skirt, not a closed slab. Its lower edge is deliberately far below every
+// supported M5 combat frustum and there is no horizontal underside face to become visible.
+inline constexpr float M5StrategicSeabedExtrusionBottomYMeters = -100'000.0F;
 inline constexpr float M5StrategicSeabedFrontZMeters = 3.0F;
 inline constexpr float M5StrategicSeabedBackZMeters = -3.0F;
 
@@ -78,8 +76,7 @@ struct EnvironmentPresentationTile final
 
 [[nodiscard]] inline bool UseStrategicSeabedPresentation(const float cameraHorizontalSpanMeters) noexcept
 {
-    return std::isfinite(cameraHorizontalSpanMeters) &&
-           cameraHorizontalSpanMeters > M5StrategicSeabedMinimumHorizontalSpanMeters &&
+    return std::isfinite(cameraHorizontalSpanMeters) && cameraHorizontalSpanMeters > 0.0F &&
            cameraHorizontalSpanMeters <= M5StrategicSeabedMaximumHorizontalSpanMeters;
 }
 
@@ -102,8 +99,8 @@ BuildStrategicSeabedPresentationModel()
     Assets::MeshPrimitiveData primitive;
     primitive.materialIndex = 0U;
     primitive.hasNormals = true;
-    primitive.vertices.reserve((M5StrategicSeabedProfile.size() - 1U) * 16U);
-    primitive.indices.reserve((M5StrategicSeabedProfile.size() - 1U) * 24U);
+    primitive.vertices.reserve((M5StrategicSeabedProfile.size() - 1U) * 12U);
+    primitive.indices.reserve((M5StrategicSeabedProfile.size() - 1U) * 18U);
 
     Assets::ModelVector3 boundsMinimum{
         (std::numeric_limits<float>::max)(),
@@ -152,24 +149,16 @@ BuildStrategicSeabedPresentationModel()
         pushVertex(first.xMeters, first.yMeters, M5StrategicSeabedFrontZMeters, topNormal);
         pushVertex(first.xMeters, first.yMeters, M5StrategicSeabedFrontZMeters, {0.0F, 0.0F, 1.0F});
         pushVertex(second.xMeters, second.yMeters, M5StrategicSeabedFrontZMeters, {0.0F, 0.0F, 1.0F});
-        pushVertex(second.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedFrontZMeters,
+        pushVertex(second.xMeters, M5StrategicSeabedExtrusionBottomYMeters, M5StrategicSeabedFrontZMeters,
                    {0.0F, 0.0F, 1.0F});
-        pushVertex(first.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedFrontZMeters,
+        pushVertex(first.xMeters, M5StrategicSeabedExtrusionBottomYMeters, M5StrategicSeabedFrontZMeters,
                    {0.0F, 0.0F, 1.0F});
         pushVertex(first.xMeters, first.yMeters, M5StrategicSeabedBackZMeters, {0.0F, 0.0F, -1.0F});
         pushVertex(second.xMeters, second.yMeters, M5StrategicSeabedBackZMeters, {0.0F, 0.0F, -1.0F});
-        pushVertex(second.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedBackZMeters,
+        pushVertex(second.xMeters, M5StrategicSeabedExtrusionBottomYMeters, M5StrategicSeabedBackZMeters,
                    {0.0F, 0.0F, -1.0F});
-        pushVertex(first.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedBackZMeters,
+        pushVertex(first.xMeters, M5StrategicSeabedExtrusionBottomYMeters, M5StrategicSeabedBackZMeters,
                    {0.0F, 0.0F, -1.0F});
-        pushVertex(first.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedBackZMeters,
-                   {0.0F, -1.0F, 0.0F});
-        pushVertex(second.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedBackZMeters,
-                   {0.0F, -1.0F, 0.0F});
-        pushVertex(second.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedFrontZMeters,
-                   {0.0F, -1.0F, 0.0F});
-        pushVertex(first.xMeters, M5StrategicSeabedFillBottomYMeters, M5StrategicSeabedFrontZMeters,
-                   {0.0F, -1.0F, 0.0F});
 
         pushTriangle(base, 0U, 2U, 1U);
         pushTriangle(base, 0U, 3U, 2U);
@@ -177,8 +166,6 @@ BuildStrategicSeabedPresentationModel()
         pushTriangle(base, 4U, 7U, 6U);
         pushTriangle(base, 8U, 9U, 10U);
         pushTriangle(base, 8U, 10U, 11U);
-        pushTriangle(base, 12U, 13U, 14U);
-        pushTriangle(base, 12U, 14U, 15U);
     }
 
     primitive.localBounds = Assets::ModelBounds{boundsMinimum, boundsMaximum};
@@ -206,46 +193,19 @@ BuildEnvironmentPresentationTiles(
     {
         return std::unexpected("scalable environment presentation received invalid bounds or camera framing");
     }
-    if (!UseDetailedEnvironmentPresentation(cameraHorizontalSpanMeters))
+    if (!UseDetailedEnvironmentPresentation(cameraHorizontalSpanMeters) ||
+        !HorizontalPresentationBoundsCoverView(
+            authoredMinimumX, authoredMaximumX, cameraTargetX, cameraHorizontalSpanMeters))
     {
         return std::vector<EnvironmentPresentationTile>{};
     }
 
-    const double tileWidth = static_cast<double>(authoredMaximumX) - authoredMinimumX;
-    const double halfSpan = 0.5 * static_cast<double>(cameraHorizontalSpanMeters);
-    const double viewMinimumX = static_cast<double>(cameraTargetX) - halfSpan;
-    const double viewMaximumX = static_cast<double>(cameraTargetX) + halfSpan;
-    const double firstTileValue = std::ceil((viewMinimumX - authoredMaximumX) / tileWidth);
-    const double lastTileValue = std::floor((viewMaximumX - authoredMinimumX) / tileWidth);
-    if (!std::isfinite(firstTileValue) || !std::isfinite(lastTileValue) ||
-        firstTileValue < static_cast<double>((std::numeric_limits<int>::min)()) ||
-        lastTileValue > static_cast<double>((std::numeric_limits<int>::max)()))
-    {
-        return std::unexpected("scalable environment presentation tile range is not representable");
-    }
-
-    const int firstTile = static_cast<int>(firstTileValue);
-    const int lastTile = static_cast<int>(lastTileValue);
-    if (lastTile < firstTile)
-    {
-        return std::vector<EnvironmentPresentationTile>{};
-    }
-    const std::size_t tileCount = static_cast<std::size_t>(lastTile - firstTile + 1);
-    if (tileCount > M5DetailedEnvironmentMaximumVisibleTileCount)
-    {
-        return std::unexpected("scalable environment presentation exceeded its bounded tactical tile budget");
-    }
-
+    // M5-V1.2 never repeats the canonical local section. The temporary strategic presentation takes over
+    // once this one authored section cannot cover the view. Keep the tile-shaped return type only to avoid
+    // widening this scoped repair into a renderer API migration.
+    static_cast<void>(verticalStepPerTileMeters);
     std::vector<EnvironmentPresentationTile> tiles;
-    tiles.reserve(tileCount);
-    for (int tileIndex = firstTile; tileIndex <= lastTile; ++tileIndex)
-    {
-        tiles.push_back(EnvironmentPresentationTile{
-            .index = tileIndex,
-            .offsetXMeters = static_cast<float>(static_cast<double>(tileIndex) * tileWidth),
-            .offsetYMeters = static_cast<float>(
-                static_cast<double>(tileIndex) * static_cast<double>(verticalStepPerTileMeters))});
-    }
+    tiles.push_back(EnvironmentPresentationTile{.index = 0, .offsetXMeters = 0.0F, .offsetYMeters = 0.0F});
     return tiles;
 }
 

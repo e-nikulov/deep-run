@@ -66,13 +66,6 @@ constexpr std::array<float, 3> M3FogColorRgb{
     M2UnderwaterBackgroundColor.g,
     M2UnderwaterBackgroundColor.b};
 
-// H.4 presentation-only continuation behind the repeated M3 seabed front wall. The colour is scene-linear
-// and matched to the accepted wall near its deep fill edge; it is not terrain, collision, bathymetry or
-// acoustic authority. A small overlap hides the authored fill-bottom edge even when adjacent X tiles carry
-// the accepted -5 m profile continuation step.
-constexpr Render::RgbaColor M5ScalableSeabedContinuationColor{0.0034F, 0.0180F, 0.0400F, 1.0F};
-constexpr float M5ScalableSeabedContinuationOverlapMeters = 32.0F;
-
 // M3-D fixed presentation tuning for the one canonical suspended-particulate field. These bounds cover the
 // 600 m side view with a small margin and remain wholly below the Game-owned WaterBody surface. This is not
 // environment authority, a simulation population, or an emitter configuration system.
@@ -1596,9 +1589,10 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
 
-    // M5-H.4 scalable presentation: the accepted M3 section remains the sole local environment/physics
-    // authority. Wider tactical views reuse only presentation draw instances. No additional Jolt bodies,
-    // WaterBody state, acoustic terrain, navigation authority or gameplay objects are created here.
+    // M5-V1.2 scalable presentation: the accepted M3 section remains the sole detailed local environment
+    // section and is never tiled. Once span/pan no longer fits that section, the temporary strategic silhouette
+    // supplies render-only bathymetry. Flora/fauna remain their single authored local instances and naturally
+    // leave the view as the camera moves away; generic M5 combat never inherits the Arctic ice field.
     std::span<const Render::ModelDrawInstance> seabedPresentationDraws{seabedDraws_};
     std::span<const Render::ModelDrawInstance> strategicSeabedPresentationDraws{};
     std::span<const Render::ModelDrawInstance> floraPresentationDraws{floraDraws_};
@@ -1607,104 +1601,29 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     faunaDraw.modelToWorld = *faunaModelToWorld;
     std::span<const Render::ModelDrawInstance> faunaPresentationDraws(&faunaDraw, 1U);
 
-    std::vector<Render::ModelDrawInstance> scalableSeabedDraws;
-    std::vector<Render::ModelDrawInstance> scalableFloraDraws;
-    std::vector<Render::ModelDrawInstance> scalableIceDraws;
-    std::vector<Render::ModelDrawInstance> scalableFaunaDraws;
-
     if (freePresentationCameraFraming_)
     {
-        if (UseDetailedEnvironmentPresentation(camera->width))
-        {
-            // The canonical section ends five metres lower on the east edge than on the west edge. Applying
-            // the same -5 m step to repeated seabed/flora tiles joins adjacent profile endpoints exactly,
-            // avoiding the vertical walls/seams that exposed the old M3 rectangle in wide views.
-            constexpr float SeabedTileVerticalStepMeters = -5.0F;
-            const auto terrainTiles = BuildEnvironmentPresentationTiles(
+        icePresentationDraws = {};
+
+        constexpr float LocalSeabedBottomSafetyMarginMeters = 1.0F;
+        const float cameraBottomWorldYMeters = camera->target.y - 0.5F * camera->height;
+        const bool localSeabedCoversView =
+            UseDetailedEnvironmentPresentation(camera->width) &&
+            HorizontalPresentationBoundsCoverView(
                 seabedSection_->renderGeometry.bounds.minimum.x,
                 seabedSection_->renderGeometry.bounds.maximum.x,
                 camera->target.x,
-                camera->width,
-                SeabedTileVerticalStepMeters);
-            if (!terrainTiles)
-            {
-                return std::unexpected("physical playground scalable environment tiling failed: " +
-                                       terrainTiles.error());
-            }
-            if (terrainTiles->empty())
-            {
-                return std::unexpected("physical playground scalable environment produced no visible terrain tiles");
-            }
+                camera->width) &&
+            seabedSection_->renderGeometry.bounds.minimum.y <
+                cameraBottomWorldYMeters - LocalSeabedBottomSafetyMarginMeters;
 
-            // The canonical M3 cross-section has a finite fillBottom because its original 600 m camera never
-            // exposed anything below it. Wide M5 framing can expose that implementation edge. Paint only the
-            // screen-space region behind the repeated wall, starting slightly above the highest translated
-            // fill bottom; the real tiled geometry then overdraws this overlap. This removes the lower box edge
-            // without extending render geometry or creating another environment/physics representation.
-            float highestTiledFillBottomYMeters = (std::numeric_limits<float>::lowest)();
-            for (const EnvironmentPresentationTile& tile : *terrainTiles)
-            {
-                highestTiledFillBottomYMeters = (std::max)(
-                    highestTiledFillBottomYMeters,
-                    seabedSection_->renderGeometry.bounds.minimum.y + tile.offsetYMeters);
-            }
-            const auto seabedContinuationRegion = UnderwaterRegionForSurface(
-                *camera,
-                highestTiledFillBottomYMeters + M5ScalableSeabedContinuationOverlapMeters);
-            if (!seabedContinuationRegion)
-            {
-                return std::unexpected("physical playground scalable seabed continuation projection failed: " +
-                                       seabedContinuationRegion.error());
-            }
-            if (seabedContinuationRegion->has_value())
-            {
-                const auto continued = renderer.ClearViewportRect(
-                    **seabedContinuationRegion,
-                    M5ScalableSeabedContinuationColor);
-                if (!continued)
-                {
-                    return std::unexpected("physical playground scalable seabed continuation clear failed: " +
-                                           continued.error());
-                }
-            }
-
-            scalableSeabedDraws = BuildEnvironmentPresentationDraws(
-                std::span<const Render::ModelDrawInstance>(seabedDraws_),
-                std::span<const EnvironmentPresentationTile>(*terrainTiles));
-            scalableFloraDraws = BuildEnvironmentPresentationDraws(
-                std::span<const Render::ModelDrawInstance>(floraDraws_),
-                std::span<const EnvironmentPresentationTile>(*terrainTiles));
-            seabedPresentationDraws = scalableSeabedDraws;
-            floraPresentationDraws = scalableFloraDraws;
-
-            // Upper-water ice and the fish school remain tied to sea/depth presentation rather than the
-            // sloping seabed continuation, so only X repeats; Y is deliberately unchanged.
-            std::vector<EnvironmentPresentationTile> waterColumnTiles = *terrainTiles;
-            for (EnvironmentPresentationTile& tile : waterColumnTiles)
-            {
-                tile.offsetYMeters = 0.0F;
-            }
-            scalableIceDraws = BuildEnvironmentPresentationDraws(
-                std::span<const Render::ModelDrawInstance>(iceDraws_),
-                std::span<const EnvironmentPresentationTile>(waterColumnTiles));
-            scalableFaunaDraws = BuildEnvironmentPresentationDraws(
-                std::span<const Render::ModelDrawInstance>(&faunaDraw, 1U),
-                std::span<const EnvironmentPresentationTile>(waterColumnTiles));
-            icePresentationDraws = scalableIceDraws;
-            faunaPresentationDraws = scalableFaunaDraws;
-        }
-        else
+        if (!localSeabedCoversView)
         {
-            // Wide tactical/operational presentation uses the one fixed low-frequency silhouette. It is a
-            // render-only asset; no local M3 geometry is multiplied and no new world/physics authority exists.
             seabedPresentationDraws = {};
             if (UseStrategicSeabedPresentation(camera->width))
             {
                 strategicSeabedPresentationDraws = strategicSeabedDraws_;
             }
-            floraPresentationDraws = {};
-            icePresentationDraws = {};
-            faunaPresentationDraws = {};
         }
     }
 
