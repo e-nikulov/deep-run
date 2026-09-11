@@ -1,0 +1,79 @@
+name: M5 V1.3 Ocean Presentation Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply ocean vertical presentation contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # PhysicalPlayground.h: consume canonical sky-share policy instead of a fixed 15% at all scales.
+          path = Path('Game/PhysicalPlayground.h')
+          text = path.read_text(encoding='utf-8')
+          old = '#include "Game/Environment/UnderwaterIceField.h"\n'
+          new = '#include "Game/Environment/UnderwaterIceField.h"\n#include "Game/Environment/VerticalOceanGameplayContract.h"\n'
+          if text.count(old) != 1:
+              raise SystemExit('PhysicalPlayground.h include anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+
+          old = '''        float effectiveTargetOffsetYMeters = targetOffsetYMeters;\n        // M5-V1.2 underwater-first composition derives vertical framing from the live renderer aspect.\n        // Y=0 remains the production normal-play opt-in; explicit future vertical framing is untouched.\n        constexpr float M5NormalCombatAboveWaterFraction = 0.15F;\n        constexpr float M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters = 600.0F;\n        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&\n            horizontalSpanMeters >= M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters)\n        {\n            const float unshiftedTargetYMeters =\n                initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;\n            const float verticalSpanMeters = horizontalSpanMeters / cameraAspectRatio;\n            const float desiredTargetWorldYMeters = water_->Config().surfaceLevelY +\n                (M5NormalCombatAboveWaterFraction - 0.5F) * verticalSpanMeters;\n            effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;\n        }\n'''
+          new = '''        float effectiveTargetOffsetYMeters = targetOffsetYMeters;\n        // M5-V1.3 keeps world projection aspect-correct (no stretched ships/submarines) while changing\n        // composition with scale. Local play reserves ~15% for sky; tactical/operational/strategic views\n        // progressively move the surface lower to make future ASW aircraft/helicopters readable.\n        constexpr float M5SurfaceCompositionMinimumHorizontalSpanMeters = 600.0F;\n        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&\n            horizontalSpanMeters >= M5SurfaceCompositionMinimumHorizontalSpanMeters)\n        {\n            const float unshiftedTargetYMeters =\n                initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;\n            const float verticalSpanMeters = horizontalSpanMeters / cameraAspectRatio;\n            const float aboveWaterFraction = AboveWaterFractionForPresentationSpanMeters(horizontalSpanMeters);\n            const float desiredTargetWorldYMeters = water_->Config().surfaceLevelY +\n                (aboveWaterFraction - 0.5F) * verticalSpanMeters;\n            effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;\n        }\n'''
+          if text.count(old) != 1:
+              raise SystemExit('PhysicalPlayground.h composition anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
+
+          # ScalableEnvironmentPresentation.h: generic wide view has no invented bathymetry; add abyss bands.
+          path = Path('Game/Environment/ScalableEnvironmentPresentation.h')
+          text = path.read_text(encoding='utf-8')
+          old = '#include "Engine/Render/ModelDraw.h"\n'
+          new = '#include "Engine/Render/ClearRect.h"\n#include "Engine/Render/ModelDraw.h"\n'
+          if text.count(old) != 1:
+              raise SystemExit('ScalableEnvironmentPresentation.h include anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+
+          old = '''[[nodiscard]] inline bool UseStrategicSeabedPresentation(const float cameraHorizontalSpanMeters) noexcept\n{\n    return std::isfinite(cameraHorizontalSpanMeters) && cameraHorizontalSpanMeters > 0.0F &&\n           cameraHorizontalSpanMeters <= M5StrategicSeabedMaximumHorizontalSpanMeters;\n}\n\n'''
+          new = '''[[nodiscard]] inline bool UseStrategicSeabedPresentation(\n    const float cameraHorizontalSpanMeters,\n    const bool wideAreaBathymetryKnown = false) noexcept\n{\n    // Bathymetry is regional world data, not a camera fallback. Generic M5 owns only the bounded local M3\n    // section, so zooming out must produce intentional deep water rather than inventing this profile. The\n    // temporary profile remains available only to an explicitly authored scenario that knows its bathymetry.\n    return wideAreaBathymetryKnown && std::isfinite(cameraHorizontalSpanMeters) &&\n           cameraHorizontalSpanMeters > M5DetailedEnvironmentMaximumHorizontalSpanMeters &&\n           cameraHorizontalSpanMeters <= M5StrategicSeabedMaximumHorizontalSpanMeters;\n}\n\nstruct DeepWaterAbyssPresentationBand final\n{\n    Render::ViewportRect viewport{};\n    Render::RgbaColor color{};\n};\n\n[[nodiscard]] inline std::expected<std::vector<DeepWaterAbyssPresentationBand>, std::string>\nBuildDeepWaterAbyssPresentationBands(const float gameplayBandBottomViewportY)\n{\n    if (!std::isfinite(gameplayBandBottomViewportY))\n    {\n        return std::unexpected("deep-water presentation boundary is not finite");\n    }\n\n    constexpr float EdgeEpsilon = 1.0e-4F;\n    const float top = std::clamp(gameplayBandBottomViewportY, 0.0F, 1.0F);\n    if (top >= 1.0F - EdgeEpsilon)\n    {\n        return std::vector<DeepWaterAbyssPresentationBand>{};\n    }\n\n    // Four broad presentation-only bands give the unknown/deep water below the normal 700 m gameplay band\n    // an intentional abyss identity. They are not depth samples and create no terrain/simulation authority.\n    constexpr std::array<Render::RgbaColor, 4> Colors{{\n        {0.016F, 0.060F, 0.095F, 1.0F},\n        {0.012F, 0.045F, 0.076F, 1.0F},\n        {0.008F, 0.032F, 0.058F, 1.0F},\n        {0.005F, 0.022F, 0.042F, 1.0F}}};\n    const float height = (1.0F - top) / static_cast<float>(Colors.size());\n    std::vector<DeepWaterAbyssPresentationBand> result;\n    result.reserve(Colors.size());\n    for (std::size_t index = 0U; index < Colors.size(); ++index)\n    {\n        const float bandTop = top + static_cast<float>(index) * height;\n        const float bandBottom = index + 1U == Colors.size()\n            ? 1.0F\n            : top + static_cast<float>(index + 1U) * height;\n        result.push_back(DeepWaterAbyssPresentationBand{\n            .viewport = {.left = 0.0F, .top = bandTop, .right = 1.0F, .bottom = bandBottom},\n            .color = Colors[index]});\n    }\n    return result;\n}\n\n'''
+          if text.count(old) != 1:
+              raise SystemExit('ScalableEnvironmentPresentation.h strategic policy anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
+
+          # PhysicalPlayground.cpp: generic M5 wide-area bathymetry is unknown; use abyss rather than fake slab.
+          path = Path('Game/PhysicalPlayground.cpp')
+          text = path.read_text(encoding='utf-8')
+          old = '''        if (!localSeabedCoversView)\n        {\n            seabedPresentationDraws = {};\n            if (UseStrategicSeabedPresentation(camera->width))\n            {\n                strategicSeabedPresentationDraws = strategicSeabedDraws_;\n            }\n        }\n    }\n\n    // The M3 Gerstner surface and suspended-particle field are authored as bounded local-detail envelopes.\n'''
+          new = '''        if (!localSeabedCoversView)\n        {\n            seabedPresentationDraws = {};\n            // Generic M5 has no authoritative wide-area bathymetry. Do not manufacture a seabed merely because\n            // the camera zoomed out. Explicit future/mission-authored bathymetry can opt into the temporary\n            // strategic profile at this boundary without changing physics/navigation/acoustics.\n            constexpr bool M5GenericWideAreaBathymetryKnown = false;\n            if (UseStrategicSeabedPresentation(camera->width, M5GenericWideAreaBathymetryKnown))\n            {\n                strategicSeabedPresentationDraws = strategicSeabedDraws_;\n            }\n        }\n    }\n\n    // When neither local nor explicitly-known wide bathymetry is available, present a deliberate deep-ocean\n    // abyss below the canonical 700 m submarine gameplay band. This is screen-space atmosphere only: it does\n    // not create seabed, collision, navigation or acoustic terrain authority.\n    if (freePresentationCameraFraming_ && seabedPresentationDraws.empty() &&\n        strategicSeabedPresentationDraws.empty())\n    {\n        const auto gameplayBandBottom = ProjectWorldSurfaceToViewportY(\n            *camera, water_->Config().surfaceLevelY - NormalGameplayMaximumVisibleDepthMeters);\n        if (!gameplayBandBottom)\n        {\n            return std::unexpected("physical playground deep-water boundary projection failed: " +\n                                   gameplayBandBottom.error());\n        }\n        const auto abyssBands = BuildDeepWaterAbyssPresentationBands(*gameplayBandBottom);\n        if (!abyssBands)\n        {\n            return std::unexpected("physical playground deep-water presentation failed: " + abyssBands.error());\n        }\n        for (const auto& band : *abyssBands)\n        {\n            const auto cleared = renderer.ClearViewportRect(band.viewport, band.color);\n            if (!cleared)\n            {\n                return std::unexpected("physical playground deep-water clear failed: " + cleared.error());\n            }\n        }\n    }\n\n    // The M3 Gerstner surface and suspended-particle field are authored as bounded local-detail envelopes.\n'''
+          if text.count(old) != 1:
+              raise SystemExit('PhysicalPlayground.cpp seabed selection anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+          git diff --check
+          git diff -- Game/PhysicalPlayground.h Game/Environment/ScalableEnvironmentPresentation.h Game/PhysicalPlayground.cpp
+
+      - name: Commit production repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Game/PhysicalPlayground.h Game/Environment/ScalableEnvironmentPresentation.h Game/PhysicalPlayground.cpp
+          git commit -m "fix: apply tactical sky and abyss presentation contract"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
