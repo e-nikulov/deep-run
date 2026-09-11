@@ -2,12 +2,15 @@
 
 #include "Engine/Render/ModelDraw.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <expected>
 #include <limits>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -107,9 +110,28 @@ BuildEnvironmentPresentationTiles(
     return tiles;
 }
 
+namespace ScalableEnvironmentPresentationDetail
+{
+// Generic M5 combat must not inherit the three large M3 ice formations as a repeated Arctic signature.
+// This is presentation gating only: the accepted M3 local scene and its coarse collision bodies are untouched.
+// A future explicitly authored ice scenario can opt back in at this helper boundary without adding new physics.
+inline constexpr std::string_view DefaultM5SuppressedTiledMaterial = "UnderwaterIce";
+
+[[nodiscard]] inline float TileMaterialVariation(const int tileIndex) noexcept
+{
+    // A small deterministic luminance variation breaks the obvious copy/paste cadence without inventing a
+    // second terrain representation. Tile zero stays exactly authored; neighbouring copies vary by <= 7%.
+    constexpr std::array<float, 7> factors{1.0F, 0.94F, 1.05F, 0.97F, 1.07F, 0.95F, 1.03F};
+    const long long signedIndex = static_cast<long long>(tileIndex);
+    const std::size_t index = static_cast<std::size_t>(signedIndex < 0 ? -signedIndex : signedIndex) % factors.size();
+    return factors[index];
+}
+}
+
 [[nodiscard]] inline std::vector<Render::ModelDrawInstance> BuildEnvironmentPresentationDraws(
     const std::span<const Render::ModelDrawInstance> baseDraws,
-    const std::span<const EnvironmentPresentationTile> tiles)
+    const std::span<const EnvironmentPresentationTile> tiles,
+    const bool includeScenarioIce = false)
 {
     std::vector<Render::ModelDrawInstance> result;
     result.reserve(baseDraws.size() * tiles.size());
@@ -118,12 +140,25 @@ BuildEnvironmentPresentationTiles(
         Assets::ModelTransform tileTransform{};
         tileTransform.values[12] = tile.offsetXMeters;
         tileTransform.values[13] = tile.offsetYMeters;
+        const float materialVariation = ScalableEnvironmentPresentationDetail::TileMaterialVariation(tile.index);
         for (const Render::ModelDrawInstance& baseDraw : baseDraws)
         {
+            if (!includeScenarioIce &&
+                baseDraw.material.name == ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial)
+            {
+                continue;
+            }
+
             Render::ModelDrawInstance draw = baseDraw;
             draw.modelToWorld = Render::Multiply(tileTransform, baseDraw.modelToWorld);
             // Translation does not alter normals; retaining the prepared normal transform avoids rebuilding
             // presentation state per tile and cannot affect geometry/physics authority.
+            draw.material.baseColorFactor[0] = std::clamp(
+                draw.material.baseColorFactor[0] * materialVariation, 0.0F, 1.0F);
+            draw.material.baseColorFactor[1] = std::clamp(
+                draw.material.baseColorFactor[1] * materialVariation, 0.0F, 1.0F);
+            draw.material.baseColorFactor[2] = std::clamp(
+                draw.material.baseColorFactor[2] * materialVariation, 0.0F, 1.0F);
             result.push_back(std::move(draw));
         }
     }
