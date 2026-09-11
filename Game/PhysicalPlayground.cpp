@@ -1564,17 +1564,57 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());
     }
 
-    // M3-E keeps the Game-owned full above-water clear. H.3 then derives a full-width underwater underlay
-    // from the authoritative WaterBody surface and the actual camera before drawing the existing bounded
-    // Gerstner wave-detail strip. The underlay scales with framing without reallocating a kilometre-scale wave
-    // mesh; at the historical 600 m benchmark the Gerstner strip fully covers it, preserving the accepted view.
-    const auto aboveWaterCleared = renderer.ClearViewportRect(
-        Render::ViewportRect{}, // full viewport: default {0, 0, 1, 1}
-        M2AboveWaterBackgroundColor);
-    if (!aboveWaterCleared)
+    // Legacy M2/M3 benchmark presentation keeps its original dark above-water clear. M5 free-presentation
+    // gameplay uses a deterministic DAY baseline instead: a scene-linear sky gradient plus a small sun cue.
+    // This is presentation-only and intentionally not a time-of-day simulation; future weather/day-night work
+    // may replace it without touching WaterBody or combat authority.
+    const auto waterlineViewportY = ProjectWorldSurfaceToViewportY(*camera, water_->Config().surfaceLevelY);
+    if (!waterlineViewportY)
     {
-        return std::unexpected(aboveWaterCleared.error());
+        return std::unexpected("physical playground waterline projection failed: " + waterlineViewportY.error());
     }
+
+    if (freePresentationCameraFraming_)
+    {
+        const auto skyBands = BuildM5DaySkyPresentationBands(*waterlineViewportY);
+        if (!skyBands)
+        {
+            return std::unexpected("physical playground day-sky presentation failed: " + skyBands.error());
+        }
+        for (const auto& band : *skyBands)
+        {
+            const auto cleared = renderer.ClearViewportRect(band.viewport, band.color);
+            if (!cleared)
+            {
+                return std::unexpected("physical playground day-sky clear failed: " + cleared.error());
+            }
+        }
+
+        const auto sunStrips = BuildM5DaySunPresentationStrips(*waterlineViewportY, renderer.AspectRatio());
+        if (!sunStrips)
+        {
+            return std::unexpected("physical playground day-sun presentation failed: " + sunStrips.error());
+        }
+        for (const auto& strip : *sunStrips)
+        {
+            const auto cleared = renderer.ClearViewportRect(strip.viewport, strip.color);
+            if (!cleared)
+            {
+                return std::unexpected("physical playground day-sun clear failed: " + cleared.error());
+            }
+        }
+    }
+    else
+    {
+        const auto aboveWaterCleared = renderer.ClearViewportRect(
+            Render::ViewportRect{}, // full viewport: default {0, 0, 1, 1}
+            M2AboveWaterBackgroundColor);
+        if (!aboveWaterCleared)
+        {
+            return std::unexpected(aboveWaterCleared.error());
+        }
+    }
+
     const auto underwaterRegion = UnderwaterRegionForSurface(*camera, water_->Config().surfaceLevelY);
     if (!underwaterRegion)
     {

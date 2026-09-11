@@ -114,25 +114,67 @@ namespace DeepRun::Tests
         }
     }
 
-    // Tactical context preserves the accepted local profile at the centre and descends into deep water
-    // away from it; the wide LOD therefore cannot become a flat replacement floor.
-    if (M5StrategicSeabedProfile.size() != 28U ||
-        M5StrategicSeabedProfile.front().yMeters >= -700.0F ||
-        M5StrategicSeabedProfile.back().yMeters >= -700.0F ||
-        M5StrategicSeabedProfile[7].xMeters != -400.0F ||
-        M5StrategicSeabedProfile[7].yMeters != -160.0F ||
-        M5StrategicSeabedProfile[15].xMeters != 0.0F ||
-        M5StrategicSeabedProfile[15].yMeters != -220.0F ||
-        M5StrategicSeabedProfile[20].xMeters != 400.0F ||
-        M5StrategicSeabedProfile[20].yMeters != -165.0F)
+    const auto daySky = BuildM5DaySkyPresentationBands(0.32F);
+    const auto daySun = BuildM5DaySunPresentationStrips(0.32F, 16.0F / 9.0F);
+    const auto noSky = BuildM5DaySkyPresentationBands(0.0F);
+    const auto invalidSun = BuildM5DaySunPresentationStrips(0.32F, 0.0F);
+    if (!daySky || daySky->size() != 16U || !daySun || daySun->size() != 9U ||
+        !noSky || !noSky->empty() || invalidSun.has_value() ||
+        std::abs(daySky->front().viewport.top) > 0.0001F ||
+        std::abs(daySky->back().viewport.bottom - 0.32F) > 0.0001F ||
+        !(daySky->back().color.r > daySky->front().color.r) ||
+        !(daySky->back().color.g > daySky->front().color.g) ||
+        !(daySky->back().color.b > daySky->front().color.b))
+    {
+        return false;
+    }
+    for (const auto& strip : *daySun)
+    {
+        if (!(strip.viewport.left < strip.viewport.right) || !(strip.viewport.top < strip.viewport.bottom) ||
+            strip.viewport.top < 0.0F || strip.viewport.bottom > 0.32F)
+        {
+            return false;
+        }
+    }
+
+    // The tactical profile keeps exact local anchors but no longer collapses into one giant central hill.
+    // Regional samples descend gradually and contain low-frequency relief before reaching deep ocean.
+    const auto tacticalProfile = BuildM5TacticalBathymetryProfile();
+    const auto findPoint = [&tacticalProfile](const float xMeters) -> const StrategicSeabedPresentationPoint*
+    {
+        for (const auto& point : tacticalProfile)
+        {
+            if (std::abs(point.xMeters - xMeters) < 0.001F)
+            {
+                return &point;
+            }
+        }
+        return nullptr;
+    };
+    const auto* leftLocal = findPoint(-400.0F);
+    const auto* centerLocal = findPoint(0.0F);
+    const auto* rightLocal = findPoint(400.0F);
+    const auto* nearRight = findPoint(1'000.0F);
+    const auto* regionalRight = findPoint(6'000.0F);
+    const auto* deepRight = findPoint(20'000.0F);
+    if (tacticalProfile.size() < 120U ||
+        tacticalProfile.front().xMeters > -59'000.0F || tacticalProfile.back().xMeters < 59'000.0F ||
+        leftLocal == nullptr || centerLocal == nullptr || rightLocal == nullptr || nearRight == nullptr ||
+        regionalRight == nullptr || deepRight == nullptr ||
+        leftLocal->yMeters != -160.0F || centerLocal->yMeters != -220.0F || rightLocal->yMeters != -165.0F ||
+        nearRight->yMeters > -150.0F || nearRight->yMeters < -350.0F ||
+        regionalRight->yMeters >= nearRight->yMeters || deepRight->yMeters >= -700.0F ||
+        std::abs(SampleM5TacticalBathymetryYMeters(6'000.0F) -
+                 SampleM5TacticalBathymetryYMeters(8'000.0F)) < 5.0F)
     {
         return false;
     }
 
     const auto strategic = BuildStrategicSeabedPresentationModel();
+    const std::size_t expectedStrategicSegments = tacticalProfile.size() - 1U;
     if (!strategic || strategic->primitives.size() != 1U ||
-        strategic->primitives[0].vertices.size() != 324U ||
-        strategic->primitives[0].indices.size() != 486U ||
+        strategic->primitives[0].vertices.size() != expectedStrategicSegments * 12U ||
+        strategic->primitives[0].indices.size() != expectedStrategicSegments * 18U ||
         std::abs(strategic->bounds.minimum.y - M5StrategicSeabedExtrusionBottomYMeters) > 0.001F)
     {
         return false;

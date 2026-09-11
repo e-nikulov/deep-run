@@ -151,6 +151,10 @@ Likewise, seeing deep water below `-700 m` in tactical presentation does not exp
 
 Deep water is an environment identity, not a renderer fallback.
 
+## M5 tactical sky baseline
+
+M5 manual acceptance uses a deterministic daytime presentation so increased tactical sky share reads as intentional airspace rather than an unfinished black clear. The production free-presentation path therefore shows a blue vertical sky gradient and a small sun cue above the authoritative sea surface. This is not a time-of-day simulation. Future weather/day-night work may replace the M5 baseline with scenario-owned sun/moon/lighting state while preserving the same surface/airspace composition contract.
+
 ## Authority boundary
 
 Presentation must remain downstream of authoritative world/simulation state:
@@ -172,6 +176,7 @@ For M5 closure:
 - generic wide view must prefer deliberate `DEEP WATER / ABYSS` when no wide-area bathymetry authority exists;
 - tactical zoom progressively allocates more screen space to sky;
 - the old generic strategic seabed slab must not appear merely because the camera zoomed out;
-- any temporary strategic seabed mesh is explicit scenario opt-in only.
+- the current M5 combat region may opt in to a render-only tactical bathymetry continuity profile whose local anchors match the accepted M3 section; unknown/deep regions still use the abyss presentation.
+- M5 free-presentation uses a deterministic DAY sky baseline (scene-linear sky gradient plus sun cue); full time-of-day, weather and moon/night presentation remain future content scope.
 
 This contract does not start P-700, M6, procedural-world generation, aircraft AI or new simulation scope.
