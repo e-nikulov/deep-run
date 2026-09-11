@@ -1,22 +1,43 @@
 #pragma once
 
+#include <cmath>
+
 namespace DeepRun::Game
 {
-// D0 Vertical Ocean Gameplay Contract. These values describe the normal visible/playable ocean presentation
-// envelope. They are not vessel-specific dive/crush-depth limits and must never be used as a substitute for a
-// submarine's own structural/runtime contract.
+// D0 Ocean Vertical Presentation Contract. The 700 m value is the normal submarine gameplay band, not an
+// ocean-bottom constraint and not a vessel-specific dive/crush-depth limit.
 inline constexpr float NormalGameplaySeaSurfaceReferenceYMeters = 0.0F;
 inline constexpr float NormalGameplayMaximumVisibleDepthMeters = 700.0F;
-inline constexpr float NormalGameplayOceanBottomReferenceYMeters =
+inline constexpr float NormalGameplayBandBottomReferenceYMeters =
     NormalGameplaySeaSurfaceReferenceYMeters - NormalGameplayMaximumVisibleDepthMeters;
+// Compatibility name retained for existing callers. It means gameplay-band bottom, never physical seabed.
+inline constexpr float NormalGameplayOceanBottomReferenceYMeters = NormalGameplayBandBottomReferenceYMeters;
 
 inline constexpr float NormalGameplayPeriscopeZoneMaximumDepthMeters = 20.0F;
 inline constexpr float NormalGameplayShallowZoneMaximumDepthMeters = 100.0F;
 inline constexpr float NormalGameplayPrimaryCombatZoneMaximumDepthMeters = 300.0F;
 inline constexpr float NormalGameplayDeepTacticalZoneMaximumDepthMeters = 500.0F;
 inline constexpr float NormalGameplayExtremeZoneMaximumDepthMeters = 600.0F;
-inline constexpr float NormalGameplayLowerBoundaryMaximumDepthMeters =
-    NormalGameplayMaximumVisibleDepthMeters;
+inline constexpr float NormalGameplayLowerBoundaryMaximumDepthMeters = NormalGameplayMaximumVisibleDepthMeters;
+
+// Presentation composition policy. Local play prioritizes underwater space; tactical/operational/strategic
+// framing progressively reserves more screen area above the surface for future aircraft/helicopter threats.
+inline constexpr float NormalGameplayAboveWaterFraction = 0.15F;
+inline constexpr float TacticalGameplayAboveWaterFraction = 0.32F;
+inline constexpr float OperationalGameplayAboveWaterFraction = 0.36F;
+inline constexpr float StrategicGameplayAboveWaterFraction = 0.40F;
+inline constexpr float LocalCompositionReferenceHorizontalSpanMeters = 800.0F;
+inline constexpr float TacticalCompositionHorizontalSpanMeters = 2'300.0F;
+inline constexpr float OperationalCompositionHorizontalSpanMeters = 9'000.0F;
+inline constexpr float StrategicCompositionHorizontalSpanMeters = 120'000.0F;
+
+enum class BathymetryDepthBand
+{
+    Shelf,
+    Continental,
+    DeepOcean,
+    Abyssal,
+};
 
 [[nodiscard]] constexpr bool IsWithinNormalGameplayDepthMeters(const float depthMeters) noexcept
 {
@@ -26,11 +47,9 @@ inline constexpr float NormalGameplayLowerBoundaryMaximumDepthMeters =
 [[nodiscard]] constexpr bool IsWithinNormalGameplayReferenceYMeters(const float worldYMeters) noexcept
 {
     return worldYMeters <= NormalGameplaySeaSurfaceReferenceYMeters &&
-           worldYMeters >= NormalGameplayOceanBottomReferenceYMeters;
+           worldYMeters >= NormalGameplayBandBottomReferenceYMeters;
 }
 
-// Runtime scenarios may place the authoritative WaterBody surface at a non-zero world Y. The D0 depth contract
-// remains relative to that surface and is therefore safe to query without baking the reference Y=0 into physics.
 [[nodiscard]] constexpr bool IsWithinNormalGameplayWaterColumn(
     const float worldYMeters,
     const float authoritativeSurfaceYMeters) noexcept
@@ -38,10 +57,58 @@ inline constexpr float NormalGameplayLowerBoundaryMaximumDepthMeters =
     return IsWithinNormalGameplayDepthMeters(authoritativeSurfaceYMeters - worldYMeters);
 }
 
-static_assert(NormalGameplayOceanBottomReferenceYMeters == -700.0F);
+[[nodiscard]] constexpr BathymetryDepthBand ClassifyBathymetryDepthMeters(const float depthMeters) noexcept
+{
+    if (depthMeters <= 300.0F)
+    {
+        return BathymetryDepthBand::Shelf;
+    }
+    if (depthMeters <= NormalGameplayMaximumVisibleDepthMeters)
+    {
+        return BathymetryDepthBand::Continental;
+    }
+    if (depthMeters <= 2'000.0F)
+    {
+        return BathymetryDepthBand::DeepOcean;
+    }
+    return BathymetryDepthBand::Abyssal;
+}
+
+[[nodiscard]] inline float AboveWaterFractionForPresentationSpanMeters(const float horizontalSpanMeters) noexcept
+{
+    if (!std::isfinite(horizontalSpanMeters) || horizontalSpanMeters <= 0.0F)
+    {
+        return NormalGameplayAboveWaterFraction;
+    }
+    if (horizontalSpanMeters <= LocalCompositionReferenceHorizontalSpanMeters)
+    {
+        return NormalGameplayAboveWaterFraction;
+    }
+    if (horizontalSpanMeters < TacticalCompositionHorizontalSpanMeters)
+    {
+        const float transition =
+            (horizontalSpanMeters - LocalCompositionReferenceHorizontalSpanMeters) /
+            (TacticalCompositionHorizontalSpanMeters - LocalCompositionReferenceHorizontalSpanMeters);
+        return NormalGameplayAboveWaterFraction +
+            transition * (TacticalGameplayAboveWaterFraction - NormalGameplayAboveWaterFraction);
+    }
+    if (horizontalSpanMeters < OperationalCompositionHorizontalSpanMeters)
+    {
+        return TacticalGameplayAboveWaterFraction;
+    }
+    if (horizontalSpanMeters < StrategicCompositionHorizontalSpanMeters)
+    {
+        return OperationalGameplayAboveWaterFraction;
+    }
+    return StrategicGameplayAboveWaterFraction;
+}
+
+static_assert(NormalGameplayBandBottomReferenceYMeters == -700.0F);
 static_assert(NormalGameplayPeriscopeZoneMaximumDepthMeters < NormalGameplayShallowZoneMaximumDepthMeters);
 static_assert(NormalGameplayShallowZoneMaximumDepthMeters < NormalGameplayPrimaryCombatZoneMaximumDepthMeters);
 static_assert(NormalGameplayPrimaryCombatZoneMaximumDepthMeters < NormalGameplayDeepTacticalZoneMaximumDepthMeters);
 static_assert(NormalGameplayDeepTacticalZoneMaximumDepthMeters < NormalGameplayExtremeZoneMaximumDepthMeters);
 static_assert(NormalGameplayExtremeZoneMaximumDepthMeters < NormalGameplayLowerBoundaryMaximumDepthMeters);
+static_assert(NormalGameplayAboveWaterFraction >= 0.10F && NormalGameplayAboveWaterFraction <= 0.20F);
+static_assert(TacticalGameplayAboveWaterFraction >= 0.25F && TacticalGameplayAboveWaterFraction <= 0.40F);
 } // namespace DeepRun::Game
