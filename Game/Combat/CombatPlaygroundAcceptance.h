@@ -90,6 +90,15 @@ struct M5CombatAcceptanceRecord final
 inline constexpr float M5CombatAcceptanceInFlightMinimumProgressMeters = 120.0F;
 inline constexpr float M5CombatAcceptancePreImpactDistanceMeters = 150.0F;
 
+// Window capture reads through the compositor rather than directly from the swapchain. Ordinary checkpoints
+// need one completed Present. POST_IMPACT deliberately requires two completed Presents with the production
+// explosion still drawn so PrintWindow/BitBlt cannot sample the pre-impact client image on a slower DWM path.
+[[nodiscard]] inline constexpr std::uint32_t M5CombatAcceptanceRequiredPresentedFrames(
+    const M5CombatAcceptanceCheckpoint checkpoint) noexcept
+{
+    return checkpoint == M5CombatAcceptanceCheckpoint::PostImpact ? 2U : 1U;
+}
+
 // Windowed M5 acceptance is a deterministic state gate, not an image-quality metric. It observes the same
 // authoritative snapshots that presentation consumes and never performs collision or distance-based hit
 // detection. The only impact transition it accepts is the real ConventionalTorpedo/Jolt result in the frame.
@@ -398,10 +407,11 @@ public:
             return std::unexpected("M5 engagement camera is not centred on the live torpedo/impact");
         }
 
-        // Capture must be delayed until this exact rendered state has passed through Present. On the first
-        // render observation for a checkpoint, freeze the renderer-facing metadata and return no record. The
-        // next callback occurs after that frame was presented, so WindowFrameCapture reads matching pixels
-        // instead of the previous simulation frame. This is capture synchronization only, never fake state.
+        // Capture must be delayed until this rendered state has completed the required Present window. On
+        // the first render observation, freeze renderer-facing metadata and return no record. Ordinary
+        // checkpoints require one completed Present; POST_IMPACT requires two consecutive completed Presents
+        // with the authoritative production explosion still drawn because the Windows compositor capture path
+        // can otherwise expose the pre-impact client image. This is presentation synchronization only.
         if (!pendingPresentedFrameAvailable_)
         {
             if (*pending_ == M5CombatAcceptanceCheckpoint::PostImpact)
@@ -433,12 +443,25 @@ public:
             renderedSnapshot.gpuPresentationHandleValid = gpuPresentationHandleValid;
             pendingSnapshot_ = std::move(renderedSnapshot);
             pendingPresentedFrameAvailable_ = true;
+            pendingPresentedFramesObserved_ = 0U;
             return std::optional<M5CombatAcceptanceRecord>{};
         }
 
         if (!pendingSnapshot_.has_value())
         {
             return std::unexpected("M5 visual acceptance lost its presented checkpoint snapshot");
+        }
+
+        if (*pending_ == M5CombatAcceptanceCheckpoint::PostImpact &&
+            !IsM5PostImpactPresentationReady(*pendingSnapshot_, presentationSnapshot, explosionDrawn))
+        {
+            return std::unexpected(
+                "M5 POST_IMPACT explosion did not persist through the compositor-safe Present window");
+        }
+        ++pendingPresentedFramesObserved_;
+        if (pendingPresentedFramesObserved_ < M5CombatAcceptanceRequiredPresentedFrames(*pending_))
+        {
+            return std::optional<M5CombatAcceptanceRecord>{};
         }
 
         M5CombatAcceptanceRecord record{
@@ -448,6 +471,7 @@ public:
         pending_.reset();
         pendingSnapshot_.reset();
         pendingPresentedFrameAvailable_ = false;
+        pendingPresentedFramesObserved_ = 0U;
         return std::optional<M5CombatAcceptanceRecord>{std::move(record)};
     }
 
@@ -508,5 +532,6 @@ private:
     bool gradualAscentObserved_ = false;
     bool renderWarmupObserved_ = false;
     bool pendingPresentedFrameAvailable_ = false;
+    std::uint32_t pendingPresentedFramesObserved_ = 0U;
 };
 } // namespace DeepRun::Game::Combat

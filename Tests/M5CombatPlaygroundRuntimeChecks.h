@@ -16,6 +16,20 @@ namespace DeepRun::Tests
     using Game::Combat::CombatPlaygroundCameraMode;
     using Game::Combat::CombatPlaygroundPresentationElement;
 
+    if (Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(
+            Game::Combat::M5CombatAcceptanceCheckpoint::Initial) != 1U ||
+        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(
+            Game::Combat::M5CombatAcceptanceCheckpoint::TorpedoInFlight) != 1U ||
+        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(
+            Game::Combat::M5CombatAcceptanceCheckpoint::PreImpact) != 1U ||
+        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(
+            Game::Combat::M5CombatAcceptanceCheckpoint::PostImpact) != 2U ||
+        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(
+            Game::Combat::M5CombatAcceptanceCheckpoint::Resized) != 1U)
+    {
+        return false;
+    }
+
     if (!physicsWorld.IsInitialized())
     {
         return false;
