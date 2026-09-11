@@ -529,14 +529,15 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const float authoredPulseRadius = snapshot.explosion->radiusMeters *
             (0.80F + 0.70F * (1.0F - snapshot.explosion->normalizedAge));
         // Preserve the authoritative center/radius input while enforcing only a minimum visual footprint.
-        // This is the equivalent of a readable VFX sprite size and cannot alter damage or hit detection.
+        // X/Y provide the readable side-view flash; Z remains deliberately thin so the VFX stays inside the
+        // shared production camera depth range instead of being clipped by geometry it does not author.
         const float readablePulseRadius = (std::max)(42.0F, authoredPulseRadius);
         const auto transform = PoseScaleTransform(
             snapshot.explosion->positionMeters,
             {},
             {.x = readablePulseRadius * 2.0F,
              .y = readablePulseRadius * 2.0F,
-             .z = readablePulseRadius * 2.0F});
+             .z = 8.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
