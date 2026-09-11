@@ -2,6 +2,7 @@
 
 #include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Environment/ScalableEnvironmentPresentation.h"
+#include "Game/Environment/VerticalOceanGameplayContract.h"
 
 #include <cmath>
 #include <span>
@@ -12,6 +13,42 @@ namespace DeepRun::Tests
 [[nodiscard]] inline bool RunM5ScalableEnvironmentPresentationChecks()
 {
     using namespace Game;
+
+    if (NormalGameplaySeaSurfaceReferenceYMeters != 0.0F ||
+        NormalGameplayMaximumVisibleDepthMeters != 700.0F ||
+        NormalGameplayOceanBottomReferenceYMeters != -700.0F ||
+        NormalGameplayPeriscopeZoneMaximumDepthMeters != 20.0F ||
+        NormalGameplayShallowZoneMaximumDepthMeters != 100.0F ||
+        NormalGameplayPrimaryCombatZoneMaximumDepthMeters != 300.0F ||
+        NormalGameplayDeepTacticalZoneMaximumDepthMeters != 500.0F ||
+        NormalGameplayExtremeZoneMaximumDepthMeters != 600.0F ||
+        NormalGameplayLowerBoundaryMaximumDepthMeters != 700.0F ||
+        !IsWithinNormalGameplayDepthMeters(0.0F) ||
+        !IsWithinNormalGameplayDepthMeters(700.0F) ||
+        IsWithinNormalGameplayDepthMeters(700.001F) ||
+        !IsWithinNormalGameplayReferenceYMeters(0.0F) ||
+        !IsWithinNormalGameplayReferenceYMeters(-700.0F) ||
+        IsWithinNormalGameplayReferenceYMeters(-700.001F) ||
+        !IsWithinNormalGameplayWaterColumn(-650.0F, 0.0F) ||
+        IsWithinNormalGameplayWaterColumn(-701.0F, 0.0F))
+    {
+        return false;
+    }
+
+    for (const auto& point : M5StrategicSeabedProfile)
+    {
+        if (!IsWithinNormalGameplayReferenceYMeters(point.yMeters))
+        {
+            return false;
+        }
+    }
+    // The strategic render skirt is deliberately outside the D0 gameplay ocean. It exists only to prevent a
+    // visible underside and must not be mistaken for playable/authored seabed depth.
+    if (M5StrategicSeabedExtrusionBottomYMeters >= NormalGameplayOceanBottomReferenceYMeters ||
+        IsWithinNormalGameplayReferenceYMeters(M5StrategicSeabedExtrusionBottomYMeters))
+    {
+        return false;
+    }
 
     if (!UseDetailedEnvironmentPresentation(600.0F) ||
         !UseDetailedEnvironmentPresentation(M5DetailedEnvironmentMaximumHorizontalSpanMeters) ||

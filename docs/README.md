@@ -70,7 +70,7 @@ Current registry:
 
 | ID | Specification | Primary document | Specialized contracts |
 |---|---|---|---|
-| D0 | Core Game Design / Game Loop | [design/game-loop.md](design/game-loop.md) | [design/submarine-command.md](design/submarine-command.md) |
+| D0 | Core Game Design / Game Loop | [design/game-loop.md](design/game-loop.md) | [design/submarine-command.md](design/submarine-command.md); [design/vertical-ocean-gameplay.md](design/vertical-ocean-gameplay.md) |
 | D1 | Controls & Handling | [design/controls.md](design/controls.md) | None |
 
 D1 preserves this boundary:
