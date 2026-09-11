@@ -6,6 +6,7 @@ on:
       - tmp/m5-j5-active-sonar-command
     paths:
       - Tools/CI/apply_m5_j5_active_sonar.ps1
+      - Tools/CI/run_m5_j5_active_sonar.ps1
       - .github/workflows/m5-j5-active-sonar-apply.yml
 
 permissions:
@@ -21,11 +22,12 @@ jobs:
           fetch-depth: 0
       - name: Apply J5 patch
         shell: pwsh
-        run: ./Tools/CI/apply_m5_j5_active_sonar.ps1
+        run: ./Tools/CI/run_m5_j5_active_sonar.ps1
       - name: Commit clean J5 tree
         shell: pwsh
         run: |
           Remove-Item Tools/CI/apply_m5_j5_active_sonar.ps1
+          Remove-Item Tools/CI/run_m5_j5_active_sonar.ps1
           Remove-Item .github/workflows/m5-j5-active-sonar-apply.yml
           git add -A
           git diff --cached --check
