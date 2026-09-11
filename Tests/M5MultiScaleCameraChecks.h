@@ -254,14 +254,20 @@ namespace DeepRun::Tests
 
     // J5 returns LT/RT to Prepare/Fire. In the current tactical-camera context right stick X pans while
     // right stick Y drives continuous zoom; trigger pressure must not leak into camera presentation.
-    const Input::ControllerSemanticAxes controller = Input::SemanticAxesForGamepad(Input::GamepadState{
+    const Input::GamepadState cameraStick{
         .connected = true,
         .rightX = 0.8F,
         .rightY = -0.7F,
         .leftTrigger = 0.1F,
-        .rightTrigger = 0.9F});
-    if (controller.cameraPanX <= 0.0F || controller.cameraPanY != 0.0F ||
-        std::abs(controller.cameraZoom - 0.7F) > 0.001F)
+        .rightTrigger = 0.9F};
+    const Input::ControllerSemanticAxes controller = Input::SemanticAxesForGamepad(cameraStick);
+    auto triggerNeutral = cameraStick;
+    triggerNeutral.leftTrigger = 0.0F;
+    triggerNeutral.rightTrigger = 0.0F;
+    const Input::ControllerSemanticAxes controllerWithoutTriggers = Input::SemanticAxesForGamepad(triggerNeutral);
+    if (controller.cameraPanX <= 0.0F || controller.cameraPanY != 0.0F || controller.cameraZoom <= 0.0F ||
+        std::abs(controller.cameraPanX - controllerWithoutTriggers.cameraPanX) > 0.001F ||
+        std::abs(controller.cameraZoom - controllerWithoutTriggers.cameraZoom) > 0.001F)
     {
         return false;
     }
