@@ -84,7 +84,7 @@ namespace DeepRun::Tests
         std::abs(translated.front().modelToWorld.values[13] - 5.0F) > 0.001F ||
         std::abs(translated.back().modelToWorld.values[12] - 810.0F) > 0.001F ||
         std::abs(translated.back().modelToWorld.values[13] + 5.0F) > 0.001F ||
-        std::abs(translated[1].draw.material.baseColorFactor[0] - 0.5F) > 0.001F)
+        std::abs(translated[1].material.baseColorFactor[0] - 0.5F) > 0.001F)
     {
         return fail("presentation-only tile transforms and canonical centre material");
     }
