@@ -483,7 +483,7 @@ namespace DeepRun::Tests
 
     // Automatic combat framing stays local/contextual. The kilometre-scale composition remains available
     // only as an explicit tactical view, and SimulationTime reversal is still rejected.
-    const auto tacticalFraming = CombatPlaygroundCameraDirector::TacticalFraming();
+    const auto tacticalFraming = Game::Combat::CombatPlaygroundCameraDirector::TacticalFraming();
     if (tacticalFraming.mode != CombatPlaygroundCameraMode::TacticalOverview ||
         std::abs(tacticalFraming.horizontalSpanMeters -
                  Game::Combat::M5CombatTacticalCameraHorizontalSpanMeters) > 0.001F ||

@@ -58,7 +58,7 @@ namespace DeepRun::Tests
         return false;
     }
     if (!UseStrategicSeabedPresentation(600.0F) ||
-        !UseStrategicSeabedPresentation(Combat::M5CombatLocalCameraHorizontalSpanMeters) ||
+        !UseStrategicSeabedPresentation(Game::Combat::M5CombatLocalCameraHorizontalSpanMeters) ||
         !UseStrategicSeabedPresentation(3'600.0F) ||
         !UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters) ||
         UseStrategicSeabedPresentation(0.0F) ||
@@ -98,27 +98,29 @@ namespace DeepRun::Tests
     }
 
     Render::ModelDrawInstance source{};
-    source.modelToWorld.translation = {10.0F, 20.0F, 30.0F};
-    source.materialBaseColorMultiplier = 0.5F;
+    source.modelToWorld.values[12] = 10.0F;
+    source.modelToWorld.values[13] = 20.0F;
+    source.modelToWorld.values[14] = 30.0F;
+    source.material.baseColorFactor = {0.5F, 0.5F, 0.5F, 1.0F};
     const std::vector<Render::ModelDrawInstance> localDraws = BuildEnvironmentPresentationDraws(
         std::span<const Render::ModelDrawInstance>(&source, 1U),
         std::span<const EnvironmentPresentationTile>(*localTiles));
     if (localDraws.size() != 1U ||
-        std::abs(localDraws[0].modelToWorld.translation.x - 10.0F) > 0.001F ||
-        std::abs(localDraws[0].modelToWorld.translation.y - 20.0F) > 0.001F ||
-        std::abs(localDraws[0].materialBaseColorMultiplier - 0.5F) > 0.001F)
+        std::abs(localDraws[0].modelToWorld.values[12] - 10.0F) > 0.001F ||
+        std::abs(localDraws[0].modelToWorld.values[13] - 20.0F) > 0.001F ||
+        std::abs(localDraws[0].material.baseColorFactor[0] - 0.5F) > 0.001F)
     {
         return false;
     }
 
-    source.materialName = std::string(ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);
+    source.material.name = std::string(ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);
     const auto genericIce = BuildEnvironmentPresentationDraws(
         std::span<const Render::ModelDrawInstance>(&source, 1U),
         std::span<const EnvironmentPresentationTile>(*localTiles));
     const auto scenarioIce = BuildEnvironmentPresentationDraws(
         std::span<const Render::ModelDrawInstance>(&source, 1U),
         std::span<const EnvironmentPresentationTile>(*localTiles),
-        ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);
+        true);
     return genericIce.empty() && scenarioIce.size() == 1U;
 }
 } // namespace DeepRun::Tests
