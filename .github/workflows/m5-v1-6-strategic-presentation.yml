@@ -1,0 +1,34 @@
+name: M5 V1.6 Strategic Presentation Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/m5-v1-2-underwater-camera-scale
+          fetch-depth: 0
+      - name: Apply scoped strategic presentation repair
+        run: python .github/m5_v16_strategic_presentation_fix.py
+      - name: Validate diff
+        run: |
+          git diff --check
+          git diff --exit-code -- . ':(exclude).github/m5_v16_strategic_presentation_fix.py' ':(exclude).github/workflows/m5-v1-6-strategic-presentation.yml' || true
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DeepRun/Main.cpp Game/Environment/VerticalOceanGameplayContract.h Game/Environment/ScalableEnvironmentPresentation.h Game/Combat/PlayerCombatCommandRuntime.h Game/Combat/CombatCommandUi.h Game/Combat/CombatCommandUi.cpp Tests/M5ScalableEnvironmentPresentationChecks.h
+          git commit -m "fix: make operational strategic zoom readable"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
