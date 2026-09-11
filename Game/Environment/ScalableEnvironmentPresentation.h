@@ -128,8 +128,8 @@ BuildM5DaySkyPresentationBands(const float waterlineViewportY)
     }
 
     constexpr std::size_t BandCount = 16U;
-    constexpr Render::RgbaColor ZenithColor{0.012F, 0.055F, 0.180F, 1.0F};
-    constexpr Render::RgbaColor HorizonColor{0.180F, 0.350F, 0.620F, 1.0F};
+    constexpr Render::RgbaColor ZenithColor{0.050F, 0.155F, 0.360F, 1.0F};
+    constexpr Render::RgbaColor HorizonColor{0.085F, 0.225F, 0.465F, 1.0F};
     const auto lerp = [](const float first, const float second, const float t) noexcept
     {
         return first + (second - first) * t;
