@@ -1,0 +1,30 @@
+name: M5 J5 Camera Test Fix
+on:
+  push:
+    branches: [tmp/m5-j5-active-sonar-command]
+    paths:
+      - Tools/CI/fix_m5_j5_camera_test.ps1
+      - .github/workflows/m5-j5-camera-test-fix.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply test fix
+        shell: pwsh
+        run: ./Tools/CI/fix_m5_j5_camera_test.ps1
+      - name: Commit clean tree
+        shell: pwsh
+        run: |
+          Remove-Item Tools/CI/fix_m5_j5_camera_test.ps1
+          Remove-Item .github/workflows/m5-j5-camera-test-fix.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "Deep Run CI"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "test: fix J5 radial camera assertion"
+          git push origin HEAD:tmp/m5-j5-active-sonar-command
