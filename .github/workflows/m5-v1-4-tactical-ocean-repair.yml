@@ -1,0 +1,47 @@
+name: M5 V1.4 Tactical Ocean Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/m5-v1-2-underwater-camera-scale
+          fetch-depth: 0
+
+      - name: Apply scoped M5 V1.4 repair
+        shell: pwsh
+        run: |
+          python .github/m5_v14_tactical_ocean_fix.py
+          if ($LASTEXITCODE -ne 0) { throw "repair script failed" }
+          git diff --check
+          $changed = @(git status --short)
+          $allowed = @(
+            'Game/Environment/ScalableEnvironmentPresentation.h',
+            'Game/PhysicalPlayground.cpp',
+            'Tests/M5ScalableEnvironmentPresentationChecks.h',
+            'docs/design/vertical-ocean-gameplay.md'
+          )
+          foreach ($line in $changed) {
+            $path = $line.Substring(3)
+            if ($allowed -notcontains $path) { throw "unexpected changed file: $path" }
+          }
+
+      - name: Commit repair
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Game/Environment/ScalableEnvironmentPresentation.h Game/PhysicalPlayground.cpp Tests/M5ScalableEnvironmentPresentationChecks.h docs/design/vertical-ocean-gameplay.md
+          git commit -m "fix: refine tactical ocean and day sky presentation"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
