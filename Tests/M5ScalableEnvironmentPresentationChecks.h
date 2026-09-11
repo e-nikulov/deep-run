@@ -46,6 +46,9 @@ namespace DeepRun::Tests
         return false;
     }
 
+    const float detailSky = AboveWaterFractionForPresentationSpanMeters(540.0F);
+    const float preThresholdSky = AboveWaterFractionForPresentationSpanMeters(599.0F);
+    const float postThresholdSky = AboveWaterFractionForPresentationSpanMeters(601.0F);
     const float localSky = AboveWaterFractionForPresentationSpanMeters(800.0F);
     const float transitionSky = AboveWaterFractionForPresentationSpanMeters(1'550.0F);
     const float tacticalSky = AboveWaterFractionForPresentationSpanMeters(3'600.0F);
@@ -57,7 +60,11 @@ namespace DeepRun::Tests
     const float afterOperationalBoundary = AboveWaterFractionForPresentationSpanMeters(9'001.0F);
     const float beforeStrategicBoundary = AboveWaterFractionForPresentationSpanMeters(119'999.0F);
     const float afterStrategicBoundary = AboveWaterFractionForPresentationSpanMeters(120'001.0F);
-    if (std::abs(localSky - 0.15F) > 0.0001F ||
+    if (std::abs(detailSky - 0.15F) > 0.0001F ||
+        std::abs(preThresholdSky - 0.15F) > 0.0001F ||
+        std::abs(postThresholdSky - 0.15F) > 0.0001F ||
+        std::abs(preThresholdSky - postThresholdSky) > 0.0001F ||
+        std::abs(localSky - 0.15F) > 0.0001F ||
         !(transitionSky > localSky && transitionSky < tacticalSky) ||
         !(tacticalSky > TacticalGameplayAboveWaterFraction && tacticalSky < OperationalGameplayAboveWaterFraction) ||
         !(operationalSky > OperationalGameplayAboveWaterFraction && operationalSky < StrategicGameplayAboveWaterFraction) ||

@@ -166,9 +166,10 @@ public:
         // M5-V1.3 keeps world projection aspect-correct (no stretched ships/submarines) while changing
         // composition with scale. Local play reserves ~15% for sky; tactical/operational/strategic views
         // progressively move the surface lower to make future ASW aircraft/helicopters readable.
-        constexpr float M5SurfaceCompositionMinimumHorizontalSpanMeters = 600.0F;
-        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
-            horizontalSpanMeters >= M5SurfaceCompositionMinimumHorizontalSpanMeters)
+        // M5-V1.7 continuity: once free-presentation framing is active, every supported horizontal span
+        // uses the same surface-anchor policy. The previous 600 m activation threshold produced a visible
+        // vertical snap when zoom crossed 600 m (for example 0.54 km -> 0.64 km).
+        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F)
         {
             const float unshiftedTargetYMeters =
                 initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
