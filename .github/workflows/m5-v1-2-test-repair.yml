@@ -1,0 +1,94 @@
+name: M5 V1.2 Test Integration Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Repair stale M5 V1.2 regression integration
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("Tests/M5CombatPlaygroundRuntimeChecks.h"): [
+                  (
+                      "const auto tacticalFraming = CombatPlaygroundCameraDirector::TacticalFraming();",
+                      "const auto tacticalFraming = Game::Combat::CombatPlaygroundCameraDirector::TacticalFraming();",
+                  ),
+              ],
+              Path("Tests/M5ScalableEnvironmentPresentationChecks.h"): [
+                  (
+                      "Combat::M5CombatLocalCameraHorizontalSpanMeters",
+                      "Game::Combat::M5CombatLocalCameraHorizontalSpanMeters",
+                  ),
+                  (
+                      "    source.modelToWorld.translation = {10.0F, 20.0F, 30.0F};",
+                      "    source.modelToWorld.values[12] = 10.0F;\n"
+                      "    source.modelToWorld.values[13] = 20.0F;\n"
+                      "    source.modelToWorld.values[14] = 30.0F;",
+                  ),
+                  (
+                      "    source.materialBaseColorMultiplier = 0.5F;",
+                      "    source.material.baseColorFactor = {0.5F, 0.5F, 0.5F, 1.0F};",
+                  ),
+                  (
+                      "localDraws[0].modelToWorld.translation.x",
+                      "localDraws[0].modelToWorld.values[12]",
+                  ),
+                  (
+                      "localDraws[0].modelToWorld.translation.y",
+                      "localDraws[0].modelToWorld.values[13]",
+                  ),
+                  (
+                      "localDraws[0].materialBaseColorMultiplier",
+                      "localDraws[0].material.baseColorFactor[0]",
+                  ),
+                  (
+                      "source.materialName = std::string(ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);",
+                      "source.material.name = std::string(ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);",
+                  ),
+                  (
+                      "        ScalableEnvironmentPresentationDetail::DefaultM5SuppressedTiledMaterial);",
+                      "        true);",
+                  ),
+              ],
+          }
+
+          for path, edits in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              for old, new in edits:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f"{path}: expected exactly one occurrence of {old!r}, found {count}")
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding="utf-8", newline="\n")
+          PY
+
+          git diff --check
+          git diff -- Tests/M5CombatPlaygroundRuntimeChecks.h Tests/M5ScalableEnvironmentPresentationChecks.h
+
+      - name: Commit test-only repair
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes produced"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Tests/M5CombatPlaygroundRuntimeChecks.h Tests/M5ScalableEnvironmentPresentationChecks.h
+          git commit -m "test: align M5 V1.2 regressions with production APIs"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
