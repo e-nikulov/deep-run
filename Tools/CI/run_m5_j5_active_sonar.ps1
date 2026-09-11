@@ -4,8 +4,8 @@ $text = Get-Content -Raw $path
 $needle = '    $text = Read-Lf $Path'
 $replacement = @'
     $text = Read-Lf $Path
-    $Old = $Old.Trim([char[]]"`r`n")
-    $New = $New.Trim([char[]]"`r`n")
+    $Old = $Old.Replace("`r`n", "`n").Trim([char[]]"`r`n")
+    $New = $New.Replace("`r`n", "`n").Trim([char[]]"`r`n")
 '@.Trim([char[]]"`r`n")
 if (-not $text.Contains($needle)) { throw 'Replace-Once normalization anchor not found' }
 $text = $text.Replace($needle, $replacement)
