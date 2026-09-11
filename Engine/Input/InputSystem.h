@@ -20,8 +20,8 @@ class WindowsGamingInputGamepad;
 }
 
 // Small pure controller boundary used by InputSystem and headless tests. Inputs are already normalized by
-// the platform backend; output follows the canonical semantic signs (left stick up -> Depth < 0; right stick
-// right/up -> positive camera pan; right trigger -> zoom out, left trigger -> zoom in).
+// the platform backend; output follows canonical semantic signs. The current M5 tactical-camera context maps
+// right-stick X to horizontal pan and right-stick Y to continuous zoom; LT/RT remain weapon actions.
 struct ControllerSemanticAxes final
 {
     float throttle = 0.0F;
