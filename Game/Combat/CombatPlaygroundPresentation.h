@@ -75,7 +75,9 @@ struct CombatPlaygroundPresentationDraw final
     Render::ModelDrawInstance draw{};
 };
 
-inline constexpr double M5CombatExplosionPresentationLifetimeSeconds = 1.0;
+// M5-V1 keeps the real impact position/radius as authority, but gives the production presentation enough
+// persistence for a human to read the event in a rendered frame. This lifetime has no damage/gameplay effect.
+inline constexpr double M5CombatExplosionPresentationLifetimeSeconds = 1.5;
 
 [[nodiscard]] inline std::expected<CombatPlaygroundPresentationSnapshot, std::string>
 BuildCombatPlaygroundPresentationSnapshot(
@@ -381,31 +383,34 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     std::vector<CombatPlaygroundPresentationDraw> draws;
     draws.reserve(8U);
 
+    // M5-V1 readability is presentation-only. These proxy dimensions intentionally exaggerate the compact
+    // H.1 combat representation at multi-kilometre side-view scale; the destroyer's Jolt body remains the
+    // sole collision/impact authority and is never resized here.
     const auto hullTransform = PoseScaleTransform(
         snapshot.destroyerBody.position,
         snapshot.destroyerBody.orientation,
-        {.x = 50.0F, .y = 6.0F, .z = 6.0F});
+        {.x = 60.0F, .y = 10.0F, .z = 8.0F});
     const auto superstructureTransform = PoseScaleTransform(
         snapshot.destroyerBody.position,
         snapshot.destroyerBody.orientation,
-        {.x = 14.0F, .y = 3.0F, .z = 4.0F},
-        {.x = -2.0F, .y = 4.0F, .z = 0.0F});
+        {.x = 20.0F, .y = 6.0F, .z = 7.0F},
+        {.x = -4.0F, .y = 7.0F, .z = 0.0F});
     if (!hullTransform || !superstructureTransform)
     {
         return std::unexpected("M5-H.1 destroyer presentation transform failed");
     }
 
-    const float damageDarkening = 0.55F + 0.45F * snapshot.destroyerIntegrityFraction;
+    const float damageDarkening = 0.62F + 0.38F * snapshot.destroyerIntegrityFraction;
     auto hull = MakeDraw(
         CombatPlaygroundPresentationElement::DestroyerHull,
         *hullTransform,
-        Material("M5DestroyerHull", {0.24F * damageDarkening, 0.31F * damageDarkening,
-                                      0.33F * damageDarkening, 1.0F}, 0.24F, 0.72F));
+        Material("M5DestroyerHull", {0.42F * damageDarkening, 0.50F * damageDarkening,
+                                      0.52F * damageDarkening, 1.0F}, 0.20F, 0.66F));
     auto superstructure = MakeDraw(
         CombatPlaygroundPresentationElement::DestroyerSuperstructure,
         *superstructureTransform,
-        Material("M5DestroyerSuperstructure", {0.32F * damageDarkening, 0.38F * damageDarkening,
-                                                0.40F * damageDarkening, 1.0F}, 0.18F, 0.76F));
+        Material("M5DestroyerSuperstructure", {0.56F * damageDarkening, 0.62F * damageDarkening,
+                                                0.64F * damageDarkening, 1.0F}, 0.14F, 0.70F));
     if (!hull || !superstructure)
     {
         return std::unexpected("M5-H.1 destroyer presentation draw failed");
@@ -418,7 +423,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const auto transform = PoseScaleTransform(
             snapshot.playerTorpedo->positionMeters,
             Weapons::WeaponHeadingQuaternion(snapshot.playerTorpedo->headingRadians),
-            {.x = 4.0F, .y = 0.65F, .z = 0.65F});
+            {.x = 12.0F, .y = 2.4F, .z = 2.4F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -426,7 +431,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         auto draw = MakeDraw(
             CombatPlaygroundPresentationElement::PlayerTorpedo,
             *transform,
-            Material("M5PlayerTorpedo", {0.52F, 0.55F, 0.56F, 1.0F}, 0.36F, 0.48F));
+            Material("M5PlayerTorpedo", {0.88F, 0.92F, 0.72F, 1.0F}, 0.18F, 0.36F));
         if (!draw)
         {
             return std::unexpected(draw.error());
@@ -439,7 +444,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const auto transform = PoseScaleTransform(
             snapshot.destroyerTorpedo->positionMeters,
             Weapons::WeaponHeadingQuaternion(snapshot.destroyerTorpedo->headingRadians),
-            {.x = 4.0F, .y = 0.65F, .z = 0.65F});
+            {.x = 12.0F, .y = 2.4F, .z = 2.4F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -447,7 +452,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         auto draw = MakeDraw(
             CombatPlaygroundPresentationElement::DestroyerTorpedo,
             *transform,
-            Material("M5DestroyerTorpedo", {0.64F, 0.42F, 0.24F, 1.0F}, 0.32F, 0.52F));
+            Material("M5DestroyerTorpedo", {0.94F, 0.52F, 0.20F, 1.0F}, 0.16F, 0.38F));
         if (!draw)
         {
             return std::unexpected(draw.error());
@@ -460,7 +465,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const auto transform = PoseScaleTransform(
             snapshot.decoy->positionMeters,
             {},
-            {.x = 2.0F, .y = 2.0F, .z = 2.0F});
+            {.x = 6.0F, .y = 6.0F, .z = 6.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -468,7 +473,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         auto draw = MakeDraw(
             CombatPlaygroundPresentationElement::AcousticDecoy,
             *transform,
-            Material("M5AcousticDecoy", {0.18F, 0.68F, 0.76F, 1.0F}, 0.08F, 0.42F));
+            Material("M5AcousticDecoy", {0.22F, 0.92F, 1.0F, 1.0F}, 0.02F, 0.30F));
         if (!draw)
         {
             return std::unexpected(draw.error());
@@ -481,7 +486,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const auto transform = PoseScaleTransform(
             snapshot.playerDecoy->positionMeters,
             {},
-            {.x = 2.0F, .y = 2.0F, .z = 2.0F});
+            {.x = 6.0F, .y = 6.0F, .z = 6.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -489,7 +494,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         auto draw = MakeDraw(
             CombatPlaygroundPresentationElement::PlayerAcousticDecoy,
             *transform,
-            Material("M5PlayerAcousticDecoy", {0.82F, 0.62F, 0.16F, 1.0F}, 0.06F, 0.40F));
+            Material("M5PlayerAcousticDecoy", {1.0F, 0.78F, 0.18F, 1.0F}, 0.02F, 0.28F));
         if (!draw)
         {
             return std::unexpected(draw.error());
@@ -522,12 +527,17 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
 
     if (snapshot.explosion)
     {
-        const float pulseScale = snapshot.explosion->radiusMeters *
-            (0.55F + 0.45F * (1.0F - snapshot.explosion->normalizedAge));
+        const float authoredPulseRadius = snapshot.explosion->radiusMeters *
+            (0.70F + 0.55F * (1.0F - snapshot.explosion->normalizedAge));
+        // Preserve the authoritative center/radius input while enforcing only a minimum *visual* footprint.
+        // This is the equivalent of a readable VFX sprite size and cannot alter damage or hit detection.
+        const float readablePulseRadius = (std::max)(30.0F, authoredPulseRadius);
         const auto transform = PoseScaleTransform(
             snapshot.explosion->positionMeters,
             {},
-            {.x = pulseScale * 2.0F, .y = pulseScale * 2.0F, .z = pulseScale * 2.0F});
+            {.x = readablePulseRadius * 2.0F,
+             .y = readablePulseRadius * 2.0F,
+             .z = readablePulseRadius * 2.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -535,7 +545,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         auto draw = MakeDraw(
             CombatPlaygroundPresentationElement::Explosion,
             *transform,
-            Material("M5ImpactExplosion", {1.0F, 0.46F, 0.12F, 1.0F}, 0.0F, 0.28F));
+            Material("M5ImpactExplosion", {1.0F, 0.68F, 0.18F, 1.0F}, 0.0F, 0.18F));
         if (!draw)
         {
             return std::unexpected(draw.error());
