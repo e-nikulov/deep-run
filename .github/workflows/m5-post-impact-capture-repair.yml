@@ -1,0 +1,61 @@
+name: M5 Post Impact Capture Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply compositor synchronization repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          main = Path('DeepRun/Main.cpp')
+          text = main.read_text(encoding='utf-8')
+          old = '#include <Windows.h>\n'
+          new = '#include <Windows.h>\n#include <dwmapi.h>\n'
+          if old not in text:
+              raise SystemExit('Main.cpp: Windows include anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''        if (window == nullptr || !IsWindowVisible(window))\n        {\n            LogOnce("game window not found for this process");\n            return false;\n        }\n\n        RECT client{};\n'''
+          new = '''        if (window == nullptr || !IsWindowVisible(window))\n        {\n            LogOnce("game window not found for this process");\n            return false;\n        }\n\n        // D3D12 Present and DWM composition are asynchronous. Acceptance asks for the already-presented\n        // production frame, so synchronize the compositor before PrintWindow/BitBlt reads the client image.\n        // This is a presentation/capture fence, not a sleep or a simulation delay.\n        const HRESULT compositorSync = DwmFlush();\n        if (FAILED(compositorSync))\n        {\n            LogOnce("DwmFlush failed before frame capture");\n        }\n\n        RECT client{};\n'''
+          if old not in text:
+              raise SystemExit('Main.cpp: capture synchronization anchor missing')
+          text = text.replace(old, new, 1)
+          main.write_text(text, encoding='utf-8', newline='\n')
+
+          cmake = Path('CMakeLists.txt')
+          text = cmake.read_text(encoding='utf-8')
+          old = '# user32/gdi32 are used only by the M2 Slice C2 window frame capture (PrintWindow/BitBlt) in Main.cpp.\ntarget_link_libraries(DeepRun PRIVATE DeepRunEngine imgui nlohmann_json::nlohmann_json user32 gdi32)'
+          new = '# user32/gdi32/dwmapi are used only by the window frame capture path in Main.cpp.\n# DwmFlush fences DWM composition so visual acceptance reads the frame that has actually been presented.\ntarget_link_libraries(DeepRun PRIVATE DeepRunEngine imgui nlohmann_json::nlohmann_json user32 gdi32 dwmapi)'
+          if old not in text:
+              raise SystemExit('CMakeLists.txt: capture link anchor missing')
+          text = text.replace(old, new, 1)
+          cmake.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+          git diff --check
+          git diff -- DeepRun/Main.cpp CMakeLists.txt
+
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DeepRun/Main.cpp CMakeLists.txt
+          git commit -m "fix: synchronize M5 visual capture with DWM present"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
