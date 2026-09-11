@@ -419,6 +419,7 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedSelectContactSequence = 0;
         std::uint64_t consumedPrepareWeaponSequence = 0;
         std::uint64_t consumedFireWeaponSequence = 0;
+        std::uint64_t consumedActiveSonarPingSequence = 0;
         std::uint64_t consumedDeployDecoySequence = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
@@ -520,7 +521,7 @@ int main(const int argumentCount, char** argumentValues)
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
              &combatAcceptance, &combatUiSnapshot, &inputState, &engineServices,
              &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
-             &consumedDeployDecoySequence,
+             &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
@@ -605,7 +606,7 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 4> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 5> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -631,6 +632,9 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::FireWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::FireWeapon,
                                 consumedFireWeaponSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::ActiveSonarPing,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::ActiveSonarPing,
+                                consumedActiveSonarPingSequence);
                         consume(*inputState, DeepRun::Input::InputAction::DeployDecoy,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::DeployDecoy,
                                 consumedDeployDecoySequence);

@@ -14,6 +14,8 @@ the ~1.7 km scenario. Gameplay speed/guidance/damage were unchanged. Stable evid
 `1d90159ac236cc3cc2df0a1d07b6fbf4c4d5fdc1` passed post-merge CI run `34520094788` in both configurations.
 J3 is additionally accepted at feature commit `3a6fef335878046808e9caa08d3b4df8ceb1bcaf`; post-merge CI
 run `34523462484` passed Debug and Release configure, build, CTest, windowed smoke and visual artifacts.
+J4 is accepted at feature commit `2ac391314f0857d18271368ae716b3fb2144495c`; post-merge CI
+run `34546515749` passed Debug and Release configure, build, CTest, windowed smoke and visual artifacts.
 
 ### M5-J3 — perceived incoming-threat combat UI
 
@@ -42,6 +44,22 @@ observations into perceived tracks, and chooses a bearing-only cue through the s
 by the player's weapon. The decoy therefore diverts the torpedo by winning perceived-track selection; no decoy
 flag, player body handle, authoritative target Transform, or source identity crosses into seeker guidance.
 The accepted automated smoke path never deploys the player decoy, preserving the deterministic F.2 baseline.
+
+### M5-J5 — explicit player active-sonar ranging and D1 control convergence
+
+Status: CANDIDATE — requires the normal Debug/Release CI gate before promotion to the stable M5 branch.
+
+Normal play no longer receives an automatic spatial fire-control solution. The destroyer's continuous acoustic
+signature first creates an ordinary bearing-only player Track through `AcousticWorld -> SensorObservation ->
+TrackManager`. `ActiveSonarPing` is accepted only for a selected non-lost perceived Track and constructs its beam
+from that Track's estimated bearing. Authoritative destroyer position exists only as `AcousticReflector` input to
+the simulator. The spatial estimate appears only after the ordinary monostatic round-trip delay and then crosses
+back through the same perception boundary. The automated smoke path retains its deterministic auto-ranging helper.
+
+The input layer simultaneously converges the M5 combat mapping on D1: `LT` prepare, `RT` fire, `RB` active sonar,
+`Y` contact selection and contextual `X` decoy; keyboard/mouse retains `R`/RMB prepare, LMB fire, Space active
+sonar, Tab select and F decoy. Trigger pressure no longer doubles as camera zoom; the current tactical-camera
+context uses right-stick Y for continuous controller zoom and right-stick X for pan.
 
 ## M5-H.1-B — automated windowed visual acceptance
 

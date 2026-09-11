@@ -36,6 +36,7 @@ struct ControllerSemanticActions final
     bool selectContact = false;
     bool prepareWeapon = false;
     bool fireWeapon = false;
+    bool activeSonarPing = false;
     bool deployDecoy = false;
 };
 
@@ -91,7 +92,7 @@ private:
     bool cameraZoomOutKeyDown_ = false;
     bool selectContactKeyDown_ = false;
     bool prepareWeaponKeyDown_ = false;
-    bool fireWeaponKeyDown_ = false;
+    bool activeSonarPingKeyDown_ = false;
     bool deployDecoyKeyDown_ = false;
 };
 }

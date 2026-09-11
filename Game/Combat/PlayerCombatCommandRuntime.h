@@ -18,6 +18,7 @@ enum class PlayerCombatCommandType
     SelectNextTrack,
     PrepareWeapon,
     FireWeapon,
+    ActiveSonarPing,
     DeployDecoy,
 };
 
@@ -50,6 +51,8 @@ struct PlayerCombatPresentationSnapshot final
     bool selectedTrackWeaponQualified = false;
     bool canPrepareWeapon = false;
     bool canFireWeapon = false;
+    bool canActiveSonarPing = false;
+    bool activeSonarPulsePending = false;
 
     // M5-J3 is populated by CombatPlaygroundRuntime from a dedicated passive-acoustic perceived-world path.
     // No hostile transform, range estimate, weapon runtime pointer, or PhysicsBodyHandle is exposed to UI.
@@ -108,6 +111,8 @@ public:
             return Prepare(simulationTimeSeconds);
         case PlayerCombatCommandType::FireWeapon:
             return Fire(tracks, simulationTimeSeconds);
+        case PlayerCombatCommandType::ActiveSonarPing:
+            return std::unexpected("M5-J5 ActiveSonarPing is owned by CombatPlaygroundRuntime, not weapon runtime");
         case PlayerCombatCommandType::DeployDecoy:
             return std::unexpected("M5-J4 DeployDecoy is owned by CombatPlaygroundRuntime, not weapon runtime");
         }

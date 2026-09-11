@@ -67,13 +67,10 @@ ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexc
     result.cameraPanX = camera.x;
     result.cameraPanY = camera.y;
 
-    const float leftTrigger = std::isfinite(gamepad.leftTrigger)
-                                  ? std::clamp(gamepad.leftTrigger, 0.0F, 1.0F)
-                                  : 0.0F;
-    const float rightTrigger = std::isfinite(gamepad.rightTrigger)
-                                   ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
-                                   : 0.0F;
-    result.cameraZoom = rightTrigger - leftTrigger;
+    // M5-J5 gives LT/RT back to the canonical weapon semantics. In the current tactical-camera context,
+    // right-stick X pans and right-stick Y supplies controller zoom so camera control remains controller-complete.
+    result.cameraPanY = 0.0F;
+    result.cameraZoom = -camera.y;
     return result;
 }
 
@@ -84,11 +81,19 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
         return {};
     }
 
+    constexpr float TriggerActionThreshold = 0.50F;
+    const float leftTrigger = std::isfinite(gamepad.leftTrigger)
+                                  ? std::clamp(gamepad.leftTrigger, 0.0F, 1.0F)
+                                  : 0.0F;
+    const float rightTrigger = std::isfinite(gamepad.rightTrigger)
+                                   ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
+                                   : 0.0F;
     return ControllerSemanticActions{
         .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
-        .prepareWeapon = HasGamepadButton(gamepad, GamepadButton::X),
-        .fireWeapon = HasGamepadButton(gamepad, GamepadButton::A),
-        .deployDecoy = HasGamepadButton(gamepad, GamepadButton::B)};
+        .prepareWeapon = leftTrigger >= TriggerActionThreshold,
+        .fireWeapon = rightTrigger >= TriggerActionThreshold,
+        .activeSonarPing = HasGamepadButton(gamepad, GamepadButton::RightShoulder),
+        .deployDecoy = HasGamepadButton(gamepad, GamepadButton::X)};
 }
 
 float ResolveSemanticAxis(
@@ -155,7 +160,7 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             }
             else if (event.key == Platform::Key::Space)
             {
-                fireWeaponKeyDown_ = true;
+                activeSonarPingKeyDown_ = true;
             }
             else if (event.key == Platform::Key::F)
             {
@@ -222,7 +227,7 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             }
             else if (event.key == Platform::Key::Space)
             {
-                fireWeaponKeyDown_ = false;
+                activeSonarPingKeyDown_ = false;
             }
             else if (event.key == Platform::Key::F)
             {
@@ -354,9 +359,11 @@ void InputSystem::RefreshSemanticActions() noexcept
             controller.prepareWeapon);
     state_.SetActionDown(
         InputAction::FireWeapon,
-        fireWeaponKeyDown_ ||
-            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
+        state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
             controller.fireWeapon);
+    state_.SetActionDown(
+        InputAction::ActiveSonarPing,
+        activeSonarPingKeyDown_ || controller.activeSonarPing);
     state_.SetActionDown(InputAction::DeployDecoy, deployDecoyKeyDown_ || controller.deployDecoy);
 }
 

@@ -354,6 +354,10 @@ public:
         return playerDecoy_;
     }
     [[nodiscard]] bool PlayerDecoyAvailable() const noexcept { return playerDecoyAvailable_; }
+    [[nodiscard]] const std::optional<Acoustics::ActiveAcousticPulse>& PlayerActivePulse() const noexcept
+    {
+        return activePulse_;
+    }
     [[nodiscard]] const Weapons::TorpedoSeekerRuntimeState& DestroyerTorpedoSeekerState() const noexcept
     {
         return destroyerTorpedoSeekerState_;
@@ -542,7 +546,40 @@ private:
             }
         }
 
-        if (!activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
+        // M5-J5 gives normal play a legitimate bearing-only passive contact before any active ranging. Continuous
+        // source sampling uses the same bounded direct acoustic propagation already used by the reciprocal side;
+        // FromAcousticObservation deliberately receives no own-position argument, so no range/position is fabricated.
+        bool integratedPlayerEvidence = false;
+        const double playerPassiveDistance = Distance(
+            destroyerAcoustics->emitter.positionMeters, playerSnapshot.passiveReceiver.positionMeters);
+        const double playerPassiveTravelSeconds = playerPassiveDistance /
+            static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
+        const double destroyerEmissionTime = simulationTimeSeconds > playerPassiveTravelSeconds
+            ? std::max(0.0, simulationTimeSeconds - playerPassiveTravelSeconds - 1.0e-6)
+            : 0.0;
+        const Acoustics::AcousticEmission destroyerEmission{
+            .positionMeters = destroyerAcoustics->emitter.positionMeters,
+            .sourceLevelDb = destroyerAcoustics->emitter.continuousSourceLevelDb,
+            .emissionTimeSeconds = destroyerEmissionTime};
+        const auto playerObserved = acousticWorld_.CollectPassiveDirectObservation(
+            destroyerEmission, playerSnapshot.passiveReceiver, simulationTimeSeconds);
+        if (!playerObserved)
+        {
+            return std::unexpected("M5-J5 player passive propagation failed: " + playerObserved.error().message);
+        }
+        if (playerObserved->has_value())
+        {
+            const auto perceived = Perception::FromAcousticObservation(**playerObserved);
+            if (!perceived || !playerTracks_.IntegrateObservation(*perceived))
+            {
+                return std::unexpected("M5-J5 player passive evidence failed perception integration");
+            }
+            integratedPlayerEvidence = true;
+        }
+
+        // The accepted automated smoke path retains its deterministic ranging helper. Normal play never enters
+        // this branch: it must issue ActiveSonarPing against a selected perceived Track below.
+        if (automatedPlayer && !activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
         {
             const Physics::PhysicsVector3 delta = Difference(
                 destroyerAcoustics->emitter.positionMeters, playerSnapshot.passiveReceiver.positionMeters);
@@ -582,12 +619,13 @@ private:
                     return std::unexpected("M5-H active echo failed perception integration");
                 }
                 integratedActiveEcho = true;
+                integratedPlayerEvidence = true;
                 activePulse_.reset();
                 activeReflector_.reset();
                 nextActivePulseTimeSeconds_ = simulationTimeSeconds + M5CombatActiveRangingIntervalSeconds;
             }
         }
-        if (!integratedActiveEcho && !playerTracks_.AdvanceTo(simulationTimeSeconds))
+        if (!integratedPlayerEvidence && !integratedActiveEcho && !playerTracks_.AdvanceTo(simulationTimeSeconds))
         {
             return std::unexpected("M5-H player TrackManager failed to advance");
         }
@@ -613,6 +651,17 @@ private:
         {
             for (const PlayerCombatCommand command : commands)
             {
+                if (command.type == PlayerCombatCommandType::ActiveSonarPing)
+                {
+                    const auto feedback = ExecutePlayerActiveSonarCommand(
+                        playerSnapshot, *destroyerAcoustics, simulationTimeSeconds);
+                    if (!feedback)
+                    {
+                        return std::unexpected("M5-J5 player active-sonar command failed: " + feedback.error());
+                    }
+                    lastCombatCommand_ = *feedback;
+                    continue;
+                }
                 if (command.type == PlayerCombatCommandType::DeployDecoy)
                 {
                     const auto feedback = ExecutePlayerDecoyCommand(playerSnapshot, simulationTimeSeconds);
@@ -838,6 +887,12 @@ private:
         PlayerCombatPresentationSnapshot playerCombatPresentation =
             playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);
         ApplyIncomingThreatPresentation(playerCombatPresentation);
+        const auto selectedPlayerTrack = FindTrack(
+            playerTrackSnapshot, playerCombat_.SelectedTrackId());
+        playerCombatPresentation.canActiveSonarPing = selectedPlayerTrack.has_value() &&
+            selectedPlayerTrack->lifecycle != Perception::TrackLifecycleState::Lost &&
+            !activePulse_.has_value() && simulationTimeSeconds + 1.0e-9 >= nextActivePulseTimeSeconds_;
+        playerCombatPresentation.activeSonarPulsePending = activePulse_.has_value();
         playerCombatPresentation.canDeployDecoy = playerDecoyAvailable_;
         playerCombatPresentation.playerDecoyActive = playerDecoy_.has_value() && playerDecoy_->active;
         if (lastCombatCommand_)
@@ -900,6 +955,65 @@ private:
             }
         }
         return {};
+    }
+
+    [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> ExecutePlayerActiveSonarCommand(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const SimpleDestroyerAcousticSnapshot& destroyerAcoustics,
+        const double simulationTimeSeconds)
+    {
+        if (!std::isfinite(simulationTimeSeconds) || !playerSnapshot.passiveReceiver.positionMeters.IsFinite() ||
+            !destroyerAcoustics.emitter.positionMeters.IsFinite())
+        {
+            return std::unexpected("M5-J5 active-sonar command input is invalid");
+        }
+        const auto selectedTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.SelectedTrackId());
+        if (!selectedTrack || selectedTrack->lifecycle == Perception::TrackLifecycleState::Lost ||
+            !std::isfinite(selectedTrack->estimatedBearingRadians))
+        {
+            return PlayerCombatCommandFeedback{
+                .command = PlayerCombatCommandType::ActiveSonarPing,
+                .accepted = false,
+                .trackId = playerCombat_.SelectedTrackId(),
+                .message = "active sonar requires a selected perceived contact"};
+        }
+        if (activePulse_)
+        {
+            return PlayerCombatCommandFeedback{
+                .command = PlayerCombatCommandType::ActiveSonarPing,
+                .accepted = false,
+                .trackId = selectedTrack->trackId,
+                .message = "active sonar pulse is already awaiting its echo"};
+        }
+        if (simulationTimeSeconds + 1.0e-9 < nextActivePulseTimeSeconds_)
+        {
+            return PlayerCombatCommandFeedback{
+                .command = PlayerCombatCommandType::ActiveSonarPing,
+                .accepted = false,
+                .trackId = selectedTrack->trackId,
+                .message = "active sonar is cooling down"};
+        }
+
+        const float bearing = selectedTrack->estimatedBearingRadians;
+        activePulse_ = Acoustics::ActiveAcousticPulse{
+            .originMeters = playerSnapshot.passiveReceiver.positionMeters,
+            .forwardUnitVector = {
+                .x = static_cast<float>(std::cos(static_cast<double>(bearing))),
+                .y = static_cast<float>(std::sin(static_cast<double>(bearing))),
+                .z = 0.0F},
+            .sourceLevelDb = {.levelDb = {230.0F, 232.0F, 234.0F, 230.0F}},
+            .beamHalfAngleRadians = 0.35F,
+            .emissionTimeSeconds = simulationTimeSeconds};
+        // Authoritative target position is used only by the acoustic simulator as reflector state. It never
+        // enters command feedback, PlayerCombatPresentationSnapshot, Track identity, or weapon target state.
+        activeReflector_ = Acoustics::AcousticReflector{
+            .positionMeters = destroyerAcoustics.emitter.positionMeters,
+            .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
+        return PlayerCombatCommandFeedback{
+            .command = PlayerCombatCommandType::ActiveSonarPing,
+            .accepted = true,
+            .trackId = selectedTrack->trackId,
+            .message = "active sonar ping emitted on selected contact bearing"};
     }
 
     [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> ExecutePlayerDecoyCommand(

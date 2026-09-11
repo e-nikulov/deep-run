@@ -252,16 +252,16 @@ namespace DeepRun::Tests
         }
     }
 
-    // Controller mapping remains semantic before Game consumes it: right stick X pans, right trigger zooms out,
-    // left trigger zooms in. The reserved Y axis may exist in Input, but H.3 camera policy above ignores it.
+    // J5 returns LT/RT to Prepare/Fire. In the current tactical-camera context right stick X pans while
+    // right stick Y drives continuous zoom; trigger pressure must not leak into camera presentation.
     const Input::ControllerSemanticAxes controller = Input::SemanticAxesForGamepad(Input::GamepadState{
         .connected = true,
         .rightX = 0.8F,
         .rightY = -0.7F,
         .leftTrigger = 0.1F,
         .rightTrigger = 0.9F});
-    if (controller.cameraPanX <= 0.0F || controller.cameraPanY >= 0.0F ||
-        std::abs(controller.cameraZoom - 0.8F) > 0.001F)
+    if (controller.cameraPanX <= 0.0F || controller.cameraPanY != 0.0F ||
+        std::abs(controller.cameraZoom - 0.7F) > 0.001F)
     {
         return false;
     }

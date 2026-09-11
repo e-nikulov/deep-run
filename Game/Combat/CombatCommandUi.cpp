@@ -39,6 +39,7 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
     case PlayerCombatCommandType::SelectNextTrack: return "SELECT CONTACT";
     case PlayerCombatCommandType::PrepareWeapon: return "PREPARE WEAPON";
     case PlayerCombatCommandType::FireWeapon: return "FIRE WEAPON";
+    case PlayerCombatCommandType::ActiveSonarPing: return "ACTIVE SONAR";
     case PlayerCombatCommandType::DeployDecoy: return "DEPLOY DECOY";
     }
     return "UNKNOWN COMMAND";
@@ -140,6 +141,8 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
     ImGui::Separator();
     ImGui::Text("Prepare available: %s", snapshot.canPrepareWeapon ? "YES" : "NO");
     ImGui::Text("Fire available: %s", snapshot.canFireWeapon ? "YES" : "NO");
+    ImGui::Text("Active sonar: %s",
+                snapshot.activeSonarPulsePending ? "PING OUT" : (snapshot.canActiveSonarPing ? "READY" : "UNAVAILABLE"));
     ImGui::Text("Decoy available: %s", snapshot.canDeployDecoy ? "YES" : "NO");
     ImGui::Text("Player decoy active: %s", snapshot.playerDecoyActive ? "YES" : "NO");
     if (snapshot.lastCommand)
@@ -153,9 +156,10 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
 
     ImGui::Separator();
     ImGui::TextUnformatted("Y / Tab          Select contact");
-    ImGui::TextUnformatted("X / R / RMB      Prepare weapon");
-    ImGui::TextUnformatted("A / Space / LMB  Fire weapon");
-    ImGui::TextUnformatted("B / F            Deploy decoy");
+    ImGui::TextUnformatted("LT / R / RMB     Prepare weapon");
+    ImGui::TextUnformatted("RT / LMB         Fire weapon");
+    ImGui::TextUnformatted("RB / Space       Active sonar ping");
+    ImGui::TextUnformatted("X / F            Deploy decoy");
     ImGui::End();
 }
 } // namespace DeepRun::Game::Combat

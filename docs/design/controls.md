@@ -162,6 +162,11 @@ Global actions should remain consistent whenever practical.
 
 Keyboard bindings must eventually be rebindable.
 
+M5-J5 implementation note: the combat playground now uses the reference `LT` prepare, `RT` fire, `RB` active
+sonar, `Y` contact-select and contextual `X` decoy bindings. In the current tactical-camera context, right-stick
+X pans and right-stick Y zooms so the weapon triggers no longer have a conflicting presentation meaning. This is
+an M5 context mapping, not a change to the semantic-action boundary or a claim about the final rebindable layout.
+
 ---
 
 ## 5. Controller UI navigation

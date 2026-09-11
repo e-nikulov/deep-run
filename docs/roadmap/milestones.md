@@ -846,6 +846,8 @@ Accepted implementation now includes:
 - simple destroyer Track-only combat AI, active fire-control ranging and reciprocal torpedo attack
 - bounded combat integrity, explosions, multi-scale presentation and controller-first combat commands
 - J3 passive-acoustic incoming-threat warning projected to combat UI without hostile position/body truth
+- J4 player defensive acoustic decoy with reciprocal seeker diversion through perceived tracks
+- J5 explicit player active-sonar ranging from a selected passive Track plus D1 combat-control convergence
 - J4 controller/keyboard player defensive decoy command with reciprocal torpedo local-seeker diversion through perceived acoustics
 <!-- deeprun-m5-command-note:start -->
 
