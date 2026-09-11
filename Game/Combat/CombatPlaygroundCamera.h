@@ -13,9 +13,12 @@ namespace DeepRun::Game::Combat
 // M5 camera is deliberately cinematic rather than a continuously chasing follow-camera. The launch view is
 // stable; after the torpedo has cleared the submarine by a substantial distance the director performs exactly
 // one smooth zoom-out to a fixed tactical overview and never oscillates back during that engagement.
-// Values are presentation-only gameplay tuning and do not alter physics, sonar, tracks, or weapon guidance.
-inline constexpr float M5CombatLocalCameraHorizontalSpanMeters = 1600.0F;
-inline constexpr float M5CombatTacticalCameraHorizontalSpanMeters = 3000.0F;
+//
+// M5-V1 keeps this presentation-only contract but widens the mandatory combat compositions enough for the
+// production Antey and the authored surface destroyer to coexist in the same human-readable side view. The
+// camera still never changes physics, sonar, tracks, weapon guidance, target placement or any other authority.
+inline constexpr float M5CombatLocalCameraHorizontalSpanMeters = 3'200.0F;
+inline constexpr float M5CombatTacticalCameraHorizontalSpanMeters = 3'600.0F;
 inline constexpr float M5CombatCameraTransitionTriggerProgressMeters = 250.0F;
 inline constexpr double M5CombatCameraTransitionDurationSeconds = 1.5;
 
