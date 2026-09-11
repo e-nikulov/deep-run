@@ -64,6 +64,11 @@ struct M5CombatAcceptanceRecord final
     std::string imagePath{};
 };
 
+// M5-V1 capture composition points are presentation acceptance policy only. They select when a real live
+// simulation state becomes human-reviewable; they never alter torpedo movement, seeker authority or impact.
+inline constexpr float M5CombatAcceptanceInFlightMinimumProgressMeters = 120.0F;
+inline constexpr float M5CombatAcceptancePreImpactDistanceMeters = 150.0F;
+
 // Windowed M5 acceptance is a deterministic state gate, not an image-quality metric. It observes the same
 // authoritative snapshots that presentation consumes and never performs collision or distance-based hit
 // detection. The only impact transition it accepts is the real ConventionalTorpedo/Jolt result in the frame.
@@ -261,21 +266,26 @@ public:
         if (!pending_.has_value() && initialSeen_ && !flightSeen_ && snapshot.torpedo &&
                  snapshot.torpedo->movementDomain == Weapons::MovementDomain::Underwater &&
                  runtime.PlayerTorpedoLaunchPosition().has_value() &&
-                 snapshot.torpedo->positionMeters.x - runtime.PlayerTorpedoLaunchPosition()->x >= 30.0F &&
+                 snapshot.torpedo->positionMeters.x - runtime.PlayerTorpedoLaunchPosition()->x >=
+                     M5CombatAcceptanceInFlightMinimumProgressMeters &&
                  snapshot.torpedo->positionMeters.x - runtime.PlayerTorpedoLaunchPosition()->x <=
                      M5CombatTorpedoStraightRunMeters - 2.0F &&
-                 Distance(snapshot.torpedo->positionMeters, snapshot.destroyerBody.position) > 35.0F)
+                 Distance(snapshot.torpedo->positionMeters, snapshot.destroyerBody.position) >
+                     M5CombatAcceptancePreImpactDistanceMeters)
         {
             pending_ = M5CombatAcceptanceCheckpoint::TorpedoInFlight;
             pendingSnapshot_ = snapshot;
+            pendingPresentedFrameAvailable_ = false;
             flightSeen_ = true;
         }
         else if (!pending_.has_value() && flightSeen_ && !preImpactSeen_ && !snapshot.hasImpact && snapshot.torpedo &&
                  snapshot.torpedo->movementDomain == Weapons::MovementDomain::Underwater &&
-                 Distance(snapshot.torpedo->positionMeters, snapshot.destroyerBody.position) <= 40.0F)
+                 Distance(snapshot.torpedo->positionMeters, snapshot.destroyerBody.position) <=
+                     M5CombatAcceptancePreImpactDistanceMeters)
         {
             pending_ = M5CombatAcceptanceCheckpoint::PreImpact;
             pendingSnapshot_ = snapshot;
+            pendingPresentedFrameAvailable_ = false;
             preImpactSeen_ = true;
         }
         else if (!pending_.has_value() && preImpactSeen_ && !postImpactSeen_ && snapshot.hasImpact && snapshot.torpedo &&
@@ -284,12 +294,14 @@ public:
         {
             pending_ = M5CombatAcceptanceCheckpoint::PostImpact;
             pendingSnapshot_ = snapshot;
+            pendingPresentedFrameAvailable_ = false;
             postImpactSeen_ = true;
         }
         else if (!pending_.has_value() && postImpactSeen_ && !resizedSeen_ && resized)
         {
             pending_ = M5CombatAcceptanceCheckpoint::Resized;
             pendingSnapshot_ = snapshot;
+            pendingPresentedFrameAvailable_ = false;
             resizedSeen_ = true;
         }
         lastSimulationTimeSeconds_ = simulationTimeSeconds;
@@ -315,6 +327,7 @@ public:
         {
             pending_ = M5CombatAcceptanceCheckpoint::Initial;
             pendingSnapshot_ = latestFixedSnapshot_;
+            pendingPresentedFrameAvailable_ = false;
             initialSeen_ = true;
         }
         if (!pending_.has_value())
@@ -352,30 +365,43 @@ public:
         {
             return std::unexpected("M5 visual acceptance camera checkpoint framing is unstable");
         }
-        M5CombatAcceptanceSnapshot renderedSnapshot = pendingSnapshot_.value_or(latestFixedSnapshot_);
-        const auto currentDestroyerBody = physicsWorld.GetBodyState(runtime.Destroyer().body);
-        if (!currentDestroyerBody || !currentDestroyerBody->position.IsFinite() ||
-            !currentDestroyerBody->orientation.IsFinite())
-        {
-            return std::unexpected("M5 visual acceptance could not synchronize the rendered destroyer pose");
-        }
-        // FixedUpdate observes the destroyer before the Engine's authoritative PhysicsWorld::Step. Refresh
-        // this one presentation field after the step so the report and capture describe the same pose Render
-        // consumes; impact/event fields remain from the real fixed-step combat result.
-        renderedSnapshot.destroyerBody = *currentDestroyerBody;
-        renderedSnapshot.combatDrawCalls = combatDrawStats.drawCalls;
-        renderedSnapshot.combatSubmittedPrimitives = combatDrawStats.submittedPrimitives;
-        renderedSnapshot.combatSubmittedIndices = combatDrawStats.submittedIndices;
-        renderedSnapshot.cameraAspectRatio = rendererAspectRatio;
-        renderedSnapshot.cameraHorizontalSpanMeters = camera.width;
-        renderedSnapshot.gpuPresentationHandleValid = gpuPresentationHandleValid;
 
+        // Capture must be delayed until this exact rendered state has passed through Present. On the first
+        // render observation for a checkpoint, freeze the renderer-facing metadata and return no record. The
+        // next callback occurs after that frame was presented, so WindowFrameCapture reads matching pixels
+        // instead of the previous simulation frame. This is capture synchronization only, never fake state.
+        if (!pendingPresentedFrameAvailable_)
+        {
+            M5CombatAcceptanceSnapshot renderedSnapshot = pendingSnapshot_.value_or(latestFixedSnapshot_);
+            const auto currentDestroyerBody = physicsWorld.GetBodyState(runtime.Destroyer().body);
+            if (!currentDestroyerBody || !currentDestroyerBody->position.IsFinite() ||
+                !currentDestroyerBody->orientation.IsFinite())
+            {
+                return std::unexpected("M5 visual acceptance could not synchronize the rendered destroyer pose");
+            }
+            renderedSnapshot.destroyerBody = *currentDestroyerBody;
+            renderedSnapshot.combatDrawCalls = combatDrawStats.drawCalls;
+            renderedSnapshot.combatSubmittedPrimitives = combatDrawStats.submittedPrimitives;
+            renderedSnapshot.combatSubmittedIndices = combatDrawStats.submittedIndices;
+            renderedSnapshot.cameraAspectRatio = rendererAspectRatio;
+            renderedSnapshot.cameraHorizontalSpanMeters = camera.width;
+            renderedSnapshot.gpuPresentationHandleValid = gpuPresentationHandleValid;
+            pendingSnapshot_ = std::move(renderedSnapshot);
+            pendingPresentedFrameAvailable_ = true;
+            return std::optional<M5CombatAcceptanceRecord>{};
+        }
+
+        if (!pendingSnapshot_.has_value())
+        {
+            return std::unexpected("M5 visual acceptance lost its presented checkpoint snapshot");
+        }
         M5CombatAcceptanceRecord record{
             .checkpoint = *pending_,
-            .state = std::move(renderedSnapshot)};
+            .state = *pendingSnapshot_};
         records_[CheckpointIndex(*pending_)] = record;
         pending_.reset();
         pendingSnapshot_.reset();
+        pendingPresentedFrameAvailable_ = false;
         return std::optional<M5CombatAcceptanceRecord>{std::move(record)};
     }
 
@@ -435,5 +461,6 @@ private:
     bool straightRunoutValidated_ = false;
     bool gradualAscentObserved_ = false;
     bool renderWarmupObserved_ = false;
+    bool pendingPresentedFrameAvailable_ = false;
 };
 } // namespace DeepRun::Game::Combat
