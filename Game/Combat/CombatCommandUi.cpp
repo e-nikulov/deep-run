@@ -48,7 +48,17 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
 
 void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
 {
-    ImGui::SetNextWindowPos(ImVec2(16.0F, 150.0F), ImGuiCond_FirstUseEver);
+    // M5-V1: the Engine diagnostics overlay owns the upper-left corner. Combat presentation is anchored to
+    // the upper-right work area on every frame so resize/capture cannot reintroduce the old overlap.
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport != nullptr)
+    {
+        constexpr float margin = 16.0F;
+        ImGui::SetNextWindowPos(
+            ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - margin, viewport->WorkPos.y + margin),
+            ImGuiCond_Always,
+            ImVec2(1.0F, 0.0F));
+    }
     ImGui::SetNextWindowSize(ImVec2(350.0F, 0.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.82F);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize |
