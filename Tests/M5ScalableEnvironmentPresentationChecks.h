@@ -25,11 +25,11 @@ namespace DeepRun::Tests
         return fail("bounded wave/particle detail coverage detection");
     }
     if (!Game::UseDetailedEnvironmentPresentation(600.0F) ||
-        !Game::UseDetailedEnvironmentPresentation(9'000.0F) ||
-        Game::UseDetailedEnvironmentPresentation(9'001.0F) ||
+        !Game::UseDetailedEnvironmentPresentation(2'000.0F) ||
+        Game::UseDetailedEnvironmentPresentation(2'001.0F) ||
         Game::UseDetailedEnvironmentPresentation(0.0F))
     {
-        return fail("detailed tactical presentation tier boundary");
+        return fail("local detailed presentation tier boundary");
     }
 
     const auto localTiles = Game::BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 0.0F, 600.0F, -5.0F);
@@ -48,23 +48,22 @@ namespace DeepRun::Tests
         std::abs(initialTacticalTiles->back().offsetXMeters - 800.0F) > 0.001F ||
         std::abs(initialTacticalTiles->back().offsetYMeters + 5.0F) > 0.001F)
     {
-        return fail("1.6 km tactical frame must be covered by three continuous seabed tiles");
+        return fail("1.6 km local frame must be covered by three continuous seabed tiles");
     }
 
-    const auto launchOverviewTiles = Game::BuildEnvironmentPresentationTiles(
+    const auto tacticalWideTiles = Game::BuildEnvironmentPresentationTiles(
         -400.0F, 400.0F, 0.0F, 4'000.0F, -5.0F);
-    if (!launchOverviewTiles || launchOverviewTiles->size() != 7U ||
-        launchOverviewTiles->front().index != -3 || launchOverviewTiles->back().index != 3)
+    if (!tacticalWideTiles || !tacticalWideTiles->empty())
     {
-        return fail("4 km launch overview presentation coverage");
+        return fail("tactical-wide framing must not wallpaper repeated local terrain");
     }
 
     const auto pannedTiles = Game::BuildEnvironmentPresentationTiles(
-        -400.0F, 400.0F, 1'700.0F, 4'000.0F, -5.0F);
-    if (!pannedTiles || pannedTiles->empty() || pannedTiles->front().index != 0 ||
-        pannedTiles->back().index != 5)
+        -400.0F, 400.0F, 700.0F, 1'600.0F, -5.0F);
+    if (!pannedTiles || pannedTiles->size() != 3U || pannedTiles->front().index != 0 ||
+        pannedTiles->back().index != 2)
     {
-        return fail("player-directed tactical pan must move the presentation tile window");
+        return fail("player-directed local pan must move the bounded presentation tile window");
     }
 
     const auto operationalTiles = Game::BuildEnvironmentPresentationTiles(
@@ -76,6 +75,7 @@ namespace DeepRun::Tests
 
     Render::ModelDrawInstance baseDraw;
     baseDraw.modelToWorld.values[12] = 10.0F;
+    baseDraw.material.baseColorFactor = {0.5F, 0.5F, 0.5F, 1.0F};
     const auto translated = Game::BuildEnvironmentPresentationDraws(
         std::span<const Render::ModelDrawInstance>(&baseDraw, 1U),
         std::span<const Game::EnvironmentPresentationTile>(*initialTacticalTiles));
@@ -83,9 +83,28 @@ namespace DeepRun::Tests
         std::abs(translated.front().modelToWorld.values[12] + 790.0F) > 0.001F ||
         std::abs(translated.front().modelToWorld.values[13] - 5.0F) > 0.001F ||
         std::abs(translated.back().modelToWorld.values[12] - 810.0F) > 0.001F ||
-        std::abs(translated.back().modelToWorld.values[13] + 5.0F) > 0.001F)
+        std::abs(translated.back().modelToWorld.values[13] + 5.0F) > 0.001F ||
+        std::abs(translated[1].draw.material.baseColorFactor[0] - 0.5F) > 0.001F)
     {
-        return fail("presentation-only tile transforms");
+        return fail("presentation-only tile transforms and canonical centre material");
+    }
+    if (std::abs(translated.front().material.baseColorFactor[0] - translated[1].material.baseColorFactor[0]) < 0.001F)
+    {
+        return fail("repeated local presentation tiles must receive deterministic visual variation");
+    }
+
+    Render::ModelDrawInstance iceDraw = baseDraw;
+    iceDraw.material.name = "UnderwaterIce";
+    const auto genericCombatIce = Game::BuildEnvironmentPresentationDraws(
+        std::span<const Render::ModelDrawInstance>(&iceDraw, 1U),
+        std::span<const Game::EnvironmentPresentationTile>(*initialTacticalTiles));
+    const auto authoredScenarioIce = Game::BuildEnvironmentPresentationDraws(
+        std::span<const Render::ModelDrawInstance>(&iceDraw, 1U),
+        std::span<const Game::EnvironmentPresentationTile>(*initialTacticalTiles),
+        true);
+    if (!genericCombatIce.empty() || authoredScenarioIce.size() != initialTacticalTiles->size())
+    {
+        return fail("generic combat ice gating and explicit scenario opt-in");
     }
 
     return true;
