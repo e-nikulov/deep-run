@@ -10,6 +10,7 @@
 #include "Tests/M5NavalMineChecks.h"
 #include "Tests/M5PlayerCombatCommandChecks.h"
 #include "Tests/M5PlayerCombatInputChecks.h"
+#include "Tests/M5PlayerDefensiveDecoyChecks.h"
 #include "Tests/M5PlayerControlledCombatChecks.h"
 #include "Tests/M5ScalableEnvironmentPresentationChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
@@ -255,6 +256,10 @@ namespace M5CombatImpactDetail
     if (!RunM5PlayerControlledCombatChecks(physicsWorld))
     {
         return fail("M5-J2-B normal-play commander gating and explicit prepare-ready-fire sequence");
+    }
+    if (!RunM5PlayerDefensiveDecoyChecks(physicsWorld))
+    {
+        return fail("M5-J4 player defensive decoy command and hostile local-seeker diversion");
     }
     if (!RunM5CombatPlaygroundRuntimeChecks(physicsWorld))
     {

@@ -52,6 +52,7 @@ struct CombatPlaygroundPresentationSnapshot final
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
     std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};
     std::optional<CombatPlaygroundDecoyPresentation> decoy{};
+    std::optional<CombatPlaygroundDecoyPresentation> playerDecoy{};
     std::optional<CombatPlaygroundMinePresentation> navalMine{};
     std::optional<CombatPlaygroundExplosionPresentation> explosion{};
 };
@@ -63,6 +64,7 @@ enum class CombatPlaygroundPresentationElement
     PlayerTorpedo,
     DestroyerTorpedo,
     AcousticDecoy,
+    PlayerAcousticDecoy,
     NavalMine,
     Explosion,
 };
@@ -142,6 +144,17 @@ BuildCombatPlaygroundPresentationSnapshot(
         snapshot.decoy = CombatPlaygroundDecoyPresentation{
             .positionMeters = decoy->emitter.positionMeters,
             .active = decoy->active};
+    }
+
+    if (const auto& playerDecoy = runtime.PlayerDecoy(); playerDecoy.has_value())
+    {
+        if (!playerDecoy->emitter.positionMeters.IsFinite())
+        {
+            return std::unexpected("M5-J4 player decoy presentation state is invalid");
+        }
+        snapshot.playerDecoy = CombatPlaygroundDecoyPresentation{
+            .positionMeters = playerDecoy->emitter.positionMeters,
+            .active = playerDecoy->active};
     }
 
     if (const auto& mine = runtime.Mine(); mine.has_value() && mine->armed && !mine->detonated)
@@ -366,7 +379,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     }
 
     std::vector<CombatPlaygroundPresentationDraw> draws;
-    draws.reserve(7U);
+    draws.reserve(8U);
 
     const auto hullTransform = PoseScaleTransform(
         snapshot.destroyerBody.position,
@@ -456,6 +469,27 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
             CombatPlaygroundPresentationElement::AcousticDecoy,
             *transform,
             Material("M5AcousticDecoy", {0.18F, 0.68F, 0.76F, 1.0F}, 0.08F, 0.42F));
+        if (!draw)
+        {
+            return std::unexpected(draw.error());
+        }
+        draws.push_back(std::move(*draw));
+    }
+
+    if (snapshot.playerDecoy && snapshot.playerDecoy->active)
+    {
+        const auto transform = PoseScaleTransform(
+            snapshot.playerDecoy->positionMeters,
+            {},
+            {.x = 2.0F, .y = 2.0F, .z = 2.0F});
+        if (!transform)
+        {
+            return std::unexpected(transform.error());
+        }
+        auto draw = MakeDraw(
+            CombatPlaygroundPresentationElement::PlayerAcousticDecoy,
+            *transform,
+            Material("M5PlayerAcousticDecoy", {0.82F, 0.62F, 0.16F, 1.0F}, 0.06F, 0.40F));
         if (!draw)
         {
             return std::unexpected(draw.error());

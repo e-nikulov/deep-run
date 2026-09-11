@@ -36,6 +36,7 @@ struct ControllerSemanticActions final
     bool selectContact = false;
     bool prepareWeapon = false;
     bool fireWeapon = false;
+    bool deployDecoy = false;
 };
 
 [[nodiscard]] ControllerSemanticAxes MapControllerLeftStick(float normalizedLeftX, float normalizedLeftY) noexcept;
@@ -91,5 +92,6 @@ private:
     bool selectContactKeyDown_ = false;
     bool prepareWeaponKeyDown_ = false;
     bool fireWeaponKeyDown_ = false;
+    bool deployDecoyKeyDown_ = false;
 };
 }

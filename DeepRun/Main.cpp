@@ -419,6 +419,7 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedSelectContactSequence = 0;
         std::uint64_t consumedPrepareWeaponSequence = 0;
         std::uint64_t consumedFireWeaponSequence = 0;
+        std::uint64_t consumedDeployDecoySequence = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
         bool loggedHapticSubmissionFailure = false;
@@ -519,6 +520,7 @@ int main(const int argumentCount, char** argumentValues)
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
              &combatAcceptance, &combatUiSnapshot, &inputState, &engineServices,
              &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
+             &consumedDeployDecoySequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
@@ -603,7 +605,7 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 3> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 4> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -629,6 +631,9 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::FireWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::FireWeapon,
                                 consumedFireWeaponSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::DeployDecoy,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::DeployDecoy,
+                                consumedDeployDecoySequence);
                     }
 
                     const auto combatFrame = options.smokeTest
@@ -797,7 +802,7 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
                         return false;
                     }
-                    if (combatRendered->drawCalls < 2U || combatRendered->drawCalls > 5U ||
+                    if (combatRendered->drawCalls < 2U || combatRendered->drawCalls > 8U ||
                         combatRendered->submittedPrimitives != combatRendered->drawCalls ||
                         combatRendered->submittedIndices != combatRendered->drawCalls * 36U)
                     {

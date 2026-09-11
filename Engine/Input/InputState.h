@@ -13,6 +13,7 @@ enum class InputAction
     SelectContact,
     PrepareWeapon,
     FireWeapon,
+    DeployDecoy,
     Count,
 };
 

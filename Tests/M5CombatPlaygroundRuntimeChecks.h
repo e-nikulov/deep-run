@@ -392,7 +392,7 @@ namespace DeepRun::Tests
         }
 
         const auto presentationDraws = Game::Combat::BuildCombatPlaygroundPresentationDraws(*presentationSnapshot);
-        if (!presentationDraws || presentationDraws->size() < 2U || presentationDraws->size() > 7U ||
+        if (!presentationDraws || presentationDraws->size() < 2U || presentationDraws->size() > 8U ||
             (*presentationDraws)[0].element != CombatPlaygroundPresentationElement::DestroyerHull ||
             (*presentationDraws)[1].element != CombatPlaygroundPresentationElement::DestroyerSuperstructure)
         {

@@ -44,6 +44,7 @@ inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
 inline constexpr double M5CombatTorpedoSeekerEmissionSampleIntervalSeconds = 0.10;
 inline constexpr float M5CombatTorpedoSeekerAssociationGateRadians = 0.03F;
 inline constexpr float M5CombatDecoyVerticalOffsetMeters = 120.0F;
+inline constexpr float M5CombatPlayerDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr double M5CombatIncomingThreatEmissionSampleIntervalSeconds = 0.10;
 
 struct CombatPlaygroundFrame final
@@ -106,6 +107,15 @@ public:
             .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
             .positionUncertaintyGrowthMetersPerSecond = 0.0F,
             .maximumTracks = 8U});
+        const auto destroyerTorpedoSeekerTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+            .associationGateRadians = M5CombatTorpedoSeekerAssociationGateRadians,
+            .observationsToConfirm = 1U,
+            .coastAfterSeconds = 0.35,
+            .lostAfterSeconds = 1.5,
+            .confidenceDecayPerSecond = 0.50F,
+            .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
+            .positionUncertaintyGrowthMetersPerSecond = 0.0F,
+            .maximumTracks = 8U});
         const auto incomingThreatTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
             .associationGateRadians = 0.12F,
             .observationsToConfirm = 2U,
@@ -115,9 +125,10 @@ public:
             .bearingUncertaintyGrowthRadiansPerSecond = 0.03F,
             .positionUncertaintyGrowthMetersPerSecond = 0.0F,
             .maximumTracks = 4U});
-        if (!playerTracks || !destroyerTracks || !playerTorpedoSeekerTracks || !incomingThreatTracks)
+        if (!playerTracks || !destroyerTracks || !playerTorpedoSeekerTracks ||
+            !destroyerTorpedoSeekerTracks || !incomingThreatTracks)
         {
-            return std::unexpected("M5-H/M5-E.1/M5-J3 perception manager creation failed");
+            return std::unexpected("M5-H/M5-E.1/M5-J3/M5-J4 perception manager creation failed");
         }
 
         const SimpleDestroyerDefinition destroyerDefinition{
@@ -195,6 +206,11 @@ public:
             .continuousSourceLevelDb = {.levelDb = {158.0F, 154.0F, 149.0F, 143.0F}},
             .driftVelocityMetersPerSecond = {.x = -1.0F, .y = -0.25F, .z = 0.0F},
             .activeLifetimeSeconds = 10.0};
+        const Weapons::AcousticDecoyDefinition playerDecoyDefinition{
+            .id = "m5.live-player-acoustic-decoy",
+            .continuousSourceLevelDb = {.levelDb = {172.0F, 168.0F, 162.0F, 156.0F}},
+            .driftVelocityMetersPerSecond = {.x = -1.0F, .y = -0.25F, .z = 0.0F},
+            .activeLifetimeSeconds = 12.0};
 
         return CombatPlaygroundRuntime(
             physicsWorld,
@@ -202,6 +218,7 @@ public:
             *playerTracks,
             *destroyerTracks,
             *playerTorpedoSeekerTracks,
+            *destroyerTorpedoSeekerTracks,
             *incomingThreatTracks,
             destroyerDefinition,
             *destroyer,
@@ -209,6 +226,7 @@ public:
             playerTorpedoDefinition,
             std::move(*playerCombat),
             decoyDefinition,
+            playerDecoyDefinition,
             simulationTimeSeconds);
     }
 
@@ -331,6 +349,15 @@ public:
         return destroyerTorpedoLaunchPosition_;
     }
     [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& Decoy() const noexcept { return decoy_; }
+    [[nodiscard]] const std::optional<Weapons::AcousticDecoyRuntimeState>& PlayerDecoy() const noexcept
+    {
+        return playerDecoy_;
+    }
+    [[nodiscard]] bool PlayerDecoyAvailable() const noexcept { return playerDecoyAvailable_; }
+    [[nodiscard]] const Weapons::TorpedoSeekerRuntimeState& DestroyerTorpedoSeekerState() const noexcept
+    {
+        return destroyerTorpedoSeekerState_;
+    }
     [[nodiscard]] const Weapons::TorpedoSeekerRuntimeState& PlayerTorpedoSeekerState() const noexcept
     {
         return playerTorpedoSeekerState_;
@@ -353,6 +380,7 @@ private:
         Perception::TrackManager playerTracks,
         Perception::TrackManager destroyerTracks,
         Perception::TrackManager playerTorpedoSeekerTracks,
+        Perception::TrackManager destroyerTorpedoSeekerTracks,
         Perception::TrackManager incomingThreatTracks,
         SimpleDestroyerDefinition destroyerDefinition,
         SimpleDestroyerRuntimeState destroyer,
@@ -360,12 +388,14 @@ private:
         Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,
         PlayerCombatCommandRuntime playerCombat,
         Weapons::AcousticDecoyDefinition decoyDefinition,
+        Weapons::AcousticDecoyDefinition playerDecoyDefinition,
         const double simulationTimeSeconds)
         : physicsWorld_(&physicsWorld),
           acousticWorld_(std::move(acousticWorld)),
           playerTracks_(std::move(playerTracks)),
           destroyerTracks_(std::move(destroyerTracks)),
           playerTorpedoSeekerTracks_(std::move(playerTorpedoSeekerTracks)),
+          destroyerTorpedoSeekerTracks_(std::move(destroyerTorpedoSeekerTracks)),
           incomingThreatTracks_(std::move(incomingThreatTracks)),
           destroyerDefinition_(std::move(destroyerDefinition)),
           destroyer_(std::move(destroyer)),
@@ -373,6 +403,7 @@ private:
           playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),
           playerCombat_(std::move(playerCombat)),
           decoyDefinition_(std::move(decoyDefinition)),
+          playerDecoyDefinition_(std::move(playerDecoyDefinition)),
           nextActivePulseTimeSeconds_(simulationTimeSeconds),
           nextDestroyerActivePulseTimeSeconds_(simulationTimeSeconds),
           lastUpdateTimeSeconds_(simulationTimeSeconds)
@@ -567,9 +598,9 @@ private:
             return std::unexpected("M5-J2 player commander readiness failed: " + readiness.error());
         }
 
-        if (!playerTorpedo_.has_value())
+        if (automatedPlayer)
         {
-            if (automatedPlayer)
+            if (!playerTorpedo_.has_value())
             {
                 const auto automated = AdvanceAutomatedPlayerCommander(simulationTimeSeconds);
                 if (!automated)
@@ -577,31 +608,46 @@ private:
                     return std::unexpected(automated.error());
                 }
             }
-            else
+        }
+        else
+        {
+            for (const PlayerCombatCommand command : commands)
             {
-                for (const PlayerCombatCommand command : commands)
+                if (command.type == PlayerCombatCommandType::DeployDecoy)
                 {
-                    const auto executed = playerCombat_.Execute(command, playerTracks_.Tracks(), simulationTimeSeconds);
-                    if (!executed)
+                    const auto feedback = ExecutePlayerDecoyCommand(playerSnapshot, simulationTimeSeconds);
+                    if (!feedback)
                     {
-                        return std::unexpected("M5-J2 player command failed: " + executed.error());
+                        return std::unexpected("M5-J4 player decoy command failed: " + feedback.error());
                     }
+                    lastCombatCommand_ = *feedback;
+                    continue;
                 }
+                if (playerTorpedo_.has_value())
+                {
+                    continue; // Preserve J2's post-launch weapon-command behavior; J4 decoy remains available.
+                }
+                const auto executed = playerCombat_.Execute(command, playerTracks_.Tracks(), simulationTimeSeconds);
+                if (!executed)
+                {
+                    return std::unexpected("M5-J2 player command failed: " + executed.error());
+                }
+                lastCombatCommand_ = *executed;
             }
+        }
 
-            if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
+        if (!playerTorpedo_.has_value() && playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
+        {
+            const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);
+            if (!targetTrack)
             {
-                const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);
-                if (!targetTrack)
-                {
-                    return std::unexpected("M5-J2 launched weapon lost its perceived launch track on the launch tick");
-                }
-                const auto launch = MaterializePlayerLaunch(
-                    playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);
-                if (!launch)
-                {
-                    return std::unexpected(launch.error());
-                }
+                return std::unexpected("M5-J2 launched weapon lost its perceived launch track on the launch tick");
+            }
+            const auto launch = MaterializePlayerLaunch(
+                playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);
+            if (!launch)
+            {
+                return std::unexpected(launch.error());
             }
         }
 
@@ -614,6 +660,15 @@ private:
             if (!advanced)
             {
                 return std::unexpected("M5-E.1 decoy advance failed: " + advanced.error());
+            }
+        }
+        if (playerDecoy_)
+        {
+            const auto advanced = Weapons::AdvanceAcousticDecoy(
+                playerDecoyDefinition_, *playerDecoy_, simulationTimeSeconds);
+            if (!advanced)
+            {
+                return std::unexpected("M5-J4 player decoy advance failed: " + advanced.error());
             }
         }
 
@@ -677,22 +732,43 @@ private:
         std::optional<Weapons::ConventionalTorpedoImpact> destroyerImpact{};
         if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
+            const auto seekerCue = AdvanceDestroyerTorpedoSeeker(playerSnapshot, simulationTimeSeconds);
+            if (!seekerCue)
+            {
+                return std::unexpected("M5-J4 destroyer torpedo seeker failed: " + seekerCue.error());
+            }
             const auto perceivedTrack = FindTrack(destroyerTracks_.Tracks(), destroyerTorpedo_->guidanceTrackId);
-            const auto advanced = Weapons::AdvanceConventionalTorpedoWithCollision(
-                destroyerTorpedoDefinition_,
-                *destroyerTorpedo_,
-                perceivedTrack,
-                *physicsWorld_,
-                simulationTimeSeconds,
-                destroyer_.body);
+            const float forwardProgressMeters = destroyerTorpedoLaunchPosition_
+                ? (destroyerTorpedo_->positionMeters.x - destroyerTorpedoLaunchPosition_->x) *
+                    destroyerTorpedoForwardSign_
+                : 0.0F;
+            const bool localSeekerOwnsCourse =
+                forwardProgressMeters >= M5CombatTorpedoStraightRunMeters && seekerCue->has_value();
+            const auto advanced = localSeekerOwnsCourse
+                ? Weapons::AdvanceConventionalTorpedoWithSeekerCueAndCollision(
+                    destroyerTorpedoDefinition_,
+                    destroyerTorpedoSeekerConfig_,
+                    *destroyerTorpedo_,
+                    **seekerCue,
+                    *physicsWorld_,
+                    simulationTimeSeconds,
+                    destroyer_.body)
+                : Weapons::AdvanceConventionalTorpedoWithCollision(
+                    destroyerTorpedoDefinition_,
+                    *destroyerTorpedo_,
+                    perceivedTrack,
+                    *physicsWorld_,
+                    simulationTimeSeconds,
+                    destroyer_.body);
             if (!advanced)
             {
-                return std::unexpected("M5-F.2 destroyer torpedo fixed-step advance failed: " + advanced.error());
+                return std::unexpected("M5-F.2/J4 destroyer torpedo fixed-step advance failed: " + advanced.error());
             }
             if (advanced->has_value())
             {
                 destroyerImpact = **advanced;
                 lastExplosion_ = destroyerImpact->explosion;
+                pendingDestroyerTorpedoSeekerEmissions_.clear();
                 if (playerIntegrity_ && destroyerImpact->physicsHit.body == playerBody_)
                 {
                     const auto damaged = DeepRun::Combat::ApplyCombatDamage(*playerIntegrity_, destroyerImpact->damage);
@@ -762,6 +838,12 @@ private:
         PlayerCombatPresentationSnapshot playerCombatPresentation =
             playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);
         ApplyIncomingThreatPresentation(playerCombatPresentation);
+        playerCombatPresentation.canDeployDecoy = playerDecoyAvailable_;
+        playerCombatPresentation.playerDecoyActive = playerDecoy_.has_value() && playerDecoy_->active;
+        if (lastCombatCommand_)
+        {
+            playerCombatPresentation.lastCommand = lastCombatCommand_;
+        }
         return CombatPlaygroundFrame{
             .playerTracks = playerTrackSnapshot,
             .destroyerTracks = destroyerTracks_.Tracks(),
@@ -820,6 +902,42 @@ private:
         return {};
     }
 
+    [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> ExecutePlayerDecoyCommand(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const double simulationTimeSeconds)
+    {
+        if (!std::isfinite(simulationTimeSeconds) || !playerSnapshot.emitter.positionMeters.IsFinite())
+        {
+            return std::unexpected("M5-J4 player decoy command input is invalid");
+        }
+        if (!playerDecoyAvailable_)
+        {
+            return PlayerCombatCommandFeedback{
+                .command = PlayerCombatCommandType::DeployDecoy,
+                .accepted = false,
+                .trackId = std::nullopt,
+                .message = "player acoustic decoy already expended"};
+        }
+
+        const Physics::PhysicsVector3 decoyPosition{
+            .x = playerSnapshot.emitter.positionMeters.x - 20.0F,
+            .y = playerSnapshot.emitter.positionMeters.y - M5CombatPlayerDecoyVerticalOffsetMeters,
+            .z = playerSnapshot.emitter.positionMeters.z};
+        const auto deployed = Weapons::DeployAcousticDecoy(
+            playerDecoyDefinition_, decoyPosition, simulationTimeSeconds);
+        if (!deployed)
+        {
+            return std::unexpected("M5-J4 player acoustic decoy deployment failed: " + deployed.error());
+        }
+        playerDecoy_ = *deployed;
+        playerDecoyAvailable_ = false;
+        return PlayerCombatCommandFeedback{
+            .command = PlayerCombatCommandType::DeployDecoy,
+            .accepted = true,
+            .trackId = std::nullopt,
+            .message = "player acoustic decoy deployed"};
+    }
+
     [[nodiscard]] std::expected<void, std::string> MaterializeDestroyerLaunch(
         const SimpleDestroyerAcousticSnapshot& destroyerAcoustics,
         const Perception::Track& targetTrack,
@@ -864,6 +982,12 @@ private:
         }
         destroyerTorpedo_ = *launched;
         destroyerTorpedoLaunchPosition_ = launchPosition;
+        destroyerTorpedoForwardSign_ = forwardSign;
+        destroyerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
+            .selectedTrackId = std::nullopt,
+            .lastUpdateTimeSeconds = simulationTimeSeconds};
+        pendingDestroyerTorpedoSeekerEmissions_.clear();
+        nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_ = simulationTimeSeconds;
         pendingIncomingThreatEmissions_.clear();
         nextIncomingThreatEmissionSampleTimeSeconds_ = simulationTimeSeconds;
         return {};
@@ -1010,6 +1134,96 @@ private:
             playerTorpedoSeekerConfig_,
             playerTorpedoSeekerState_,
             playerTorpedoSeekerTracks_.Tracks(),
+            simulationTimeSeconds);
+    }
+
+    [[nodiscard]] std::expected<std::optional<Weapons::TorpedoSeekerCue>, std::string>
+    AdvanceDestroyerTorpedoSeeker(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const double simulationTimeSeconds)
+    {
+        if (!destroyerTorpedo_ || destroyerTorpedo_->movementDomain != Weapons::MovementDomain::Underwater ||
+            !destroyerTorpedo_->positionMeters.IsFinite() || !playerSnapshot.emitter.positionMeters.IsFinite() ||
+            !playerSnapshot.emitter.continuousSourceLevelDb.IsFinite() || !std::isfinite(simulationTimeSeconds))
+        {
+            return std::unexpected("M5-J4 hostile seeker source/runtime input is invalid");
+        }
+
+        if (simulationTimeSeconds + 1.0e-9 >= nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_)
+        {
+            pendingDestroyerTorpedoSeekerEmissions_.push_back(Acoustics::AcousticEmission{
+                .positionMeters = playerSnapshot.emitter.positionMeters,
+                .sourceLevelDb = playerSnapshot.emitter.continuousSourceLevelDb,
+                .emissionTimeSeconds = simulationTimeSeconds});
+            if (playerDecoy_)
+            {
+                const auto decoyEmission = Weapons::SampleAcousticDecoyEmission(
+                    playerDecoyDefinition_, *playerDecoy_, simulationTimeSeconds);
+                if (!decoyEmission)
+                {
+                    return std::unexpected("M5-J4 player decoy emission snapshot failed: " + decoyEmission.error());
+                }
+                if (decoyEmission->has_value())
+                {
+                    pendingDestroyerTorpedoSeekerEmissions_.push_back(**decoyEmission);
+                }
+            }
+            nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_ =
+                simulationTimeSeconds + M5CombatTorpedoSeekerEmissionSampleIntervalSeconds;
+        }
+
+        const Acoustics::AcousticReceiver seekerReceiver{
+            .sensorId = "M5_DESTROYER_TORPEDO_PASSIVE_SEEKER",
+            .positionMeters = destroyerTorpedo_->positionMeters,
+            .ambientNoiseLevelDb = {.levelDb = {42.0F, 40.0F, 38.0F, 36.0F}},
+            .selfNoiseLevelDb = {.levelDb = {64.0F, 64.0F, 64.0F, 64.0F}},
+            .sensitivityDb = {.levelDb = {0.0F, 0.0F, 0.0F, 0.0F}},
+            .minimumPeakSnrDb = 3.0F};
+
+        bool integratedObservation = false;
+        auto emission = pendingDestroyerTorpedoSeekerEmissions_.begin();
+        while (emission != pendingDestroyerTorpedoSeekerEmissions_.end())
+        {
+            const double distanceMeters = Distance(emission->positionMeters, seekerReceiver.positionMeters);
+            const double arrivalTimeSeconds = emission->emissionTimeSeconds +
+                distanceMeters / static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
+            if (!std::isfinite(arrivalTimeSeconds))
+            {
+                return std::unexpected("M5-J4 hostile seeker emission arrival time is non-finite");
+            }
+            if (simulationTimeSeconds + 1.0e-9 < arrivalTimeSeconds)
+            {
+                ++emission;
+                continue;
+            }
+
+            const auto observed = acousticWorld_.CollectPassiveDirectObservation(
+                *emission, seekerReceiver, simulationTimeSeconds);
+            if (!observed)
+            {
+                return std::unexpected("M5-J4 hostile seeker acoustic propagation failed: " +
+                                       observed.error().message);
+            }
+            if (observed->has_value())
+            {
+                const auto perceived = Perception::FromAcousticObservation(**observed);
+                if (!perceived || !destroyerTorpedoSeekerTracks_.IntegrateObservation(*perceived))
+                {
+                    return std::unexpected("M5-J4 hostile seeker perception integration failed");
+                }
+                integratedObservation = true;
+            }
+            emission = pendingDestroyerTorpedoSeekerEmissions_.erase(emission);
+        }
+
+        if (!integratedObservation && !destroyerTorpedoSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+        {
+            return std::unexpected("M5-J4 hostile seeker TrackManager failed to advance");
+        }
+        return Weapons::SelectTorpedoSeekerCue(
+            destroyerTorpedoSeekerConfig_,
+            destroyerTorpedoSeekerState_,
+            destroyerTorpedoSeekerTracks_.Tracks(),
             simulationTimeSeconds);
     }
 
@@ -1214,6 +1428,7 @@ private:
     Perception::TrackManager playerTracks_;
     Perception::TrackManager destroyerTracks_;
     Perception::TrackManager playerTorpedoSeekerTracks_;
+    Perception::TrackManager destroyerTorpedoSeekerTracks_;
     Perception::TrackManager incomingThreatTracks_;
     std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
     double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;
@@ -1224,15 +1439,27 @@ private:
     Weapons::TorpedoSeekerRuntimeState playerTorpedoSeekerState_{};
     std::vector<Acoustics::AcousticEmission> pendingPlayerTorpedoSeekerEmissions_{};
     double nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ = 0.0;
+    Weapons::TorpedoSeekerConfig destroyerTorpedoSeekerConfig_{
+        .minimumTrackConfidence = 0.35F,
+        .maximumBearingUncertaintyRadians = 0.20F,
+        .allowCoastingTrack = false};
+    Weapons::TorpedoSeekerRuntimeState destroyerTorpedoSeekerState_{};
+    std::vector<Acoustics::AcousticEmission> pendingDestroyerTorpedoSeekerEmissions_{};
+    double nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_ = 0.0;
     SimpleDestroyerDefinition destroyerDefinition_;
     SimpleDestroyerRuntimeState destroyer_;
     Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition_;
     std::optional<Weapons::ConventionalTorpedoRuntimeState> destroyerTorpedo_{};
     std::optional<Physics::PhysicsVector3> destroyerTorpedoLaunchPosition_{};
+    float destroyerTorpedoForwardSign_ = -1.0F;
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
+    Weapons::AcousticDecoyDefinition playerDecoyDefinition_;
+    std::optional<Weapons::AcousticDecoyRuntimeState> playerDecoy_{};
+    bool playerDecoyAvailable_ = true;
+    std::optional<PlayerCombatCommandFeedback> lastCombatCommand_{};
     // M5-I.2 live mine state is bound only when a real production player physical proxy is supplied.
     std::optional<Weapons::NavalMineDefinition> mineDefinition_{};
     std::optional<Weapons::NavalMineRuntimeState> mine_{};
