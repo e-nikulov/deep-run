@@ -1,0 +1,134 @@
+name: M5 V1.2 Apply Verify
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout scoped branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/m5-v1-2-underwater-camera-scale
+          fetch-depth: 0
+
+      - name: Apply production M5-V1.2 changes
+        shell: pwsh
+        run: |
+          $path = 'Tools/m5_v12_apply.py'
+          $content = Get-Content $path -Raw
+          $old = 'write(path, text[:first] + replacement + text[last:])'
+          $new = 'write(path, text[:first] + replacement + text[last + len(end):])'
+          if (-not $content.Contains($old)) { throw 'temporary transform helper contract changed' }
+          Set-Content -Path $path -Value ($content.Replace($old, $new)) -Encoding utf8 -NoNewline
+          python $path
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Commit only production changes
+        shell: pwsh
+        run: |
+          git rm Tools/m5_v12_apply.py .github/workflows/m5-v1-2-apply.yml
+          git add -A
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: close M5 underwater composition'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Debug
+        run: cmake --preset windows-debug
+
+      - name: Build Debug
+        run: cmake --build --preset windows-debug
+
+      - name: CTest Debug
+        run: ctest --preset windows-debug --output-on-failure
+
+      - name: Debug headless smoke
+        shell: pwsh
+        run: |
+          & .\build\windows-debug\Debug\DeepRun.exe --headless
+          exit $LASTEXITCODE
+
+      - name: Configure Release
+        run: cmake --preset windows-release
+
+      - name: Build Release
+        run: cmake --build --preset windows-release
+
+      - name: CTest Release
+        run: ctest --preset windows-release --output-on-failure
+
+      - name: Release headless smoke
+        shell: pwsh
+        run: |
+          & .\build\windows-release\Release\DeepRun.exe --headless
+          exit $LASTEXITCODE
+
+      - name: Debug windowed combat smoke and capture
+        id: debug_smoke
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts\debug | Out-Null
+          & .\build\windows-debug\Debug\DeepRun.exe --smoke-test
+          $code = $LASTEXITCODE
+          Get-ChildItem -File | Where-Object {
+            $_.Name -eq 'm5-combat-acceptance.json' -or
+            $_.Name -like 'm5-*.bmp'
+          } | Move-Item -Destination artifacts\debug -Force
+          exit $code
+
+      - name: Release windowed combat smoke and capture
+        id: release_smoke
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts\release | Out-Null
+          & .\build\windows-release\Release\DeepRun.exe --smoke-test
+          $code = $LASTEXITCODE
+          Get-ChildItem -File | Where-Object {
+            $_.Name -eq 'm5-combat-acceptance.json' -or
+            $_.Name -like 'm5-*.bmp'
+          } | Move-Item -Destination artifacts\release -Force
+          exit $code
+
+      - name: Final diff check
+        if: always()
+        shell: pwsh
+        run: |
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path artifacts\debug\m5-normal-local.bmp)) {
+            Write-Error 'Debug NORMAL LOCAL capture is missing'
+          }
+          if (-not (Test-Path artifacts\release\m5-normal-local.bmp)) {
+            Write-Error 'Release NORMAL LOCAL capture is missing'
+          }
+          if ('${{ steps.debug_smoke.outcome }}' -ne 'success') {
+            Write-Error 'Debug windowed smoke failed'
+          }
+          if ('${{ steps.release_smoke.outcome }}' -ne 'success') {
+            Write-Error 'Release windowed smoke failed'
+          }
+
+      - name: Upload M5-V1.2 visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-v1-2-visual-acceptance
+          path: artifacts
+          if-no-files-found: warn
