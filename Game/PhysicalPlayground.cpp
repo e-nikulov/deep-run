@@ -1620,9 +1620,41 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         if (!localSeabedCoversView)
         {
             seabedPresentationDraws = {};
-            if (UseStrategicSeabedPresentation(camera->width))
+            // Generic M5 has no authoritative wide-area bathymetry. Do not manufacture a seabed merely because
+            // the camera zoomed out. Explicit future/mission-authored bathymetry can opt into the temporary
+            // strategic profile at this boundary without changing physics/navigation/acoustics.
+            constexpr bool M5GenericWideAreaBathymetryKnown = false;
+            if (UseStrategicSeabedPresentation(camera->width, M5GenericWideAreaBathymetryKnown))
             {
                 strategicSeabedPresentationDraws = strategicSeabedDraws_;
+            }
+        }
+    }
+
+    // When neither local nor explicitly-known wide bathymetry is available, present a deliberate deep-ocean
+    // abyss below the canonical 700 m submarine gameplay band. This is screen-space atmosphere only: it does
+    // not create seabed, collision, navigation or acoustic terrain authority.
+    if (freePresentationCameraFraming_ && seabedPresentationDraws.empty() &&
+        strategicSeabedPresentationDraws.empty())
+    {
+        const auto gameplayBandBottom = ProjectWorldSurfaceToViewportY(
+            *camera, water_->Config().surfaceLevelY - NormalGameplayMaximumVisibleDepthMeters);
+        if (!gameplayBandBottom)
+        {
+            return std::unexpected("physical playground deep-water boundary projection failed: " +
+                                   gameplayBandBottom.error());
+        }
+        const auto abyssBands = BuildDeepWaterAbyssPresentationBands(*gameplayBandBottom);
+        if (!abyssBands)
+        {
+            return std::unexpected("physical playground deep-water presentation failed: " + abyssBands.error());
+        }
+        for (const auto& band : *abyssBands)
+        {
+            const auto cleared = renderer.ClearViewportRect(band.viewport, band.color);
+            if (!cleared)
+            {
+                return std::unexpected("physical playground deep-water clear failed: " + cleared.error());
             }
         }
     }

@@ -12,6 +12,7 @@
 #include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
+#include "Game/Environment/VerticalOceanGameplayContract.h"
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
@@ -162,18 +163,19 @@ public:
         }
 
         float effectiveTargetOffsetYMeters = targetOffsetYMeters;
-        // M5-V1.2 underwater-first composition derives vertical framing from the live renderer aspect.
-        // Y=0 remains the production normal-play opt-in; explicit future vertical framing is untouched.
-        constexpr float M5NormalCombatAboveWaterFraction = 0.15F;
-        constexpr float M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters = 600.0F;
+        // M5-V1.3 keeps world projection aspect-correct (no stretched ships/submarines) while changing
+        // composition with scale. Local play reserves ~15% for sky; tactical/operational/strategic views
+        // progressively move the surface lower to make future ASW aircraft/helicopters readable.
+        constexpr float M5SurfaceCompositionMinimumHorizontalSpanMeters = 600.0F;
         if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
-            horizontalSpanMeters >= M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters)
+            horizontalSpanMeters >= M5SurfaceCompositionMinimumHorizontalSpanMeters)
         {
             const float unshiftedTargetYMeters =
                 initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
             const float verticalSpanMeters = horizontalSpanMeters / cameraAspectRatio;
+            const float aboveWaterFraction = AboveWaterFractionForPresentationSpanMeters(horizontalSpanMeters);
             const float desiredTargetWorldYMeters = water_->Config().surfaceLevelY +
-                (M5NormalCombatAboveWaterFraction - 0.5F) * verticalSpanMeters;
+                (aboveWaterFraction - 0.5F) * verticalSpanMeters;
             effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;
         }
 

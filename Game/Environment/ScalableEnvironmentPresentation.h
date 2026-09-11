@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/Render/ClearRect.h"
 #include "Engine/Render/ModelDraw.h"
 
 #include <algorithm>
@@ -74,10 +75,60 @@ struct EnvironmentPresentationTile final
            cameraHorizontalSpanMeters <= M5DetailedEnvironmentMaximumHorizontalSpanMeters;
 }
 
-[[nodiscard]] inline bool UseStrategicSeabedPresentation(const float cameraHorizontalSpanMeters) noexcept
+[[nodiscard]] inline bool UseStrategicSeabedPresentation(
+    const float cameraHorizontalSpanMeters,
+    const bool wideAreaBathymetryKnown = false) noexcept
 {
-    return std::isfinite(cameraHorizontalSpanMeters) && cameraHorizontalSpanMeters > 0.0F &&
+    // Bathymetry is regional world data, not a camera fallback. Generic M5 owns only the bounded local M3
+    // section, so zooming out must produce intentional deep water rather than inventing this profile. The
+    // temporary profile remains available only to an explicitly authored scenario that knows its bathymetry.
+    return wideAreaBathymetryKnown && std::isfinite(cameraHorizontalSpanMeters) &&
+           cameraHorizontalSpanMeters > M5DetailedEnvironmentMaximumHorizontalSpanMeters &&
            cameraHorizontalSpanMeters <= M5StrategicSeabedMaximumHorizontalSpanMeters;
+}
+
+struct DeepWaterAbyssPresentationBand final
+{
+    Render::ViewportRect viewport{};
+    Render::RgbaColor color{};
+};
+
+[[nodiscard]] inline std::expected<std::vector<DeepWaterAbyssPresentationBand>, std::string>
+BuildDeepWaterAbyssPresentationBands(const float gameplayBandBottomViewportY)
+{
+    if (!std::isfinite(gameplayBandBottomViewportY))
+    {
+        return std::unexpected("deep-water presentation boundary is not finite");
+    }
+
+    constexpr float EdgeEpsilon = 1.0e-4F;
+    const float top = std::clamp(gameplayBandBottomViewportY, 0.0F, 1.0F);
+    if (top >= 1.0F - EdgeEpsilon)
+    {
+        return std::vector<DeepWaterAbyssPresentationBand>{};
+    }
+
+    // Four broad presentation-only bands give the unknown/deep water below the normal 700 m gameplay band
+    // an intentional abyss identity. They are not depth samples and create no terrain/simulation authority.
+    constexpr std::array<Render::RgbaColor, 4> Colors{{
+        {0.016F, 0.060F, 0.095F, 1.0F},
+        {0.012F, 0.045F, 0.076F, 1.0F},
+        {0.008F, 0.032F, 0.058F, 1.0F},
+        {0.005F, 0.022F, 0.042F, 1.0F}}};
+    const float height = (1.0F - top) / static_cast<float>(Colors.size());
+    std::vector<DeepWaterAbyssPresentationBand> result;
+    result.reserve(Colors.size());
+    for (std::size_t index = 0U; index < Colors.size(); ++index)
+    {
+        const float bandTop = top + static_cast<float>(index) * height;
+        const float bandBottom = index + 1U == Colors.size()
+            ? 1.0F
+            : top + static_cast<float>(index + 1U) * height;
+        result.push_back(DeepWaterAbyssPresentationBand{
+            .viewport = {.left = 0.0F, .top = bandTop, .right = 1.0F, .bottom = bandBottom},
+            .color = Colors[index]});
+    }
+    return result;
 }
 
 [[nodiscard]] inline std::expected<Assets::ModelAsset, std::string>
