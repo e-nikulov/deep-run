@@ -1,38 +1,28 @@
-# DeepRun Vertical Ocean Gameplay Contract
+# DeepRun Ocean Vertical Presentation Contract
 
 Status: Accepted design contract
 
 Specification: D0 — Core Game Design / Game Loop specialized contract
 
-The project-wide M/A/D/C taxonomy and specification registry are defined in
-`docs/README.md`. This contract refines D0 for the vertical scale of normal
-underwater gameplay and presentation. It does not define vessel-specific crush
-or test depths and does not grant every submarine the same depth capability.
+This contract separates three things that must never be conflated:
 
-## Purpose
+- the normal submarine gameplay depth band;
+- regional bathymetry/seabed depth;
+- presentation composition for local, tactical and strategic views.
 
-Deep Run is an underwater game. Normal gameplay must keep the playable and
-readable ocean volume bounded enough that submarines, seabed, terrain, flora,
-fauna, weapons and the water surface can be composed as one coherent scene.
+## 1. Normal / local gameplay
 
-The canonical design reference uses:
+The primary interactive submarine gameplay band is:
 
 ```text
 0 m      = sea surface
--700 m   = lower boundary of the normal visible/playable ocean
+-700 m   = lower boundary of the normal submarine gameplay band
 ```
 
-The target maximum vertical scale of normal gameplay is therefore approximately
-`700 m`.
+This range defines the normal vertical area for submarine operation, combat framing,
+sensor/weapon gameplay and typical encounters. It is not an ocean-bottom constraint.
 
-Runtime systems may express the same contract relative to the authoritative
-`WaterBody` surface level rather than assuming that every scenario stores the
-surface at world-space Y=0. The gameplay depth interval remains 0..700 m below
-that authoritative surface.
-
-## Depth bands
-
-Depth is expressed positively downward from the authoritative sea surface.
+Depth is expressed positively downward from the authoritative WaterBody surface.
 
 | Depth | Gameplay band |
 |---:|---|
@@ -41,116 +31,147 @@ Depth is expressed positively downward from the authoritative sea surface.
 | `100–300 m` | Primary operating and combat depth |
 | `300–500 m` | Deep tactical zone |
 | `500–600 m` | Extreme depth for vessel classes that permit it |
-| `600–700 m` | Lower world-boundary region: seabed, relief, canyons and the visual limit of the playable ocean |
+| `600–700 m` | Lower boundary of the normal submarine gameplay band |
 
-These bands describe world/gameplay composition. They are not universal vessel
-limits.
+The `700 m` value does not mean that every submarine may safely reach 700 m.
+Vessel-specific safe/test/emergency/crush depths remain owned by vessel/runtime contracts.
 
-## Environment contract
+## 2. Bathymetry is regional world data
 
-In normal gameplay the visible seabed top surface must remain inside the
-vertical ocean domain from the sea surface down to approximately `-700 m`
-relative to the canonical reference surface.
+Bathymetry belongs to the region/world, not to the camera and not to the submarine gameplay band.
+A seabed must never be fabricated at `-700 m` merely because the normal submarine gameplay band ends there.
 
-Seabed depth may vary by mission and authored region. Typical design ranges are:
+Typical design ranges:
 
 | Region | Typical seabed depth |
 |---|---:|
-| Shelf / shallow water | `100–250 m` |
-| Ordinary combat region | `250–450 m` |
-| Deep-water region | `450–650 m` |
-| Lower authored-environment boundary | approximately `700 m` |
+| Shelf / shallow | `-100 … -300 m` |
+| Continental / normal combat | `-250 … -700 m` |
+| Deep ocean | `-700 … -2000 m` |
+| Abyssal | below `-2000 m` |
 
-The normal gameplay environment must not require rendering kilometres of water
-column merely to keep distant tactical actors visible.
+These are design/environment ranges, not submarine depth limits.
 
-Bathymetry may contain shelves, ridges, cliffs, trenches, canyons and other
-local relief as long as the normal-play presentation remains inside this
-vertical contract. Terrain below approximately 700 m is outside normal gameplay
-presentation unless a later explicitly authored mode or scenario changes this
-contract.
+## 3. Deep-water / abyss presentation
 
-A render-only skirt or hidden continuation used to prevent a visible mesh
-underside may extend below the gameplay boundary. Such geometry must never be
-interpreted as playable seabed, navigation authority, collision authority,
-acoustic terrain authority or an expansion of the normal gameplay depth range.
+When the real/known seabed lies significantly below the normal gameplay band, or when the current M5 scene has no authoritative bathymetry outside the authored local section, presentation must not invent a false floor.
 
-## Camera contract
+The intended state is `DEEP WATER / ABYSS`:
 
-Normal/local combat composition must be designed around the bounded vertical
-ocean scale.
+- no artificial seabed plane at `-700 m`;
+- no giant filled slab;
+- no visible blue water below a rendered seabed;
+- the water column below the normal gameplay band darkens progressively;
+- distant seabed may be completely absent from the frame.
 
-It must:
+The visual message to the player is deliberate: there may be kilometres of ocean below the submarine.
 
-- prioritize underwater readability;
-- keep the surface as a small upper band rather than splitting the view roughly
-  50/50 between air and water;
-- keep seabed and local relief in the lower portion of the scene when the
-  authored region contains them;
-- keep the player submarine and nearby gameplay objects human-readable;
-- avoid showing kilometres of water column solely to preserve tactical
-  visibility.
+## 4. Normal camera priority
 
-A tactical or strategic overview may cover a much larger horizontal area using
-presentation LOD, contextual framing, symbols or simplified environment
-composition. Increasing tactical horizontal coverage does not redefine the
-normal gameplay vertical ocean as a multi-kilometre water column.
+Normal/local gameplay prioritizes underwater combat over sky.
 
-## Simulation boundary
+Baseline composition:
 
-`700 m` is a gameplay/world-presentation boundary.
+- above-water band: approximately `10–20%`, target about `15%`;
+- underwater space dominates;
+- seabed is shown only when actual/known bathymetry makes it visible;
+- local terrain, flora and fauna remain readable;
+- generic Arctic ice is scenario-specific rather than a default signature.
 
-It is not a statement that every submarine may dive to 700 m.
+The accepted M5 normal/local horizontal span remains `800 m`.
 
-Vessel-specific safe depth, test depth, emergency depth, structural limits,
-damage effects and any crush-depth gameplay belong to the vessel/runtime
-contract for that submarine class.
+## 5. Tactical camera priority
 
-The required separation is:
+Tactical view has a different purpose. It must preserve the submarine tactical situation while also reserving useful airspace for future ASW aircraft, helicopters, sonobuoys and air-deployed weapons.
+
+Tactical composition therefore shifts upward relative to local view:
+
+- the sea surface remains the visual anchor;
+- sky receives a larger share of the frame;
+- baseline sky/above-water share is approximately `25–40%`;
+- the underwater tactical band remains readable;
+- seabed is not required to be visible.
+
+M5 presentation ramps from the local ~15% sky share toward roughly 32% in tactical view and may rise toward 36–40% at operational/strategic scales.
+
+This remains an aspect-correct world camera. Full production models must not be stretched merely to force a fixed vertical meter span.
+
+## 6. Air-threat context
+
+Future production camera logic may increase visible sky when an air threat is present or expected. Aircraft/helicopter presentation may therefore push the surface lower on screen than a quiet tactical scene.
+
+When no air threat is present, tactical composition may allocate more space back to the ocean.
+
+This is a context-aware presentation rule; it does not move simulation state.
+
+## 7. Tactical seabed rule
+
+At tactical zoom:
+
+- known shallow/useful bathymetry may be shown using a simplified representation;
+- deep or unknown bathymetry must transition to deliberate deep-water/abyss presentation instead of a false floor;
+- local M3 terrain must never be wallpaper-tiled across kilometres;
+- operational/strategic views should eventually use symbolic/map-style bathymetry rather than literal giant 3D terrain.
+
+The temporary M5 strategic seabed profile is not world authority. It may be used only when a scenario explicitly opts in to known wide-area bathymetry. Generic M5 combat must not assume it.
+
+## 8. Future procedural bathymetry
+
+The intended future architecture is one deterministic world-space bathymetry source, potentially chunked/procedural and optionally mission-authored, feeding suitable LOD representations for:
+
+- rendering;
+- terrain/collision authority;
+- navigation constraints;
+- acoustic environment;
+- mission generation.
+
+M5 does not implement that full system. Current presentation code must remain replaceable by it.
+
+## 9. Critical distinctions
 
 ```text
-WORLD VISIBLE / NORMAL GAMEPLAY DEPTH ~= 700 m
+NORMAL SUBMARINE GAMEPLAY BAND ~= 0 … -700 m
 ```
 
-and not:
+does not mean:
 
 ```text
-EVERY SUBMARINE MAY DIVE TO 700 m
+SEABED MUST BE ABOVE -700 m
+WORLD ENDS AT -700 m
+EVERY SUBMARINE MAY DIVE TO -700 m
 ```
 
-No renderer, camera or environment-presentation rule may silently override a
-vessel-specific simulation limit. Likewise, a vessel limit must not force the
-whole world presentation to expose a deeper water column than normal gameplay
-requires.
+Likewise, seeing deep water below `-700 m` in tactical presentation does not expand the allowed operating depth of the player vessel.
+
+## 10. Intended player experience
+
+- Shallow water: constrained space and nearby seabed are visually obvious.
+- Ordinary combat water: bathymetry is a meaningful tactical part of the scene.
+- Deep ocean: the submarine may have a dark, apparently bottomless ocean beneath it.
+
+Deep water is an environment identity, not a renderer fallback.
 
 ## Authority boundary
 
-This D0 contract defines player-facing world scale and composition.
-
-It does not make render geometry authoritative. The existing architecture still
-applies:
+Presentation must remain downstream of authoritative world/simulation state:
 
 ```text
-WaterBody / authored world / vessel contracts
+WaterBody / regional bathymetry / vessel contracts
     -> suitable simulation, collision, navigation and acoustic representations
     -> presentation LOD / camera composition
 ```
 
-Future deterministic/chunked bathymetry may provide multiple representations
-from one terrain authority. That future system should preserve this normal-play
-vertical contract unless the design contract is explicitly revised.
+No presentation rule may silently become physics, navigation, acoustic or vessel-depth authority.
 
 ## M5 applicability
 
-M5-V1.2 uses this contract immediately for visual composition:
+For M5 closure:
 
-- normal/local combat remains a genuinely local underwater view;
-- the strategic seabed top silhouette must stay inside the normal ocean depth
-  domain;
-- hidden strategic-seabed extrusion may continue below `-700 m` only as
-  non-authoritative render fill;
-- wide/tactical presentation must not be mistaken for the normal gameplay
-  vertical scale.
+- accepted `800 m` local framing remains unchanged;
+- local authored M3 seabed/flora/fauna remain single-instance and non-tiled;
+- generic wide view must prefer deliberate `DEEP WATER / ABYSS` when no wide-area bathymetry authority exists;
+- tactical zoom progressively allocates more screen space to sky;
+- the old generic strategic seabed slab must not appear merely because the camera zoomed out;
+- any temporary strategic seabed mesh is explicit scenario opt-in only.
 
-This contract does not expand M5 simulation scope and does not add new terrain,
-physics, navigation, acoustic, weapon or AI authority.
+This contract does not start P-700, M6, procedural-world generation, aircraft AI or new simulation scope.
