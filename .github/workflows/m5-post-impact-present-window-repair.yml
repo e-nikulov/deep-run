@@ -1,0 +1,80 @@
+name: M5 Post Impact Present Window Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Apply deterministic present-window repair
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          acceptance = Path('Game/Combat/CombatPlaygroundAcceptance.h')
+          text = acceptance.read_text(encoding='utf-8')
+
+          old = '''inline constexpr float M5CombatAcceptanceInFlightMinimumProgressMeters = 120.0F;\ninline constexpr float M5CombatAcceptancePreImpactDistanceMeters = 150.0F;\n'''
+          new = '''inline constexpr float M5CombatAcceptanceInFlightMinimumProgressMeters = 120.0F;\ninline constexpr float M5CombatAcceptancePreImpactDistanceMeters = 150.0F;\n\n// Window capture reads through the compositor rather than directly from the swapchain. Ordinary checkpoints\n// need one completed Present. POST_IMPACT deliberately requires two completed Presents with the production\n// explosion still drawn so PrintWindow/BitBlt cannot sample the pre-impact client image on a slower DWM path.\n[[nodiscard]] inline constexpr std::uint32_t M5CombatAcceptanceRequiredPresentedFrames(\n    const M5CombatAcceptanceCheckpoint checkpoint) noexcept\n{\n    return checkpoint == M5CombatAcceptanceCheckpoint::PostImpact ? 2U : 1U;\n}\n'''
+          if text.count(old) != 1:
+              raise SystemExit('acceptance constants anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+
+          old = '''        // Capture must be delayed until this exact rendered state has passed through Present. On the first\n        // render observation for a checkpoint, freeze the renderer-facing metadata and return no record. The\n        // next callback occurs after that frame was presented, so WindowFrameCapture reads matching pixels\n        // instead of the previous simulation frame. This is capture synchronization only, never fake state.\n'''
+          new = '''        // Capture must be delayed until this rendered state has completed the required Present window. On\n        // the first render observation, freeze renderer-facing metadata and return no record. Ordinary\n        // checkpoints require one completed Present; POST_IMPACT requires two consecutive completed Presents\n        // with the authoritative production explosion still drawn because the Windows compositor capture path\n        // can otherwise expose the pre-impact client image. This is presentation synchronization only.\n'''
+          if text.count(old) != 1:
+              raise SystemExit('acceptance synchronization comment anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+
+          old = '''            pendingSnapshot_ = std::move(renderedSnapshot);\n            pendingPresentedFrameAvailable_ = true;\n            return std::optional<M5CombatAcceptanceRecord>{};\n        }\n\n        if (!pendingSnapshot_.has_value())\n        {\n            return std::unexpected("M5 visual acceptance lost its presented checkpoint snapshot");\n        }\n\n        M5CombatAcceptanceRecord record{\n'''
+          new = '''            pendingSnapshot_ = std::move(renderedSnapshot);\n            pendingPresentedFrameAvailable_ = true;\n            pendingPresentedFramesObserved_ = 0U;\n            return std::optional<M5CombatAcceptanceRecord>{};\n        }\n\n        if (!pendingSnapshot_.has_value())\n        {\n            return std::unexpected("M5 visual acceptance lost its presented checkpoint snapshot");\n        }\n\n        if (*pending_ == M5CombatAcceptanceCheckpoint::PostImpact &&\n            !IsM5PostImpactPresentationReady(*pendingSnapshot_, presentationSnapshot, explosionDrawn))\n        {\n            return std::unexpected(\n                "M5 POST_IMPACT explosion did not persist through the compositor-safe Present window");\n        }\n        ++pendingPresentedFramesObserved_;\n        if (pendingPresentedFramesObserved_ < M5CombatAcceptanceRequiredPresentedFrames(*pending_))\n        {\n            return std::optional<M5CombatAcceptanceRecord>{};\n        }\n\n        M5CombatAcceptanceRecord record{\n'''
+          if text.count(old) != 1:
+              raise SystemExit('acceptance present-window state anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+
+          old = '''        pending_.reset();\n        pendingSnapshot_.reset();\n        pendingPresentedFrameAvailable_ = false;\n        return std::optional<M5CombatAcceptanceRecord>{std::move(record)};\n'''
+          new = '''        pending_.reset();\n        pendingSnapshot_.reset();\n        pendingPresentedFrameAvailable_ = false;\n        pendingPresentedFramesObserved_ = 0U;\n        return std::optional<M5CombatAcceptanceRecord>{std::move(record)};\n'''
+          if text.count(old) != 1:
+              raise SystemExit('acceptance reset anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+
+          old = '''    bool renderWarmupObserved_ = false;\n    bool pendingPresentedFrameAvailable_ = false;\n};\n'''
+          new = '''    bool renderWarmupObserved_ = false;\n    bool pendingPresentedFrameAvailable_ = false;\n    std::uint32_t pendingPresentedFramesObserved_ = 0U;\n};\n'''
+          if text.count(old) != 1:
+              raise SystemExit('acceptance member anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+          acceptance.write_text(text, encoding='utf-8', newline='\n')
+
+          test = Path('Tests/M5CombatPlaygroundRuntimeChecks.h')
+          text = test.read_text(encoding='utf-8')
+          old = '''    using Game::Combat::CombatPlaygroundCameraMode;\n    using Game::Combat::CombatPlaygroundPresentationElement;\n\n    if (!physicsWorld.IsInitialized())\n'''
+          new = '''    using Game::Combat::CombatPlaygroundCameraMode;\n    using Game::Combat::CombatPlaygroundPresentationElement;\n\n    if (Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(\n            Game::Combat::M5CombatAcceptanceCheckpoint::Initial) != 1U ||\n        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(\n            Game::Combat::M5CombatAcceptanceCheckpoint::TorpedoInFlight) != 1U ||\n        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(\n            Game::Combat::M5CombatAcceptanceCheckpoint::PreImpact) != 1U ||\n        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(\n            Game::Combat::M5CombatAcceptanceCheckpoint::PostImpact) != 2U ||\n        Game::Combat::M5CombatAcceptanceRequiredPresentedFrames(\n            Game::Combat::M5CombatAcceptanceCheckpoint::Resized) != 1U)\n    {\n        return false;\n    }\n\n    if (!physicsWorld.IsInitialized())\n'''
+          if text.count(old) != 1:
+              raise SystemExit('runtime regression anchor missing or duplicated')
+          text = text.replace(old, new, 1)
+          test.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+          git diff --check
+          git diff -- Game/Combat/CombatPlaygroundAcceptance.h Tests/M5CombatPlaygroundRuntimeChecks.h
+
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Game/Combat/CombatPlaygroundAcceptance.h Tests/M5CombatPlaygroundRuntimeChecks.h
+          git commit -m "fix: hold M5 post-impact capture through present window"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
