@@ -104,7 +104,8 @@ def main() -> int:
     parser.add_argument("--antey", required=True, type=Path)
     parser.add_argument("--p700", required=True, type=Path)
     parser.add_argument("--output", type=Path)
-    options = parser.parse_args()
+    values = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
+    options = parser.parse_args(values)
     report = validate(options.antey.resolve(), options.p700.resolve())
     if options.output:
         options.output.resolve().parent.mkdir(parents=True, exist_ok=True)

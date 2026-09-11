@@ -25,6 +25,8 @@ boat name, hull number, or commemorative marking.
 | Render metadata | `Content/submarines/Antey/Antey.asset.json` |
 | Gameplay authoring | `Content/submarines/Antey/Antey.authoring.json` |
 | Reference provenance | `Content/submarines/Antey/References/reference_manifest.md` |
+| Stern repair regression fixture | `Content/submarines/Antey/selected_geometry.txt` |
+| Rudder-boundary QA provenance | `Content/submarines/Antey/manual_rudder_boundary.json` |
 | Fresh-reopen validation | `Content/submarines/Antey/Validation/SourceFirst/FinalPromotionQA/canonical_runtime_glb_validation.json` |
 | Source accounting | `Content/submarines/Antey/Validation/SourceFirst/FinalPromotionQA/canonical_source_accounting/source_partition_forensic_summary.json` |
 
@@ -71,6 +73,21 @@ triangles`. No LOD1-LOD3 draw-set leakage is present.
 `SM_Propeller_Port` and `SM_Propeller_Starboard` are separate real meshes with
 seven visible blades, hub-centred origins, unit scale, and local `+X` rotation
 axes. They are a mirrored pair; exact historical handedness remains unconfirmed.
+
+### IG1-A.3 stern source-exterior regression
+
+`selected_geometry.txt` is a permanent defect-localization and regression
+fixture for the stern source-exterior region. It is not a triangle source and
+must not be used to reconstruct geometry directly. The
+`validate_antey_exterior_continuity.py` validator maps the selected region back
+to the authoritative source and checks source coverage and articulation at
+neutral, `+/-15` degrees, and `+/-20` degrees.
+
+The accepted repair restores 928 source faces / 2,030 source triangles. The
+canonical production BLEND contains 66 LOD0 runtime objects, 65,548 vertices,
+64,413 faces, and 120,374 triangles. Fresh GLB import contains 66 mesh nodes
+and 120,373 triangles; the one-triangle difference is a zero-area hull polygon
+omitted by the GLB export/import path and is not visible source-exterior loss.
 
 ## P700 launcher contract
 

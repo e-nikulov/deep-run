@@ -2720,25 +2720,25 @@
       "semanticId": "collision.primary",
       "shapeType": "BOX",
       "center": [
-        0,
-        0,
-        0
+        0.0,
+        0.0,
+        0.0
       ],
       "dimensions": [
-        154,
-        17.8,
-        10
+        154.0,
+        17.799999237060547,
+        10.0
       ],
       "halfExtents": [
-        77,
-        8.9,
-        5
+        77.0,
+        8.899999618530273,
+        5.0
       ],
       "orientationQuaternionWXYZ": [
-        1,
-        0,
-        0,
-        0
+        1.0,
+        0.0,
+        0.0,
+        0.0
       ]
     }
   ],
@@ -2746,30 +2746,30 @@
     "semanticId": "buoyancy.primary",
     "shapeType": "BOX",
     "center": [
-      0,
-      0,
-      0
+      0.0,
+      0.0,
+      0.0
     ],
     "dimensions": [
-      145,
-      16,
+      145.0,
+      16.0,
       7.5
     ],
     "halfExtents": [
       72.5,
-      8,
+      8.0,
       3.75
     ],
     "orientationQuaternionWXYZ": [
-      1,
-      0,
-      0,
-      0
+      1.0,
+      0.0,
+      0.0,
+      0.0
     ],
     "centerOfBuoyancy": [
-      0,
-      0,
-      0
+      0.0,
+      0.0,
+      0.0
     ]
   },
   "semanticRegions": [

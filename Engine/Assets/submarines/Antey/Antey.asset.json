@@ -4,9 +4,9 @@
   "name": "Antey",
   "identity": "neutral Project 949A-inspired production asset",
   "blend": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Antey_GameReady.blend",
-  "blendSha256": "B225513DF07FAEA481DA915963927CB6698AE5E5CC5BEE282B52B16436197EFB",
+  "blendSha256": "8535E96A04CDFEFF702E960F04FA886D2DEBEA878161751DE10A3E9E3353EE42",
   "glb": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Antey.glb",
-  "glbSha256": "5B8EED5CB1695F182B72F66E280DDBEDCD3BB8F9716C14EE5E8E8EBC2A61B853",
+  "glbSha256": "2ED11B62ACDEE424B76C29DE50622261AC24F57465C5761C6D4088FA09614C4C",
   "source": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Source\\Antey_Source.blend",
   "sourceSha256": "BCC3F34A23825F5DD3887ABF0C226BA8CCB0A1DF57DAC2B566407B46A68BAB3F",
   "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
@@ -22,23 +22,23 @@
   "lods": {
     "LOD0": {
       "objects": 66,
-      "vertices": 65423,
-      "triangles": 118346
+      "vertices": 65548,
+      "triangles": 120374
     },
     "LOD1": {
       "objects": 66,
-      "vertices": 38283,
-      "triangles": 65009
+      "vertices": 38018,
+      "triangles": 66156
     },
     "LOD2": {
       "objects": 66,
-      "vertices": 23197,
-      "triangles": 35442
+      "vertices": 22742,
+      "triangles": 36127
     },
     "LOD3": {
       "objects": 66,
-      "vertices": 12227,
-      "triangles": 14311
+      "vertices": 11623,
+      "triangles": 14666
     }
   },
   "materials": [
@@ -49,12 +49,17 @@
   "technicalAssetStatus": "ACCEPTED",
   "userVisualApproval": "PASS",
   "sourceAccounting": {
-    "staticRuntimeFaces": 53256,
+    "sourcePolygonCount": 64409,
+    "sourceVisibleExteriorFaces": 64153,
+    "sourceIntentionalDegenerateFaces": 256,
+    "staticRuntimeFaces": 54184,
     "articulatedRuntimeFaces": 10225,
-    "supersededSourcePolygons": 928,
+    "supersededSourcePolygons": 0,
     "realMissingVisibleSourceFaces": 0,
     "unexplainedSourceFaces": 0,
-    "unintentionalDuplicateSourceFaces": 0,
+    "replacementWithoutProof": 0,
+    "unintentionalCandidateDuplicateSourceFaces": 0,
+    "syntheticClosureFaces": 4,
     "status": "PASS"
   },
   "p700Contract": {

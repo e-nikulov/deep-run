@@ -28,6 +28,7 @@ def args() -> argparse.Namespace:
     parser.add_argument("--glb", required=True, type=Path)
     parser.add_argument("--asset-json", required=True, type=Path)
     parser.add_argument("--authoring-json", required=True, type=Path)
+    parser.add_argument("--source-partition-audit", type=Path)
     return parser.parse_args(values)
 
 
@@ -391,7 +392,51 @@ def source_first_launcher_identity(name: str) -> tuple[str, int]:
     return match.group(1).upper(), int(match.group(2))
 
 
-def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_runtime_glb: Path) -> tuple[dict, dict]:
+def source_face_accounting(objects: dict[str, bpy.types.Object], audit_path: Path | None = None) -> dict[str, int | str]:
+    """Derive source ownership totals from the reopened production BLEND.
+
+    A missing source face is never a documented ``superseded`` bucket.  The
+    source-partition audit remains the hard proof; this metadata helper only
+    reports the reopened candidate's explicit ownership counts and refuses to
+    claim a pass when the builder did not emit its source contract.
+    """
+    articulated_prefixes = ("RUDDER_", "BOW_PLANE_", "STERN_PLANE_", "P700_COVER_")
+    static_faces = 0
+    articulated_faces = 0
+    synthetic_closure_faces = 0
+    for obj in objects.values():
+        if obj.type != "MESH" or not obj.get("runtime_export", False) or int(obj.get("lod", -1)) != 0 or obj.get("source_object") is None:
+            continue
+        role = str(obj.get("source_first_role", "UNKNOWN"))
+        source_faces = int(obj.get("SOURCE_FACE_COUNT", len(obj.data.polygons)))
+        synthetic_closure_faces += int(obj.get("SYNTHETIC_CLOSURE_FACE_COUNT", 0))
+        if role.startswith(articulated_prefixes) or role == "SAIL_DEVICE":
+            articulated_faces += source_faces
+        else:
+            static_faces += source_faces
+    contract = bpy.context.scene.get("source_exterior_contract")
+    audit = json.loads(audit_path.resolve(strict=True).read_text(encoding="utf-8")) if audit_path else None
+    if audit is not None and not audit.get("pass", False):
+        raise RuntimeError("Source-partition audit was supplied but did not pass")
+    if contract is None:
+        return {"staticRuntimeFaces": static_faces, "articulatedRuntimeFaces": articulated_faces,
+                "supersededSourcePolygons": 0, "realMissingVisibleSourceFaces": "NOT_VALIDATED",
+                "unexplainedSourceFaces": "NOT_VALIDATED", "replacementWithoutProof": "NOT_VALIDATED",
+                "unintentionalCandidateDuplicateSourceFaces": "NOT_VALIDATED",
+                "syntheticClosureFaces": synthetic_closure_faces, "status": "REQUIRES_SOURCE_PARTITION_AUDIT"}
+    return {"sourcePolygonCount": int(contract.get("source_polygon_count", 0)),
+            "sourceVisibleExteriorFaces": int(contract.get("source_visible_exterior_faces", 0)),
+            "sourceIntentionalDegenerateFaces": int(contract.get("source_intentional_degenerate_faces", 0)),
+            "staticRuntimeFaces": static_faces, "articulatedRuntimeFaces": articulated_faces,
+            "supersededSourcePolygons": 0, "realMissingVisibleSourceFaces": int(contract.get("missing", -1)),
+            "unexplainedSourceFaces": int(contract.get("unexplained", -1)),
+            "replacementWithoutProof": int(contract.get("replacement_without_proof", -1)),
+            "unintentionalCandidateDuplicateSourceFaces": int(audit.get("unintentionalCandidateDuplicateCount", -1)) if audit else "REPORTED_BY_SOURCE_PARTITION_AUDIT",
+            "syntheticClosureFaces": synthetic_closure_faces,
+            "status": "PASS" if audit is not None else "REQUIRES_SOURCE_PARTITION_AUDIT"}
+
+
+def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_runtime_glb: Path, source_partition_audit: Path | None = None) -> tuple[dict, dict]:
     objects = {obj.name: obj for obj in bpy.context.scene.objects}
     runtime0 = [obj for obj in objects.values() if obj.type == "MESH" and obj.get("runtime_export", False) and int(obj.get("lod", -1)) == 0]
     minimum, maximum = bounds(runtime0)
@@ -501,15 +546,7 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         "blenderVersion": bpy.app.version_string,
         "technicalAssetStatus": "ACCEPTED",
         "userVisualApproval": "PASS",
-        "sourceAccounting": {
-            "staticRuntimeFaces": 53256,
-            "articulatedRuntimeFaces": 10225,
-            "supersededSourcePolygons": 928,
-            "realMissingVisibleSourceFaces": 0,
-            "unexplainedSourceFaces": 0,
-            "unintentionalDuplicateSourceFaces": 0,
-            "status": "PASS",
-        },
+        "sourceAccounting": source_face_accounting(objects, source_partition_audit),
         "p700Contract": {
             "launchPositions": 24,
             "port": 12,
@@ -632,7 +669,7 @@ def main() -> None:
     if options.asset == "antey":
         require_path_suffix(production_blend, "Content/submarines/Antey/Antey_GameReady.blend", "ANTEY_PRODUCTION_BLEND")
         require_path_suffix(runtime_glb, "Content/submarines/Antey/Antey.glb", "ANTEY_RUNTIME_GLB")
-        asset, authoring = antey_data(production_blend, source_blend, runtime_glb)
+        asset, authoring = antey_data(production_blend, source_blend, runtime_glb, options.source_partition_audit)
     else:
         require_path_suffix(production_blend, "Content/Weapons/P700/P700_Granit_GameReady.blend", "P700_PRODUCTION_BLEND")
         require_path_suffix(runtime_glb, "Content/Weapons/P700/P700_Granit.glb", "P700_RUNTIME_GLB")

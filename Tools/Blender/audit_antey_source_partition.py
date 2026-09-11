@@ -316,13 +316,7 @@ def main() -> None:
         remaining[fingerprint] -= 1
         targets = [name for name in mapping.get((record["sourceObject"], record["sourcePolygonIndex"]), []) if name in names]
         geometric_targets = surface_match(record, bvh, triangle_objects)
-        in_documented_stern_correction = record["sourceObject"] == "Bridge" and record["connectedComponent"] == 0 and record["bounds"][0][0] >= -77.0 and record["bounds"][1][0] <= -54.0
-        if in_documented_stern_correction:
-            category = "SOURCE_FACE_SUPERSEDED_BY_DOCUMENTED_ACCEPTED_CORRECTION"
-            evidence = "FINAL STERN-ONLY GEOMETRY CORRECTION, accepted local region X [-77,-54] m; exact source polygon is listed in this ledger; legacy auto-rudder predicate also selects it"
-            replacement = ["SM_Antey_LOD0_Hull", "SM_Antey_LOD0_Rudder_Dorsal"]
-            approval_lineage = "FINAL STERN-ONLY GEOMETRY CORRECTION -> user visual approval PASS -> TechnicalReady candidate"
-        elif targets:
+        if targets:
             category = "PRESENT_IN_ARTICULATED_RUNTIME_MESH" if any("P700_Cover" in name or "Rudder" in name or "BowPlane" in name or "SternPlane" in name for name in targets) else "PRESENT_IN_STATIC_RUNTIME_MESH"
             evidence = "provenance.faceIndices exact source polygon id -> " + ", ".join(sorted(set(targets)))
             replacement = []; approval_lineage = None
@@ -342,7 +336,7 @@ def main() -> None:
     for record in source_records:
         key = (record["sourceObject"], record["sourcePolygonIndex"])
         if key in missing_ids:
-            complete_categories["SOURCE_FACE_SUPERSEDED_BY_DOCUMENTED_ACCEPTED_CORRECTION"] += 1
+            complete_categories["UNEXPLAINED_SOURCE_FACE"] += 1
             continue
         targets = candidate_by_fingerprint.get(record["geometryFingerprint"], [])
         if any(any(token in target["candidateObject"] for token in ("Rudder", "BowPlane", "SternPlane", "P700_Cover", "SailDevice")) for target in targets):
@@ -363,18 +357,19 @@ def main() -> None:
             category["matchedCandidateArea"] += record["area"]
     json.dump({"source": str(opts.source.resolve()), "candidate": str(opts.candidate.resolve()), "records": source_records}, (opts.output / "source_face_ledger.json").open("w", encoding="utf-8"), indent=2)
     json.dump({"candidate": str(opts.candidate.resolve()), "records": candidate_records}, (opts.output / "candidate_source_derived_ledger.json").open("w", encoding="utf-8"), indent=2)
-    json.dump({"reportedUnaccounted": len(missing), "records": missing, "groups": sorted(groups.values(), key=lambda item: (item["sourceObject"], item["component"], item["region"])), "classifications": sorted(classes.values(), key=lambda item: item["category"])}, (opts.output / "unaccounted_928_raw.json").open("w", encoding="utf-8"), indent=2)
-    render(opts.source, missing, opts.output / "review_unaccounted_928_source_faces.png")
-    render(opts.candidate, missing, opts.output / "review_unaccounted_928_candidate_overlay.png", candidate=True)
+    json.dump({"reportedUnaccounted": len(missing), "records": missing, "groups": sorted(groups.values(), key=lambda item: (item["sourceObject"], item["component"], item["region"])), "classifications": sorted(classes.values(), key=lambda item: item["category"])}, (opts.output / "unaccounted_source_faces.json").open("w", encoding="utf-8"), indent=2)
+    render(opts.source, missing, opts.output / "review_unaccounted_source_faces.png")
+    render(opts.candidate, missing, opts.output / "review_unaccounted_candidate_overlay.png", candidate=True)
     candidate_hash_after, source_hash_after = sha256(opts.candidate), sha256(opts.source)
     synthetic_closure_faces = sum(int(record.get("closureFaceCount", 0)) for record in json.loads(opts.provenance.read_text(encoding="utf-8")).get("records", []))
-    legacy_dorsal_predicate_count = sum(1 for record in missing if record["sourceObject"] == "Bridge" and record["connectedComponent"] == 0 and -72.0 < record["centroid"][0] < -55.0 and abs(record["centroid"][1]) < 2.0 and record["centroid"][2] > 2.0 and abs(record["normal"][1]) > 0.6)
+    replacement_without_proof = sum(1 for item in missing if item.get("replacementGeometry"))
+    unexplained = sum(1 for item in missing if item["category"] == "UNEXPLAINED_SOURCE_FACE")
     summary = {"candidateShaBefore": candidate_hash_before, "candidateShaAfter": candidate_hash_after, "sourceShaBefore": source_hash_before, "sourceShaAfter": source_hash_after,
                "sourcePolygonCount": len(source_records), "candidatePolygonCount": len(candidate_records), "oldSignatureUnaccounted": sum(missing_counts.values()), "resolvedRawRecords": len(missing),
-               "unexplained": sum(1 for item in missing if item["category"] == "UNEXPLAINED_SOURCE_FACE"), "classifications": sorted(classes.values(), key=lambda item: item["category"]),
+               "missing": len(missing), "unexplained": unexplained, "replacementWithoutProof": replacement_without_proof, "classifications": sorted(classes.values(), key=lambda item: item["category"]),
                "completeSourceCategoryCounts": dict(sorted(complete_categories.items())), "syntheticClosureFaceCount": synthetic_closure_faces,
                "unintentionalCandidateDuplicateCount": max(0, sum((candidate_signatures - source_signatures).values()) - synthetic_closure_faces),
-               "legacyDorsalPredicateMatchCount": legacy_dorsal_predicate_count}
+               "pass": len(missing) == 0 and unexplained == 0 and replacement_without_proof == 0 and source_hash_before == source_hash_after}
     (opts.output / "source_partition_forensic_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print("SOURCE_PARTITION_FORENSIC_AUDIT", json.dumps(summary))
 

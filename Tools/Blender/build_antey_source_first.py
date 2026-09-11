@@ -187,6 +187,8 @@ def create_component(name: str, source_mesh: bpy.types.Mesh, indices: list[int],
     obj["source_geometry"] = True
     obj["runtime_export"] = True
     obj["lod"] = 0
+    obj["SOURCE_FACE_COUNT"] = len(faces)
+    obj["SYNTHETIC_CLOSURE_FACE_COUNT"] = 0
     obj["source_face_fingerprint"] = face_fingerprint(faces)
     obj["source_boundary_edge_fingerprint"] = boundary_edge_fingerprint(faces)
     return obj
@@ -819,35 +821,40 @@ def set_hinge_pivot(obj: bpy.types.Object, role: str, side: str, manual_record: 
     obj["COVER_ROLE"] = role
 
 
-def articulation_face_split(source_name: str, component_index: int, source_mesh: bpy.types.Mesh, component_faces_in: list[tuple[int, ...]]) -> tuple[dict[tuple[str, str], list[tuple[int, ...]]], list[tuple[int, ...]]]:
-    """Split only source-connected faces that form visible controls.
+def positive_bow_plane_face_split(source_name: str, component_index: int, source_mesh: bpy.types.Mesh, component_faces_in: list[tuple[int, ...]]) -> tuple[dict[tuple[str, str], list[tuple[int, ...]]], list[tuple[int, ...]]]:
+    """Extract only the explicit source bow-plane mask.
 
-    The masks are deliberately narrow and operate on evaluated, normalized
-    source coordinates.  They are used only for the articulated candidate;
-    the original source-first candidate is left byte-for-byte untouched.
+    Rudder ownership is resolved by ``_manual_rudder_extraction``.  Keeping
+    this mask separate is important: a generic articulation predicate must not
+    consume unrelated source exterior faces just because they are near a
+    control surface.
     """
     if component_index != 0 or source_name not in {"Bridge", "Hull"}:
         return {}, component_faces_in
     source_mesh.update()
-    normals = {tuple(poly.vertices): poly.normal.copy() for poly in source_mesh.polygons}
     extracted: dict[tuple[str, str], list[tuple[int, ...]]] = defaultdict(list)
     remaining: list[tuple[int, ...]] = []
     for face in component_faces_in:
         points = [source_mesh.vertices[index].co for index in face]
         center = sum(points, Vector()) / len(points)
-        normal = normals.get(face, Vector((0.0, 0.0, 1.0)))
         key: tuple[str, str] | None = None
         if source_name == "Bridge" and 53.0 < center.x < 68.0 and abs(center.y) > 7.5 and 0.5 < center.z < 3.0:
             key = ("BOW_PLANE", "Port" if center.y > 0.0 else "Starboard")
-        elif source_name == "Bridge" and -72.0 < center.x < -55.0 and abs(center.y) < 2.0 and center.z > 2.0 and abs(normal.y) > 0.6:
-            key = ("RUDDER", "Dorsal")
-        elif source_name == "Hull" and center.x < -55.0 and abs(center.y) < 2.0 and center.z < 0.5 and abs(normal.y) > 0.6:
-            key = ("RUDDER", "Ventral")
         if key:
             extracted[key].append(face)
         else:
             remaining.append(face)
     return extracted, remaining
+
+
+def articulation_face_split(source_name: str, component_index: int, source_mesh: bpy.types.Mesh, component_faces_in: list[tuple[int, ...]]) -> tuple[dict[tuple[str, str], list[tuple[int, ...]]], list[tuple[int, ...]]]:
+    """Compatibility wrapper for the positive control-surface partition.
+
+    The old implementation also selected a broad dorsal/ventral region and
+    silently discarded it.  Rudders now use the manual positive topology mask;
+    this wrapper intentionally owns bow planes only.
+    """
+    return positive_bow_plane_face_split(source_name, component_index, source_mesh, component_faces_in)
 
 
 def mechanical_cover_split(source_name: str, component_index: int, source_mesh: bpy.types.Mesh, component_faces_in: list[tuple[int, ...]]) -> tuple[dict[tuple[str, int], list[tuple[int, ...]]], list[tuple[int, ...]]]:
@@ -1902,12 +1909,15 @@ def _runtime_face_snapshot(scene: bpy.types.Scene) -> dict[str, list[tuple[tuple
 
 def correct_rudder_mask_candidate(input_candidate: Path, output: Path, mask_path: Path) -> None:
     """Create the manual-positive-mask candidate without rebuilding other assets."""
+    prior_boundary_path = input_candidate.parent / "manual_rudder_boundary.json"
+    prior_boundary_payload = json.loads(prior_boundary_path.read_text(encoding="utf-8")) if prior_boundary_path.exists() else {"rudders": {}}
     bpy.ops.wm.open_mainfile(filepath=str(input_candidate.resolve(strict=True)))
     if Path(bpy.data.filepath).resolve(strict=True) != input_candidate.resolve(strict=True):
         raise RuntimeError("Fresh candidate reopen mismatch for manual rudder correction")
     bpy.context.view_layer.update()
     bpy.context.evaluated_depsgraph_get().update()
     masks = json.loads(mask_path.resolve(strict=True).read_text(encoding="utf-8"))
+    source_first_rebuild = bool(bpy.context.scene.get("source_exterior_contract"))
     before_snapshot = _runtime_face_snapshot(bpy.context.scene)
     rudder_records: dict[str, dict[str, object]] = {}
     changed_objects: set[str] = set()
@@ -1921,11 +1931,47 @@ def correct_rudder_mask_candidate(input_candidate: Path, output: Path, mask_path
             raise RuntimeError(f"manual positive mask section missing: {side}")
         resolved = _resolve_positive_mask(hull, mask_record)
         patch = _positive_face_patch(hull, resolved)
-        record = _corrected_rudder_mesh(rudder, hull, side, mask_record, resolved, patch)
-        _replace_object_faces_preserve_vertices(hull, set(patch["patchFaceIndices"]))
+        prior_closure_count = int(rudder.get("SYNTHETIC_CLOSURE_FACE_COUNT", 0))
+        prior_source_face_count = int(rudder.get("SOURCE_FACE_COUNT", max(0, len(rudder.data.polygons) - prior_closure_count)))
+        if source_first_rebuild:
+            # The fresh source-first build already owns every source face in
+            # exactly one static or articulated component.  The accepted
+            # positive mask is retained as topology metadata (loose seam
+            # vertices/edges); transferring the same source patch a second
+            # time would duplicate closure/source faces and violate the new
+            # source exterior accounting contract.
+            transfer_patch = {**patch, "patchFaceIndices": []}
+            record = _corrected_rudder_mesh(rudder, hull, side, mask_record, resolved, transfer_patch)
+        else:
+            record = _corrected_rudder_mesh(rudder, hull, side, mask_record, resolved, patch)
+            _replace_object_faces_preserve_vertices(hull, set(patch["patchFaceIndices"]))
+        removed_closure_count = sum(
+            1
+            for item in record.get("duplicatePolygonOriginsRemoved", [])
+            if item.get("origin") == "prior_rudder" and int(item.get("sourceIndex", -1)) >= prior_source_face_count
+        )
+        closure_count = max(0, prior_closure_count - removed_closure_count)
+        rudder["SOURCE_FACE_COUNT"] = max(0, len(rudder.data.polygons) - closure_count)
+        rudder["SYNTHETIC_CLOSURE_FACE_COUNT"] = closure_count
+        if source_first_rebuild:
+            prior_record = prior_boundary_payload.get("rudders", {}).get(side, {})
+            # The regular source-first extractor records the measured seam
+            # loop and hinge provenance.  The mask-only pass adds loose mask
+            # topology but must not replace that source-derived boundary with
+            # an empty polygon-incidence boundary from a closed mesh.
+            for key in (
+                "sourceBoundaryPaths", "orderedBoundaryLoop", "boundaryEdgeIds", "boundaryVertexChains",
+                "boundaryFingerprint", "derivedBoundaryEdges", "derivedBoundaryFingerprint",
+                "perimeterClassification", "derivedHingeEdges", "derivedHingeFingerprint",
+                "fixedStabilizerFaces", "fixedStabilizerFaceFingerprint", "hinge",
+            ):
+                if key in prior_record:
+                    record[key] = prior_record[key]
         lod_changed = _regenerate_rudder_lods(rudder, side)
         changed_objects.update({hull.name, rudder.name, *lod_changed})
         record.update({"side": side, "targetObject": target_name, "movableObject": rudder.name, "fixedStabilizerObject": target_name, "sourceObject": mask_record.get("object"), "sourceMaskObject": mask_record.get("object"), "expectedVertexCount": int(mask_record["expectedVertexCount"]), "expectedEdgeCount": int(mask_record["expectedEdgeCount"]), "resolvedVertexResolution": resolved["vertexResolution"], "resolvedEdgeRecords": resolved["resolvedEdges"], "selectedVertexCoveragePercent": 100.0 * record["selectedMaskCoverage"]["vertices"] / max(1, record["selectedMaskCoverage"]["expectedVertices"]), "selectedEdgeCoveragePercent": 100.0 * record["selectedMaskCoverage"]["edges"] / max(1, record["selectedMaskCoverage"]["expectedEdges"]), "lodObjects": lod_changed})
+        record["closureFaceCount"] = closure_count
+        record["sourceFirstStaticHullPreserved"] = source_first_rebuild
         rudder_records[side] = record
     scene = bpy.context.scene
     bpy.context.view_layer.update()
@@ -1957,7 +2003,7 @@ def correct_rudder_mask_candidate(input_candidate: Path, output: Path, mask_path
         before_faces = Counter(before_snapshot.get(name, []))
         after_faces = Counter(after_snapshot.get(name, []))
         per_object_face_delta[name] = {"missing": sum((before_faces - after_faces).values()), "extra": sum((after_faces - before_faces).values())}
-    scene["manual_rudder_positive_mask_contract"] = {"maskPath": str(mask_path.resolve()), "expected": {side: {"vertices": int(record["manualVertexCount"]), "edges": int(record["manualEdgeCount"]) } for side, record in rudder_records.items()}, "resolved": {side: {"vertices": int(record["resolvedVertexCount"]), "edges": int(record["resolvedEdgeCount"]) } for side, record in rudder_records.items()}, "sourceFaceAccounting": {"missing": union_missing_faces, "extra": union_extra_faces, "duplicateExteriorDelta": duplicate_movable_after - duplicate_movable_before, "duplicateMovableFacesBefore": duplicate_movable_before, "duplicateMovableFacesAfter": duplicate_movable_after, "perObjectTransferDelta": per_object_face_delta, "note": "neutral source-face union is conserved as unique source faces; one pre-existing coincident ventral rudder polygon is removed to prevent z-fighting"}, "changedObjects": sorted(changed_objects), "unexpectedChanges": unexpected_changes}
+    scene["manual_rudder_positive_mask_contract"] = {"maskPath": str(mask_path.resolve()), "expected": {side: {"vertices": int(record["manualVertexCount"]), "edges": int(record["manualEdgeCount"]) } for side, record in rudder_records.items()}, "resolved": {side: {"vertices": int(record["resolvedVertexCount"]), "edges": int(record["resolvedEdgeCount"]) } for side, record in rudder_records.items()}, "sourceFaceAccounting": {"missing": union_missing_faces, "extra": union_extra_faces, "duplicateExteriorDelta": duplicate_movable_after - duplicate_movable_before, "duplicateMovableFacesBefore": duplicate_movable_before, "duplicateMovableFacesAfter": duplicate_movable_after, "perObjectTransferDelta": per_object_face_delta, "sourceFirstStaticHullPreserved": source_first_rebuild, "note": "fresh source-first candidates retain source faces in their original static/articulated owners; positive-mask seam vertices and edges are preserved without a second face transfer"}, "changedObjects": sorted(changed_objects), "unexpectedChanges": unexpected_changes}
     scene["manual_rudder_mask_correction"] = {"status": "MANUAL_POSITIVE_TOPOLOGY_CORRECTED", "doNotTouch": ["stern_planes", "p700_covers", "p700_launcher_locations", "p700_missiles", "torpedo_markers", "sail_devices", "propellers", "compartment_authoring", "COM", "COB", "collision_proxy", "buoyancy_volume", "weapon_contracts"], "maskSource": "EXACT_USER_SUPPLIED_VERTEX_EDGE_DATA", "facePatchMethod": "SOURCE_TOPOLOGY_POSITIVE_VERTEX_EDGE_GRAPH", "unexpectedRuntimeObjectChanges": len(unexpected_changes)}
     scene["manual_rudder_contract"] = {side: {"hinge": record["hinge"], "qa_angles_deg": [-20.0, -15.0, 0.0, 15.0, 20.0], "neutral_exact": True, "fixed_stabilizer_rotation": False, "manual_vertex_count": record["manualVertexCount"], "manual_edge_count": record["manualEdgeCount"]} for side, record in rudder_records.items()}
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -1968,7 +2014,7 @@ def correct_rudder_mask_candidate(input_candidate: Path, output: Path, mask_path
     provenance_payload = json.loads(prior_provenance_path.read_text(encoding="utf-8")) if prior_provenance_path.exists() else {"records": []}
     records = [record for record in provenance_payload.get("records", []) if record.get("productionObject") not in {f"SM_Antey_LOD0_Rudder_Dorsal", f"SM_Antey_LOD0_Rudder_Ventral"}]
     for side, record in rudder_records.items():
-        records.append({"sourceObject": record["sourceObject"], "sourceComponent": 0, "productionObject": record["movableObject"], "movementType": "HINGE_ROTATION", "manualPositiveMask": True, "manualVertexCount": record["manualVertexCount"], "manualEdgeCount": record["manualEdgeCount"], "resolvedVertexCount": record["resolvedVertexCount"], "resolvedEdgeCount": record["resolvedEdgeCount"], "manualVertexCoordinates": record["manualVertexCoordinates"], "manualEdgeEndpointCoordinates": record["manualEdgeEndpointCoordinates"], "movableFaceIndices": record["movableFaceIndices"], "movableFaceFingerprint": record["movableFaceFingerprint"], "sourcePatchFaceIndices": record["sourcePatchFaceIndices"], "sourcePatchFaceCount": record["sourcePatchFaceCount"], "derivedBoundaryEdges": record["derivedBoundaryEdges"], "derivedBoundaryFingerprint": record["derivedBoundaryFingerprint"], "boundaryVertexChains": record["boundaryVertexChains"], "perimeterClassification": record["perimeterClassification"], "derivedHingeEdges": record["derivedHingeEdges"], "derivedHingeFingerprint": record["derivedHingeFingerprint"], "fixedStabilizerFaces": record["fixedStabilizerFaces"], "fixedStabilizerFaceFingerprint": record["fixedStabilizerFaceFingerprint"], "hinge": record["hinge"], "selectedMaskCoverage": record["selectedMaskCoverage"], "topologyClassification": record["topologyClassification"], "maskOnlyVertexIndices": record["maskOnlyVertexIndices"], "maskOnlyResolvedEdgeIndices": record["maskOnlyResolvedEdgeIndices"], "duplicatePolygonOriginsRemoved": record.get("duplicatePolygonOriginsRemoved", [])})
+        records.append({"sourceObject": record["sourceObject"], "sourceComponent": 0, "productionObject": record["movableObject"], "movementType": "HINGE_ROTATION", "manualPositiveMask": True, "manualVertexCount": record["manualVertexCount"], "manualEdgeCount": record["manualEdgeCount"], "resolvedVertexCount": record["resolvedVertexCount"], "resolvedEdgeCount": record["resolvedEdgeCount"], "manualVertexCoordinates": record["manualVertexCoordinates"], "manualEdgeEndpointCoordinates": record["manualEdgeEndpointCoordinates"], "movableFaceIndices": record["movableFaceIndices"], "movableFaceFingerprint": record["movableFaceFingerprint"], "sourcePatchFaceIndices": record["sourcePatchFaceIndices"], "sourcePatchFaceCount": record["sourcePatchFaceCount"], "derivedBoundaryEdges": record["derivedBoundaryEdges"], "derivedBoundaryFingerprint": record["derivedBoundaryFingerprint"], "boundaryVertexChains": record["boundaryVertexChains"], "perimeterClassification": record["perimeterClassification"], "derivedHingeEdges": record["derivedHingeEdges"], "derivedHingeFingerprint": record["derivedHingeFingerprint"], "fixedStabilizerFaces": record["fixedStabilizerFaces"], "fixedStabilizerFaceFingerprint": record["fixedStabilizerFaceFingerprint"], "hinge": record["hinge"], "selectedMaskCoverage": record["selectedMaskCoverage"], "topologyClassification": record["topologyClassification"], "maskOnlyVertexIndices": record["maskOnlyVertexIndices"], "maskOnlyResolvedEdgeIndices": record["maskOnlyResolvedEdgeIndices"], "duplicatePolygonOriginsRemoved": record.get("duplicatePolygonOriginsRemoved", []), "closureFaceCount": record["closureFaceCount"], "sourceFirstStaticHullPreserved": record["sourceFirstStaticHullPreserved"]})
     provenance_payload.update({"candidate": str(output), "manualPositiveMaskPass": True, "records": records, "manualPositiveMaskContract": scene.get("manual_rudder_positive_mask_contract")})
     provenance_path.write_text(json.dumps(jsonable(provenance_payload), indent=2), encoding="utf-8")
     mask_copy = output.parent / "manual_rudder_positive_masks.json"
@@ -2203,6 +2249,9 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
             vertex.co = production_point(obj.matrix_world @ vertex.co)
         obj.evaluated_get(depsgraph).to_mesh_clear()
         evaluated.append((obj.name, copy))
+    source_polygon_count = sum(len(mesh.polygons) for _, mesh in evaluated)
+    source_visible_exterior_faces = sum(1 for _, mesh in evaluated for polygon in mesh.polygons if polygon.area > 1.0e-10)
+    source_intentional_degenerate_faces = source_polygon_count - source_visible_exterior_faces
     if manual_p700:
         bridge_mesh = next(mesh for name, mesh in evaluated if name == "Bridge")
         manual_bridge_vertex_count = len(bridge_mesh.vertices)
@@ -2222,6 +2271,7 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
         bpy.context.scene["source_line_analysis"] = {"primary": ["human-selected anchor coordinates", "source mesh edge adjacency", "connected face topology", "source boundary flood-fill"], "secondary": ["curvature / normal discontinuity", "top/side/rear source renders"], "selection": "MANUAL_ANCHOR_SOURCE_EDGE_AND_FACE_PARTITION", "heuristic_cover_extraction": "DISABLED"}
     bpy.context.scene["source_basis"] = "+Y longitudinal -> +X; +X transverse -> -Y; +Z -> +Z"
     bpy.context.scene["source_normalization"] = {"length_m": PRODUCTION_LENGTH, "beam_m": PRODUCTION_BEAM, "length_scale": LONG_SCALE, "cross_scale": CROSS_SCALE}
+    bpy.context.scene["source_exterior_contract"] = {"source_polygon_count": source_polygon_count, "source_visible_exterior_faces": source_visible_exterior_faces, "source_intentional_degenerate_faces": source_intentional_degenerate_faces, "missing": 0, "unexplained": 0, "replacement_without_proof": 0, "status": "BUILT_PENDING_SOURCE_PARTITION_AUDIT"}
     hull_mat = material("MAT_Antey_Hull", (0.23, 0.28, 0.31, 1.0))
     prop_mat = material("MAT_Antey_Propellers", (0.36, 0.25, 0.10, 1.0))
     lod0 = []
@@ -2236,16 +2286,16 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
             for component_index, (indices, faces) in enumerate(groups):
                 raw_points = [mesh.vertices[index].co for index in indices]
                 name, role = source_role(source_name, component_index, raw_points)
-                if articulated and mechanical:
+                if articulated:
                     extracted_faces, remaining_faces, extracted_metadata = _manual_rudder_extraction(source_name, component_index, mesh, faces)
                     for key, value in extracted_metadata.items():
                         manual_rudder_records[key[1]] = value
-                    # The manual-rudder resolver intentionally owns only the
-                    # stern masks.  Restore the already accepted Bridge:0 bow
-                    # plane partition independently; it must not disappear
-                    # merely because manual-rudder mode is enabled.
+                    # Rudders are resolved by the positive source topology
+                    # mask above.  Restore only the independent positive bow
+                    # plane mask; every other source exterior face remains in
+                    # its static source-derived component.
                     if source_name == "Bridge" and component_index == 0:
-                        automatic_controls, remaining_faces = articulation_face_split(source_name, component_index, mesh, remaining_faces)
+                        automatic_controls, remaining_faces = positive_bow_plane_face_split(source_name, component_index, mesh, remaining_faces)
                         for key, selected in automatic_controls.items():
                             if key[0] == "BOW_PLANE":
                                 extracted_faces[key] = selected
@@ -2299,6 +2349,9 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
                         else:
                             set_pivot(extracted_obj, extracted_runtime_role)
                         extracted_obj["SOURCE_FACE_EXTRACTION"] = True
+                        closure_count = int(extracted_metadata.get((extracted_role, side), {}).get("closureFaceCount", 0)) if extracted_role == "RUDDER" else 0
+                        extracted_obj["SOURCE_FACE_COUNT"] = len(extracted) - closure_count
+                        extracted_obj["SYNTHETIC_CLOSURE_FACE_COUNT"] = closure_count
                         extracted_obj["SOURCE_COMPONENT"] = component_index
                         extracted_obj["source_component"] = component_index
                         lod0.append(extracted_obj)
