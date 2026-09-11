@@ -23,7 +23,7 @@ namespace DeepRun::Game
 // coarse strategic silhouette is a temporary M5 render-only fallback. It is deliberately replaceable by a
 // future shared deterministic/chunked bathymetry authority; no physics/navigation/acoustic state is created.
 inline constexpr float M5DetailedEnvironmentMaximumHorizontalSpanMeters = 800.0F;
-inline constexpr float M5StrategicSeabedMaximumHorizontalSpanMeters = 120'000.0F;
+inline constexpr float M5StrategicSeabedMaximumHorizontalSpanMeters = 600'000.0F;
 // Tactical fill is an open vertical skirt, not a closed slab. Its lower edge is deliberately far below every
 // supported M5 combat frustum and there is no horizontal underside face to become visible.
 inline constexpr float M5StrategicSeabedExtrusionBottomYMeters = -100'000.0F;
@@ -83,7 +83,7 @@ inline constexpr std::array<StrategicSeabedPresentationPoint, 14> M5LocalBathyme
 
 [[nodiscard]] inline std::vector<StrategicSeabedPresentationPoint> BuildM5TacticalBathymetryProfile()
 {
-    constexpr int ExtentKilometers = 60;
+    constexpr int ExtentKilometers = 300;
     std::vector<StrategicSeabedPresentationPoint> result;
     result.reserve(static_cast<std::size_t>(ExtentKilometers * 2) + M5LocalBathymetryAnchorProfile.size());
 

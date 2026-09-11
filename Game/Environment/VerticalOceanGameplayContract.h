@@ -80,25 +80,44 @@ enum class BathymetryDepthBand
     {
         return NormalGameplayAboveWaterFraction;
     }
+    const auto smoothTransition = [](const float value, const float begin, const float end,
+                                     const float beginFraction, const float endFraction) noexcept
+    {
+        const float linear = std::clamp((value - begin) / (end - begin), 0.0F, 1.0F);
+        const float smooth = linear * linear * (3.0F - 2.0F * linear);
+        return beginFraction + (endFraction - beginFraction) * smooth;
+    };
+
     if (horizontalSpanMeters <= LocalCompositionReferenceHorizontalSpanMeters)
     {
         return NormalGameplayAboveWaterFraction;
     }
     if (horizontalSpanMeters < TacticalCompositionHorizontalSpanMeters)
     {
-        const float transition =
-            (horizontalSpanMeters - LocalCompositionReferenceHorizontalSpanMeters) /
-            (TacticalCompositionHorizontalSpanMeters - LocalCompositionReferenceHorizontalSpanMeters);
-        return NormalGameplayAboveWaterFraction +
-            transition * (TacticalGameplayAboveWaterFraction - NormalGameplayAboveWaterFraction);
+        return smoothTransition(
+            horizontalSpanMeters,
+            LocalCompositionReferenceHorizontalSpanMeters,
+            TacticalCompositionHorizontalSpanMeters,
+            NormalGameplayAboveWaterFraction,
+            TacticalGameplayAboveWaterFraction);
     }
     if (horizontalSpanMeters < OperationalCompositionHorizontalSpanMeters)
     {
-        return TacticalGameplayAboveWaterFraction;
+        return smoothTransition(
+            horizontalSpanMeters,
+            TacticalCompositionHorizontalSpanMeters,
+            OperationalCompositionHorizontalSpanMeters,
+            TacticalGameplayAboveWaterFraction,
+            OperationalGameplayAboveWaterFraction);
     }
     if (horizontalSpanMeters < StrategicCompositionHorizontalSpanMeters)
     {
-        return OperationalGameplayAboveWaterFraction;
+        return smoothTransition(
+            horizontalSpanMeters,
+            OperationalCompositionHorizontalSpanMeters,
+            StrategicCompositionHorizontalSpanMeters,
+            OperationalGameplayAboveWaterFraction,
+            StrategicGameplayAboveWaterFraction);
     }
     return StrategicGameplayAboveWaterFraction;
 }

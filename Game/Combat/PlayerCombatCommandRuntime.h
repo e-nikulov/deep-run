@@ -48,6 +48,7 @@ struct PlayerCombatPresentationSnapshot final
     std::optional<float> selectedBearingUncertaintyRadians{};
     std::optional<float> selectedPositionUncertaintyMeters{};
     bool selectedTrackHasEstimatedPosition = false;
+    std::optional<Physics::PhysicsVector3> selectedTrackEstimatedPositionMeters{};
     bool selectedTrackWeaponQualified = false;
     bool canPrepareWeapon = false;
     bool canFireWeapon = false;
@@ -141,6 +142,7 @@ public:
         snapshot.selectedBearingUncertaintyRadians = selected->bearingUncertaintyRadians;
         snapshot.selectedPositionUncertaintyMeters = selected->positionUncertaintyMeters;
         snapshot.selectedTrackHasEstimatedPosition = selected->estimatedPositionMeters.has_value();
+        snapshot.selectedTrackEstimatedPositionMeters = selected->estimatedPositionMeters;
         snapshot.selectedTrackWeaponQualified = Weapons::ValidateTrackForWeapon(definition_, *selected).has_value();
         snapshot.canFireWeapon = weapon_.phase == Weapons::WeaponPhase::Ready &&
                                  snapshot.selectedTrackWeaponQualified;

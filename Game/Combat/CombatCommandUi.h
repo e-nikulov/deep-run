@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Engine/Physics/PhysicsTypes.h"
+#include "Engine/Render/Camera.h"
 #include "Game/Camera/MultiScaleTacticalCamera.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
 
 #include <cstdint>
+#include <optional>
 
 namespace DeepRun::Game::Combat
 {
@@ -20,4 +23,12 @@ struct CameraScaleHudSnapshot final
 };
 
 void DrawCameraScaleHud(const CameraScaleHudSnapshot& snapshot);
+
+void DrawTacticalSituationOverlay(
+    Camera::MultiScaleCameraBand band,
+    const Render::OrthographicCamera& camera,
+    const Physics::PhysicsVector3& ownshipPositionMeters,
+    const std::optional<Physics::PhysicsVector3>& selectedTrackEstimatedPositionMeters,
+    const std::optional<std::uint64_t>& selectedTrackId,
+    const std::optional<Physics::PhysicsVector3>& playerTorpedoPositionMeters);
 } // namespace DeepRun::Game::Combat

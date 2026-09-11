@@ -51,11 +51,20 @@ namespace DeepRun::Tests
     const float tacticalSky = AboveWaterFractionForPresentationSpanMeters(3'600.0F);
     const float operationalSky = AboveWaterFractionForPresentationSpanMeters(10'000.0F);
     const float strategicSky = AboveWaterFractionForPresentationSpanMeters(200'000.0F);
+    const float beforeTacticalBoundary = AboveWaterFractionForPresentationSpanMeters(2'299.0F);
+    const float afterTacticalBoundary = AboveWaterFractionForPresentationSpanMeters(2'301.0F);
+    const float beforeOperationalBoundary = AboveWaterFractionForPresentationSpanMeters(8'999.0F);
+    const float afterOperationalBoundary = AboveWaterFractionForPresentationSpanMeters(9'001.0F);
+    const float beforeStrategicBoundary = AboveWaterFractionForPresentationSpanMeters(119'999.0F);
+    const float afterStrategicBoundary = AboveWaterFractionForPresentationSpanMeters(120'001.0F);
     if (std::abs(localSky - 0.15F) > 0.0001F ||
         !(transitionSky > localSky && transitionSky < tacticalSky) ||
-        std::abs(tacticalSky - 0.32F) > 0.0001F ||
-        std::abs(operationalSky - 0.36F) > 0.0001F ||
-        std::abs(strategicSky - 0.40F) > 0.0001F)
+        !(tacticalSky > TacticalGameplayAboveWaterFraction && tacticalSky < OperationalGameplayAboveWaterFraction) ||
+        !(operationalSky > OperationalGameplayAboveWaterFraction && operationalSky < StrategicGameplayAboveWaterFraction) ||
+        std::abs(strategicSky - StrategicGameplayAboveWaterFraction) > 0.0001F ||
+        std::abs(afterTacticalBoundary - beforeTacticalBoundary) > 0.001F ||
+        std::abs(afterOperationalBoundary - beforeOperationalBoundary) > 0.001F ||
+        std::abs(afterStrategicBoundary - beforeStrategicBoundary) > 0.001F)
     {
         return false;
     }
@@ -158,7 +167,7 @@ namespace DeepRun::Tests
     const auto* regionalRight = findPoint(6'000.0F);
     const auto* deepRight = findPoint(20'000.0F);
     if (tacticalProfile.size() < 120U ||
-        tacticalProfile.front().xMeters > -59'000.0F || tacticalProfile.back().xMeters < 59'000.0F ||
+        tacticalProfile.front().xMeters > -299'000.0F || tacticalProfile.back().xMeters < 299'000.0F ||
         leftLocal == nullptr || centerLocal == nullptr || rightLocal == nullptr || nearRight == nullptr ||
         regionalRight == nullptr || deepRight == nullptr ||
         leftLocal->yMeters != -160.0F || centerLocal->yMeters != -220.0F || rightLocal->yMeters != -165.0F ||

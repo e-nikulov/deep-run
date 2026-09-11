@@ -3,6 +3,7 @@
 #include <imgui.h>
 
 #include <cmath>
+#include <optional>
 
 namespace DeepRun::Game::Combat
 {
@@ -43,6 +44,38 @@ const char* CameraBandName(const Camera::MultiScaleCameraBand band) noexcept
     case Camera::MultiScaleCameraBand::Strategic: return "STRATEGIC";
     }
     return "UNKNOWN";
+}
+
+std::optional<ImVec2> ProjectWorldToMainViewport(
+    const Render::OrthographicCamera& camera,
+    const Physics::PhysicsVector3& positionMeters)
+{
+    if (!positionMeters.IsFinite())
+    {
+        return std::nullopt;
+    }
+    const auto clip = Render::TransformPoint(
+        camera.viewProjection,
+        {.x = positionMeters.x, .y = positionMeters.y, .z = positionMeters.z});
+    if (!std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[3]) ||
+        std::abs(clip[3]) <= 1.0e-6F)
+    {
+        return std::nullopt;
+    }
+    const float ndcX = clip[0] / clip[3];
+    const float ndcY = clip[1] / clip[3];
+    if (ndcX < -1.05F || ndcX > 1.05F || ndcY < -1.05F || ndcY > 1.05F)
+    {
+        return std::nullopt;
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport == nullptr)
+    {
+        return std::nullopt;
+    }
+    return ImVec2(
+        viewport->WorkPos.x + (ndcX * 0.5F + 0.5F) * viewport->WorkSize.x,
+        viewport->WorkPos.y + (0.5F - ndcY * 0.5F) * viewport->WorkSize.y);
 }
 
 const char* CommandName(const PlayerCombatCommandType command) noexcept
@@ -214,5 +247,85 @@ void DrawCameraScaleHud(const CameraScaleHudSnapshot& snapshot)
     ImGui::Text("Ownship: %.1f px", snapshot.ownshipProjectedPixels);
     ImGui::Text("Limit: %.2f km", snapshot.maximumHorizontalSpanMeters / 1000.0F);
     ImGui::End();
+}
+
+void DrawTacticalSituationOverlay(
+    const Camera::MultiScaleCameraBand band,
+    const Render::OrthographicCamera& camera,
+    const Physics::PhysicsVector3& ownshipPositionMeters,
+    const std::optional<Physics::PhysicsVector3>& selectedTrackEstimatedPositionMeters,
+    const std::optional<std::uint64_t>& selectedTrackId,
+    const std::optional<Physics::PhysicsVector3>& playerTorpedoPositionMeters)
+{
+    if (band != Camera::MultiScaleCameraBand::Operational && band != Camera::MultiScaleCameraBand::Strategic)
+    {
+        return;
+    }
+
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    if (drawList == nullptr)
+    {
+        return;
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport == nullptr)
+    {
+        return;
+    }
+
+    const ImU32 ownshipColor = IM_COL32(90, 220, 255, 255);
+    const ImU32 trackColor = IM_COL32(255, 210, 80, 255);
+    const ImU32 torpedoColor = IM_COL32(255, 245, 150, 255);
+    const ImU32 labelColor = IM_COL32(235, 245, 255, 230);
+
+    if (const auto ownship = ProjectWorldToMainViewport(camera, ownshipPositionMeters))
+    {
+        constexpr float radius = 6.0F;
+        drawList->AddTriangleFilled(
+            ImVec2(ownship->x + radius, ownship->y),
+            ImVec2(ownship->x - radius, ownship->y - radius * 0.75F),
+            ImVec2(ownship->x - radius, ownship->y + radius * 0.75F),
+            ownshipColor);
+        drawList->AddText(ImVec2(ownship->x + 9.0F, ownship->y - 7.0F), labelColor, "OWN");
+    }
+
+    if (selectedTrackEstimatedPositionMeters)
+    {
+        if (const auto track = ProjectWorldToMainViewport(camera, *selectedTrackEstimatedPositionMeters))
+        {
+            constexpr float radius = 7.0F;
+            drawList->AddCircle(*track, radius, trackColor, 12, 2.0F);
+            drawList->AddLine(ImVec2(track->x - 9.0F, track->y), ImVec2(track->x + 9.0F, track->y), trackColor, 1.0F);
+            drawList->AddLine(ImVec2(track->x, track->y - 9.0F), ImVec2(track->x, track->y + 9.0F), trackColor, 1.0F);
+            const std::string label = selectedTrackId
+                ? "TRK #" + std::to_string(static_cast<unsigned long long>(*selectedTrackId))
+                : std::string("TRK");
+            drawList->AddText(ImVec2(track->x + 10.0F, track->y - 7.0F), labelColor, label.c_str());
+        }
+    }
+
+    if (playerTorpedoPositionMeters)
+    {
+        if (const auto torpedo = ProjectWorldToMainViewport(camera, *playerTorpedoPositionMeters))
+        {
+            constexpr float radius = 5.0F;
+            const ImVec2 points[4]{
+                ImVec2(torpedo->x, torpedo->y - radius),
+                ImVec2(torpedo->x + radius, torpedo->y),
+                ImVec2(torpedo->x, torpedo->y + radius),
+                ImVec2(torpedo->x - radius, torpedo->y)};
+            drawList->AddConvexPolyFilled(points, 4, torpedoColor);
+            drawList->AddText(ImVec2(torpedo->x + 8.0F, torpedo->y - 7.0F), labelColor, "TORP");
+        }
+    }
+
+    const char* tierLabel = band == Camera::MultiScaleCameraBand::Strategic
+        ? "STRATEGIC SYMBOL VIEW"
+        : "OPERATIONAL SYMBOL VIEW";
+    const ImVec2 textSize = ImGui::CalcTextSize(tierLabel);
+    drawList->AddText(
+        ImVec2(viewport->WorkPos.x + 0.5F * (viewport->WorkSize.x - textSize.x), viewport->WorkPos.y + 18.0F),
+        IM_COL32(220, 235, 245, 210),
+        tierLabel);
 }
 } // namespace DeepRun::Game::Combat

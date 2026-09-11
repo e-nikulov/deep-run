@@ -858,6 +858,30 @@ int main(const int argumentCount, char** argumentValues)
                                 .ownshipProjectedPixels = DeepRun::Game::Camera::ProjectedHorizontalPixels(
                                     *ownshipLengthMeters, framing.horizontalSpanMeters, viewportWidthPixels)});
                         }
+
+                        if (framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Operational ||
+                            framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Strategic)
+                        {
+                            const auto ownship = playground.BuildPhysicalCollisionProxySnapshot();
+                            if (!ownship)
+                            {
+                                std::cerr << "[Game][ERROR] M5 symbol-view ownship snapshot failed: "
+                                          << ownship.error() << '\n';
+                                return false;
+                            }
+                            std::optional<DeepRun::Physics::PhysicsVector3> playerTorpedoPosition{};
+                            if (combatRendered->presentation.playerTorpedo)
+                            {
+                                playerTorpedoPosition = combatRendered->presentation.playerTorpedo->positionMeters;
+                            }
+                            DeepRun::Game::Combat::DrawTacticalSituationOverlay(
+                                framing.band,
+                                *camera,
+                                ownship->positionMeters,
+                                combatUiSnapshot->selectedTrackEstimatedPositionMeters,
+                                combatUiSnapshot->selectedTrackId,
+                                playerTorpedoPosition);
+                        }
                     }
                     if (combatAcceptance.has_value())
                     {
