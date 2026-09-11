@@ -158,10 +158,30 @@ public:
         {
             return std::unexpected("physical playground presentation camera framing must be finite and positive");
         }
+
+        float effectiveTargetOffsetYMeters = targetOffsetYMeters;
+        // M5-V1 normal combat composition is underwater-first. Current normal-play camera producers reserve
+        // vertical input by publishing Y=0, so that value is the opt-in signal for this production default.
+        // Derive the target from the authoritative WaterBody surface; no sea level is copied into renderer or
+        // combat state. The 16:9 reference targets a 15% above-water band. Explicit future vertical framing and
+        // close inspection (<600 m) remain untouched, and the accepted M2/M3 path never calls this setter.
+        constexpr float M5NormalCombatReferenceAspectRatio = 16.0F / 9.0F;
+        constexpr float M5NormalCombatAboveWaterFraction = 0.15F;
+        constexpr float M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters = 600.0F;
+        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
+            horizontalSpanMeters >= M5NormalCombatSurfaceBiasMinimumHorizontalSpanMeters)
+        {
+            const float unshiftedTargetYMeters = initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
+            const float referenceVerticalSpanMeters = horizontalSpanMeters / M5NormalCombatReferenceAspectRatio;
+            const float desiredTargetWorldYMeters = water_->Config().surfaceLevelY +
+                (M5NormalCombatAboveWaterFraction - 0.5F) * referenceVerticalSpanMeters;
+            effectiveTargetOffsetYMeters = desiredTargetWorldYMeters - unshiftedTargetYMeters;
+        }
+
         initialBodyWorldCenter_.x += targetOffsetXMeters - presentationCameraTargetOffsetXMeters_;
-        initialBodyWorldCenter_.y += targetOffsetYMeters - presentationCameraTargetOffsetYMeters_;
+        initialBodyWorldCenter_.y += effectiveTargetOffsetYMeters - presentationCameraTargetOffsetYMeters_;
         presentationCameraTargetOffsetXMeters_ = targetOffsetXMeters;
-        presentationCameraTargetOffsetYMeters_ = targetOffsetYMeters;
+        presentationCameraTargetOffsetYMeters_ = effectiveTargetOffsetYMeters;
         M2GameplayCameraHorizontalSpanMeters = horizontalSpanMeters;
         freePresentationCameraFraming_ = true;
         return {};
