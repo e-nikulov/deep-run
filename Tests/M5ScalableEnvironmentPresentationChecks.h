@@ -91,28 +91,48 @@ namespace DeepRun::Tests
     const auto noAbyssBands = BuildDeepWaterAbyssPresentationBands(1.0F);
     const auto invalidAbyssBands = BuildDeepWaterAbyssPresentationBands(
         (std::numeric_limits<float>::quiet_NaN)());
-    if (!abyssBands || abyssBands->size() != 4U || !noAbyssBands || !noAbyssBands->empty() ||
+    if (!abyssBands || abyssBands->size() != 32U || !noAbyssBands || !noAbyssBands->empty() ||
         invalidAbyssBands.has_value() ||
         std::abs(abyssBands->front().viewport.top - 0.60F) > 0.0001F ||
-        std::abs(abyssBands->back().viewport.bottom - 1.0F) > 0.0001F)
+        std::abs(abyssBands->back().viewport.bottom - 1.0F) > 0.0001F ||
+        std::abs(abyssBands->front().color.r - M2UnderwaterBackgroundColor.r) > 0.0001F ||
+        std::abs(abyssBands->front().color.g - M2UnderwaterBackgroundColor.g) > 0.0001F ||
+        std::abs(abyssBands->front().color.b - M2UnderwaterBackgroundColor.b) > 0.0001F)
     {
         return false;
     }
     for (std::size_t index = 1U; index < abyssBands->size(); ++index)
     {
-        if (std::abs((*abyssBands)[index - 1U].viewport.bottom - (*abyssBands)[index].viewport.top) > 0.0001F ||
-            (*abyssBands)[index].color.r > (*abyssBands)[index - 1U].color.r ||
-            (*abyssBands)[index].color.g > (*abyssBands)[index - 1U].color.g ||
-            (*abyssBands)[index].color.b > (*abyssBands)[index - 1U].color.b)
+        const auto& previous = (*abyssBands)[index - 1U];
+        const auto& current = (*abyssBands)[index];
+        if (std::abs(previous.viewport.bottom - current.viewport.top) > 0.0001F ||
+            current.color.r > previous.color.r || current.color.g > previous.color.g ||
+            current.color.b > previous.color.b ||
+            std::abs(current.color.b - previous.color.b) > 0.01F)
         {
             return false;
         }
     }
 
+    // Tactical context preserves the accepted local profile at the centre and descends into deep water
+    // away from it; the wide LOD therefore cannot become a flat replacement floor.
+    if (M5StrategicSeabedProfile.size() != 28U ||
+        M5StrategicSeabedProfile.front().yMeters >= -700.0F ||
+        M5StrategicSeabedProfile.back().yMeters >= -700.0F ||
+        M5StrategicSeabedProfile[7].xMeters != -400.0F ||
+        M5StrategicSeabedProfile[7].yMeters != -160.0F ||
+        M5StrategicSeabedProfile[15].xMeters != 0.0F ||
+        M5StrategicSeabedProfile[15].yMeters != -220.0F ||
+        M5StrategicSeabedProfile[20].xMeters != 400.0F ||
+        M5StrategicSeabedProfile[20].yMeters != -165.0F)
+    {
+        return false;
+    }
+
     const auto strategic = BuildStrategicSeabedPresentationModel();
     if (!strategic || strategic->primitives.size() != 1U ||
-        strategic->primitives[0].vertices.size() != 192U ||
-        strategic->primitives[0].indices.size() != 288U ||
+        strategic->primitives[0].vertices.size() != 324U ||
+        strategic->primitives[0].indices.size() != 486U ||
         std::abs(strategic->bounds.minimum.y - M5StrategicSeabedExtrusionBottomYMeters) > 0.001F)
     {
         return false;

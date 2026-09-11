@@ -2,6 +2,7 @@
 
 #include "Engine/Render/ClearRect.h"
 #include "Engine/Render/ModelDraw.h"
+#include "Game/WaterPresentation.h"
 
 #include <algorithm>
 #include <array>
@@ -38,12 +39,20 @@ struct StrategicSeabedPresentationPoint final
 // One finite, authored low-frequency silhouette for M5 tactical-wide presentation. It is deliberately not
 // derived from the local M3 profile, and it has no physics/navigation/acoustic consumer. Its fixed knots avoid
 // both obvious local-tile repetition and a general procedural-world system.
-inline constexpr std::array<StrategicSeabedPresentationPoint, 17> M5StrategicSeabedProfile{{
-    {-12'000.0F, -286.0F}, {-10'500.0F, -238.0F}, {-9'000.0F, -322.0F}, {-7'500.0F, -264.0F},
-    {-6'000.0F, -374.0F}, {-4'500.0F, -302.0F}, {-3'000.0F, -346.0F}, {-1'500.0F, -248.0F},
-    {0.0F, -330.0F}, {1'500.0F, -278.0F}, {3'000.0F, -402.0F}, {4'500.0F, -316.0F},
-    {6'000.0F, -232.0F}, {7'500.0F, -358.0F}, {9'000.0F, -294.0F}, {10'500.0F, -438.0F},
-    {12'000.0F, -340.0F}}};
+inline constexpr std::array<StrategicSeabedPresentationPoint, 28> M5StrategicSeabedProfile{{
+    // Wide context deliberately descends into deep ocean away from the authored local combat region.
+    {-12'000.0F, -2'000.0F}, {-9'000.0F, -1'600.0F}, {-6'000.0F, -1'200.0F},
+    {-4'000.0F, -900.0F}, {-2'500.0F, -650.0F}, {-1'500.0F, -450.0F}, {-800.0F, -300.0F},
+    // The centre reproduces the accepted M3 authored profile knots exactly so local -> tactical LOD does not
+    // move the visible seabed under the player.
+    {-400.0F, -160.0F}, {-320.0F, -155.0F}, {-250.0F, -150.0F},
+    {-180.0F, -125.0F}, {-130.0F, -120.0F}, {-90.0F, -132.0F},
+    {-45.0F, -140.0F}, {-20.0F, -205.0F}, {0.0F, -220.0F},
+    {80.0F, -220.0F}, {120.0F, -205.0F}, {180.0F, -180.0F},
+    {260.0F, -170.0F}, {400.0F, -165.0F},
+    {800.0F, -300.0F}, {1'500.0F, -480.0F}, {2'500.0F, -700.0F},
+    {4'000.0F, -950.0F}, {6'000.0F, -1'200.0F}, {9'000.0F, -1'600.0F},
+    {12'000.0F, -2'000.0F}}};
 
 struct EnvironmentPresentationTile final
 {
@@ -108,25 +117,37 @@ BuildDeepWaterAbyssPresentationBands(const float gameplayBandBottomViewportY)
         return std::vector<DeepWaterAbyssPresentationBand>{};
     }
 
-    // Four broad presentation-only bands give the unknown/deep water below the normal 700 m gameplay band
-    // an intentional abyss identity. They are not depth samples and create no terrain/simulation authority.
-    constexpr std::array<Render::RgbaColor, 4> Colors{{
-        {0.016F, 0.060F, 0.095F, 1.0F},
-        {0.012F, 0.045F, 0.076F, 1.0F},
-        {0.008F, 0.032F, 0.058F, 1.0F},
-        {0.005F, 0.022F, 0.042F, 1.0F}}};
-    const float height = (1.0F - top) / static_cast<float>(Colors.size());
-    std::vector<DeepWaterAbyssPresentationBand> result;
-    result.reserve(Colors.size());
-    for (std::size_t index = 0U; index < Colors.size(); ++index)
+    // The former four broad rectangles read as a second flat seabed. Many shallow steps start at the exact
+    // normal underwater clear colour and smoothly approach deep-ocean darkness. A future shader may replace
+    // this renderer-neutral fallback without changing bathymetry or simulation authority.
+    constexpr std::size_t BandCount = 32U;
+    constexpr Render::RgbaColor DeepAbyssColor{0.0008F, 0.0080F, 0.0220F, 1.0F};
+    const Render::RgbaColor shallowColor = M2UnderwaterBackgroundColor;
+    const float height = (1.0F - top) / static_cast<float>(BandCount);
+    const auto lerpColor = [](const float first, const float second, const float t) noexcept
     {
+        return first + (second - first) * t;
+    };
+
+    std::vector<DeepWaterAbyssPresentationBand> result;
+    result.reserve(BandCount);
+    for (std::size_t index = 0U; index < BandCount; ++index)
+    {
+        const float linearT = BandCount > 1U
+            ? static_cast<float>(index) / static_cast<float>(BandCount - 1U)
+            : 1.0F;
+        const float smoothT = linearT * linearT * (3.0F - 2.0F * linearT);
         const float bandTop = top + static_cast<float>(index) * height;
-        const float bandBottom = index + 1U == Colors.size()
+        const float bandBottom = index + 1U == BandCount
             ? 1.0F
             : top + static_cast<float>(index + 1U) * height;
         result.push_back(DeepWaterAbyssPresentationBand{
             .viewport = {.left = 0.0F, .top = bandTop, .right = 1.0F, .bottom = bandBottom},
-            .color = Colors[index]});
+            .color = {
+                lerpColor(shallowColor.r, DeepAbyssColor.r, smoothT),
+                lerpColor(shallowColor.g, DeepAbyssColor.g, smoothT),
+                lerpColor(shallowColor.b, DeepAbyssColor.b, smoothT),
+                1.0F}});
     }
     return result;
 }

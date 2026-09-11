@@ -1620,13 +1620,20 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         if (!localSeabedCoversView)
         {
             seabedPresentationDraws = {};
-            // Generic M5 has no authoritative wide-area bathymetry. Do not manufacture a seabed merely because
-            // the camera zoomed out. Explicit future/mission-authored bathymetry can opt into the temporary
-            // strategic profile at this boundary without changing physics/navigation/acoustics.
-            constexpr bool M5GenericWideAreaBathymetryKnown = false;
-            if (UseStrategicSeabedPresentation(camera->width, M5GenericWideAreaBathymetryKnown))
+            // This concrete M5 combat playground owns an authored tactical-context bathymetry extension whose
+            // central knots match the accepted local M3 seabed. It is presentation-only (no Jolt/nav/acoustic
+            // authority) but zoom must not make a known shallow seabed disappear. Other future regions may
+            // explicitly choose unknown/deep bathymetry and fall through to the abyss presentation.
+            constexpr bool M5CombatRegionWideAreaBathymetryKnown = true;
+            if (UseStrategicSeabedPresentation(camera->width, M5CombatRegionWideAreaBathymetryKnown))
             {
                 strategicSeabedPresentationDraws = strategicSeabedDraws_;
+            }
+            else
+            {
+                // Flora is rooted in the local seabed profile. Once neither detailed nor tactical-context
+                // bathymetry is rendered, retaining it would leave plants visibly suspended in deep water.
+                floraPresentationDraws = {};
             }
         }
     }
