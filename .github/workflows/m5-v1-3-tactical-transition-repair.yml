@@ -1,0 +1,47 @@
+name: M5 V1.3 Tactical Transition Repair
+
+on:
+  push:
+    branches:
+      - fix/m5-v1-2-underwater-camera-scale
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: fix/m5-v1-2-underwater-camera-scale
+          fetch-depth: 0
+
+      - name: Apply scoped tactical transition repair
+        shell: pwsh
+        run: |
+          python .github/m5_v13_tactical_fix.py
+          if ($LASTEXITCODE -ne 0) { throw "repair script failed" }
+          git diff --check
+          $changed = @(git status --short)
+          $allowed = @(
+            'Game/Environment/ScalableEnvironmentPresentation.h',
+            'Game/PhysicalPlayground.cpp',
+            'Tests/M5ScalableEnvironmentPresentationChecks.h',
+            '.github/m5_v13_tactical_fix.py'
+          )
+          foreach ($line in $changed) {
+            $path = $line.Substring(3)
+            if ($allowed -notcontains $path) { throw "unexpected changed file: $path" }
+          }
+
+      - name: Commit repair
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: preserve tactical bathymetry transition"
+          git push origin HEAD:fix/m5-v1-2-underwater-camera-scale
