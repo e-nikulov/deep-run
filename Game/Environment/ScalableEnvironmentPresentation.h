@@ -16,10 +16,12 @@
 
 namespace DeepRun::Game
 {
-// M5-H.4 presentation policy. The accepted M3 environment remains the only authoritative local section;
-// these values only decide how that already-uploaded visual representation is repeated while the player
-// views a wider tactical frame. No additional physics, navigation, acoustic terrain or gameplay state exists.
-inline constexpr float M5DetailedEnvironmentMaximumHorizontalSpanMeters = 9'000.0F;
+// M5-H.4/M5-V1 presentation policy. The accepted M3 environment remains the only authoritative local section.
+// Reusing that 800 m section is acceptable only while the view is still genuinely local. Beyond 2 km the
+// copied relief becomes more visually misleading than useful, so tactical-wide presentation deliberately
+// falls back to the scalable water/depth background instead of wallpapering identical local geometry.
+// No additional physics, navigation, acoustic terrain or gameplay state exists.
+inline constexpr float M5DetailedEnvironmentMaximumHorizontalSpanMeters = 2'000.0F;
 inline constexpr std::size_t M5DetailedEnvironmentMaximumVisibleTileCount = 16U;
 
 struct EnvironmentPresentationTile final
@@ -119,8 +121,8 @@ inline constexpr std::string_view DefaultM5SuppressedTiledMaterial = "Underwater
 
 [[nodiscard]] inline float TileMaterialVariation(const int tileIndex) noexcept
 {
-    // A small deterministic luminance variation breaks the obvious copy/paste cadence without inventing a
-    // second terrain representation. Tile zero stays exactly authored; neighbouring copies vary by <= 7%.
+    // A small deterministic luminance variation breaks the obvious copy/paste cadence while multiple local
+    // tiles are still justified. Tile zero stays exactly authored; neighbouring copies vary by <= 7%.
     constexpr std::array<float, 7> factors{1.0F, 0.94F, 1.05F, 0.97F, 1.07F, 0.95F, 1.03F};
     const long long signedIndex = static_cast<long long>(tileIndex);
     const std::size_t index = static_cast<std::size_t>(signedIndex < 0 ? -signedIndex : signedIndex) % factors.size();
