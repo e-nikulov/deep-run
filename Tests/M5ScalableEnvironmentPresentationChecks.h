@@ -5,6 +5,7 @@
 #include "Game/Environment/VerticalOceanGameplayContract.h"
 
 #include <cmath>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -16,7 +17,8 @@ namespace DeepRun::Tests
 
     if (NormalGameplaySeaSurfaceReferenceYMeters != 0.0F ||
         NormalGameplayMaximumVisibleDepthMeters != 700.0F ||
-        NormalGameplayOceanBottomReferenceYMeters != -700.0F ||
+        NormalGameplayBandBottomReferenceYMeters != -700.0F ||
+        NormalGameplayOceanBottomReferenceYMeters != NormalGameplayBandBottomReferenceYMeters ||
         NormalGameplayPeriscopeZoneMaximumDepthMeters != 20.0F ||
         NormalGameplayShallowZoneMaximumDepthMeters != 100.0F ||
         NormalGameplayPrimaryCombatZoneMaximumDepthMeters != 300.0F ||
@@ -35,16 +37,32 @@ namespace DeepRun::Tests
         return false;
     }
 
-    for (const auto& point : M5StrategicSeabedProfile)
+    // The normal gameplay band is not a seabed/world-end declaration.
+    if (ClassifyBathymetryDepthMeters(250.0F) != BathymetryDepthBand::Shelf ||
+        ClassifyBathymetryDepthMeters(650.0F) != BathymetryDepthBand::Continental ||
+        ClassifyBathymetryDepthMeters(1'500.0F) != BathymetryDepthBand::DeepOcean ||
+        ClassifyBathymetryDepthMeters(2'500.0F) != BathymetryDepthBand::Abyssal)
     {
-        if (!IsWithinNormalGameplayReferenceYMeters(point.yMeters))
-        {
-            return false;
-        }
+        return false;
     }
-    // The strategic render skirt is deliberately outside the D0 gameplay ocean. It exists only to prevent a
-    // visible underside and must not be mistaken for playable/authored seabed depth.
-    if (M5StrategicSeabedExtrusionBottomYMeters >= NormalGameplayOceanBottomReferenceYMeters ||
+
+    const float localSky = AboveWaterFractionForPresentationSpanMeters(800.0F);
+    const float transitionSky = AboveWaterFractionForPresentationSpanMeters(1'550.0F);
+    const float tacticalSky = AboveWaterFractionForPresentationSpanMeters(3'600.0F);
+    const float operationalSky = AboveWaterFractionForPresentationSpanMeters(10'000.0F);
+    const float strategicSky = AboveWaterFractionForPresentationSpanMeters(200'000.0F);
+    if (std::abs(localSky - 0.15F) > 0.0001F ||
+        !(transitionSky > localSky && transitionSky < tacticalSky) ||
+        std::abs(tacticalSky - 0.32F) > 0.0001F ||
+        std::abs(operationalSky - 0.36F) > 0.0001F ||
+        std::abs(strategicSky - 0.40F) > 0.0001F)
+    {
+        return false;
+    }
+
+    // The legacy render skirt is not gameplay seabed. It may extend below the normal band because it is only
+    // an implementation detail for an explicitly-known temporary strategic profile.
+    if (M5StrategicSeabedExtrusionBottomYMeters >= NormalGameplayBandBottomReferenceYMeters ||
         IsWithinNormalGameplayReferenceYMeters(M5StrategicSeabedExtrusionBottomYMeters))
     {
         return false;
@@ -57,14 +75,38 @@ namespace DeepRun::Tests
     {
         return false;
     }
-    if (!UseStrategicSeabedPresentation(600.0F) ||
-        !UseStrategicSeabedPresentation(Game::Combat::M5CombatLocalCameraHorizontalSpanMeters) ||
-        !UseStrategicSeabedPresentation(3'600.0F) ||
-        !UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters) ||
-        UseStrategicSeabedPresentation(0.0F) ||
-        UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters + 1.0F))
+
+    // Generic M5 wide view must NOT invent bathymetry. The temporary strategic profile is explicit opt-in only.
+    if (UseStrategicSeabedPresentation(3'600.0F) ||
+        UseStrategicSeabedPresentation(600.0F, true) ||
+        !UseStrategicSeabedPresentation(3'600.0F, true) ||
+        !UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters, true) ||
+        UseStrategicSeabedPresentation(0.0F, true) ||
+        UseStrategicSeabedPresentation(M5StrategicSeabedMaximumHorizontalSpanMeters + 1.0F, true))
     {
         return false;
+    }
+
+    const auto abyssBands = BuildDeepWaterAbyssPresentationBands(0.60F);
+    const auto noAbyssBands = BuildDeepWaterAbyssPresentationBands(1.0F);
+    const auto invalidAbyssBands = BuildDeepWaterAbyssPresentationBands(
+        (std::numeric_limits<float>::quiet_NaN)());
+    if (!abyssBands || abyssBands->size() != 4U || !noAbyssBands || !noAbyssBands->empty() ||
+        invalidAbyssBands.has_value() ||
+        std::abs(abyssBands->front().viewport.top - 0.60F) > 0.0001F ||
+        std::abs(abyssBands->back().viewport.bottom - 1.0F) > 0.0001F)
+    {
+        return false;
+    }
+    for (std::size_t index = 1U; index < abyssBands->size(); ++index)
+    {
+        if (std::abs((*abyssBands)[index - 1U].viewport.bottom - (*abyssBands)[index].viewport.top) > 0.0001F ||
+            (*abyssBands)[index].color.r > (*abyssBands)[index - 1U].color.r ||
+            (*abyssBands)[index].color.g > (*abyssBands)[index - 1U].color.g ||
+            (*abyssBands)[index].color.b > (*abyssBands)[index - 1U].color.b)
+        {
+            return false;
+        }
     }
 
     const auto strategic = BuildStrategicSeabedPresentationModel();
