@@ -75,8 +75,6 @@ struct CombatPlaygroundPresentationDraw final
     Render::ModelDrawInstance draw{};
 };
 
-// M5-V1 keeps the real impact position/radius as authority, but gives the production presentation enough
-// persistence for a human to read the event in a rendered frame. This lifetime has no damage/gameplay effect.
 inline constexpr double M5CombatExplosionPresentationLifetimeSeconds = 1.5;
 
 [[nodiscard]] inline std::expected<CombatPlaygroundPresentationSnapshot, std::string>
@@ -383,8 +381,6 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     std::vector<CombatPlaygroundPresentationDraw> draws;
     draws.reserve(8U);
 
-    // M5-V1 readability is presentation-only. Proxy dimensions deliberately favour a readable silhouette at
-    // multi-kilometre side-view scale; the destroyer's Jolt body remains the sole collision/impact authority.
     const auto hullTransform = PoseScaleTransform(
         snapshot.destroyerBody.position,
         snapshot.destroyerBody.orientation,
@@ -461,10 +457,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
 
     if (snapshot.decoy && snapshot.decoy->active)
     {
-        const auto transform = PoseScaleTransform(
-            snapshot.decoy->positionMeters,
-            {},
-            {.x = 12.0F, .y = 12.0F, .z = 12.0F});
+        const auto transform = PoseScaleTransform(snapshot.decoy->positionMeters, {}, {.x = 12.0F, .y = 12.0F, .z = 12.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -482,10 +475,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
 
     if (snapshot.playerDecoy && snapshot.playerDecoy->active)
     {
-        const auto transform = PoseScaleTransform(
-            snapshot.playerDecoy->positionMeters,
-            {},
-            {.x = 12.0F, .y = 12.0F, .z = 12.0F});
+        const auto transform = PoseScaleTransform(snapshot.playerDecoy->positionMeters, {}, {.x = 12.0F, .y = 12.0F, .z = 12.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -528,16 +518,16 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     {
         const float authoredPulseRadius = snapshot.explosion->radiusMeters *
             (0.80F + 0.70F * (1.0F - snapshot.explosion->normalizedAge));
-        // Preserve the authoritative center/radius input while enforcing only a minimum visual footprint.
-        // X/Y provide the readable side-view flash; Z remains deliberately thin so the VFX stays inside the
-        // shared production camera depth range instead of being clipped by geometry it does not author.
         const float readablePulseRadius = (std::max)(42.0F, authoredPulseRadius);
+        // A 2.5D impact flash keeps authoritative screen-plane X/Y, while a small presentation-only +Z bias
+        // places the flash in front of the struck surface hull. It changes neither hit position nor simulation.
         const auto transform = PoseScaleTransform(
             snapshot.explosion->positionMeters,
             {},
             {.x = readablePulseRadius * 2.0F,
              .y = readablePulseRadius * 2.0F,
-             .z = 8.0F});
+             .z = 8.0F},
+            {.x = 0.0F, .y = 0.0F, .z = 16.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
