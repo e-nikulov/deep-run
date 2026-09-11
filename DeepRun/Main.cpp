@@ -760,6 +760,26 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     else
                     {
+                        const auto ownshipLengthMeters = playground.ProductionSubmarinePresentationLengthMeters();
+                        const std::uint32_t viewportWidthPixels = renderer.MemoryDiagnostics().width;
+                        const auto maximumCameraSpan = ownshipLengthMeters
+                            ? DeepRun::Game::Camera::MaximumHorizontalSpanForProjectedWidth(
+                                  *ownshipLengthMeters, viewportWidthPixels)
+                            : std::expected<float, std::string>{std::unexpected(ownshipLengthMeters.error())};
+                        if (!maximumCameraSpan)
+                        {
+                            std::cerr << "[Game][ERROR] M5 visual zoom limit failed: "
+                                      << maximumCameraSpan.error() << '\n';
+                            return false;
+                        }
+                        const auto maximumApplied = multiScaleCamera.SetMaximumHorizontalSpanMeters(*maximumCameraSpan);
+                        if (!maximumApplied)
+                        {
+                            std::cerr << "[Game][ERROR] M5 visual zoom cap application failed: "
+                                      << maximumApplied.error() << '\n';
+                            return false;
+                        }
+
                         DeepRun::Game::Camera::MultiScaleCameraInput cameraInput =
                             inputState != nullptr
                                 ? DeepRun::Game::Camera::MultiScaleCameraInputFromState(*inputState)
@@ -826,6 +846,18 @@ int main(const int argumentCount, char** argumentValues)
                     if (!options.smokeTest && combatUiSnapshot.has_value())
                     {
                         DeepRun::Game::Combat::DrawCombatCommandUi(*combatUiSnapshot);
+                        const auto ownshipLengthMeters = playground.ProductionSubmarinePresentationLengthMeters();
+                        const auto framing = multiScaleCamera.Framing();
+                        const std::uint32_t viewportWidthPixels = renderer.MemoryDiagnostics().width;
+                        if (ownshipLengthMeters)
+                        {
+                            DeepRun::Game::Combat::DrawCameraScaleHud({
+                                .band = framing.band,
+                                .horizontalSpanMeters = framing.horizontalSpanMeters,
+                                .maximumHorizontalSpanMeters = multiScaleCamera.MaximumHorizontalSpanMeters(),
+                                .ownshipProjectedPixels = DeepRun::Game::Camera::ProjectedHorizontalPixels(
+                                    *ownshipLengthMeters, framing.horizontalSpanMeters, viewportWidthPixels)});
+                        }
                     }
                     if (combatAcceptance.has_value())
                     {

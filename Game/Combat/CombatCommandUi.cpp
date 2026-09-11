@@ -32,6 +32,19 @@ const char* TrackLifecycleName(const Perception::TrackLifecycleState lifecycle) 
     return "UNKNOWN";
 }
 
+const char* CameraBandName(const Camera::MultiScaleCameraBand band) noexcept
+{
+    switch (band)
+    {
+    case Camera::MultiScaleCameraBand::Detail: return "DETAIL";
+    case Camera::MultiScaleCameraBand::Local: return "LOCAL";
+    case Camera::MultiScaleCameraBand::Tactical: return "TACTICAL";
+    case Camera::MultiScaleCameraBand::Operational: return "OPERATIONAL";
+    case Camera::MultiScaleCameraBand::Strategic: return "STRATEGIC";
+    }
+    return "UNKNOWN";
+}
+
 const char* CommandName(const PlayerCombatCommandType command) noexcept
 {
     switch (command)
@@ -170,6 +183,36 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
     ImGui::TextUnformatted("RB / Space       Active sonar ping");
     ImGui::TextUnformatted("X / F            Deploy decoy");
+    ImGui::End();
+}
+
+void DrawCameraScaleHud(const CameraScaleHudSnapshot& snapshot)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport != nullptr)
+    {
+        constexpr float margin = 16.0F;
+        ImGui::SetNextWindowPos(
+            ImVec2(viewport->WorkPos.x + margin, viewport->WorkPos.y + viewport->WorkSize.y - margin),
+            ImGuiCond_Always,
+            ImVec2(0.0F, 1.0F));
+    }
+    ImGui::SetNextWindowBgAlpha(0.78F);
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize |
+                                       ImGuiWindowFlags_NoDecoration |
+                                       ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoNavInputs |
+                                       ImGuiWindowFlags_NoInputs;
+    if (!ImGui::Begin("##CAMERA_SCALE", nullptr, flags))
+    {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("VIEW  %s", CameraBandName(snapshot.band));
+    ImGui::Text("Scale: %.2f km", snapshot.horizontalSpanMeters / 1000.0F);
+    ImGui::Text("Ownship: %.1f px", snapshot.ownshipProjectedPixels);
+    ImGui::Text("Limit: %.2f km", snapshot.maximumHorizontalSpanMeters / 1000.0F);
     ImGui::End();
 }
 } // namespace DeepRun::Game::Combat

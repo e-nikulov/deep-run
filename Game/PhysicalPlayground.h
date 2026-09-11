@@ -219,6 +219,20 @@ public:
         return M2GameplayCameraHorizontalSpanMeters;
     }
 
+    [[nodiscard]] std::expected<float, std::string> ProductionSubmarinePresentationLengthMeters() const
+    {
+        if (!modelAsset_.IsValid())
+        {
+            return std::unexpected("physical playground production submarine model is unavailable");
+        }
+        const float lengthMeters = modelAsset_->bounds.maximum.x - modelAsset_->bounds.minimum.x;
+        if (!std::isfinite(lengthMeters) || !(lengthMeters > 0.0F))
+        {
+            return std::unexpected("physical playground production submarine length is invalid");
+        }
+        return lengthMeters;
+    }
+
     [[nodiscard]] float PresentationCameraTargetOffsetXMeters() const noexcept
     {
         return presentationCameraTargetOffsetXMeters_;

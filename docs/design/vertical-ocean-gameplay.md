@@ -180,3 +180,17 @@ For M5 closure:
 - M5 free-presentation uses a deterministic DAY sky baseline (scene-linear sky gradient plus sun cue); full time-of-day, weather and moon/night presentation remain future content scope.
 
 This contract does not start P-700, M6, procedural-world generation, aircraft AI or new simulation scope.
+
+## Player zoom readability limit
+
+Normal player zoom-out is bounded by presentation readability rather than the old fixed 600 km engineering
+ceiling. The production ownship must remain at least one horizontal render-target pixel wide. For an ownship
+world length `L` and current render-target width `Wpx`, the player-visible maximum horizontal span is:
+
+```text
+max_span_m = min(engineering_ceiling_m, L_m * Wpx / 1 px)
+```
+
+The limit is recalculated after resize. It is presentation-only: it does not change world size, simulation,
+sensors or weapon range. The camera HUD exposes current scale in kilometres, the ownship projected pixel
+footprint and the current resize-aware zoom limit.

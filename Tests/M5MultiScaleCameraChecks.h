@@ -14,7 +14,45 @@ namespace DeepRun::Tests
 {
     using namespace Game::Camera;
 
+    // Visual zoom is resolution-aware: at the maximum span a 154 m production Antey must still occupy
+    // at least one horizontal pixel. Smaller render targets therefore reduce the allowed world span.
+    const auto maxAt1280 = MaximumHorizontalSpanForProjectedWidth(154.0F, 1280U);
+    const auto maxAt640 = MaximumHorizontalSpanForProjectedWidth(154.0F, 640U);
+    if (!maxAt1280 || !maxAt640 || std::abs(*maxAt1280 - 197'120.0F) > 0.01F ||
+        std::abs(*maxAt640 - 98'560.0F) > 0.01F ||
+        std::abs(ProjectedHorizontalPixels(154.0F, *maxAt1280, 1280U) - 1.0F) > 0.0001F ||
+        MaximumHorizontalSpanForProjectedWidth(0.0F, 1280U) ||
+        MaximumHorizontalSpanForProjectedWidth(154.0F, 0U))
+    {
+        return false;
+    }
+
     MultiScaleTacticalCamera camera;
+    if (!camera.SetMaximumHorizontalSpanMeters(*maxAt1280) ||
+        camera.SetRequestedHorizontalSpanMeters(*maxAt1280 + 1.0F) ||
+        !camera.SetRequestedHorizontalSpanMeters(*maxAt1280))
+    {
+        return false;
+    }
+    for (int frame = 0; frame < 240; ++frame)
+    {
+        const auto capped = camera.Update({}, 1.0 / 60.0);
+        if (!capped)
+        {
+            return false;
+        }
+    }
+    if (camera.Framing().horizontalSpanMeters > *maxAt1280 + 0.01F ||
+        ProjectedHorizontalPixels(154.0F, camera.Framing().horizontalSpanMeters, 1280U) < 0.9999F ||
+        !camera.SetMaximumHorizontalSpanMeters(*maxAt640) ||
+        camera.Framing().horizontalSpanMeters > *maxAt640 + 0.01F ||
+        camera.Framing().requestedHorizontalSpanMeters > *maxAt640 + 0.01F)
+    {
+        return false;
+    }
+
+    // Reset the test camera to the normal initial state after exercising the runtime cap.
+    camera = MultiScaleTacticalCamera{};
     const auto initial = camera.Framing();
     if (initial.band != MultiScaleCameraBand::Local ||
         initial.presentationTier != MultiScalePresentationTier::FullDetail ||

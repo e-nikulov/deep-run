@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <expected>
 #include <string>
 
@@ -15,7 +16,10 @@ namespace DeepRun::Game::Camera
 // Wider spans are explicit tactical/operational/strategic presentation, not the default gameplay camera.
 inline constexpr float MultiScaleMinimumHorizontalSpanMeters = 80.0F;
 inline constexpr float MultiScaleLocalReferenceHorizontalSpanMeters = 600.0F;
+// Absolute engineering ceiling. Normal player zoom is further capped at runtime so the production
+// ownship projects to at least one horizontal pixel in the current render target.
 inline constexpr float MultiScaleMaximumHorizontalSpanMeters = 600'000.0F;
+inline constexpr float MultiScaleMinimumOwnshipProjectedPixels = 1.0F;
 inline constexpr float MultiScaleInitialHorizontalSpanMeters = 800.0F;
 inline constexpr float MultiScaleCloseInspectionMaximumOffsetMeters = 120.0F;
 
@@ -84,6 +88,39 @@ struct MultiScaleCameraInput final
     return MultiScalePresentationTier::FullDetail;
 }
 
+[[nodiscard]] inline std::expected<float, std::string> MaximumHorizontalSpanForProjectedWidth(
+    const float worldWidthMeters,
+    const std::uint32_t viewportWidthPixels,
+    const float minimumProjectedPixels = MultiScaleMinimumOwnshipProjectedPixels)
+{
+    if (!std::isfinite(worldWidthMeters) || !(worldWidthMeters > 0.0F) || viewportWidthPixels == 0U ||
+        !std::isfinite(minimumProjectedPixels) || !(minimumProjectedPixels > 0.0F))
+    {
+        return std::unexpected("multi-scale camera pixel-footprint limit received invalid dimensions");
+    }
+    const float maximumSpanMeters =
+        worldWidthMeters * static_cast<float>(viewportWidthPixels) / minimumProjectedPixels;
+    if (!std::isfinite(maximumSpanMeters) || maximumSpanMeters < MultiScaleMinimumHorizontalSpanMeters)
+    {
+        return std::unexpected("multi-scale camera pixel-footprint limit is below the supported minimum span");
+    }
+    return std::clamp(
+        maximumSpanMeters, MultiScaleMinimumHorizontalSpanMeters, MultiScaleMaximumHorizontalSpanMeters);
+}
+
+[[nodiscard]] inline float ProjectedHorizontalPixels(
+    const float worldWidthMeters,
+    const float horizontalSpanMeters,
+    const std::uint32_t viewportWidthPixels) noexcept
+{
+    if (!std::isfinite(worldWidthMeters) || !(worldWidthMeters > 0.0F) ||
+        !std::isfinite(horizontalSpanMeters) || !(horizontalSpanMeters > 0.0F) || viewportWidthPixels == 0U)
+    {
+        return 0.0F;
+    }
+    return worldWidthMeters / horizontalSpanMeters * static_cast<float>(viewportWidthPixels);
+}
+
 class MultiScaleTacticalCamera final
 {
 public:
@@ -113,7 +150,7 @@ public:
             requestedSpanMeters_ = std::clamp(
                 requestedSpanMeters_ * static_cast<float>(std::exp2(static_cast<double>(zoomOctaves))),
                 MultiScaleMinimumHorizontalSpanMeters,
-                MultiScaleMaximumHorizontalSpanMeters);
+                maximumHorizontalSpanMeters_);
         }
 
         if (deltaSeconds > 0.0F)
@@ -140,12 +177,32 @@ public:
     [[nodiscard]] std::expected<void, std::string> SetRequestedHorizontalSpanMeters(const float spanMeters)
     {
         if (!std::isfinite(spanMeters) || spanMeters < MultiScaleMinimumHorizontalSpanMeters ||
-            spanMeters > MultiScaleMaximumHorizontalSpanMeters)
+            spanMeters > maximumHorizontalSpanMeters_)
         {
-            return std::unexpected("multi-scale camera requested span is outside the supported 80 m..600 km range");
+            return std::unexpected("multi-scale camera requested span is outside the current visual zoom limit");
         }
         requestedSpanMeters_ = spanMeters;
         return {};
+    }
+
+    [[nodiscard]] std::expected<void, std::string> SetMaximumHorizontalSpanMeters(const float spanMeters)
+    {
+        if (!std::isfinite(spanMeters) || spanMeters < MultiScaleMinimumHorizontalSpanMeters ||
+            spanMeters > MultiScaleMaximumHorizontalSpanMeters)
+        {
+            return std::unexpected("multi-scale camera maximum span is outside the supported engineering range");
+        }
+        maximumHorizontalSpanMeters_ = spanMeters;
+        requestedSpanMeters_ = (std::min)(requestedSpanMeters_, maximumHorizontalSpanMeters_);
+        spanMeters_ = (std::min)(spanMeters_, maximumHorizontalSpanMeters_);
+        ClampHorizontalPan();
+        UpdateBandWithHysteresis();
+        return {};
+    }
+
+    [[nodiscard]] float MaximumHorizontalSpanMeters() const noexcept
+    {
+        return maximumHorizontalSpanMeters_;
     }
 
     [[nodiscard]] std::expected<void, std::string> FocusAtOffsets(
@@ -231,6 +288,7 @@ private:
     float targetOffsetXMeters_ = 0.0F;
     float spanMeters_ = MultiScaleInitialHorizontalSpanMeters;
     float requestedSpanMeters_ = MultiScaleInitialHorizontalSpanMeters;
+    float maximumHorizontalSpanMeters_ = MultiScaleMaximumHorizontalSpanMeters;
     MultiScaleCameraBand band_ = MultiScaleCameraBand::Local;
 };
 } // namespace DeepRun::Game::Camera
