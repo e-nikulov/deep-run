@@ -799,16 +799,16 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << camera.error() << '\n';
                         return false;
                     }
-                    const auto combatRendered = combatPlayground->Render(
+                    const auto combatRendered = combatPlayground->RenderWithPresentation(
                         renderer, *physics, *camera, simulationTimeSeconds);
                     if (!combatRendered)
                     {
                         std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
                         return false;
                     }
-                    if (combatRendered->drawCalls < 2U || combatRendered->drawCalls > 8U ||
-                        combatRendered->submittedPrimitives != combatRendered->drawCalls ||
-                        combatRendered->submittedIndices != combatRendered->drawCalls * 36U)
+                    if (combatRendered->stats.drawCalls < 2U || combatRendered->stats.drawCalls > 8U ||
+                        combatRendered->stats.submittedPrimitives != combatRendered->stats.drawCalls ||
+                        combatRendered->stats.submittedIndices != combatRendered->stats.drawCalls * 36U)
                     {
                         std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
                         return false;
@@ -820,8 +820,9 @@ int main(const int argumentCount, char** argumentValues)
                     if (combatAcceptance.has_value())
                     {
                         const auto acceptanceRendered = combatAcceptance->ObserveRender(
-                            *combatPlayground->Runtime(), *physics, *camera, *combatRendered,
-                            renderer.AspectRatio(), combatPlayground->PresentationModelValid(renderer));
+                            *combatPlayground->Runtime(), *physics, *camera, combatRendered->stats,
+                            renderer.AspectRatio(), combatPlayground->PresentationModelValid(renderer),
+                            combatRendered->presentation, combatRendered->explosionDrawn);
                         if (!acceptanceRendered)
                         {
                             std::cerr << "[Game][ERROR] " << acceptanceRendered.error() << '\n';

@@ -306,6 +306,11 @@ private:
     std::vector<Physics::PhysicsBodyHandle> seabedBodies_;
     Render::GpuModelHandle seabedModel_;
     std::vector<Render::ModelDrawInstance> seabedDraws_;
+    // One fixed, presentation-only multi-kilometre seabed silhouette. It has no collision, navigation,
+    // acoustic or gameplay representation and is used only after the bounded local section is no longer
+    // suitable for the current camera span.
+    Render::GpuModelHandle strategicSeabedModel_;
+    std::vector<Render::ModelDrawInstance> strategicSeabedDraws_;
     // M3-G immutable presentation-only vegetation. Its profile-derived roots and ModelAsset stay Game-owned;
     // the renderer owns only this opaque GPU upload and does not feed environment truth back into Game.
     std::optional<UnderwaterFloraField> floraField_;

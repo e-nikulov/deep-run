@@ -4,6 +4,7 @@
 #include "Engine/Render/Camera.h"
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Combat/CombatPlaygroundCamera.h"
+#include "Game/Combat/CombatPlaygroundPresentation.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 
@@ -63,6 +64,26 @@ struct M5CombatAcceptanceRecord final
     bool imageCaptured = false;
     std::string imagePath{};
 };
+
+[[nodiscard]] inline bool IsM5PostImpactPresentationReady(
+    const M5CombatAcceptanceSnapshot& authoritativeSnapshot,
+    const CombatPlaygroundPresentationSnapshot& productionSnapshot,
+    const bool explosionDrawn) noexcept
+{
+    if (!authoritativeSnapshot.hasImpact || !authoritativeSnapshot.explosionPositionMeters.has_value() ||
+        !productionSnapshot.explosion.has_value() || !explosionDrawn ||
+        !productionSnapshot.explosion->positionMeters.IsFinite())
+    {
+        return false;
+    }
+    const auto& authoritativePosition = *authoritativeSnapshot.explosionPositionMeters;
+    const auto& productionPosition = productionSnapshot.explosion->positionMeters;
+    const float dx = productionPosition.x - authoritativePosition.x;
+    const float dy = productionPosition.y - authoritativePosition.y;
+    const float dz = productionPosition.z - authoritativePosition.z;
+    return std::isfinite(dx) && std::isfinite(dy) && std::isfinite(dz) &&
+           std::sqrt(dx * dx + dy * dy + dz * dz) <= 0.01F;
+}
 
 // M5-V1 capture composition points are presentation acceptance policy only. They select when a real live
 // simulation state becomes human-reviewable; they never alter torpedo movement, seeker authority or impact.
@@ -314,7 +335,9 @@ public:
         const Render::OrthographicCamera& camera,
         const Render::ModelDrawStats& combatDrawStats,
         const float rendererAspectRatio,
-        const bool gpuPresentationHandleValid)
+        const bool gpuPresentationHandleValid,
+        const CombatPlaygroundPresentationSnapshot& presentationSnapshot,
+        const bool explosionDrawn)
     {
         // WindowFrameCapture reads the most recently presented client image, while this callback runs before
         // the current Present. The first render therefore has no valid D3D12 frame for PrintWindow/BitBlt yet.
@@ -394,6 +417,21 @@ public:
         if (!pendingSnapshot_.has_value())
         {
             return std::unexpected("M5 visual acceptance lost its presented checkpoint snapshot");
+        }
+
+        // POST_IMPACT may only arm its capture after the real production render path has projected the live
+        // explosion and included that element in the current combat draw. The callback itself runs before the
+        // current Present; once armed, the next callback captures this exact already-presented frame.
+        if (*pending_ == M5CombatAcceptanceCheckpoint::PostImpact && !pendingPresentedFrameAvailable_)
+        {
+            if (!presentationSnapshot.explosion.has_value() || !explosionDrawn)
+            {
+                return std::optional<M5CombatAcceptanceRecord>{};
+            }
+            if (!IsM5PostImpactPresentationReady(*pendingSnapshot_, presentationSnapshot, explosionDrawn))
+            {
+                return std::unexpected("M5 POST_IMPACT presentation explosion is not the authoritative impact");
+            }
         }
         M5CombatAcceptanceRecord record{
             .checkpoint = *pending_,

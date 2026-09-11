@@ -623,6 +623,27 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground seabed presentation initialization validation failed");
     }
 
+    auto strategicSeabed = BuildStrategicSeabedPresentationModel();
+    if (!strategicSeabed)
+    {
+        return std::unexpected("physical playground strategic seabed construction failed: " + strategicSeabed.error());
+    }
+    const auto strategicSeabedUpload = renderer.UploadModel(*strategicSeabed);
+    const auto strategicSeabedDraws = Render::PrepareModelDraws(*strategicSeabed);
+    if (!strategicSeabedUpload || !strategicSeabedDraws || strategicSeabed->materials.size() != 1U ||
+        strategicSeabed->primitives.size() != 1U || strategicSeabed->nodes.size() != 1U ||
+        strategicSeabedDraws->size() != 1U || !strategicSeabedUpload->stats.uploadCompleted ||
+        !strategicSeabedUpload->handle.IsValid() || !renderer.IsGpuModelValid(strategicSeabedUpload->handle) ||
+        strategicSeabedUpload->stats.primitiveCount != 1U ||
+        strategicSeabedUpload->stats.indexCount != strategicSeabed->primitives.front().indices.size() ||
+        strategicSeabedDraws->front().modelToWorld.values != Assets::ModelTransform{}.values)
+    {
+        return std::unexpected(
+            "physical playground strategic seabed presentation initialization validation failed" +
+            (!strategicSeabedUpload ? ": " + strategicSeabedUpload.error() :
+             !strategicSeabedDraws ? ": " + strategicSeabedDraws.error() : std::string{}));
+    }
+
     // IG1-C body origin follows the production collision contract. The render bounds center is not used for
     // collision size, center, initial placement, or model-to-body composition.
     const Assets::ModelVector3 collisionCenterModel = collisionProxy.localCenter;
@@ -961,6 +982,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     seabedSection_ = std::move(*seabed);
     seabedModel_ = seabedUpload->handle;
     seabedDraws_ = std::move(*seabedDraws);
+    strategicSeabedModel_ = strategicSeabedUpload->handle;
+    strategicSeabedDraws_ = std::move(*strategicSeabedDraws);
     floraField_ = std::move(*flora);
     floraModel_ = floraUpload->handle;
     floraDraws_ = std::move(*floraDraws);
@@ -1404,6 +1427,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
 {
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
         !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || !floraField_.has_value() ||
+        !renderer.IsGpuModelValid(strategicSeabedModel_) || strategicSeabedDraws_.size() != 1U ||
         floraField_->renderGeometry.primitives.size() != 1U || !renderer.IsGpuModelValid(floraModel_) ||
         floraDraws_.size() != 1U || !iceField_.has_value() || iceField_->renderGeometry.primitives.size() != 1U ||
         iceBodies_.size() != M3UnderwaterIceCollisionCount || !renderer.IsGpuModelValid(iceModel_) ||
@@ -1576,6 +1600,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     // authority. Wider tactical views reuse only presentation draw instances. No additional Jolt bodies,
     // WaterBody state, acoustic terrain, navigation authority or gameplay objects are created here.
     std::span<const Render::ModelDrawInstance> seabedPresentationDraws{seabedDraws_};
+    std::span<const Render::ModelDrawInstance> strategicSeabedPresentationDraws{};
     std::span<const Render::ModelDrawInstance> floraPresentationDraws{floraDraws_};
     std::span<const Render::ModelDrawInstance> icePresentationDraws{iceDraws_};
     Render::ModelDrawInstance faunaDraw = faunaBaseDraw_;
@@ -1670,10 +1695,13 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
         else
         {
-            // Operational/strategic bands intentionally do not multiply local M3 decoration. Higher-level
-            // contact/symbol presentation owns those scales; rendering a tiny bounded terrain tile would
-            // recreate the exact rectangular artifact H.4 removes.
+            // Wide tactical/operational presentation uses the one fixed low-frequency silhouette. It is a
+            // render-only asset; no local M3 geometry is multiplied and no new world/physics authority exists.
             seabedPresentationDraws = {};
+            if (UseStrategicSeabedPresentation(camera->width))
+            {
+                strategicSeabedPresentationDraws = strategicSeabedDraws_;
+            }
             floraPresentationDraws = {};
             icePresentationDraws = {};
             faunaPresentationDraws = {};
@@ -1700,6 +1728,17 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     if (!gerstnerStats)
     {
         return std::unexpected("physical playground Gerstner surface draw failed: " + gerstnerStats.error());
+    }
+
+    std::expected<Render::ModelDrawStats, std::string> strategicSeabedStats = Render::ModelDrawStats{};
+    if (!strategicSeabedPresentationDraws.empty())
+    {
+        strategicSeabedStats = renderer.DrawModel(
+            strategicSeabedModel_, strategicSeabedPresentationDraws, *camera);
+    }
+    if (!strategicSeabedStats)
+    {
+        return strategicSeabedStats;
     }
 
     std::expected<Render::ModelDrawStats, std::string> seabedStats = Render::ModelDrawStats{};
@@ -1788,16 +1827,19 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
     return Render::ModelDrawStats{
-        .drawCalls = gerstnerStats->drawCalls + seabedStats->drawCalls + floraStats->drawCalls + iceStats->drawCalls +
+        .drawCalls = gerstnerStats->drawCalls + strategicSeabedStats->drawCalls + seabedStats->drawCalls +
+                     floraStats->drawCalls + iceStats->drawCalls +
                      faunaStats->drawCalls + submarineStats->drawCalls + surfaceFloatStats->drawCalls +
                      particleStats->drawCalls,
         // ModelDrawStats::submittedPrimitives counts ModelDrawInstance primitives only. The Gerstner surface
         // and suspended field are non-model batches. The fauna field is an ordinary one-primitive model draw,
         // so include that submitted model primitive in the established model-only diagnostic.
-        .submittedPrimitives = seabedStats->submittedPrimitives + floraStats->submittedPrimitives + iceStats->submittedPrimitives +
+        .submittedPrimitives = strategicSeabedStats->submittedPrimitives + seabedStats->submittedPrimitives +
+                              floraStats->submittedPrimitives + iceStats->submittedPrimitives +
                               faunaStats->submittedPrimitives + submarineStats->submittedPrimitives +
                               surfaceFloatStats->submittedPrimitives,
-        .submittedIndices = gerstnerStats->indexCount + seabedStats->submittedIndices + floraStats->submittedIndices +
+        .submittedIndices = gerstnerStats->indexCount + strategicSeabedStats->submittedIndices +
+                            seabedStats->submittedIndices + floraStats->submittedIndices +
                             iceStats->submittedIndices + submarineStats->submittedIndices + surfaceFloatStats->submittedIndices +
                             faunaStats->submittedIndices + particleStats->indexCount};
 }

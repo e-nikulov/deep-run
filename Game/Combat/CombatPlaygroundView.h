@@ -3,6 +3,7 @@
 #include "Engine/Render/D3D12Renderer.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
 
+#include <algorithm>
 #include <expected>
 #include <span>
 #include <string>
@@ -11,6 +12,13 @@
 
 namespace DeepRun::Game::Combat
 {
+struct CombatPlaygroundRenderFrame final
+{
+    CombatPlaygroundPresentationSnapshot presentation{};
+    Render::ModelDrawStats stats{};
+    bool explosionDrawn = false;
+};
+
 // M5-H.1-B renderer composition for the bounded combat playground. The view owns only an opaque GPU upload.
 // Simulation, PhysicsWorld, TrackManager, target selection, damage and weapon lifecycle all remain external
 // authorities. Each frame is rebuilt from the read-only presentation snapshot defined by H.1-A.
@@ -41,7 +49,7 @@ public:
         return CombatPlaygroundView(uploaded->handle);
     }
 
-    [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
+    [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(
         Render::D3D12Renderer& renderer,
         const CombatPlaygroundRuntime& runtime,
         const Physics::PhysicsWorld& physicsWorld,
@@ -87,7 +95,29 @@ public:
         {
             return std::unexpected("M5-H.1 combat view renderer statistics violated the one-cube-per-element contract");
         }
-        return *stats;
+        const bool explosionDrawn = std::ranges::any_of(
+            *presentationDraws, [](const CombatPlaygroundPresentationDraw& draw) {
+                return draw.element == CombatPlaygroundPresentationElement::Explosion;
+            });
+        return CombatPlaygroundRenderFrame{
+            .presentation = *snapshot,
+            .stats = *stats,
+            .explosionDrawn = explosionDrawn};
+    }
+
+    [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
+        Render::D3D12Renderer& renderer,
+        const CombatPlaygroundRuntime& runtime,
+        const Physics::PhysicsWorld& physicsWorld,
+        const Render::OrthographicCamera& camera,
+        const double simulationTimeSeconds) const
+    {
+        const auto frame = RenderWithPresentation(renderer, runtime, physicsWorld, camera, simulationTimeSeconds);
+        if (!frame)
+        {
+            return std::unexpected(frame.error());
+        }
+        return frame->stats;
     }
 
     [[nodiscard]] Render::GpuModelHandle Model() const noexcept

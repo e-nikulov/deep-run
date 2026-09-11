@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/CombatPlaygroundAcceptance.h"
 #include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
@@ -410,6 +411,19 @@ namespace DeepRun::Tests
                 return draw.element == element;
             });
         };
+        if (frame->playerTorpedoImpact.has_value())
+        {
+            Game::Combat::M5CombatAcceptanceSnapshot authoritativePostImpact{};
+            authoritativePostImpact.hasImpact = true;
+            authoritativePostImpact.explosionPositionMeters = frame->playerTorpedoImpact->explosion.positionMeters;
+            const bool explosionDrawn = hasElement(CombatPlaygroundPresentationElement::Explosion);
+            if (Game::Combat::IsM5PostImpactPresentationReady(authoritativePostImpact, *presentationSnapshot, false) ||
+                !Game::Combat::IsM5PostImpactPresentationReady(
+                    authoritativePostImpact, *presentationSnapshot, explosionDrawn))
+            {
+                return false;
+            }
+        }
         sawPresentationTorpedo = sawPresentationTorpedo ||
             hasElement(CombatPlaygroundPresentationElement::PlayerTorpedo);
         sawPresentationDestroyerTorpedo = sawPresentationDestroyerTorpedo ||

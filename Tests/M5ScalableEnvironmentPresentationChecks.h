@@ -31,6 +31,25 @@ namespace DeepRun::Tests
     {
         return fail("local detailed presentation tier boundary");
     }
+    if (Game::UseStrategicSeabedPresentation(2'000.0F) ||
+        !Game::UseStrategicSeabedPresentation(3'200.0F) ||
+        !Game::UseStrategicSeabedPresentation(3'600.0F) ||
+        !Game::UseStrategicSeabedPresentation(12'000.0F) ||
+        Game::UseStrategicSeabedPresentation(12'001.0F))
+    {
+        return fail("strategic seabed presentation span boundary");
+    }
+    const auto strategicSeabed = Game::BuildStrategicSeabedPresentationModel();
+    if (!strategicSeabed || strategicSeabed->materials.size() != 1U ||
+        strategicSeabed->primitives.size() != 1U || strategicSeabed->nodes.size() != 1U ||
+        strategicSeabed->primitives.front().vertices.size() != 256U ||
+        strategicSeabed->primitives.front().indices.size() != 384U ||
+        strategicSeabed->bounds.minimum.x != -12'000.0F || strategicSeabed->bounds.maximum.x != 12'000.0F ||
+        strategicSeabed->bounds.maximum.y >= 0.0F ||
+        strategicSeabed->bounds.minimum.y != Game::M5StrategicSeabedFillBottomYMeters)
+    {
+        return fail("fixed strategic seabed model contract");
+    }
 
     const auto localTiles = Game::BuildEnvironmentPresentationTiles(-400.0F, 400.0F, 0.0F, 600.0F, -5.0F);
     if (!localTiles || localTiles->size() != 1U || localTiles->front().index != 0 ||

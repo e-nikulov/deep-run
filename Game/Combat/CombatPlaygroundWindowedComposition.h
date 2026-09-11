@@ -81,7 +81,7 @@ public:
         return *frame;
     }
 
-    [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
+    [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(
         Render::D3D12Renderer& renderer,
         const Physics::PhysicsWorld& physicsWorld,
         const Render::OrthographicCamera& camera,
@@ -91,7 +91,21 @@ public:
         {
             return std::unexpected("M5-H.1 windowed combat runtime is not initialized yet");
         }
-        return view_.Render(renderer, *runtime_, physicsWorld, camera, simulationTimeSeconds);
+        return view_.RenderWithPresentation(renderer, *runtime_, physicsWorld, camera, simulationTimeSeconds);
+    }
+
+    [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
+        Render::D3D12Renderer& renderer,
+        const Physics::PhysicsWorld& physicsWorld,
+        const Render::OrthographicCamera& camera,
+        const double simulationTimeSeconds) const
+    {
+        const auto frame = RenderWithPresentation(renderer, physicsWorld, camera, simulationTimeSeconds);
+        if (!frame)
+        {
+            return std::unexpected(frame.error());
+        }
+        return frame->stats;
     }
 
     [[nodiscard]] const std::optional<CombatPlaygroundRuntime>& Runtime() const noexcept
