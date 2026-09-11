@@ -101,6 +101,29 @@ jobs:
                   const float horizontalSpanMeters)
               {""")'''
           text = text[:block_start] + physical_transform + text[block_end:]
+
+          main_start = text.index('main = read("DeepRun/Main.cpp")')
+          main_end = text.index('# Existing early visual capture becomes', main_start)
+          main_transform = r'''main = read("DeepRun/Main.cpp")
+          smoke_old = """cameraFraming->targetOffsetXMeters, 0.0F, cameraFraming->horizontalSpanMeters);"""
+          smoke_new = """cameraFraming->targetOffsetXMeters, 0.0F, cameraFraming->horizontalSpanMeters,
+                              renderer.AspectRatio());"""
+          if main.count(smoke_old) != 1:
+              raise RuntimeError("DeepRun/Main.cpp: smoke camera framing call site changed")
+          main = main.replace(smoke_old, smoke_new, 1)
+
+          manual_old = """cameraFraming->targetOffsetXMeters,
+                              cameraFraming->targetOffsetYMeters,
+                              cameraFraming->horizontalSpanMeters);"""
+          manual_new = """cameraFraming->targetOffsetXMeters,
+                              cameraFraming->targetOffsetYMeters,
+                              cameraFraming->horizontalSpanMeters,
+                              renderer.AspectRatio());"""
+          if main.count(manual_old) != 1:
+              raise RuntimeError("DeepRun/Main.cpp: multi-scale camera framing call site changed")
+          main = main.replace(manual_old, manual_new, 1)
+          '''
+          text = text[:main_start] + main_transform + text[main_end:]
           path.write_text(text, encoding="utf-8", newline="\n")
           '@ | python -
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
