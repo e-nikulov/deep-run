@@ -3,6 +3,7 @@
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 

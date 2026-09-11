@@ -599,7 +599,6 @@ private:
                 .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
         }
 
-        bool integratedActiveEcho = false;
         if (activePulse_ && activeReflector_)
         {
             Acoustics::AcousticReceiver activeReceiver = playerSnapshot.passiveReceiver;
@@ -618,14 +617,13 @@ private:
                 {
                     return std::unexpected("M5-H active echo failed perception integration");
                 }
-                integratedActiveEcho = true;
                 integratedPlayerEvidence = true;
                 activePulse_.reset();
                 activeReflector_.reset();
                 nextActivePulseTimeSeconds_ = simulationTimeSeconds + M5CombatActiveRangingIntervalSeconds;
             }
         }
-        if (!integratedPlayerEvidence && !integratedActiveEcho && !playerTracks_.AdvanceTo(simulationTimeSeconds))
+        if (!integratedPlayerEvidence && !playerTracks_.AdvanceTo(simulationTimeSeconds))
         {
             return std::unexpected("M5-H player TrackManager failed to advance");
         }

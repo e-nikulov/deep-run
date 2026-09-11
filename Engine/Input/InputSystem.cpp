@@ -65,7 +65,6 @@ ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexc
     constexpr float CameraStickDeadZone = 0.24F;
     const StickAxes camera = MapRadialStick(gamepad.rightX, gamepad.rightY, CameraStickDeadZone);
     result.cameraPanX = camera.x;
-    result.cameraPanY = camera.y;
 
     // M5-J5 gives LT/RT back to the canonical weapon semantics. In the current tactical-camera context,
     // right-stick X pans and right-stick Y supplies controller zoom so camera control remains controller-complete.
