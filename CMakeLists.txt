@@ -228,8 +228,9 @@ add_executable(DeepRun
 )
 target_compile_features(DeepRun PRIVATE cxx_std_23)
 deeprun_set_project_warnings(DeepRun)
-# user32/gdi32 are used only by the M2 Slice C2 window frame capture (PrintWindow/BitBlt) in Main.cpp.
-target_link_libraries(DeepRun PRIVATE DeepRunEngine imgui nlohmann_json::nlohmann_json user32 gdi32)
+# user32/gdi32/dwmapi are used only by the window frame capture path in Main.cpp.
+# DwmFlush fences DWM composition so visual acceptance reads the frame that has actually been presented.
+target_link_libraries(DeepRun PRIVATE DeepRunEngine imgui nlohmann_json::nlohmann_json user32 gdi32 dwmapi)
 add_custom_target(DeepRunConfig ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Config"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

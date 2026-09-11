@@ -14,6 +14,7 @@
 #include "Game/Submarine/VesselCommandState.h"
 
 #include <Windows.h>
+#include <dwmapi.h>
 
 #include <array>
 #include <cstdint>
@@ -71,6 +72,15 @@ public:
         {
             LogOnce("game window not found for this process");
             return false;
+        }
+
+        // D3D12 Present and DWM composition are asynchronous. Acceptance asks for the already-presented
+        // production frame, so synchronize the compositor before PrintWindow/BitBlt reads the client image.
+        // This is a presentation/capture fence, not a sleep or a simulation delay.
+        const HRESULT compositorSync = DwmFlush();
+        if (FAILED(compositorSync))
+        {
+            LogOnce("DwmFlush failed before frame capture");
         }
 
         RECT client{};
