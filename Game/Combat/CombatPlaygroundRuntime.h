@@ -2055,8 +2055,19 @@ private:
                 continue;
             }
 
+            const float referenceSurfaceYMeters =
+                playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+            const auto environment = Acoustics::EvaluateAcousticEnvironmentPath(
+                emission->positionMeters,
+                playerSnapshot.passiveReceiver.positionMeters,
+                referenceSurfaceYMeters,
+                0.0F);
+            if (!environment)
+            {
+                return std::unexpected("M5-J3 incoming-threat environment path failed: " + environment.error());
+            }
             const auto observed = acousticWorld_.CollectPassiveDirectObservation(
-                *emission, playerSnapshot.passiveReceiver, simulationTimeSeconds);
+                *emission, playerSnapshot.passiveReceiver, simulationTimeSeconds, *environment);
             if (!observed)
             {
                 return std::unexpected("M5-J3 incoming-threat acoustic propagation failed: " +
