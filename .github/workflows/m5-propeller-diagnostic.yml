@@ -1,86 +1,39 @@
-name: M5 Propeller GLB Diagnostic
+name: M5 Propeller Binding Repair
 
 on:
   push:
     branches:
       - feature/m5-v2-player-navigation-sonar
     paths:
+      - Tools/patch_m5_propeller_binding.py
       - .github/workflows/m5-propeller-diagnostic.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect-glb:
+  patch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect Antey propeller node hierarchy
-        shell: python
+        with:
+          fetch-depth: 0
+      - name: Apply production propeller binding repair
+        run: python Tools/patch_m5_propeller_binding.py
+      - name: Validate patch shape
+        shell: bash
         run: |
-          import json
-          import pathlib
-          import struct
-
-          path = pathlib.Path("Content/submarines/Antey/Antey.glb")
-          data = path.read_bytes()
-          magic, version, total_length = struct.unpack_from("<III", data, 0)
-          if magic != 0x46546C67 or version != 2 or total_length != len(data):
-              raise RuntimeError("invalid GLB header")
-          json_length, json_type = struct.unpack_from("<II", data, 12)
-          if json_type != 0x4E4F534A:
-              raise RuntimeError("first GLB chunk is not JSON")
-          document = json.loads(data[20:20 + json_length].decode("utf-8"))
-          nodes = document.get("nodes", [])
-          meshes = document.get("meshes", [])
-          parents = {}
-          for index, node in enumerate(nodes):
-              for child in node.get("children", []):
-                  parents.setdefault(child, []).append(index)
-
-          def label(index):
-              node = nodes[index]
-              mesh_index = node.get("mesh")
-              mesh_name = None
-              if isinstance(mesh_index, int) and 0 <= mesh_index < len(meshes):
-                  mesh_name = meshes[mesh_index].get("name")
-              return {
-                  "index": index,
-                  "name": node.get("name"),
-                  "mesh": mesh_index,
-                  "mesh_name": mesh_name,
-                  "children": node.get("children", []),
-                  "parents": parents.get(index, []),
-              }
-
-          def descendants(root):
-              result = []
-              stack = list(reversed(nodes[root].get("children", [])))
-              seen = set()
-              while stack:
-                  index = stack.pop()
-                  if index in seen:
-                      continue
-                  seen.add(index)
-                  result.append(index)
-                  stack.extend(reversed(nodes[index].get("children", [])))
-              return result
-
-          matches = [
-              index for index, node in enumerate(nodes)
-              if "propeller" in str(node.get("name", "")).lower()
-          ]
-          print(f"GLB nodes={len(nodes)} meshes={len(meshes)} propeller_matches={matches}")
-          for index in matches:
-              print("NODE", json.dumps(label(index), ensure_ascii=False, sort_keys=True))
-              for child in descendants(index):
-                  print("  DESC", json.dumps(label(child), ensure_ascii=False, sort_keys=True))
-
-          required = ["SM_Propeller_Port", "SM_Propeller_Starboard"]
-          for name in required:
-              exact = [i for i, n in enumerate(nodes) if n.get("name") == name]
-              if len(exact) != 1:
-                  raise RuntimeError(f"expected exactly one {name}, got {exact}")
-              index = exact[0]
-              drawable = [i for i in [index, *descendants(index)] if "mesh" in nodes[i]]
-              print(f"RESOLVE {name}: root={index} drawable={drawable}")
+          git diff --check
+          grep -q "drawableMeshNodeIndices" Engine/Assets/ModelAsset.h
+          grep -q "ModelBindingTransformOverride" Engine/Render/ModelDraw.h
+          grep -q "propellerNodeBindingIndices_" Game/PhysicalPlayground.h
+          ! grep -q "propellerMeshNodeIndices_" Game/PhysicalPlayground.cpp
+      - name: Commit repair and remove temporary patch workflow
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Engine Game Tests
+          git rm Tools/patch_m5_propeller_binding.py .github/workflows/m5-propeller-diagnostic.yml
+          git commit -m "fix: animate transform-only production propeller roots"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
