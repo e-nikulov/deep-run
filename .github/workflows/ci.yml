@@ -73,6 +73,29 @@ jobs:
             throw "M5 visual acceptance did not observe all five required checkpoints"
           }
 
+      - name: P-700 production launch smoke
+        if: matrix.preset == 'windows-debug'
+        shell: pwsh
+        run: |
+          $executable = ".\build\${{ matrix.preset }}\${{ matrix.configuration }}\DeepRun.exe"
+          $output = & $executable --smoke-p700 2>&1 | Tee-Object -Variable p700Output
+          $exitCode = $LASTEXITCODE
+          $text = ($p700Output | Out-String)
+          if ($exitCode -ne 0) {
+            Write-Host "----- P-700 smoke output -----"
+            Write-Host $text
+            Write-Host "----- end P-700 smoke output -----"
+            throw "P-700 production smoke failed with exit code $exitCode"
+          }
+          foreach ($marker in @("HATCH_OPENING", "UNDERWATER_BOOSTER_EXIT", "WATER_EXIT", "HARDWARE_SEPARATION", "AERODYNAMIC_DEPLOY", "CRUISE", "TERMINAL", "PHYSICAL_IMPACT")) {
+            if ($text -notmatch "\[Game\]\[P700\] $marker") {
+              throw "P-700 smoke missed lifecycle marker $marker"
+            }
+          }
+          if ($text -notmatch "PHYSICAL_IMPACT damage=100") {
+            throw "P-700 smoke did not apply the accepted 100 HP direct hit"
+          }
+
       - name: Retain M5 visual acceptance artifacts
         if: always()
         continue-on-error: true
