@@ -17,34 +17,36 @@ jobs:
         with:
           ref: feature/m5-v2-player-navigation-sonar
           fetch-depth: 0
-      - name: Recover and apply closure patch
+      - name: Recover and apply product closure patch
         shell: bash
         run: |
           git show 5b3b50d2511ce9b336e25b3c56f376ba3c02c388:Tools/patch_p700_visual_acceptance_closure.py > "$RUNNER_TEMP/p700_closure.py"
           python - <<'PY'
           from pathlib import Path
-          p = Path(__import__('os').environ['RUNNER_TEMP']) / 'p700_closure.py'
+          import os
+          p = Path(os.environ['RUNNER_TEMP']) / 'p700_closure.py'
           s = p.read_text(encoding='utf-8')
-          old = '"             &playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"'
-          new = '"            [&playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"'
-          if s.count(old) != 1:
-              raise SystemExit(f'expected one render-lambda old match, got {s.count(old)}')
-          s = s.replace(old, new, 1)
-          old = '"             &playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"'
-          new = '"            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"'
-          if s.count(old) != 1:
-              raise SystemExit(f'expected one render-lambda new match, got {s.count(old)}')
-          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          fixes = [
+              ('"             &playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"',
+               '"            [&playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"'),
+              ('"             &playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"',
+               '"            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\\n"'),
+          ]
+          for old, new in fixes:
+              if s.count(old) != 1:
+                  raise SystemExit(f'expected one render-lambda match, got {s.count(old)}: {old}')
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
           PY
           python "$RUNNER_TEMP/p700_closure.py"
+          git checkout -- .github/workflows/ci.yml
           git diff --check
-      - name: Commit product closure and remove temporary patch tooling
+      - name: Commit product closure
         shell: bash
         run: |
           git config user.name "Evgeniy N."
           git config user.email "gnikulov@gmail.com"
-          git rm .github/workflows/p700-visual-acceptance-closure.yml Tools/patch_p700_visual_acceptance_closure.py
-          git add Game/Combat/CombatPlaygroundRuntime.h Game/Combat/P700VisualAcceptance.h Tests/M5P700Checks.h DeepRun/Main.cpp .github/workflows/ci.yml
+          git add Game/Combat/CombatPlaygroundRuntime.h Game/Combat/P700VisualAcceptance.h Tests/M5P700Checks.h DeepRun/Main.cpp
           git diff --cached --check
           git commit -m "test: close P-700 production visual acceptance"
           git push origin HEAD:feature/m5-v2-player-navigation-sonar
