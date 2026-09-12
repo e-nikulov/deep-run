@@ -20,7 +20,7 @@ Guidance retains only the launch `trackId`, last qualified perceived aim point, 
 
 Movement uses bounded fixed substeps and `PhysicsWorld::SweepBoxClosest`; only a backend-confirmed physical sweep hit can create `Impact`, expose the impacted body, emit coarse damage/explosion events, and then consume the weapon into `Spent`. No distance-only duplicate collision authority exists.
 
-The regression fixture uses a target beyond the real 20 km minimum range rather than weakening the employment contract to fit the existing 1.8 km torpedo/destroyer playground. It covers surface and submerged launch, depth/speed/minimum-range rejection, stowed water exit, post-exit deployment, Cruise/Terminal transition, Track-identity protection, physical impact/damage/explosion, and one-way consumption into `Spent`.
+The regression fixture uses a target beyond the real 20 km minimum range rather than weakening the employment contract to fit the existing 1.8 km torpedo/destroyer playground. It reuses the same initialized `PhysicsWorld` as the surrounding M5 combat-impact checks, matching the production single-world composition instead of attempting to initialize a second Jolt backend. It covers surface and submerged launch, depth/speed/minimum-range rejection, stowed water exit, post-exit deployment, Cruise/Terminal transition, Track-identity protection, physical impact/damage/explosion, and one-way consumption into `Spent`.
 
 ## Next integration slice
 
