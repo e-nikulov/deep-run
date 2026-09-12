@@ -1,0 +1,122 @@
+name: M5 Documentation Closure
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m5-doc-closure.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  close-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Synchronize M5 acceptance documentation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          run_id = '34712161730'
+          run_number = '488'
+          accepted_sha = '851a922dd4a2f4055dba523d3dc1a7773dad4ed2'
+
+          # Combat milestone closure.
+          path = Path('docs/development/m5-combat-playground.md')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('Status: IN PROGRESS', 'Status: COMPLETE', 1)
+          marker = '## Current accepted baseline\n'
+          closure = f'''## Milestone closure\n\nM5 is COMPLETE on `feature/m5-v2-player-navigation-sonar`. Technical acceptance is anchored by clean product\nHEAD `{accepted_sha}` and GitHub Actions run `{run_id}` (#{run_number}). Both `windows-debug` and\n`windows-release` passed Antey contract validation, configure, build, all six registered CTest targets, the\ncanonical windowed combat smoke, the dedicated P-700 production launch smoke, and both visual-artifact uploads.\n\nThe final P-700 acceptance proves all five state checkpoints, all mandatory lifecycle markers, a real\n`PhysicsWorld::SweepBoxClosest` hit on the destroyer body, `100 HP` direct damage, explosion at the physical hit\nposition, and exactly one consumed production launcher (`23/24` remaining). Destroyed surface combat actors now\nremain valid inert physical/damage state and cannot continue combat behavior after lethal impact.\n\nThe retained Debug/Release artifacts are `m5-combat-visual-*` and `m5-p700-visual-*`; each P-700 package contains\nits machine-readable report plus launch, water-exit, deploy, cruise/terminal and impact captures. Detailed\ncompartment/flooding/system damage remains M6 scope.\n\n'''
+          if closure not in text:
+              text = text.replace(marker, closure + marker, 1)
+          text = text.replace(
+              'Status: CANDIDATE — requires the normal Debug/Release CI gate before promotion to the stable M5 branch.',
+              f'Status: ACCEPTED — clean Debug/Release gate passed in CI run `{run_id}` on `{accepted_sha}`.',
+              1)
+          text = text.replace(
+              'Status: IMPLEMENTED — local Debug/Release verification passed; CI run ID pending the workflow execution for\nthe resulting commit.',
+              f'Status: ACCEPTED — Debug/Release configure, build, CTest, windowed smoke and retained visual artifacts passed in CI run `{run_id}` (#{run_number}) on `{accepted_sha}`.',
+              1)
+          old_pending = '''CI run ID: pending (this worktree has no CI run for its uncommitted changes).\nAccepted commit SHA: `41ed6422fa79aa56c48b38476af7bedda6c11774` base; update this line with the resulting\ncommit SHA and CI run ID when the workflow accepts the change.\n'''
+          new_pending = f'''CI run ID: `{run_id}` (#{run_number}).\nAccepted technical commit SHA: `{accepted_sha}`.\n'''
+          text = text.replace(old_pending, new_pending, 1)
+          old_next = '''## Next slice\n\nAfter M5-D acceptance, continue with the remaining Combat Playground dependencies (decoy, simple enemy/destroyer behavior and the minimal combat interaction needed to exercise them) while preserving the perceived-world and physics-authority boundaries. Detailed compartment/flooding/system damage remains M6.\n'''
+          new_next = '''## Milestone handoff\n\nNo additional Combat Playground slice remains open inside M5. Future work starts from this accepted perceived-world, physical-impact, navigation, sonar-presentation and production P-700 baseline. Detailed compartment/flooding/system damage remains M6.\n'''
+          text = text.replace(old_next, new_next, 1)
+          path.write_text(text, encoding='utf-8')
+
+          # P-700 final acceptance.
+          path = Path('docs/development/m5-p700-runtime.md')
+          text = path.read_text(encoding='utf-8')
+          first = 'Status: FULL LAUNCH / FLIGHT / TERMINAL SEQUENCE IMPLEMENTED, CI VALIDATION ACTIVE. Headless lifecycle, canonical production asset staging, 24-slot Antey launcher inventory, Weapon Selector, production launch-anchor materialization, paired production hatch presentation, lifecycle-driven LOD0 presentation and the dedicated >20 km production acceptance scenario are implemented.'
+          repl = f'''Status: ACCEPTED / M5 COMPLETE. Clean Debug and Release acceptance passed in GitHub Actions run `{run_id}` (#{run_number}) on technical HEAD `{accepted_sha}`. Headless lifecycle, canonical production asset staging, 24-slot Antey launcher inventory, Weapon Selector, production launch-anchor materialization, paired production hatch presentation, lifecycle-driven LOD0 presentation and the dedicated >20 km production acceptance scenario are all gated.''' 
+          if first not in text:
+              raise SystemExit('P700 status anchor not found')
+          text = text.replace(first, repl, 1)
+          accept_anchor = 'The production package retains its legal status: `SHIPPING BLOCKED PENDING LEGAL REVIEW`.\n'
+          evidence = f'''\nFinal acceptance evidence: both configurations passed all six CTest targets plus `--smoke-p700`. The dedicated\n20.1 km scenario observed `HATCH_OPENING`, `UNDERWATER_BOOSTER_EXIT`, `WATER_EXIT`, `HARDWARE_SEPARATION`,\n`AERODYNAMIC_DEPLOY`, `CRUISE`, `TERMINAL` and `PHYSICAL_IMPACT damage=100`. Its five-state report records\n`23/24` launchers after launch and a body-bound destroyer impact. A regression also starts from the real lateral\nlauncher offset (`z=-6.05 m`) so 3D terminal convergence cannot silently regress back to planar guidance.\n\n'''
+          if evidence not in text:
+              text = text.replace(accept_anchor, evidence + accept_anchor, 1)
+          path.write_text(text, encoding='utf-8')
+
+          # V2 closure and historical scope clarification.
+          path = Path('docs/development/m5-v2-player-navigation-sonar.md')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('Status: IN PROGRESS', f'Status: ACCEPTED / COMPLETE — final Debug/Release gate: CI `{run_id}` (#{run_number}) on `{accepted_sha}`.', 1)
+          text = text.replace('M5 itself remains OPEN because manual review exposed player-comprehension/runtime gaps outside camera presentation.', 'Those player-comprehension/runtime gaps are now closed for M5: production ownship follow, dive telemetry/control-surface presentation and perceived-world sonar visualization are integrated without moving simulation authority into presentation.', 1)
+          text = text.replace('Close the remaining normal-player usability gaps before Milestone 5 can be declared COMPLETE.', 'Close the remaining normal-player usability gaps required for the final Milestone 5 acceptance.', 1)
+          text = text.replace('M5-V2 is limited to player navigation and presentation of already-existing vessel/acoustic simulation. It must not start P-700 runtime, M6 compartments/flooding, crew simulation, power management, or new combat AI.', 'M5-V2 itself remains limited to player navigation and presentation of already-existing vessel/acoustic simulation. P-700 was subsequently integrated as a separate final M5 scope; M6 compartments/flooding, crew simulation, power management and new combat AI remain outside V2.', 1)
+          text = text.replace('- P-700 launch/runtime;\n', '- P-700 launch/runtime inside the V2 slice (it was subsequently closed as separate final M5 integration);\n', 1)
+          old_gate = '''Only after human acceptance of these items may M5 be marked COMPLETE. P-700 runtime begins afterward as its own integration scope.\n'''
+          new_gate = f'''Closure result: ACCEPTED. The retained camera/presentation baseline remains intact, the navigation/dive/sonar state is covered by the M5 regression suite, `Sonar visualization: On / Off` defaults to `On` and changes presentation only, and the final clean Debug/Release CI gate passed in run `{run_id}` (#{run_number}). P-700 was then closed as a separate final M5 integration without changing these V2 authority boundaries.\n'''
+          text = text.replace(old_gate, new_gate, 1)
+          path.write_text(text, encoding='utf-8')
+
+          # Sonar visualization acceptance and option contract.
+          path = Path('docs/development/m5-sonar-visualization.md')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('Status: CANDIDATE pending Debug/Release CI and manual visual review.', f'Status: ACCEPTED. Final Debug/Release milestone gate passed in CI `{run_id}` (#{run_number}) on `{accepted_sha}`.', 1)
+          option_text = '''\nThe user-facing `Sonar visualization: On / Off` presentation option defaults to `On`. Turning it off suppresses only sonar drawing; acoustic propagation, pulse/echo timing, observations, TrackManager state and weapon targeting/guidance continue unchanged.\n'''
+          if option_text.strip() not in text:
+              text += option_text
+          path.write_text(text, encoding='utf-8')
+
+          # Canonical M5 test matrix.
+          path = Path('docs/development/testing.md')
+          text = path.read_text(encoding='utf-8')
+          old = '''`Assets` is relative to the test executable's output directory. CMake copies\nthe canonical prototype asset to `Assets/submarines/prototype/` there after\neach test-target build. CTest therefore reports one registered test (`1/1`),\nwhile `DeepRunTests` reports its individual assertion count (currently\n`249/249`).\n'''
+          new = '''`Assets` is relative to the test executable's output directory. CMake stages the required canonical runtime assets into the build output. The current M5 gate registers six CTest targets: `DeepRunTests`, `DeepRunIG1DLodPolicyTests`, `DeepRunM4AcousticTests`, `DeepRunM5WeaponRuntimeTests`, `DeepRunP700ProductionAssetTests`, and `DeepRunP700LauncherInventoryTests`. Milestone acceptance requires all six in both Debug and Release; do not rely on an old single-entry `1/1` assumption.\n'''
+          if old not in text:
+              raise SystemExit('testing canonical-count anchor not found')
+          text = text.replace(old, new, 1)
+          smoke_anchor = '''`--smoke-test` is the canonical windowed rendering and resize smoke path. In a\nDebug build it also enables the existing D3D12 debug validation path; do not\nadd separate message suppression merely to run this check.\n'''
+          smoke_extra = f'''\nFor final M5 acceptance, also run:\n\n```powershell\n.\\build\\windows-debug\\Debug\\DeepRun.exe --smoke-p700\n.\\build\\windows-release\\Release\\DeepRun.exe --smoke-p700\n```\n\n`--smoke-test` must produce the five combat acceptance checkpoints and machine-readable report. `--smoke-p700` must produce five P-700 state checkpoints plus the mandatory lifecycle markers from hatch opening through terminal and a real `PHYSICAL_IMPACT damage=100`; the report must retain `23/24` launcher inventory and identify the destroyer Jolt body as the physical impact target. Both smoke paths retain BMP/JSON artifact packages in CI. Final technical M5 closure is evidenced by run `{run_id}` (#{run_number}) on `{accepted_sha}`, where Debug and Release passed all six CTest targets and both windowed smokes.\n'''
+          if smoke_extra.strip() not in text:
+              text = text.replace(smoke_anchor, smoke_anchor + smoke_extra, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Verify closure text
+        shell: bash
+        run: |
+          grep -q 'Status: COMPLETE' docs/development/m5-combat-playground.md
+          grep -q 'Status: ACCEPTED / M5 COMPLETE' docs/development/m5-p700-runtime.md
+          grep -q 'Status: ACCEPTED / COMPLETE' docs/development/m5-v2-player-navigation-sonar.md
+          grep -q 'Status: ACCEPTED' docs/development/m5-sonar-visualization.md
+          grep -q '34712161730' docs/development/testing.md
+          grep -q 'SHIPPING BLOCKED PENDING LEGAL REVIEW' docs/development/m5-p700-runtime.md
+          ! grep -q 'Status: CANDIDATE' docs/development/m5-combat-playground.md
+          ! grep -q 'CI run ID: pending' docs/development/m5-combat-playground.md
+      - name: Commit closure documentation
+        shell: bash
+        run: |
+          git config user.name 'Evgeniy N.'
+          git config user.email 'gnikulov@gmail.com'
+          git add docs/development/m5-combat-playground.md docs/development/m5-p700-runtime.md docs/development/m5-v2-player-navigation-sonar.md docs/development/m5-sonar-visualization.md docs/development/testing.md
+          git diff --cached --check
+          git commit -m 'docs: close Milestone 5 acceptance'
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
