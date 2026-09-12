@@ -1,0 +1,34 @@
+name: P700 Visual Acceptance Closure
+
+on:
+  push:
+    paths:
+      - '.github/workflows/p700-visual-acceptance-closure.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Apply closure patch
+        shell: bash
+        run: |
+          python Tools/patch_p700_visual_acceptance_closure.py
+          git diff --check
+      - name: Commit product closure and remove temporary patch tooling
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git rm .github/workflows/p700-visual-acceptance-closure.yml Tools/patch_p700_visual_acceptance_closure.py
+          git add Game/Combat/CombatPlaygroundRuntime.h Game/Combat/P700VisualAcceptance.h Tests/M5P700Checks.h DeepRun/Main.cpp .github/workflows/ci.yml
+          git diff --cached --check
+          git commit -m "test: close P-700 production visual acceptance"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
