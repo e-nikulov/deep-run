@@ -281,8 +281,9 @@ int main()
             .rangeUncertaintyMeters = 20.0F,
             .confidence = 0.85F};
 
+        constexpr float testSoundSpeedMetersPerSecond = 1475.0F;
         const auto sonar = DeepRun::Game::Combat::BuildSonarPresentation(
-            sonarTracks, 51U, ownship, 0.25F, pulse, echo, 42.0);
+            sonarTracks, 51U, ownship, 0.25F, pulse, echo, 42.0, testSoundSpeedMetersPerSecond);
         Require(sonar.has_value(), "M5 sonar presentation must accept perceived tracks and own active evidence");
         Require(sonar->tracks.size() == 2U, "M5 sonar presentation must retain all non-lost perceived tracks");
         Require(sonar->tracks[0].selected && !sonar->tracks[0].estimatedRangeMeters.has_value(),
@@ -296,6 +297,15 @@ int main()
                 "own ping and measured echo evidence must be visible to sonar presentation");
         Require(std::abs(sonar->recentEcho->estimatedRangeMeters - 1000.0F) < 0.01F,
                 "sonar echo range must come from measured AcousticObservation evidence");
+        Require(std::abs(sonar->effectiveSoundSpeedMetersPerSecond - testSoundSpeedMetersPerSecond) < 0.001F,
+                "sonar presentation must retain the acoustic-world effective sound speed");
+        Require(std::abs(DeepRun::Game::Combat::SonarOutgoingWaveRangeMeters(*sonar) - 2950.0F) < 0.01F,
+                "sonar HUD outgoing wave must advance from SimulationTime using supplied acoustic sound speed");
+
+        const auto invalidSoundSpeed = DeepRun::Game::Combat::BuildSonarPresentation(
+            sonarTracks, 51U, ownship, 0.25F, pulse, echo, 42.0, 0.0F);
+        Require(!invalidSoundSpeed.has_value(),
+                "sonar presentation must reject a non-positive acoustic sound speed");
 
         const auto staleEcho = DeepRun::Game::Combat::BuildSonarPresentation(
             sonarTracks, 51U, ownship, 0.25F, std::nullopt, echo, 46.0);
