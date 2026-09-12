@@ -2,6 +2,8 @@
 
 Status: gameplay contract for M5/IG2. These limits are used to decide whether a weapon may leave the carrier. They are **not** a technical firing manual and do not claim access to classified fire-control data.
 
+Implementation status: the live M5 player USET-80 fire path is gated **before** the `WeaponRuntime` launch transition, and `canFireWeapon` in the HUD is masked by the same assessment. IG2 P-700 and any future selectable 65-76A profile must reuse this common evaluator before committing their own launch/hatch lifecycle.
+
 The implementation deliberately separates three kinds of values:
 
 - **OPEN-SOURCE** — range/depth/carrier-speed figures repeatedly published in public references.
