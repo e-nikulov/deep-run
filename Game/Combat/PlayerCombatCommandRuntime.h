@@ -17,6 +17,8 @@ namespace DeepRun::Game::Combat
 enum class PlayerCombatCommandType
 {
     SelectNextTrack,
+    PreviousWeapon,
+    NextWeapon,
     PrepareWeapon,
     FireWeapon,
     ActiveSonarPing,
@@ -94,6 +96,30 @@ public:
         return {};
     }
 
+    // Weapon Selector changes the actual qualification/preparation profile, not merely a UI label. Switching is
+    // legal only from Stored so readiness/target state from one weapon type can never bleed into another type.
+    [[nodiscard]] std::expected<void, std::string> ReconfigureStoredWeapon(
+        Weapons::WeaponDefinition definition,
+        const double simulationTimeSeconds)
+    {
+        if (const auto advanced = Advance(simulationTimeSeconds); !advanced)
+        {
+            return std::unexpected(advanced.error());
+        }
+        if (weapon_.phase != Weapons::WeaponPhase::Stored)
+        {
+            return std::unexpected("M5 weapon selection can only change while the current weapon is Stored");
+        }
+        auto replacement = Weapons::CreateWeaponRuntime(definition, simulationTimeSeconds);
+        if (!replacement)
+        {
+            return std::unexpected("M5 weapon selection profile creation failed: " + replacement.error());
+        }
+        definition_ = std::move(definition);
+        weapon_ = std::move(*replacement);
+        return {};
+    }
+
     [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> Execute(
         const PlayerCombatCommand command,
         const std::span<const Perception::Track> tracks,
@@ -110,6 +136,9 @@ public:
         {
         case PlayerCombatCommandType::SelectNextTrack:
             return SelectNextTrack(tracks);
+        case PlayerCombatCommandType::PreviousWeapon:
+        case PlayerCombatCommandType::NextWeapon:
+            return std::unexpected("M5 Weapon Selector is owned by CombatPlaygroundRuntime, not weapon runtime");
         case PlayerCombatCommandType::PrepareWeapon:
             return Prepare(simulationTimeSeconds);
         case PlayerCombatCommandType::FireWeapon:
