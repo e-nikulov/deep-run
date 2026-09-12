@@ -40,6 +40,8 @@ public:
         exitCode = 0;
         fixedStepAccumulator.Reset();
         simulationTimeSeconds = 0.0;
+        timeCompression.Reset();
+        previousTimeCompressionGamepadButtons = 0U;
         hapticMixer.Reset();
         hapticFailureLogged = false;
         audioReady = false;
@@ -174,6 +176,7 @@ public:
         const std::span<const Platform::WindowEvent> events = window->PumpEvents();
         input->ProcessEvents(events);
         input->UpdateController();
+        HandleTimeCompressionInput(events);
 
         for (const Platform::WindowEvent& event : events)
         {
@@ -233,7 +236,11 @@ public:
             hapticMixer.Reset();
         }
 
-        const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(timer.DeltaSeconds());
+        // Compression increases the amount of authoritative fixed-step work accumulated from this RealTime
+        // frame. The PhysicsWorld step itself remains config.physics.fixedHz (normally 60 Hz), preserving the
+        // deterministic SimulationTime contract for acoustics, tracks, AI, weapons, damage and future M6 systems.
+        const double compressedDeltaSeconds = timer.DeltaSeconds() * timeCompression.EffectiveMultiplier();
+        const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(compressedDeltaSeconds);
         const float fixedDeltaSeconds = static_cast<float>(fixedStepAccumulator.StepSeconds());
         const auto fixedStart = std::chrono::steady_clock::now();
         for (std::uint32_t step = 0; step < fixedSteps; ++step)
@@ -274,6 +281,62 @@ public:
         return true;
     }
 
+    void HandleTimeCompressionInput(const std::span<const Platform::WindowEvent> events)
+    {
+        const TimeCompressionRate previousRequestedRate = timeCompression.RequestedRate();
+
+        for (const Platform::WindowEvent& event : events)
+        {
+            if (event.type != Platform::WindowEventType::KeyDown || event.repeated)
+            {
+                continue;
+            }
+            if (event.key == Platform::Key::Equals)
+            {
+                timeCompression.IncreaseRequestedRate();
+            }
+            else if (event.key == Platform::Key::Minus)
+            {
+                timeCompression.DecreaseRequestedRate();
+            }
+        }
+
+        const std::uint16_t currentButtons = input->State().Gamepad().buttons;
+        const std::uint16_t risingButtons = static_cast<std::uint16_t>(
+            currentButtons & static_cast<std::uint16_t>(~previousTimeCompressionGamepadButtons));
+        const std::uint16_t dpadUp = static_cast<std::uint16_t>(Input::GamepadButton::DpadUp);
+        const std::uint16_t dpadDown = static_cast<std::uint16_t>(Input::GamepadButton::DpadDown);
+        if ((risingButtons & dpadUp) != 0U)
+        {
+            timeCompression.IncreaseRequestedRate();
+        }
+        if ((risingButtons & dpadDown) != 0U)
+        {
+            timeCompression.DecreaseRequestedRate();
+        }
+        previousTimeCompressionGamepadButtons = currentButtons;
+
+        // Explicit high-consequence player actions break compression before this frame accumulates fixed ticks.
+        // Incoming-threat/casualty/collision policies can independently use SetMaximumTimeCompressionRate().
+        if (input->WasPressed(Input::InputAction::FireWeapon) ||
+            input->WasPressed(Input::InputAction::DeployDecoy))
+        {
+            timeCompression.BreakToRealtime();
+        }
+
+        if (timeCompression.RequestedRate() != previousRequestedRate)
+        {
+            std::ostringstream message;
+            message << "Time compression requested " << TimeCompressionLabel(timeCompression.RequestedRate())
+                    << ", effective " << TimeCompressionLabel(timeCompression.EffectiveRate());
+            if (timeCompression.EffectiveRate() != timeCompression.RequestedRate())
+            {
+                message << " (safety cap " << TimeCompressionLabel(timeCompression.MaximumRate()) << ')';
+            }
+            core.Log().Info(Diagnostics::LogCategory::Core, message.str());
+        }
+    }
+
     bool RunFixedStep(
         const Engine::FixedUpdateHook& fixedUpdateHook,
         const float fixedDeltaSeconds = 0.0F)
@@ -308,6 +371,10 @@ public:
             .framesPerSecond = timer.FramesPerSecond(),
             .frameMilliseconds = timer.FrameMilliseconds(),
             .elapsedSeconds = timer.ElapsedSeconds(),
+            .simulationTimeSeconds = simulationTimeSeconds,
+            .requestedTimeCompression = TimeCompressionMultiplier(timeCompression.RequestedRate()),
+            .effectiveTimeCompression = timeCompression.EffectiveMultiplier(),
+            .maximumTimeCompression = TimeCompressionMultiplier(timeCompression.MaximumRate()),
             .frameIndex = timer.FrameIndex(),
             .entityCount = scene.EntityCount(),
             .resourceCount = assets.CachedResourceCount(),
@@ -410,6 +477,8 @@ public:
     std::unique_ptr<Diagnostics::DebugOverlay> debugOverlay;
     EngineLifecycle lifecycle = EngineLifecycle::Stopped;
     FixedStepAccumulator fixedStepAccumulator;
+    TimeCompressionController timeCompression;
+    std::uint16_t previousTimeCompressionGamepadButtons = 0U;
     double simulationTimeSeconds = 0.0;
     Input::HapticMixer hapticMixer;
     int exitCode = 0;
@@ -470,6 +539,31 @@ const CpuFrameDiagnostics& Engine::FrameDiagnostics() const noexcept
 double Engine::SimulationTimeSeconds() const noexcept
 {
     return impl_->simulationTimeSeconds;
+}
+
+TimeCompressionRate Engine::RequestedTimeCompressionRate() const noexcept
+{
+    return impl_->timeCompression.RequestedRate();
+}
+
+TimeCompressionRate Engine::EffectiveTimeCompressionRate() const noexcept
+{
+    return impl_->timeCompression.EffectiveRate();
+}
+
+TimeCompressionRate Engine::MaximumTimeCompressionRate() const noexcept
+{
+    return impl_->timeCompression.MaximumRate();
+}
+
+bool Engine::SetRequestedTimeCompressionRate(const TimeCompressionRate rate) noexcept
+{
+    return impl_->timeCompression.SetRequestedRate(rate);
+}
+
+bool Engine::SetMaximumTimeCompressionRate(const TimeCompressionRate rate) noexcept
+{
+    return impl_->timeCompression.SetMaximumRate(rate);
 }
 
 Scene::Scene& Engine::ActiveScene() noexcept
