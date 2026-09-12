@@ -1,0 +1,48 @@
+name: P700 launcher link fix
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+    paths:
+      - .github/workflows/p700-link-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+
+      - name: Link production transform implementation
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('CMakeLists.txt')
+          text = path.read_text(encoding='utf-8')
+          old = '''add_executable(DeepRunP700LauncherInventoryTests\n    Tests/P700LauncherInventoryTest.cpp\n)'''
+          new = '''add_executable(DeepRunP700LauncherInventoryTests\n    Tests/P700LauncherInventoryTest.cpp\n    Game/PhysicsRenderSync.cpp\n)'''
+          if old not in text:
+              raise SystemExit('launcher inventory target block not found or already changed')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+      - name: Validate patch
+        shell: bash
+        run: |
+          grep -A4 'add_executable(DeepRunP700LauncherInventoryTests' CMakeLists.txt
+          grep -q 'Game/PhysicsRenderSync.cpp' CMakeLists.txt
+
+      - name: Commit patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'Evgeniy N.'
+          git config user.email 'gnikulov@gmail.com'
+          git rm .github/workflows/p700-link-fix.yml
+          git add CMakeLists.txt
+          git commit -m 'build: link P-700 launcher geometry transform helpers'
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
