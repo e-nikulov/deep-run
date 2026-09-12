@@ -2786,5 +2786,39 @@
       "spatialValidation": "DOCUMENTED_ONLY_NO_BOUNDED_GEOMETRY"
     }
   ],
-  "runtimeBoundary": "Spatial authoring only; Simulation owns loading, damage, flooding, fire, crew, hatch state, and propeller RPM"
+  "runtimeBoundary": "Spatial authoring only; Simulation owns loading, damage, flooding, fire, crew, hatch state, and propeller RPM",
+  "controlSurfaces": [
+    {
+      "semanticId": "depth-plane.bow.01",
+      "group": "BOW",
+      "nodeReference": "SM_Antey_LOD0_BowPlane_Port",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    },
+    {
+      "semanticId": "depth-plane.bow.02",
+      "group": "BOW",
+      "nodeReference": "SM_Antey_LOD0_BowPlane_Starboard",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    },
+    {
+      "semanticId": "depth-plane.stern.01",
+      "group": "STERN",
+      "nodeReference": "SM_Antey_LOD0_TailPlane_Port",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    },
+    {
+      "semanticId": "depth-plane.stern.02",
+      "group": "STERN",
+      "nodeReference": "SM_Antey_LOD0_TailPlane_Starboard",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    }
+  ]
 }
