@@ -7,7 +7,7 @@
 #include <expected>
 #include <string>
 
-namespace DeepRun::Game::Weapons
+namespace DeepRun::Game::Armament
 {
 struct P700WorldLaunchAnchor final
 {
@@ -130,4 +130,4 @@ struct P700WorldLaunchAnchor final
         .positionMeters = *worldPosition,
         .forwardUnitVector = *worldForward};
 }
-} // namespace DeepRun::Game::Weapons
+} // namespace DeepRun::Game::Armament

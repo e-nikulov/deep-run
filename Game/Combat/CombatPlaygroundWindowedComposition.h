@@ -40,7 +40,7 @@ public:
         {
             return std::unexpected("M5 P-700 carrier requires exactly one accepted production collision proxy");
         }
-        auto p700Carrier = Weapons::P700CarrierLaunchContract::Create(
+        auto p700Carrier = Armament::P700CarrierLaunchContract::Create(
             anteyDefinition->p700LaunchAnchors,
             anteyDefinition->collisionProxies.front().localCenter);
         if (!p700Carrier)
@@ -144,7 +144,7 @@ public:
 private:
     CombatPlaygroundWindowedComposition(
         CombatPlaygroundView view,
-        Weapons::P700CarrierLaunchContract p700CarrierLaunchContract)
+        Armament::P700CarrierLaunchContract p700CarrierLaunchContract)
         : view_(std::move(view)),
           p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract))
     {
@@ -188,7 +188,7 @@ private:
     }
 
     CombatPlaygroundView view_;
-    Weapons::P700CarrierLaunchContract p700CarrierLaunchContract_;
+    Armament::P700CarrierLaunchContract p700CarrierLaunchContract_;
     std::optional<CombatPlaygroundRuntime> runtime_{};
 };
 } // namespace DeepRun::Game::Combat

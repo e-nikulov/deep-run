@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace DeepRun::Game::Weapons
+namespace DeepRun::Game::Armament
 {
 struct ProductionP700MovableSurface final
 {
@@ -43,4 +43,4 @@ BuildProductionP700DeploymentOverrides(
 [[nodiscard]] bool IsProductionP700Lod0MeshNode(
     const ProductionP700AssetDefinition& definition,
     std::size_t meshNodeIndex) noexcept;
-} // namespace DeepRun::Game::Weapons
+} // namespace DeepRun::Game::Armament

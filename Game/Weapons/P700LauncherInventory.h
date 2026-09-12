@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace DeepRun::Game::Weapons
+namespace DeepRun::Game::Armament
 {
 inline constexpr std::size_t AnteyP700LauncherSlotCount = 24U;
 
@@ -148,4 +148,4 @@ private:
 
     std::vector<P700LauncherSlot> slots_;
 };
-} // namespace DeepRun::Game::Weapons
+} // namespace DeepRun::Game::Armament

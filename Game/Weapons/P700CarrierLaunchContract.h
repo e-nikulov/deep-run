@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace DeepRun::Game::Weapons
+namespace DeepRun::Game::Armament
 {
 // Immutable carrier-side geometry paired with a separately owned mutable launcher inventory.
 // The collision center is the same production model->body pivot correction already accepted by
@@ -92,4 +92,4 @@ private:
     std::vector<Submarine::ProductionLaunchAnchor> anchors_;
     Assets::ModelTransform modelToBody_{};
 };
-} // namespace DeepRun::Game::Weapons
+} // namespace DeepRun::Game::Armament

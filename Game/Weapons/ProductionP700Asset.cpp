@@ -9,7 +9,7 @@
 #include <string_view>
 #include <unordered_set>
 
-namespace DeepRun::Game::Weapons
+namespace DeepRun::Game::Armament
 {
 namespace
 {
@@ -311,4 +311,4 @@ bool IsProductionP700Lod0MeshNode(
     return std::find(definition.lod0MeshNodeIndices.begin(), definition.lod0MeshNodeIndices.end(), meshNodeIndex) !=
            definition.lod0MeshNodeIndices.end();
 }
-} // namespace DeepRun::Game::Weapons
+} // namespace DeepRun::Game::Armament

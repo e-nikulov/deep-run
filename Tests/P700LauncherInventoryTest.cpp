@@ -11,12 +11,12 @@
 namespace
 {
 [[nodiscard]] std::array<DeepRun::Game::Submarine::ProductionLaunchAnchor,
-                         DeepRun::Game::Weapons::AnteyP700LauncherSlotCount>
+                         DeepRun::Game::Armament::AnteyP700LauncherSlotCount>
 BuildAnchors()
 {
     using DeepRun::Game::Submarine::ProductionLaunchAnchor;
     constexpr float pitchRadians = 0.6981317007977318F;
-    std::array<ProductionLaunchAnchor, DeepRun::Game::Weapons::AnteyP700LauncherSlotCount> anchors{};
+    std::array<ProductionLaunchAnchor, DeepRun::Game::Armament::AnteyP700LauncherSlotCount> anchors{};
     for (std::size_t index = 0; index < anchors.size(); ++index)
     {
         anchors[index].semanticId = "p700.fixture." + std::to_string(index + 1U);
@@ -38,7 +38,7 @@ BuildAnchors()
 
 [[nodiscard]] bool RunInventoryChecks()
 {
-    using namespace DeepRun::Game::Weapons;
+    using namespace DeepRun::Game::Armament;
 
     const auto anchors = BuildAnchors();
     auto inventoryResult = P700LauncherInventory::Create(anchors);
@@ -120,7 +120,7 @@ BuildAnchors()
 [[nodiscard]] bool RunWorldGeometryChecks()
 {
     using namespace DeepRun;
-    using namespace DeepRun::Game::Weapons;
+    using namespace DeepRun::Game::Armament;
 
     const auto anchors = BuildAnchors();
     const Physics::PhysicsBodyState body{
