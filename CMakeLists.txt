@@ -411,6 +411,7 @@ set_tests_properties(DeepRunP700ProductionAssetTests PROPERTIES
 # It proves exactly 24 production-anchor-shaped slots and one-way Loaded -> Spent consumption semantics.
 add_executable(DeepRunP700LauncherInventoryTests
     Tests/P700LauncherInventoryTest.cpp
+    Game/PhysicsRenderSync.cpp
 )
 target_compile_features(DeepRunP700LauncherInventoryTests PRIVATE cxx_std_23)
 target_compile_definitions(DeepRunP700LauncherInventoryTests PRIVATE
