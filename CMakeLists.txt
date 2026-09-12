@@ -368,6 +368,19 @@ deeprun_set_project_warnings(DeepRunM4AcousticTests)
 target_link_libraries(DeepRunM4AcousticTests PRIVATE DeepRunEngine)
 add_test(NAME DeepRunM4AcousticTests COMMAND DeepRunM4AcousticTests)
 
+# Core time-domain regression: player time compression changes fixed-work count, never fixed-step duration.
+add_executable(DeepRunTimeCompressionTests
+    Tests/TimeCompressionTest.cpp
+)
+target_compile_features(DeepRunTimeCompressionTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunTimeCompressionTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunTimeCompressionTests)
+target_link_libraries(DeepRunTimeCompressionTests PRIVATE DeepRunEngine)
+add_test(NAME DeepRunTimeCompressionTests COMMAND DeepRunTimeCompressionTests)
+
 # M5-A is a headless SimulationTime/readiness and perceived-track targeting boundary test.
 add_executable(DeepRunM5WeaponRuntimeTests
     Tests/M5WeaponRuntimeTest.cpp
