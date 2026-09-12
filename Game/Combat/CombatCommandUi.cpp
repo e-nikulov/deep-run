@@ -351,9 +351,7 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
 
     if (snapshot.activePulse)
     {
-        const double elapsedSeconds = std::max(0.0, snapshot.simulationTimeSeconds - snapshot.activePulse->emissionTimeSeconds);
-        constexpr double soundSpeedMetersPerSecond = 1500.0;
-        const float waveRangeMeters = static_cast<float>(elapsedSeconds * soundSpeedMetersPerSecond);
+        const float waveRangeMeters = SonarOutgoingWaveRangeMeters(snapshot);
         const float waveRadius = radius * std::clamp(waveRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F);
         const float bearing = snapshot.activePulse->relativeBearingRadians;
         const float halfAngle = snapshot.activePulse->beamHalfAngleRadians;
