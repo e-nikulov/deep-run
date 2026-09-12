@@ -36,7 +36,7 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
     using namespace DeepRun;
 
     Assets::AssetManager assets("Assets");
-    const auto definition = Game::Weapons::LoadProductionP700AssetDefinition(assets);
+    const auto definition = Game::Armament::LoadProductionP700AssetDefinition(assets);
     if (!definition)
     {
         std::cerr << "P-700 production definition load failed: " << definition.error() << '\n';
@@ -74,8 +74,8 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
         return false;
     }
 
-    const auto stowedOverrides = Game::Weapons::BuildProductionP700DeploymentOverrides(*definition, 0.0F);
-    const auto deployedOverrides = Game::Weapons::BuildProductionP700DeploymentOverrides(*definition, 1.0F);
+    const auto stowedOverrides = Game::Armament::BuildProductionP700DeploymentOverrides(*definition, 0.0F);
+    const auto deployedOverrides = Game::Armament::BuildProductionP700DeploymentOverrides(*definition, 1.0F);
     if (!stowedOverrides || !deployedOverrides ||
         stowedOverrides->size() != ExpectedMovableSurfaceCount ||
         deployedOverrides->size() != ExpectedMovableSurfaceCount)
@@ -104,7 +104,7 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
     std::size_t lod0TriangleCount = 0U;
     for (const Render::ModelDrawInstance& draw : *draws)
     {
-        if (!Game::Weapons::IsProductionP700Lod0MeshNode(*definition, draw.nodeIndex))
+        if (!Game::Armament::IsProductionP700Lod0MeshNode(*definition, draw.nodeIndex))
         {
             continue;
         }
@@ -129,8 +129,8 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
         return false;
     }
 
-    if (Game::Weapons::BuildProductionP700DeploymentOverrides(*definition, -0.01F) ||
-        Game::Weapons::BuildProductionP700DeploymentOverrides(*definition, 1.01F))
+    if (Game::Armament::BuildProductionP700DeploymentOverrides(*definition, -0.01F) ||
+        Game::Armament::BuildProductionP700DeploymentOverrides(*definition, 1.01F))
     {
         std::cerr << "P-700 deployment progress accepted values outside [0,1]\n";
         return false;
