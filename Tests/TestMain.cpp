@@ -455,12 +455,14 @@ bool IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge()
     const std::size_t prototypeBridge = source.find("M2PhysicsProxyModelPath");
     const std::size_t productionCollision = source.find("collisionProxy.halfExtents");
     const std::size_t bodyHalfExtents = source.find("bodyInfo.halfExtents = collisionHalfExtents");
+    const std::size_t productionDraw = source.find("const auto draws = Render::PrepareModelDraws(");
+    const bool productionModelDraw = productionDraw != std::string::npos &&
+        source.find("*modelAsset_, modelToWorld", productionDraw) != std::string::npos;
     return productionSelection != std::string::npos && productionLoad != std::string::npos &&
            source.find("legacyLod0") == std::string::npos && source.find("productionLod0") == std::string::npos &&
            prototypeBridge == std::string::npos && productionCollision != std::string::npos &&
            bodyHalfExtents != std::string::npos && source.find("assets.LoadModel(M2PhysicsProxyModelPath)") == std::string::npos &&
-           source.find("SubmarineModelPath") == std::string::npos &&
-           source.find("Render::PrepareModelDraws(*modelAsset_, modelToWorld,") != std::string::npos;
+           source.find("SubmarineModelPath") == std::string::npos && productionModelDraw;
 }
 
 bool IG1CProductionProxyContractsAreLoadedAndIndependentFromVisualBounds()
