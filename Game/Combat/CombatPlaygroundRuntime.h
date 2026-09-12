@@ -49,6 +49,14 @@ inline constexpr float M5CombatMineDepthOffsetMeters = 35.0F;
 inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
 inline constexpr double M5CombatTorpedoSeekerEmissionSampleIntervalSeconds = 0.10;
 inline constexpr float M5CombatTorpedoSeekerAssociationGateRadians = 0.03F;
+// Torpedo-local active seeker values are GAME POLICY only, not real weapon performance data. They exist to
+// distinguish the much smaller local seeker from the carrier sonar while preserving the same acoustic simulator.
+inline constexpr double M5CombatTorpedoActiveListenWindowSeconds = 4.0;
+inline constexpr float M5CombatTorpedoActiveBeamHalfAngleRadians = 0.45F;
+inline constexpr Acoustics::ActiveSonarConfig M5CombatTorpedoActiveSonarConfig{
+    .bearingUncertaintyRadians = 0.06F,
+    .minimumRangeUncertaintyMeters = 3.0F,
+    .fractionalRangeUncertainty = 0.04F};
 inline constexpr float M5CombatDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr float M5CombatPlayerDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr double M5CombatIncomingThreatEmissionSampleIntervalSeconds = 0.10;
@@ -126,6 +134,15 @@ public:
             .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
             .positionUncertaintyGrowthMetersPerSecond = 0.0F,
             .maximumTracks = 8U});
+        const auto playerTorpedoActiveSeekerTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+            .associationGateRadians = M5CombatTorpedoSeekerAssociationGateRadians,
+            .observationsToConfirm = 1U,
+            .coastAfterSeconds = 0.50,
+            .lostAfterSeconds = 1.5,
+            .confidenceDecayPerSecond = 0.35F,
+            .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
+            .positionUncertaintyGrowthMetersPerSecond = 2.0F,
+            .maximumTracks = 8U});
         const auto destroyerTorpedoSeekerTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
             .associationGateRadians = M5CombatTorpedoSeekerAssociationGateRadians,
             .observationsToConfirm = 1U,
@@ -134,6 +151,15 @@ public:
             .confidenceDecayPerSecond = 0.50F,
             .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
             .positionUncertaintyGrowthMetersPerSecond = 0.0F,
+            .maximumTracks = 8U});
+        const auto destroyerTorpedoActiveSeekerTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+            .associationGateRadians = M5CombatTorpedoSeekerAssociationGateRadians,
+            .observationsToConfirm = 1U,
+            .coastAfterSeconds = 0.50,
+            .lostAfterSeconds = 1.5,
+            .confidenceDecayPerSecond = 0.35F,
+            .bearingUncertaintyGrowthRadiansPerSecond = 0.02F,
+            .positionUncertaintyGrowthMetersPerSecond = 2.0F,
             .maximumTracks = 8U});
         const auto incomingThreatTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
             .associationGateRadians = 0.12F,
@@ -144,8 +170,8 @@ public:
             .bearingUncertaintyGrowthRadiansPerSecond = 0.03F,
             .positionUncertaintyGrowthMetersPerSecond = 0.0F,
             .maximumTracks = 4U});
-        if (!playerTracks || !destroyerTracks || !playerTorpedoSeekerTracks ||
-            !destroyerTorpedoSeekerTracks || !incomingThreatTracks)
+        if (!playerTracks || !destroyerTracks || !playerTorpedoSeekerTracks || !playerTorpedoActiveSeekerTracks ||
+            !destroyerTorpedoSeekerTracks || !destroyerTorpedoActiveSeekerTracks || !incomingThreatTracks)
         {
             return std::unexpected("M5-H/M5-E.1/M5-J3/M5-J4 perception manager creation failed");
         }
@@ -253,7 +279,9 @@ public:
             *playerTracks,
             *destroyerTracks,
             *playerTorpedoSeekerTracks,
+            *playerTorpedoActiveSeekerTracks,
             *destroyerTorpedoSeekerTracks,
+            *destroyerTorpedoActiveSeekerTracks,
             *incomingThreatTracks,
             destroyerDefinition,
             *destroyer,
@@ -508,7 +536,9 @@ private:
         Perception::TrackManager playerTracks,
         Perception::TrackManager destroyerTracks,
         Perception::TrackManager playerTorpedoSeekerTracks,
+        Perception::TrackManager playerTorpedoActiveSeekerTracks,
         Perception::TrackManager destroyerTorpedoSeekerTracks,
+        Perception::TrackManager destroyerTorpedoActiveSeekerTracks,
         Perception::TrackManager incomingThreatTracks,
         SimpleDestroyerDefinition destroyerDefinition,
         SimpleDestroyerRuntimeState destroyer,
@@ -525,7 +555,9 @@ private:
           playerTracks_(std::move(playerTracks)),
           destroyerTracks_(std::move(destroyerTracks)),
           playerTorpedoSeekerTracks_(std::move(playerTorpedoSeekerTracks)),
+          playerTorpedoActiveSeekerTracks_(std::move(playerTorpedoActiveSeekerTracks)),
           destroyerTorpedoSeekerTracks_(std::move(destroyerTorpedoSeekerTracks)),
+          destroyerTorpedoActiveSeekerTracks_(std::move(destroyerTorpedoActiveSeekerTracks)),
           incomingThreatTracks_(std::move(incomingThreatTracks)),
           destroyerDefinition_(std::move(destroyerDefinition)),
           destroyer_(std::move(destroyer)),
@@ -885,26 +917,30 @@ private:
         std::optional<Weapons::ConventionalTorpedoImpact> impact{};
         if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
-            const auto seekerCue = AdvancePlayerTorpedoSeeker(*destroyerAcoustics, simulationTimeSeconds);
-            if (!seekerCue)
+            const auto seekerDecision = AdvancePlayerTorpedoSeeker(*destroyerAcoustics, simulationTimeSeconds);
+            if (!seekerDecision)
             {
-                return std::unexpected("M5-E.1 live torpedo seeker failed: " + seekerCue.error());
+                return std::unexpected("M5-E.1 live torpedo seeker failed: " + seekerDecision.error());
             }
 
             const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerTorpedo_->guidanceTrackId);
-            const auto guidanceTrack = BuildPlayerTorpedoGuidanceTrack(perceivedTrack);
             const float forwardProgressMeters = playerTorpedoLaunchPosition_
                 ? (playerTorpedo_->positionMeters.x - playerTorpedoLaunchPosition_->x) * playerTorpedoForwardSign_
                 : 0.0F;
-            const bool localSeekerOwnsCourse =
-                forwardProgressMeters >= M5CombatTorpedoStraightRunMeters && seekerCue->has_value();
+            const bool seekerEnabled = forwardProgressMeters >= M5CombatTorpedoStraightRunMeters;
+            // Before seeker enable the launch-platform fire-control Track may update the onboard aim point. Once
+            // enabled, loss of local contact never falls back to live carrier Track updates: the weapon continues
+            // from its last onboard solution until its own passive/active seeker reacquires something.
+            const auto guidanceTrack = seekerEnabled
+                ? std::optional<Perception::Track>{}
+                : BuildPlayerTorpedoGuidanceTrack(perceivedTrack);
 
-            const auto advanced = localSeekerOwnsCourse
+            const auto advanced = seekerDecision->guidanceCue
                 ? Weapons::AdvanceConventionalTorpedoWithSeekerCueAndCollision(
                     playerTorpedoDefinition_,
                     playerTorpedoSeekerConfig_,
                     *playerTorpedo_,
-                    **seekerCue,
+                    *seekerDecision->guidanceCue,
                     *physicsWorld_,
                     simulationTimeSeconds)
                 : Weapons::AdvanceConventionalTorpedoWithCollision(
@@ -918,6 +954,8 @@ private:
                 impact = **advanced;
                 lastExplosion_ = impact->explosion;
                 pendingPlayerTorpedoSeekerEmissions_.clear();
+                playerTorpedoActivePulse_.reset();
+                playerTorpedoActiveReflector_.reset();
                 if (impact->physicsHit.body != destroyer_.body)
                 {
                     return std::unexpected("M5-E.1 torpedo struck an unexpected physical body");
@@ -971,31 +1009,31 @@ private:
         std::optional<Weapons::ConventionalTorpedoImpact> destroyerImpact{};
         if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
-            const auto seekerCue = AdvanceDestroyerTorpedoSeeker(playerSnapshot, simulationTimeSeconds);
-            if (!seekerCue)
+            const auto seekerDecision = AdvanceDestroyerTorpedoSeeker(playerSnapshot, simulationTimeSeconds);
+            if (!seekerDecision)
             {
-                return std::unexpected("M5-J4 destroyer torpedo seeker failed: " + seekerCue.error());
+                return std::unexpected("M5-J4 destroyer torpedo seeker failed: " + seekerDecision.error());
             }
             const auto perceivedTrack = FindTrack(destroyerTracks_.Tracks(), destroyerTorpedo_->guidanceTrackId);
             const float forwardProgressMeters = destroyerTorpedoLaunchPosition_
                 ? (destroyerTorpedo_->positionMeters.x - destroyerTorpedoLaunchPosition_->x) *
                     destroyerTorpedoForwardSign_
                 : 0.0F;
-            const bool localSeekerOwnsCourse =
-                forwardProgressMeters >= M5CombatTorpedoStraightRunMeters && seekerCue->has_value();
-            const auto advanced = localSeekerOwnsCourse
+            const bool seekerEnabled = forwardProgressMeters >= M5CombatTorpedoStraightRunMeters;
+            const auto guidanceTrack = seekerEnabled ? std::optional<Perception::Track>{} : perceivedTrack;
+            const auto advanced = seekerDecision->guidanceCue
                 ? Weapons::AdvanceConventionalTorpedoWithSeekerCueAndCollision(
                     destroyerTorpedoDefinition_,
                     destroyerTorpedoSeekerConfig_,
                     *destroyerTorpedo_,
-                    **seekerCue,
+                    *seekerDecision->guidanceCue,
                     *physicsWorld_,
                     simulationTimeSeconds,
                     destroyer_.body)
                 : Weapons::AdvanceConventionalTorpedoWithCollision(
                     destroyerTorpedoDefinition_,
                     *destroyerTorpedo_,
-                    perceivedTrack,
+                    guidanceTrack,
                     *physicsWorld_,
                     simulationTimeSeconds,
                     destroyer_.body);
@@ -1008,6 +1046,8 @@ private:
                 destroyerImpact = **advanced;
                 lastExplosion_ = destroyerImpact->explosion;
                 pendingDestroyerTorpedoSeekerEmissions_.clear();
+                destroyerTorpedoActivePulse_.reset();
+                destroyerTorpedoActiveReflector_.reset();
                 if (playerIntegrity_ && destroyerImpact->physicsHit.body == playerBody_)
                 {
                     const auto damaged = DeepRun::Combat::ApplyCombatDamage(*playerIntegrity_, destroyerImpact->damage);
@@ -1524,6 +1564,9 @@ private:
             .lastUpdateTimeSeconds = simulationTimeSeconds};
         pendingDestroyerTorpedoSeekerEmissions_.clear();
         nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_ = simulationTimeSeconds;
+        destroyerTorpedoActivePulse_.reset();
+        destroyerTorpedoActiveReflector_.reset();
+        destroyerTorpedoActivePulseDeadlineSeconds_ = simulationTimeSeconds;
         pendingIncomingThreatEmissions_.clear();
         nextIncomingThreatEmissionSampleTimeSeconds_ = simulationTimeSeconds;
         return {};
@@ -1576,6 +1619,9 @@ private:
             .lastUpdateTimeSeconds = simulationTimeSeconds};
         pendingPlayerTorpedoSeekerEmissions_.clear();
         nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ = simulationTimeSeconds;
+        playerTorpedoActivePulse_.reset();
+        playerTorpedoActiveReflector_.reset();
+        playerTorpedoActivePulseDeadlineSeconds_ = simulationTimeSeconds;
 
         const Physics::PhysicsVector3 decoyPosition{
             .x = destroyerAcoustics.emitter.positionMeters.x - 20.0F,
@@ -1636,16 +1682,27 @@ private:
         return {};
     }
 
-    [[nodiscard]] std::expected<std::optional<Weapons::TorpedoSeekerCue>, std::string> AdvancePlayerTorpedoSeeker(
+    [[nodiscard]] std::expected<Weapons::TorpedoSeekerModeDecision, std::string> AdvancePlayerTorpedoSeeker(
         const SimpleDestroyerAcousticSnapshot& destroyerAcoustics,
         const double simulationTimeSeconds)
     {
         if (!playerTorpedo_ || playerTorpedo_->movementDomain != Weapons::MovementDomain::Underwater ||
             !playerTorpedo_->positionMeters.IsFinite() || !destroyerAcoustics.emitter.positionMeters.IsFinite() ||
-            !destroyerAcoustics.emitter.continuousSourceLevelDb.IsFinite() ||
-            !std::isfinite(simulationTimeSeconds))
+            !destroyerAcoustics.emitter.continuousSourceLevelDb.IsFinite() || !std::isfinite(simulationTimeSeconds))
         {
             return std::unexpected("M5-E.1 seeker source/runtime input is invalid");
+        }
+
+        const float forwardProgressMeters = playerTorpedoLaunchPosition_
+            ? (playerTorpedo_->positionMeters.x - playerTorpedoLaunchPosition_->x) * playerTorpedoForwardSign_
+            : 0.0F;
+        const bool seekerEnabled = playerTorpedoLaunchPosition_.has_value() &&
+            forwardProgressMeters >= M5CombatTorpedoStraightRunMeters;
+        if (!seekerEnabled)
+        {
+            return Weapons::UpdateTorpedoSeekerMode(
+                playerTorpedoSeekerConfig_, playerTorpedoSeekerModeConfig_, playerTorpedoSeekerState_,
+                false, std::nullopt, std::nullopt, simulationTimeSeconds);
         }
 
         if (simulationTimeSeconds + 1.0e-9 >= nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_)
@@ -1654,25 +1711,20 @@ private:
                 .positionMeters = destroyerAcoustics.emitter.positionMeters,
                 .sourceLevelDb = destroyerAcoustics.emitter.continuousSourceLevelDb,
                 .emissionTimeSeconds = simulationTimeSeconds});
-
             if (decoy_)
             {
                 const auto decoyEmission = Weapons::SampleAcousticDecoyEmission(
                     decoyDefinition_, *decoy_, simulationTimeSeconds);
                 if (!decoyEmission)
-                {
                     return std::unexpected("M5-E.1 decoy emission snapshot failed: " + decoyEmission.error());
-                }
                 if (decoyEmission->has_value())
-                {
                     pendingPlayerTorpedoSeekerEmissions_.push_back(**decoyEmission);
-                }
             }
             nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ =
                 simulationTimeSeconds + M5CombatTorpedoSeekerEmissionSampleIntervalSeconds;
         }
 
-        const Acoustics::AcousticReceiver seekerReceiver{
+        const Acoustics::AcousticReceiver passiveReceiver{
             .sensorId = "M5_PLAYER_TORPEDO_PASSIVE_SEEKER",
             .positionMeters = playerTorpedo_->positionMeters,
             .ambientNoiseLevelDb = {.levelDb = {42.0F, 40.0F, 38.0F, 36.0F}},
@@ -1680,54 +1732,104 @@ private:
             .sensitivityDb = {.levelDb = {0.0F, 0.0F, 0.0F, 0.0F}},
             .minimumPeakSnrDb = 3.0F};
 
-        bool integratedObservation = false;
+        bool integratedPassiveObservation = false;
         auto emission = pendingPlayerTorpedoSeekerEmissions_.begin();
         while (emission != pendingPlayerTorpedoSeekerEmissions_.end())
         {
-            const double distanceMeters = Distance(emission->positionMeters, seekerReceiver.positionMeters);
+            const double distanceMeters = Distance(emission->positionMeters, passiveReceiver.positionMeters);
             const double arrivalTimeSeconds = emission->emissionTimeSeconds +
                 distanceMeters / static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
             if (!std::isfinite(arrivalTimeSeconds))
-            {
                 return std::unexpected("M5-E.1 seeker emission arrival time is non-finite");
-            }
             if (simulationTimeSeconds + 1.0e-9 < arrivalTimeSeconds)
             {
                 ++emission;
                 continue;
             }
-
             const auto observed = acousticWorld_.CollectPassiveDirectObservation(
-                *emission, seekerReceiver, simulationTimeSeconds);
+                *emission, passiveReceiver, simulationTimeSeconds);
             if (!observed)
-            {
                 return std::unexpected("M5-E.1 seeker acoustic propagation failed: " + observed.error().message);
-            }
             if (observed->has_value())
             {
                 const auto perceived = Perception::FromAcousticObservation(**observed);
                 if (!perceived || !playerTorpedoSeekerTracks_.IntegrateObservation(*perceived))
-                {
                     return std::unexpected("M5-E.1 seeker perception integration failed");
-                }
-                integratedObservation = true;
+                integratedPassiveObservation = true;
             }
             emission = pendingPlayerTorpedoSeekerEmissions_.erase(emission);
         }
+        if (!integratedPassiveObservation && !playerTorpedoSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+            return std::unexpected("M5-E.1 passive seeker TrackManager failed to advance");
 
-        if (!integratedObservation && !playerTorpedoSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+        bool integratedActiveObservation = false;
+        if (playerTorpedoActivePulse_ && playerTorpedoActiveReflector_)
         {
-            return std::unexpected("M5-E.1 seeker TrackManager failed to advance");
+            Acoustics::AcousticReceiver activeReceiver = passiveReceiver;
+            activeReceiver.sensorId = "M5_PLAYER_TORPEDO_ACTIVE_SEEKER";
+            activeReceiver.positionMeters = playerTorpedoActivePulse_->originMeters;
+            const auto activeEcho = Acoustics::CollectMonostaticActiveEchoObservation(
+                acousticWorld_, *playerTorpedoActivePulse_, *playerTorpedoActiveReflector_, activeReceiver,
+                simulationTimeSeconds, {}, {}, M5CombatTorpedoActiveSonarConfig);
+            if (!activeEcho)
+                return std::unexpected("M5 torpedo active echo failed: " + activeEcho.error());
+            if (activeEcho->has_value())
+            {
+                const auto perceived = Perception::FromAcousticObservation(
+                    **activeEcho, playerTorpedoActivePulse_->originMeters);
+                if (!perceived || !playerTorpedoActiveSeekerTracks_.IntegrateObservation(*perceived))
+                    return std::unexpected("M5 torpedo active echo failed perception integration");
+                integratedActiveObservation = true;
+                playerTorpedoActivePulse_.reset();
+                playerTorpedoActiveReflector_.reset();
+            }
+            else if (simulationTimeSeconds + 1.0e-9 >= playerTorpedoActivePulseDeadlineSeconds_)
+            {
+                playerTorpedoActivePulse_.reset();
+                playerTorpedoActiveReflector_.reset();
+            }
         }
+        if (!integratedActiveObservation && !playerTorpedoActiveSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+            return std::unexpected("M5 torpedo active seeker TrackManager failed to advance");
 
-        return Weapons::SelectTorpedoSeekerCue(
-            playerTorpedoSeekerConfig_,
-            playerTorpedoSeekerState_,
-            playerTorpedoSeekerTracks_.Tracks(),
-            simulationTimeSeconds);
+        const auto passiveCue = Weapons::SelectBestTorpedoSeekerCue(
+            playerTorpedoSeekerConfig_, playerTorpedoSeekerTracks_.Tracks());
+        const auto activeCue = Weapons::SelectBestTorpedoSeekerCue(
+            playerTorpedoSeekerConfig_, playerTorpedoActiveSeekerTracks_.Tracks());
+        if (!passiveCue || !activeCue)
+            return std::unexpected("M5 torpedo local seeker cue selection failed");
+        auto decision = Weapons::UpdateTorpedoSeekerMode(
+            playerTorpedoSeekerConfig_, playerTorpedoSeekerModeConfig_, playerTorpedoSeekerState_,
+            true, *passiveCue, *activeCue, simulationTimeSeconds);
+        if (!decision)
+            return decision;
+
+        if (decision->requestActivePing && !playerTorpedoActivePulse_)
+        {
+            playerTorpedoActivePulse_ = Acoustics::ActiveAcousticPulse{
+                .originMeters = playerTorpedo_->positionMeters,
+                .forwardUnitVector = {
+                    .x = static_cast<float>(std::cos(static_cast<double>(playerTorpedo_->headingRadians))),
+                    .y = static_cast<float>(std::sin(static_cast<double>(playerTorpedo_->headingRadians))),
+                    .z = 0.0F},
+                .sourceLevelDb = {.levelDb = {188.0F, 191.0F, 193.0F, 189.0F}},
+                .beamHalfAngleRadians = M5CombatTorpedoActiveBeamHalfAngleRadians,
+                .emissionTimeSeconds = simulationTimeSeconds};
+            // Ground truth is confined to reflector input of the acoustic simulator and never enters guidance.
+            playerTorpedoActiveReflector_ = Acoustics::AcousticReflector{
+                .positionMeters = destroyerAcoustics.emitter.positionMeters,
+                .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
+            playerTorpedoActivePulseDeadlineSeconds_ =
+                simulationTimeSeconds + M5CombatTorpedoActiveListenWindowSeconds;
+            const auto notified = Weapons::NotifyTorpedoSeekerActivePingEmitted(
+                playerTorpedoSeekerModeConfig_, playerTorpedoSeekerState_, simulationTimeSeconds);
+            if (!notified)
+                return std::unexpected(notified.error());
+        }
+        return decision;
     }
 
-    [[nodiscard]] std::expected<std::optional<Weapons::TorpedoSeekerCue>, std::string>
+    [[nodiscard]] std::expected<Weapons::TorpedoSeekerModeDecision, std::string>
     AdvanceDestroyerTorpedoSeeker(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const double simulationTimeSeconds)
@@ -1737,6 +1839,18 @@ private:
             !playerSnapshot.emitter.continuousSourceLevelDb.IsFinite() || !std::isfinite(simulationTimeSeconds))
         {
             return std::unexpected("M5-J4 hostile seeker source/runtime input is invalid");
+        }
+
+        const float forwardProgressMeters = destroyerTorpedoLaunchPosition_
+            ? (destroyerTorpedo_->positionMeters.x - destroyerTorpedoLaunchPosition_->x) * destroyerTorpedoForwardSign_
+            : 0.0F;
+        const bool seekerEnabled = destroyerTorpedoLaunchPosition_.has_value() &&
+            forwardProgressMeters >= M5CombatTorpedoStraightRunMeters;
+        if (!seekerEnabled)
+        {
+            return Weapons::UpdateTorpedoSeekerMode(
+                destroyerTorpedoSeekerConfig_, destroyerTorpedoSeekerModeConfig_, destroyerTorpedoSeekerState_,
+                false, std::nullopt, std::nullopt, simulationTimeSeconds);
         }
 
         if (simulationTimeSeconds + 1.0e-9 >= nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_)
@@ -1750,19 +1864,15 @@ private:
                 const auto decoyEmission = Weapons::SampleAcousticDecoyEmission(
                     playerDecoyDefinition_, *playerDecoy_, simulationTimeSeconds);
                 if (!decoyEmission)
-                {
                     return std::unexpected("M5-J4 player decoy emission snapshot failed: " + decoyEmission.error());
-                }
                 if (decoyEmission->has_value())
-                {
                     pendingDestroyerTorpedoSeekerEmissions_.push_back(**decoyEmission);
-                }
             }
             nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_ =
                 simulationTimeSeconds + M5CombatTorpedoSeekerEmissionSampleIntervalSeconds;
         }
 
-        const Acoustics::AcousticReceiver seekerReceiver{
+        const Acoustics::AcousticReceiver passiveReceiver{
             .sensorId = "M5_DESTROYER_TORPEDO_PASSIVE_SEEKER",
             .positionMeters = destroyerTorpedo_->positionMeters,
             .ambientNoiseLevelDb = {.levelDb = {42.0F, 40.0F, 38.0F, 36.0F}},
@@ -1770,51 +1880,100 @@ private:
             .sensitivityDb = {.levelDb = {0.0F, 0.0F, 0.0F, 0.0F}},
             .minimumPeakSnrDb = 3.0F};
 
-        bool integratedObservation = false;
+        bool integratedPassiveObservation = false;
         auto emission = pendingDestroyerTorpedoSeekerEmissions_.begin();
         while (emission != pendingDestroyerTorpedoSeekerEmissions_.end())
         {
-            const double distanceMeters = Distance(emission->positionMeters, seekerReceiver.positionMeters);
+            const double distanceMeters = Distance(emission->positionMeters, passiveReceiver.positionMeters);
             const double arrivalTimeSeconds = emission->emissionTimeSeconds +
                 distanceMeters / static_cast<double>(acousticWorld_.Config().effectiveSoundSpeedMetersPerSecond);
             if (!std::isfinite(arrivalTimeSeconds))
-            {
                 return std::unexpected("M5-J4 hostile seeker emission arrival time is non-finite");
-            }
             if (simulationTimeSeconds + 1.0e-9 < arrivalTimeSeconds)
             {
                 ++emission;
                 continue;
             }
-
             const auto observed = acousticWorld_.CollectPassiveDirectObservation(
-                *emission, seekerReceiver, simulationTimeSeconds);
+                *emission, passiveReceiver, simulationTimeSeconds);
             if (!observed)
-            {
-                return std::unexpected("M5-J4 hostile seeker acoustic propagation failed: " +
-                                       observed.error().message);
-            }
+                return std::unexpected("M5-J4 hostile seeker acoustic propagation failed: " + observed.error().message);
             if (observed->has_value())
             {
                 const auto perceived = Perception::FromAcousticObservation(**observed);
                 if (!perceived || !destroyerTorpedoSeekerTracks_.IntegrateObservation(*perceived))
-                {
                     return std::unexpected("M5-J4 hostile seeker perception integration failed");
-                }
-                integratedObservation = true;
+                integratedPassiveObservation = true;
             }
             emission = pendingDestroyerTorpedoSeekerEmissions_.erase(emission);
         }
+        if (!integratedPassiveObservation && !destroyerTorpedoSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+            return std::unexpected("M5-J4 hostile passive seeker TrackManager failed to advance");
 
-        if (!integratedObservation && !destroyerTorpedoSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+        bool integratedActiveObservation = false;
+        if (destroyerTorpedoActivePulse_ && destroyerTorpedoActiveReflector_)
         {
-            return std::unexpected("M5-J4 hostile seeker TrackManager failed to advance");
+            Acoustics::AcousticReceiver activeReceiver = passiveReceiver;
+            activeReceiver.sensorId = "M5_DESTROYER_TORPEDO_ACTIVE_SEEKER";
+            activeReceiver.positionMeters = destroyerTorpedoActivePulse_->originMeters;
+            const auto activeEcho = Acoustics::CollectMonostaticActiveEchoObservation(
+                acousticWorld_, *destroyerTorpedoActivePulse_, *destroyerTorpedoActiveReflector_, activeReceiver,
+                simulationTimeSeconds, {}, {}, M5CombatTorpedoActiveSonarConfig);
+            if (!activeEcho)
+                return std::unexpected("M5 hostile torpedo active echo failed: " + activeEcho.error());
+            if (activeEcho->has_value())
+            {
+                const auto perceived = Perception::FromAcousticObservation(
+                    **activeEcho, destroyerTorpedoActivePulse_->originMeters);
+                if (!perceived || !destroyerTorpedoActiveSeekerTracks_.IntegrateObservation(*perceived))
+                    return std::unexpected("M5 hostile torpedo active echo failed perception integration");
+                integratedActiveObservation = true;
+                destroyerTorpedoActivePulse_.reset();
+                destroyerTorpedoActiveReflector_.reset();
+            }
+            else if (simulationTimeSeconds + 1.0e-9 >= destroyerTorpedoActivePulseDeadlineSeconds_)
+            {
+                destroyerTorpedoActivePulse_.reset();
+                destroyerTorpedoActiveReflector_.reset();
+            }
         }
-        return Weapons::SelectTorpedoSeekerCue(
-            destroyerTorpedoSeekerConfig_,
-            destroyerTorpedoSeekerState_,
-            destroyerTorpedoSeekerTracks_.Tracks(),
-            simulationTimeSeconds);
+        if (!integratedActiveObservation && !destroyerTorpedoActiveSeekerTracks_.AdvanceTo(simulationTimeSeconds))
+            return std::unexpected("M5 hostile torpedo active seeker TrackManager failed to advance");
+
+        const auto passiveCue = Weapons::SelectBestTorpedoSeekerCue(
+            destroyerTorpedoSeekerConfig_, destroyerTorpedoSeekerTracks_.Tracks());
+        const auto activeCue = Weapons::SelectBestTorpedoSeekerCue(
+            destroyerTorpedoSeekerConfig_, destroyerTorpedoActiveSeekerTracks_.Tracks());
+        if (!passiveCue || !activeCue)
+            return std::unexpected("M5 hostile torpedo local seeker cue selection failed");
+        auto decision = Weapons::UpdateTorpedoSeekerMode(
+            destroyerTorpedoSeekerConfig_, destroyerTorpedoSeekerModeConfig_, destroyerTorpedoSeekerState_,
+            true, *passiveCue, *activeCue, simulationTimeSeconds);
+        if (!decision)
+            return decision;
+
+        if (decision->requestActivePing && !destroyerTorpedoActivePulse_)
+        {
+            destroyerTorpedoActivePulse_ = Acoustics::ActiveAcousticPulse{
+                .originMeters = destroyerTorpedo_->positionMeters,
+                .forwardUnitVector = {
+                    .x = static_cast<float>(std::cos(static_cast<double>(destroyerTorpedo_->headingRadians))),
+                    .y = static_cast<float>(std::sin(static_cast<double>(destroyerTorpedo_->headingRadians))),
+                    .z = 0.0F},
+                .sourceLevelDb = {.levelDb = {188.0F, 191.0F, 193.0F, 189.0F}},
+                .beamHalfAngleRadians = M5CombatTorpedoActiveBeamHalfAngleRadians,
+                .emissionTimeSeconds = simulationTimeSeconds};
+            destroyerTorpedoActiveReflector_ = Acoustics::AcousticReflector{
+                .positionMeters = playerSnapshot.emitter.positionMeters,
+                .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
+            destroyerTorpedoActivePulseDeadlineSeconds_ =
+                simulationTimeSeconds + M5CombatTorpedoActiveListenWindowSeconds;
+            const auto notified = Weapons::NotifyTorpedoSeekerActivePingEmitted(
+                destroyerTorpedoSeekerModeConfig_, destroyerTorpedoSeekerState_, simulationTimeSeconds);
+            if (!notified)
+                return std::unexpected(notified.error());
+        }
+        return decision;
     }
 
     [[nodiscard]] std::expected<void, std::string> AdvanceIncomingThreatPerception(
@@ -2018,7 +2177,9 @@ private:
     Perception::TrackManager playerTracks_;
     Perception::TrackManager destroyerTracks_;
     Perception::TrackManager playerTorpedoSeekerTracks_;
+    Perception::TrackManager playerTorpedoActiveSeekerTracks_;
     Perception::TrackManager destroyerTorpedoSeekerTracks_;
+    Perception::TrackManager destroyerTorpedoActiveSeekerTracks_;
     Perception::TrackManager incomingThreatTracks_;
     std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
     double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;
@@ -2029,6 +2190,15 @@ private:
     Weapons::TorpedoSeekerRuntimeState playerTorpedoSeekerState_{};
     std::vector<Acoustics::AcousticEmission> pendingPlayerTorpedoSeekerEmissions_{};
     double nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ = 0.0;
+    Weapons::TorpedoSeekerModeConfig playerTorpedoSeekerModeConfig_{
+        .passiveSearchBeforeActiveSeconds = 1.5,
+        .activePingIntervalSeconds = 1.0,
+        .lostContactBeforeActiveSeconds = 0.35,
+        .maximumSearchWithoutContactSeconds = 30.0,
+        .preferPassiveCue = true};
+    std::optional<Acoustics::ActiveAcousticPulse> playerTorpedoActivePulse_{};
+    std::optional<Acoustics::AcousticReflector> playerTorpedoActiveReflector_{};
+    double playerTorpedoActivePulseDeadlineSeconds_ = 0.0;
     Weapons::TorpedoSeekerConfig destroyerTorpedoSeekerConfig_{
         .minimumTrackConfidence = 0.35F,
         .maximumBearingUncertaintyRadians = 0.20F,
@@ -2036,6 +2206,15 @@ private:
     Weapons::TorpedoSeekerRuntimeState destroyerTorpedoSeekerState_{};
     std::vector<Acoustics::AcousticEmission> pendingDestroyerTorpedoSeekerEmissions_{};
     double nextDestroyerTorpedoSeekerEmissionSampleTimeSeconds_ = 0.0;
+    Weapons::TorpedoSeekerModeConfig destroyerTorpedoSeekerModeConfig_{
+        .passiveSearchBeforeActiveSeconds = 1.5,
+        .activePingIntervalSeconds = 1.0,
+        .lostContactBeforeActiveSeconds = 0.35,
+        .maximumSearchWithoutContactSeconds = 30.0,
+        .preferPassiveCue = true};
+    std::optional<Acoustics::ActiveAcousticPulse> destroyerTorpedoActivePulse_{};
+    std::optional<Acoustics::AcousticReflector> destroyerTorpedoActiveReflector_{};
+    double destroyerTorpedoActivePulseDeadlineSeconds_ = 0.0;
     SimpleDestroyerDefinition destroyerDefinition_;
     SimpleDestroyerRuntimeState destroyer_;
     Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition_;
