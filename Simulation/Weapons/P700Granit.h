@@ -706,19 +706,33 @@ struct P700GranitImpact final
         const double stepSeconds = std::min(remainingSeconds, MaximumAirborneIntegrationStepSeconds);
         const double dx = static_cast<double>(state.perceivedAimPointMeters->x) - state.positionMeters.x;
         const double dy = static_cast<double>(state.perceivedAimPointMeters->y) - state.positionMeters.y;
+        const double dz = static_cast<double>(state.perceivedAimPointMeters->z) - state.positionMeters.z;
         const float desiredHeading = static_cast<float>(std::atan2(dy, dx));
         const float headingDelta = WrapP700Heading(desiredHeading - state.headingRadians);
         const float maximumTurn = definition.maximumAirborneTurnRateRadiansPerSecond * static_cast<float>(stepSeconds);
         state.headingRadians = WrapP700Heading(
             state.headingRadians + std::clamp(headingDelta, -maximumTurn, maximumTurn));
-        const Physics::PhysicsVector3 direction{
+
+        // Production Antey launchers are physically offset to port/starboard from the 2.5D gameplay plane.
+        // Preserve that real launch anchor, then converge the airborne weapon toward the perceived Track Z
+        // instead of silently freezing the launcher-side offset for the entire flight. X/Y heading still obeys
+        // the accepted bounded turn-rate policy; this lateral slope only closes the Track-derived cross-plane error.
+        const double planarTargetDistance = std::hypot(dx, dy);
+        const float crossPlaneSlope = planarTargetDistance > 1.0e-6
+            ? static_cast<float>(dz / planarTargetDistance)
+            : (std::abs(dz) > 1.0e-6 ? static_cast<float>(std::copysign(1.0, dz)) : 0.0F);
+        const auto direction = NormalizeP700Vector(Physics::PhysicsVector3{
             .x = static_cast<float>(std::cos(static_cast<double>(state.headingRadians))),
             .y = static_cast<float>(std::sin(static_cast<double>(state.headingRadians))),
-            .z = 0.0F};
+            .z = crossPlaneSlope});
+        if (!direction)
+        {
+            return std::unexpected("P-700 airborne guidance produced an invalid 3D direction");
+        }
         const float speed = state.phase == P700GranitPhase::Terminal
             ? definition.terminalSpeedMetersPerSecond
             : definition.cruiseSpeedMetersPerSecond;
-        const auto impact = moveSegment(direction, speed, stepSeconds);
+        const auto impact = moveSegment(*direction, speed, stepSeconds);
         if (!impact) return std::unexpected(impact.error());
         if (*impact) return *impact;
         cursorTime += stepSeconds;

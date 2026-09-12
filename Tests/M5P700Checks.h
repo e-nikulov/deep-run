@@ -64,7 +64,7 @@ namespace M5P700Detail
 {
     constexpr float fortyDegreesRadians = 0.6981317007977318F;
     return Weapons::P700CarrierLaunchContext{
-        .launchPositionMeters = {.x = 0.0F, .y = -30.0F, .z = 0.0F},
+        .launchPositionMeters = {.x = 0.0F, .y = -30.0F, .z = -6.05F},
         .launchForwardUnitVector = {
             .x = static_cast<float>(std::cos(static_cast<double>(fortyDegreesRadians))),
             .y = static_cast<float>(std::sin(static_cast<double>(fortyDegreesRadians))),
@@ -164,7 +164,7 @@ namespace M5P700Detail
             .position = {.x = 0.0F, .y = -30.0F, .z = 0.0F}});
     const Physics::PhysicsBodyHandle targetBody = physicsWorld.CreateStaticBoxBody(
         Physics::StaticBoxBodyCreateInfo{
-            .halfExtents = {.x = 50.0F, .y = 10.0F, .z = 10.0F},
+            .halfExtents = {.x = 50.0F, .y = 10.0F, .z = 3.0F},
             .position = {.x = 25'000.0F, .y = -2.0F, .z = 0.0F}});
     if (!carrierBody.IsValid() || !targetBody.IsValid())
     {
