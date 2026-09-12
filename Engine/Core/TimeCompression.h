@@ -103,6 +103,22 @@ public:
         return true;
     }
 
+    // Safety producers may only tighten the cap within a fixed tick. This prevents a later subsystem from
+    // accidentally relaxing an earlier, more urgent safety decision (for example incoming weapon 1x followed
+    // by a generic contact-observation 4x recommendation).
+    [[nodiscard]] bool TightenMaximumRate(const TimeCompressionRate rate) noexcept
+    {
+        if (!IsValidTimeCompressionRate(rate))
+        {
+            return false;
+        }
+        if (static_cast<std::uint8_t>(rate) < static_cast<std::uint8_t>(maximumRate_))
+        {
+            maximumRate_ = rate;
+        }
+        return true;
+    }
+
     void IncreaseRequestedRate() noexcept
     {
         requestedRate_ = IncreaseTimeCompressionRate(requestedRate_);
@@ -144,6 +160,47 @@ private:
     TimeCompressionRate requestedRate_ = TimeCompressionRate::X1;
     TimeCompressionRate maximumRate_ = TimeCompressionRate::X8;
 };
+
+// Engine binds this scope only while a gameplay fixed-update hook is executing. Game systems may publish a
+// safety ceiling without storing an Engine pointer or introducing a reverse Engine -> Game dependency. The
+// binding is thread-local and nest-safe; publishing outside a fixed update is rejected.
+class TimeCompressionSafetyScope final
+{
+public:
+    explicit TimeCompressionSafetyScope(TimeCompressionController& controller) noexcept
+        : previousController_(CurrentController())
+    {
+        CurrentController() = &controller;
+    }
+
+    ~TimeCompressionSafetyScope()
+    {
+        CurrentController() = previousController_;
+    }
+
+    TimeCompressionSafetyScope(const TimeCompressionSafetyScope&) = delete;
+    TimeCompressionSafetyScope& operator=(const TimeCompressionSafetyScope&) = delete;
+
+    [[nodiscard]] static bool PublishMaximumRate(const TimeCompressionRate rate) noexcept
+    {
+        TimeCompressionController* controller = CurrentController();
+        return controller != nullptr && controller->TightenMaximumRate(rate);
+    }
+
+private:
+    [[nodiscard]] static TimeCompressionController*& CurrentController() noexcept
+    {
+        static thread_local TimeCompressionController* controller = nullptr;
+        return controller;
+    }
+
+    TimeCompressionController* previousController_ = nullptr;
+};
+
+[[nodiscard]] inline bool PublishTimeCompressionSafetyCap(const TimeCompressionRate rate) noexcept
+{
+    return TimeCompressionSafetyScope::PublishMaximumRate(rate);
+}
 
 static_assert(TimeCompressionMultiplier(TimeCompressionRate::X1) == 1.0);
 static_assert(TimeCompressionMultiplier(TimeCompressionRate::X8) == 8.0);
