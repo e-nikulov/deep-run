@@ -254,8 +254,7 @@ public:
             // A gameplay safety producer may discover danger during the first accelerated tick. Do not run the
             // rest of a precomputed 4x/8x packet after that discovery. The unused packet is deliberately dropped:
             // a safety break changes pacing from this authoritative tick onward rather than owing future sim time.
-            if (static_cast<std::uint8_t>(timeCompression.EffectiveRate()) <
-                static_cast<std::uint8_t>(frameStartEffectiveRate))
+            if (ShouldInterruptCompressedFixedPacket(frameStartEffectiveRate, timeCompression.EffectiveRate()))
             {
                 break;
             }
@@ -463,7 +462,7 @@ public:
 
         core.Log().Info(Diagnostics::LogCategory::Core, "Clearing active scene before dependent services");
         scene.Clear();
-        core.Log().Info(Diagnostics::LogCategory::Core, "Clearing manager-owned asset cache after scene");
+        core.Log().Info(Diagnostics::LogCategory::Assets, "Clearing manager-owned asset cache after scene");
         assets.Clear();
 
         hapticMixer.Reset();
