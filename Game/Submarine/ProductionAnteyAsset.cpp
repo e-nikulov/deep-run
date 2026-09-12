@@ -210,7 +210,7 @@ namespace
             return index;
         }
     }
-    throw std::runtime_error(std::format("Antey GLB has no node for a required propeller presentation binding"));
+    throw std::runtime_error(std::format("Antey GLB has no node for required presentation binding: {}", privateNodeReference));
 }
 
 void Require(const bool condition, const std::string_view message)

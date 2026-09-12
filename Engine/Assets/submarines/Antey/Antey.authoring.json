@@ -2922,7 +2922,7 @@
     {
       "semanticId": "depth-plane.stern.01",
       "group": "STERN",
-      "nodeReference": "SM_Antey_LOD0_TailPlane_Port",
+      "nodeReference": "SM_Antey_LOD0_SternPlane_Port",
       "articulation": "ROTATION",
       "hingeAxisSource": "LOCAL_Y",
       "simulationOwnsAngle": true
@@ -2930,7 +2930,7 @@
     {
       "semanticId": "depth-plane.stern.02",
       "group": "STERN",
-      "nodeReference": "SM_Antey_LOD0_TailPlane_Starboard",
+      "nodeReference": "SM_Antey_LOD0_SternPlane_Starboard",
       "articulation": "ROTATION",
       "hingeAxisSource": "LOCAL_Y",
       "simulationOwnsAngle": true
