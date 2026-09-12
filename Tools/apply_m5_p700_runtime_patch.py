@@ -1,0 +1,557 @@
+from pathlib import Path
+
+
+def replace_one(path: str, old: str, new: str) -> None:
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{path}: expected one match, got {count}: {old[:120]!r}")
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+# --- Input: D-pad Left/Right and Z/C become semantic weapon-selector edges. ---
+replace_one(
+    "Engine/Platform/Window.h",
+    "    T,\n    Left,\n",
+    "    T,\n    Z,\n    C,\n    Left,\n",
+)
+replace_one(
+    "Engine/Platform/Windows/WinWindow.cpp",
+    "    case 'T': return Key::T;\n    case VK_LEFT: return Key::Left;\n",
+    "    case 'T': return Key::T;\n    case 'Z': return Key::Z;\n    case 'C': return Key::C;\n    case VK_LEFT: return Key::Left;\n",
+)
+replace_one(
+    "Engine/Input/InputState.h",
+    "    SelectContact,\n    PrepareWeapon,\n",
+    "    SelectContact,\n    PreviousWeapon,\n    NextWeapon,\n    PrepareWeapon,\n",
+)
+replace_one(
+    "Engine/Input/InputSystem.h",
+    "    bool selectContact = false;\n    bool prepareWeapon = false;\n",
+    "    bool selectContact = false;\n    bool previousWeapon = false;\n    bool nextWeapon = false;\n    bool prepareWeapon = false;\n",
+)
+replace_one(
+    "Engine/Input/InputSystem.h",
+    "    bool selectContactKeyDown_ = false;\n    bool prepareWeaponKeyDown_ = false;\n",
+    "    bool selectContactKeyDown_ = false;\n    bool previousWeaponKeyDown_ = false;\n    bool nextWeaponKeyDown_ = false;\n    bool prepareWeaponKeyDown_ = false;\n",
+)
+replace_one(
+    "Engine/Input/InputSystem.cpp",
+    "        .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),\n        .prepareWeapon = leftTrigger >= TriggerActionThreshold,\n",
+    "        .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),\n        .previousWeapon = HasGamepadButton(gamepad, GamepadButton::DpadLeft),\n        .nextWeapon = HasGamepadButton(gamepad, GamepadButton::DpadRight),\n        .prepareWeapon = leftTrigger >= TriggerActionThreshold,\n",
+)
+replace_one(
+    "Engine/Input/InputSystem.cpp",
+    "            else if (event.key == Platform::Key::R)\n            {\n                prepareWeaponKeyDown_ = true;\n            }\n",
+    "            else if (event.key == Platform::Key::Z)\n            {\n                previousWeaponKeyDown_ = true;\n            }\n            else if (event.key == Platform::Key::C)\n            {\n                nextWeaponKeyDown_ = true;\n            }\n            else if (event.key == Platform::Key::R)\n            {\n                prepareWeaponKeyDown_ = true;\n            }\n",
+)
+replace_one(
+    "Engine/Input/InputSystem.cpp",
+    "            else if (event.key == Platform::Key::R)\n            {\n                prepareWeaponKeyDown_ = false;\n            }\n",
+    "            else if (event.key == Platform::Key::Z)\n            {\n                previousWeaponKeyDown_ = false;\n            }\n            else if (event.key == Platform::Key::C)\n            {\n                nextWeaponKeyDown_ = false;\n            }\n            else if (event.key == Platform::Key::R)\n            {\n                prepareWeaponKeyDown_ = false;\n            }\n",
+)
+replace_one(
+    "Engine/Input/InputSystem.cpp",
+    "    state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);\n    state_.SetActionDown(\n        InputAction::PrepareWeapon,\n",
+    "    state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);\n    state_.SetActionDown(InputAction::PreviousWeapon, previousWeaponKeyDown_ || controller.previousWeapon);\n    state_.SetActionDown(InputAction::NextWeapon, nextWeaponKeyDown_ || controller.nextWeapon);\n    state_.SetActionDown(\n        InputAction::PrepareWeapon,\n",
+)
+
+# --- Commander/UI projection knows which Game weapon profile is selected. ---
+replace_one(
+    "Game/Combat/PlayerCombatCommandRuntime.h",
+    '#include "Game/Combat/SonarPresentation.h"\n#include "Simulation/Weapons/WeaponRuntime.h"\n',
+    '#include "Game/Combat/SonarPresentation.h"\n#include "Game/Weapons/PlayerWeaponSelection.h"\n#include "Simulation/Weapons/WeaponRuntime.h"\n',
+)
+replace_one(
+    "Game/Combat/PlayerCombatCommandRuntime.h",
+    "#include <cstdint>\n",
+    "#include <cstddef>\n#include <cstdint>\n",
+)
+replace_one(
+    "Game/Combat/PlayerCombatCommandRuntime.h",
+    "struct PlayerCombatPresentationSnapshot final\n{\n    Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;\n",
+    "struct PlayerCombatPresentationSnapshot final\n{\n    Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;\n    std::size_t p700LoadedCount = 0U;\n    Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;\n",
+)
+
+# --- Combat runtime owns selector state + immutable production carrier + mutable launcher inventory + missile. ---
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    '#include "Game/Weapons/P700LauncherInventory.h"\n',
+    '#include "Game/Weapons/P700CarrierLaunchContract.h"\n#include "Game/Weapons/P700LauncherInventory.h"\n#include "Game/Weapons/PlayerWeaponSelection.h"\n',
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    '#include "Simulation/Weapons/NavalMine.h"\n',
+    '#include "Simulation/Weapons/NavalMine.h"\n#include "Simulation/Weapons/P700Granit.h"\n',
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "    std::optional<Weapons::NavalMineDetonation> playerMineDetonation{};\n    float playerIntegrityFraction = 1.0F;\n",
+    "    std::optional<Weapons::NavalMineDetonation> playerMineDetonation{};\n    std::optional<Weapons::P700GranitImpact> playerP700Impact{};\n    float playerIntegrityFraction = 1.0F;\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        const Weapons::AcousticDecoyDefinition decoyDefinition{\n",
+    "        const Weapons::P700GranitDefinition playerP700Definition{\n            .weapon = Weapons::WeaponDefinition{\n                .id = \"m5.live-player-p700\",\n                .preparationSeconds = 1.0,\n                .targeting = Weapons::WeaponTargetingRequirements{\n                    .minimumTrackConfidence = 0.65F,\n                    .maximumBearingUncertaintyRadians = 0.12F,\n                    .maximumPositionUncertaintyMeters = 500.0F,\n                    .requiresEstimatedPosition = true,\n                    .allowCoastingTrack = false}}};\n        if (!Weapons::ValidateP700GranitDefinition(playerP700Definition))\n        {\n            (void)physicsWorld.DestroyBody(destroyer->body);\n            return std::unexpected(\"M5 P-700 player runtime definition is invalid\");\n        }\n\n        const Weapons::AcousticDecoyDefinition decoyDefinition{\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "            destroyerTorpedoDefinition,\n            playerTorpedoDefinition,\n            std::move(*playerCombat),\n",
+    "            destroyerTorpedoDefinition,\n            playerTorpedoDefinition,\n            playerP700Definition,\n            std::move(*playerCombat),\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        const double simulationTimeSeconds,\n        Armament::P700LauncherInventory p700LauncherInventory)\n",
+    "        const double simulationTimeSeconds,\n        Armament::P700CarrierLaunchContract p700CarrierLaunchContract,\n        Armament::P700LauncherInventory p700LauncherInventory)\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        if (p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||\n            p700LauncherInventory.LoadedCount() != Armament::AnteyP700LauncherSlotCount ||\n",
+    "        if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount ||\n            p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||\n            p700LauncherInventory.LoadedCount() != Armament::AnteyP700LauncherSlotCount ||\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);\n",
+    "        runtime->p700CarrierLaunchContract_ = std::move(p700CarrierLaunchContract);\n        runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "    [[nodiscard]] const std::optional<Armament::P700LauncherInventory>& P700Launchers() const noexcept\n    {\n        return p700LauncherInventory_;\n    }\n",
+    "    [[nodiscard]] const std::optional<Armament::P700LauncherInventory>& P700Launchers() const noexcept\n    {\n        return p700LauncherInventory_;\n    }\n    [[nodiscard]] Armament::PlayerWeaponType SelectedPlayerWeapon() const noexcept { return selectedPlayerWeapon_; }\n    [[nodiscard]] const std::optional<Weapons::P700GranitRuntimeState>& PlayerP700() const noexcept\n    {\n        return playerP700_;\n    }\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition,\n        Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,\n        PlayerCombatCommandRuntime playerCombat,\n",
+    "        Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition,\n        Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,\n        Weapons::P700GranitDefinition playerP700Definition,\n        PlayerCombatCommandRuntime playerCombat,\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "          destroyerTorpedoDefinition_(std::move(destroyerTorpedoDefinition)),\n          playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),\n          playerCombat_(std::move(playerCombat)),\n",
+    "          destroyerTorpedoDefinition_(std::move(destroyerTorpedoDefinition)),\n          playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),\n          playerP700Definition_(std::move(playerP700Definition)),\n          playerCombat_(std::move(playerCombat)),\n",
+)
+
+# Runtime command dispatch selects a Game weapon profile before the generic readiness/fire state machine.
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "            for (const PlayerCombatCommand command : commands)\n            {\n                if (command.type == PlayerCombatCommandType::ActiveSonarPing)\n",
+    "            for (const PlayerCombatCommand command : commands)\n            {\n                if (command.type == PlayerCombatCommandType::PreviousWeapon ||\n                    command.type == PlayerCombatCommandType::NextWeapon)\n                {\n                    const auto feedback = ExecutePlayerWeaponSelectionCommand(command, simulationTimeSeconds);\n                    if (!feedback)\n                    {\n                        return std::unexpected(\"M5 Weapon Selector command failed: \" + feedback.error());\n                    }\n                    lastCombatCommand_ = *feedback;\n                    continue;\n                }\n                if (command.type == PlayerCombatCommandType::ActiveSonarPing)\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "                if (playerTorpedo_.has_value())\n                {\n                    continue; // Preserve J2's post-launch weapon-command behavior; J4 decoy remains available.\n                }\n                if (command.type == PlayerCombatCommandType::FireWeapon)\n                {\n                    const auto employment = AssessPlayerUset80Employment(playerSnapshot);\n",
+    "                if (playerTorpedo_.has_value() || playerP700_.has_value())\n                {\n                    continue; // Preserve J2 post-launch weapon-command behavior; sonar/decoy remain available.\n                }\n                if (command.type == PlayerCombatCommandType::FireWeapon)\n                {\n                    const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit\n                        ? AssessPlayerP700Employment(playerSnapshot)\n                        : AssessPlayerUset80Employment(playerSnapshot);\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "                            .message = \"USET-80 launch blocked: \" + employment->reason};\n",
+    "                            .message = std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_)) +\n                                       \" launch blocked: \" + employment->reason};\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        if (!playerTorpedo_.has_value() && playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)\n        {\n            const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);\n            if (!targetTrack)\n            {\n                return std::unexpected(\"M5-J2 launched weapon lost its perceived launch track on the launch tick\");\n            }\n            const auto launch = MaterializePlayerLaunch(\n                playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);\n            if (!launch)\n            {\n                return std::unexpected(launch.error());\n            }\n        }\n",
+    "        if (!playerTorpedo_.has_value() && !playerP700_.has_value() &&\n            playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)\n        {\n            const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);\n            if (!targetTrack)\n            {\n                return std::unexpected(\"M5-J2 launched weapon lost its perceived launch track on the launch tick\");\n            }\n            const auto launch = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit\n                ? MaterializePlayerP700Launch(playerSnapshot, *targetTrack, simulationTimeSeconds)\n                : MaterializePlayerLaunch(playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);\n            if (!launch)\n            {\n                return std::unexpected(launch.error());\n            }\n        }\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        // M5-J3 warning evidence is produced through the same AcousticWorld -> SensorObservation -> TrackManager\n",
+    "        std::optional<Weapons::P700GranitImpact> p700Impact{};\n        if (playerP700_ && playerP700_->phase != Weapons::P700GranitPhase::Stored &&\n            playerP700_->phase != Weapons::P700GranitPhase::Spent)\n        {\n            const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerP700_->guidanceTrackId);\n            const auto advanced = Weapons::AdvanceP700GranitWithCollision(\n                playerP700Definition_, *playerP700_, perceivedTrack, *physicsWorld_, simulationTimeSeconds, playerBody_);\n            if (!advanced)\n            {\n                return std::unexpected(\"M5 P-700 fixed-step advance failed: \" + advanced.error());\n            }\n            if (advanced->has_value())\n            {\n                p700Impact = **advanced;\n                lastExplosion_ = p700Impact->explosion;\n                if (p700Impact->physicsHit.body == destroyer_.body)\n                {\n                    const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, p700Impact->damage);\n                    if (!damaged)\n                    {\n                        return std::unexpected(\"M5 P-700 destroyer damage application failed: \" + damaged.error());\n                    }\n                }\n            }\n        }\n\n        // M5-J3 warning evidence is produced through the same AcousticWorld -> SensorObservation -> TrackManager\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "        PlayerCombatPresentationSnapshot playerCombatPresentation =\n            playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);\n        if (playerCombatPresentation.canFireWeapon)\n        {\n            const auto employment = AssessPlayerUset80Employment(playerSnapshot);\n            playerCombatPresentation.canFireWeapon = employment.has_value() && employment->allowed;\n        }\n",
+    "        PlayerCombatPresentationSnapshot playerCombatPresentation =\n            playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);\n        playerCombatPresentation.selectedWeapon = selectedPlayerWeapon_;\n        playerCombatPresentation.p700LoadedCount = p700LauncherInventory_ ? p700LauncherInventory_->LoadedCount() : 0U;\n        if (selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit &&\n            playerCombatPresentation.p700LoadedCount == 0U)\n        {\n            playerCombatPresentation.canPrepareWeapon = false;\n            playerCombatPresentation.canFireWeapon = false;\n        }\n        if (playerCombatPresentation.canFireWeapon)\n        {\n            const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit\n                ? AssessPlayerP700Employment(playerSnapshot)\n                : AssessPlayerUset80Employment(playerSnapshot);\n            playerCombatPresentation.canFireWeapon = employment.has_value() && employment->allowed;\n        }\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "            .playerMineDetonation = mineDetonation,\n            .playerIntegrityFraction = playerIntegrityFraction,\n",
+    "            .playerMineDetonation = mineDetonation,\n            .playerP700Impact = p700Impact,\n            .playerIntegrityFraction = playerIntegrityFraction,\n",
+)
+
+# Selector and P-700 employment helpers.
+p = Path("Game/Combat/CombatPlaygroundRuntime.h")
+text = p.read_text(encoding="utf-8")
+marker = "    [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerUset80Employment(\n"
+helper = r'''    [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> ExecutePlayerWeaponSelectionCommand(
+        const PlayerCombatCommand command,
+        const double simulationTimeSeconds)
+    {
+        if (command.type != PlayerCombatCommandType::PreviousWeapon && command.type != PlayerCombatCommandType::NextWeapon)
+        {
+            return std::unexpected("M5 Weapon Selector received a non-selector command");
+        }
+        if (playerCombat_.Weapon().phase != Weapons::WeaponPhase::Stored || playerTorpedo_ || playerP700_)
+        {
+            return PlayerCombatCommandFeedback{
+                .command = command.type,
+                .accepted = false,
+                .trackId = playerCombat_.SelectedTrackId(),
+                .message = "weapon selection is available only while the current weapon is Stored"};
+        }
+        const int direction = command.type == PlayerCombatCommandType::PreviousWeapon ? -1 : 1;
+        const Armament::PlayerWeaponType next = Armament::CyclePlayerWeapon(selectedPlayerWeapon_, direction);
+        if (next == Armament::PlayerWeaponType::P700Granit &&
+            (!p700LauncherInventory_ || p700LauncherInventory_->LoadedCount() == 0U || !p700CarrierLaunchContract_))
+        {
+            return PlayerCombatCommandFeedback{
+                .command = command.type,
+                .accepted = false,
+                .trackId = playerCombat_.SelectedTrackId(),
+                .message = "P-700 GRANIT is unavailable without a loaded production Antey launcher"};
+        }
+        const Weapons::WeaponDefinition definition = next == Armament::PlayerWeaponType::P700Granit
+            ? playerP700Definition_.weapon
+            : playerTorpedoDefinition_.weapon;
+        const auto reconfigured = playerCombat_.ReconfigureStoredWeapon(definition, simulationTimeSeconds);
+        if (!reconfigured)
+        {
+            return std::unexpected("M5 Weapon Selector profile switch failed: " + reconfigured.error());
+        }
+        selectedPlayerWeapon_ = next;
+        return PlayerCombatCommandFeedback{
+            .command = command.type,
+            .accepted = true,
+            .trackId = playerCombat_.SelectedTrackId(),
+            .message = "selected " + std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_))};
+    }
+
+    struct PlayerP700LaunchCandidate final
+    {
+        std::size_t slotIndex = 0U;
+        Weapons::P700CarrierLaunchContext carrier{};
+    };
+
+    [[nodiscard]] std::expected<PlayerP700LaunchCandidate, std::string> BuildPlayerP700LaunchCandidate(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot) const
+    {
+        if (!p700CarrierLaunchContract_ || !p700LauncherInventory_ || !currentPlayerPhysicalProxy_ ||
+            !playerSnapshot.emitter.positionMeters.IsFinite() ||
+            !playerSnapshot.emitter.velocityMetersPerSecond.IsFinite() || !std::isfinite(playerSnapshot.signedDepthMeters))
+        {
+            return std::unexpected("P-700 production carrier state is unavailable");
+        }
+        const auto slotIndex = p700LauncherInventory_->FirstLoadedSlotIndex();
+        if (!slotIndex)
+        {
+            return std::unexpected("P-700 production launcher inventory is exhausted");
+        }
+        const auto worldAnchor = p700CarrierLaunchContract_->BuildWorldAnchor(*slotIndex, *currentPlayerPhysicalProxy_);
+        if (!worldAnchor)
+        {
+            return std::unexpected("P-700 production world anchor failed: " + worldAnchor.error());
+        }
+        const auto& orientation = currentPlayerPhysicalProxy_->orientation;
+        float carrierHeadingRadians = static_cast<float>(std::atan2(
+            2.0 * (static_cast<double>(orientation.w) * orientation.z +
+                   static_cast<double>(orientation.x) * orientation.y),
+            1.0 - 2.0 * (static_cast<double>(orientation.y) * orientation.y +
+                         static_cast<double>(orientation.z) * orientation.z)));
+        if (currentPlayerPhysicalProxy_->gameplayLongitudinalFacingSign < 0.0F)
+        {
+            carrierHeadingRadians = Weapons::WrapEmploymentAngle(carrierHeadingRadians + 3.14159265358979323846F);
+        }
+        const auto& velocity = playerSnapshot.emitter.velocityMetersPerSecond;
+        const float carrierSpeedMetersPerSecond = static_cast<float>(std::sqrt(
+            static_cast<double>(velocity.x) * velocity.x +
+            static_cast<double>(velocity.y) * velocity.y +
+            static_cast<double>(velocity.z) * velocity.z));
+        const float surfaceLevelMeters = playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+        return PlayerP700LaunchCandidate{
+            .slotIndex = *slotIndex,
+            .carrier = Weapons::P700CarrierLaunchContext{
+                .launchPositionMeters = worldAnchor->positionMeters,
+                .launchForwardUnitVector = worldAnchor->forwardUnitVector,
+                .surfaceLevelYMeters = surfaceLevelMeters,
+                .launchDepthMeters = playerSnapshot.signedDepthMeters,
+                .carrierSpeedMetersPerSecond = carrierSpeedMetersPerSecond,
+                .carrierHeadingRadians = carrierHeadingRadians}};
+    }
+
+    [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerP700Employment(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot) const
+    {
+        const auto selected = FindTrack(playerTracks_.Tracks(), playerCombat_.SelectedTrackId());
+        if (!selected || !selected->estimatedPositionMeters)
+        {
+            return Weapons::WeaponEmploymentAssessment{
+                .allowed = false,
+                .reason = "selected perceived track has no spatial estimate"};
+        }
+        const auto launch = BuildPlayerP700LaunchCandidate(playerSnapshot);
+        if (!launch)
+        {
+            return Weapons::WeaponEmploymentAssessment{.allowed = false, .reason = launch.error()};
+        }
+        const float perceivedTargetDepthMeters = (std::max)(
+            0.0F, launch->carrier.surfaceLevelYMeters - selected->estimatedPositionMeters->y);
+        return Weapons::EvaluateWeaponEmployment(
+            Weapons::P700GranitEmploymentEnvelope,
+            Weapons::WeaponEmploymentContext{
+                .launchPositionMeters = launch->carrier.launchPositionMeters,
+                .perceivedTargetPositionMeters = *selected->estimatedPositionMeters,
+                .launchDepthMeters = launch->carrier.launchDepthMeters,
+                .perceivedTargetDepthMeters = perceivedTargetDepthMeters,
+                .carrierSpeedMetersPerSecond = launch->carrier.carrierSpeedMetersPerSecond,
+                .launcherHeadingRadians = launch->carrier.carrierHeadingRadians});
+    }
+
+'''
+if text.count(marker) != 1:
+    raise SystemExit("CombatPlaygroundRuntime.h: USET employment marker mismatch")
+p.write_text(text.replace(marker, helper + marker, 1), encoding="utf-8")
+
+# Production P-700 launch consumes a slot only after the exact canonical launch succeeds.
+p = Path("Game/Combat/CombatPlaygroundRuntime.h")
+text = p.read_text(encoding="utf-8")
+marker = "    [[nodiscard]] std::expected<std::optional<Weapons::TorpedoSeekerCue>, std::string> AdvancePlayerTorpedoSeeker(\n"
+helper = r'''    [[nodiscard]] std::expected<void, std::string> MaterializePlayerP700Launch(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const Perception::Track& targetTrack,
+        const double simulationTimeSeconds)
+    {
+        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit ||
+            playerCombat_.Weapon().phase != Weapons::WeaponPhase::Launched ||
+            playerCombat_.Weapon().targetTrackId != std::optional<std::uint64_t>{targetTrack.trackId} ||
+            !Weapons::ValidateTrackForWeapon(playerP700Definition_.weapon, targetTrack))
+        {
+            return std::unexpected("M5 P-700 materialization requires the accepted perceived launch track");
+        }
+        const auto launch = BuildPlayerP700LaunchCandidate(playerSnapshot);
+        if (!launch)
+        {
+            return std::unexpected(launch.error());
+        }
+        auto missile = Weapons::CreateP700GranitRuntime(playerP700Definition_, simulationTimeSeconds);
+        if (!missile)
+        {
+            return std::unexpected("M5 P-700 runtime creation failed: " + missile.error());
+        }
+        const auto launched = Weapons::LaunchP700Granit(
+            playerP700Definition_, *missile, targetTrack, launch->carrier, simulationTimeSeconds);
+        if (!launched)
+        {
+            return std::unexpected("M5 P-700 production launch failed: " + launched.error());
+        }
+        if (!launched->allowed)
+        {
+            return std::unexpected("M5 P-700 materialization reached a disallowed employment state: " + launched->reason);
+        }
+        const auto consumed = p700LauncherInventory_->Consume(launch->slotIndex);
+        if (!consumed)
+        {
+            return std::unexpected("M5 P-700 launcher consumption failed after accepted launch: " + consumed.error());
+        }
+        playerP700_ = std::move(*missile);
+        return {};
+    }
+
+'''
+if text.count(marker) != 1:
+    raise SystemExit("CombatPlaygroundRuntime.h: seeker marker mismatch")
+p.write_text(text.replace(marker, helper + marker, 1), encoding="utf-8")
+
+replace_one(
+    "Game/Combat/CombatPlaygroundRuntime.h",
+    "    Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;\n    // Present only in the production/windowed composition until Weapon Selector materializes a P-700 launch.\n    // Inventory is Game authority for 24 Loaded/Spent carrier slots; simulation missile state remains separate.\n    std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};\n    PlayerCombatCommandRuntime playerCombat_;\n",
+    "    Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;\n    Weapons::P700GranitDefinition playerP700Definition_;\n    Armament::PlayerWeaponType selectedPlayerWeapon_ = Armament::PlayerWeaponType::HeavyweightTorpedo;\n    std::optional<Armament::P700CarrierLaunchContract> p700CarrierLaunchContract_{};\n    std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};\n    std::optional<Weapons::P700GranitRuntimeState> playerP700_{};\n    PlayerCombatCommandRuntime playerCombat_;\n",
+)
+
+# Windowed composition gives runtime both immutable production geometry and fresh mutable load state.
+replace_one(
+    "Game/Combat/CombatPlaygroundWindowedComposition.h",
+    "            static_cast<float>(surfaceLevel),\n            simulationTimeSeconds,\n            std::move(*p700Inventory));\n",
+    "            static_cast<float>(surfaceLevel),\n            simulationTimeSeconds,\n            p700CarrierLaunchContract_,\n            std::move(*p700Inventory));\n",
+)
+
+# --- Renderer-facing snapshot contains only missile presentation state. ---
+replace_one(
+    "Game/Combat/CombatPlaygroundPresentation.h",
+    "struct CombatPlaygroundDecoyPresentation final\n",
+    "struct CombatPlaygroundP700Presentation final\n{\n    Physics::PhysicsVector3 positionMeters{};\n    float headingRadians = 0.0F;\n    float deploymentProgress = 0.0F;\n    Weapons::P700GranitPhase phase = Weapons::P700GranitPhase::Stored;\n};\n\nstruct CombatPlaygroundDecoyPresentation final\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundPresentation.h",
+    "    std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};\n    std::optional<CombatPlaygroundDecoyPresentation> decoy{};\n",
+    "    std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};\n    std::optional<CombatPlaygroundP700Presentation> playerP700{};\n    std::optional<CombatPlaygroundDecoyPresentation> decoy{};\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundPresentation.h",
+    "    if (const auto& decoy = runtime.Decoy(); decoy.has_value())\n",
+    "    if (const auto& p700 = runtime.PlayerP700();\n        p700.has_value() && p700->phase != Weapons::P700GranitPhase::Stored &&\n        p700->phase != Weapons::P700GranitPhase::Spent)\n    {\n        if (!p700->positionMeters.IsFinite() || !std::isfinite(p700->headingRadians) ||\n            !std::isfinite(p700->deploymentProgress) || p700->deploymentProgress < 0.0F ||\n            p700->deploymentProgress > 1.0F)\n        {\n            return std::unexpected(\"M5 P-700 presentation state is invalid\");\n        }\n        snapshot.playerP700 = CombatPlaygroundP700Presentation{\n            .positionMeters = p700->positionMeters,\n            .headingRadians = p700->headingRadians,\n            .deploymentProgress = p700->deploymentProgress,\n            .phase = p700->phase};\n    }\n\n    if (const auto& decoy = runtime.Decoy(); decoy.has_value())\n",
+)
+
+# --- Production P-700 upload + semantic LOD0/deployment draw. ---
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    '#include "Game/Combat/CombatPlaygroundPresentation.h"\n',
+    '#include "Game/Combat/CombatPlaygroundPresentation.h"\n#include "Game/Weapons/ProductionP700Asset.h"\n',
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "        Assets::AssetHandle<Assets::ModelAsset> kit6576Asset{};\n",
+    "        const auto p700Definition = Armament::LoadProductionP700AssetDefinition(assets);\n        if (!p700Definition)\n        {\n            return std::unexpected(\"M5 production P-700 definition load failed: \" + p700Definition.error());\n        }\n        const auto p700 = assets.LoadModel(p700Definition->modelAssetId.Value());\n        if (!p700 || !p700->IsValid() || p700->Get() == nullptr)\n        {\n            return std::unexpected(\"M5 production P-700 GLB load failed\");\n        }\n        const auto p700Uploaded = renderer.UploadModel(**p700);\n        if (!p700Uploaded || !p700Uploaded->handle.IsValid() || !p700Uploaded->stats.uploadCompleted)\n        {\n            return std::unexpected(p700Uploaded\n                ? \"M5 production P-700 upload produced an invalid GPU model\"\n                : \"M5 production P-700 upload failed: \" + p700Uploaded.error());\n        }\n\n        Assets::AssetHandle<Assets::ModelAsset> kit6576Asset{};\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "            uset80GpuModel,\n            std::move(kit6576Asset),\n            kit6576GpuModel);\n",
+    "            uset80GpuModel,\n            std::move(kit6576Asset),\n            kit6576GpuModel,\n            *p700Definition,\n            *p700,\n            p700Uploaded->handle);\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "        if (const auto hostileDraw = drawTorpedoModel(\n                destroyerTorpedoTransform, kit6576Asset_, kit6576GpuModel_, \"M5-V2 65-76A\"); !hostileDraw)\n        {\n            return std::unexpected(hostileDraw.error());\n        }\n",
+    "        if (const auto hostileDraw = drawTorpedoModel(\n                destroyerTorpedoTransform, kit6576Asset_, kit6576GpuModel_, \"M5-V2 65-76A\"); !hostileDraw)\n        {\n            return std::unexpected(hostileDraw.error());\n        }\n\n        if (snapshot->playerP700)\n        {\n            if (!p700Asset_.IsValid() || p700Asset_.Get() == nullptr || !p700GpuModel_.IsValid() ||\n                !renderer.IsGpuModelValid(p700GpuModel_))\n            {\n                return std::unexpected(\"M5 production P-700 presentation model is unavailable\");\n            }\n            const auto modelToWorld = CombatPlaygroundPresentationDetail::BodyPoseTransform(\n                snapshot->playerP700->positionMeters,\n                Weapons::P700HeadingQuaternion(snapshot->playerP700->headingRadians));\n            if (!modelToWorld)\n            {\n                return std::unexpected(\"M5 production P-700 pose failed: \" + modelToWorld.error());\n            }\n            const auto overrides = Armament::BuildProductionP700DeploymentOverrides(\n                p700Definition_, snapshot->playerP700->deploymentProgress);\n            if (!overrides)\n            {\n                return std::unexpected(\"M5 production P-700 deployment override failed: \" + overrides.error());\n            }\n            const auto prepared = Render::PrepareModelDraws(*p700Asset_, *modelToWorld, {}, *overrides);\n            if (!prepared)\n            {\n                return std::unexpected(\"M5 production P-700 draw preparation failed: \" + prepared.error());\n            }\n            std::vector<Render::ModelDrawInstance> p700Draws;\n            for (const auto& draw : *prepared)\n            {\n                if (Armament::IsProductionP700Lod0MeshNode(p700Definition_, draw.nodeIndex))\n                {\n                    p700Draws.push_back(draw);\n                }\n            }\n            if (p700Draws.empty())\n            {\n                return std::unexpected(\"M5 production P-700 LOD0 produced no presentation draws\");\n            }\n            const auto p700Stats = renderer.DrawModel(\n                p700GpuModel_, std::span<const Render::ModelDrawInstance>(p700Draws.data(), p700Draws.size()), camera);\n            if (!p700Stats || p700Stats->drawCalls != p700Draws.size() || p700Stats->submittedIndices == 0U)\n            {\n                return std::unexpected(p700Stats\n                    ? \"M5 production P-700 draw statistics are invalid\"\n                    : \"M5 production P-700 draw failed: \" + p700Stats.error());\n            }\n            accumulate(*p700Stats);\n        }\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "        return proxyGpuModel_.IsValid() && renderer.IsGpuModelValid(proxyGpuModel_);\n",
+    "        return proxyGpuModel_.IsValid() && renderer.IsGpuModelValid(proxyGpuModel_) &&\n               p700Asset_.IsValid() && p700Asset_.Get() != nullptr && p700GpuModel_.IsValid() &&\n               renderer.IsGpuModelValid(p700GpuModel_);\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "        Assets::AssetHandle<Assets::ModelAsset> kit6576Asset,\n        const Render::GpuModelHandle kit6576Model) noexcept\n",
+    "        Assets::AssetHandle<Assets::ModelAsset> kit6576Asset,\n        const Render::GpuModelHandle kit6576Model,\n        Armament::ProductionP700AssetDefinition p700Definition,\n        Assets::AssetHandle<Assets::ModelAsset> p700Asset,\n        const Render::GpuModelHandle p700Model) noexcept\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "          kit6576Asset_(std::move(kit6576Asset)),\n          kit6576GpuModel_(kit6576Model)\n",
+    "          kit6576Asset_(std::move(kit6576Asset)),\n          kit6576GpuModel_(kit6576Model),\n          p700Definition_(std::move(p700Definition)),\n          p700Asset_(std::move(p700Asset)),\n          p700GpuModel_(p700Model)\n",
+)
+replace_one(
+    "Game/Combat/CombatPlaygroundView.h",
+    "    Assets::AssetHandle<Assets::ModelAsset> kit6576Asset_{};\n    Render::GpuModelHandle kit6576GpuModel_{};\n",
+    "    Assets::AssetHandle<Assets::ModelAsset> kit6576Asset_{};\n    Render::GpuModelHandle kit6576GpuModel_{};\n    Armament::ProductionP700AssetDefinition p700Definition_{};\n    Assets::AssetHandle<Assets::ModelAsset> p700Asset_{};\n    Render::GpuModelHandle p700GpuModel_{};\n",
+)
+
+# --- Human-readable selector state. ---
+replace_one(
+    "Game/Combat/CombatCommandUi.cpp",
+    "#include <optional>\n",
+    "#include <optional>\n#include <string_view>\n",
+)
+replace_one(
+    "Game/Combat/CombatCommandUi.cpp",
+    "    case PlayerCombatCommandType::SelectNextTrack: return \"SELECT CONTACT\";\n    case PlayerCombatCommandType::PrepareWeapon: return \"PREPARE WEAPON\";\n",
+    "    case PlayerCombatCommandType::SelectNextTrack: return \"SELECT CONTACT\";\n    case PlayerCombatCommandType::PreviousWeapon: return \"PREVIOUS WEAPON\";\n    case PlayerCombatCommandType::NextWeapon: return \"NEXT WEAPON\";\n    case PlayerCombatCommandType::PrepareWeapon: return \"PREPARE WEAPON\";\n",
+)
+replace_one(
+    "Game/Combat/CombatCommandUi.cpp",
+    "    ImGui::Text(\"Weapon: %s\", WeaponPhaseName(snapshot.weaponPhase));\n",
+    "    const std::string_view weaponName = Armament::PlayerWeaponName(snapshot.selectedWeapon);\n    ImGui::Text(\"Weapon: %.*s / %s\", static_cast<int>(weaponName.size()), weaponName.data(), WeaponPhaseName(snapshot.weaponPhase));\n    ImGui::Text(\"P-700 loaded: %zu / %zu\", snapshot.p700LoadedCount, Armament::AnteyP700LauncherSlotCount);\n",
+)
+replace_one(
+    "Game/Combat/CombatCommandUi.cpp",
+    "    ImGui::TextUnformatted(\"Y / Tab          Select contact\");\n    ImGui::TextUnformatted(\"LT / R / RMB     Prepare weapon\");\n",
+    "    ImGui::TextUnformatted(\"Y / Tab          Select contact\");\n    ImGui::TextUnformatted(\"D-pad L/R / Z/C  Select weapon\");\n    ImGui::TextUnformatted(\"LT / R / RMB     Prepare weapon\");\n",
+)
+
+# --- Main fixed-step command bridge consumes selector edges just like existing combat actions. ---
+replace_one(
+    "DeepRun/Main.cpp",
+    "        std::uint64_t consumedSelectContactSequence = 0;\n        std::uint64_t consumedPrepareWeaponSequence = 0;\n",
+    "        std::uint64_t consumedSelectContactSequence = 0;\n        std::uint64_t consumedPreviousWeaponSequence = 0;\n        std::uint64_t consumedNextWeaponSequence = 0;\n        std::uint64_t consumedPrepareWeaponSequence = 0;\n",
+)
+replace_one(
+    "DeepRun/Main.cpp",
+    "             &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,\n",
+    "             &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,\n             &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,\n",
+)
+replace_one(
+    "DeepRun/Main.cpp",
+    "                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 5> playerCommands{};\n",
+    "                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 7> playerCommands{};\n",
+)
+replace_one(
+    "DeepRun/Main.cpp",
+    "                        consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,\n",
+    "                        consume(*inputState, DeepRun::Input::InputAction::PreviousWeapon,\n                                DeepRun::Game::Combat::PlayerCombatCommandType::PreviousWeapon,\n                                consumedPreviousWeaponSequence);\n                        consume(*inputState, DeepRun::Input::InputAction::NextWeapon,\n                                DeepRun::Game::Combat::PlayerCombatCommandType::NextWeapon,\n                                consumedNextWeaponSequence);\n                        consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,\n",
+)
+
+# --- Regression gates for input and the two-item selector. ---
+replace_one(
+    "Tests/M5PlayerCombatInputChecks.h",
+    "        static_cast<std::uint16_t>(GamepadButton::Y) |\n        static_cast<std::uint16_t>(GamepadButton::X) |\n",
+    "        static_cast<std::uint16_t>(GamepadButton::Y) |\n        static_cast<std::uint16_t>(GamepadButton::DpadLeft) |\n        static_cast<std::uint16_t>(GamepadButton::DpadRight) |\n        static_cast<std::uint16_t>(GamepadButton::X) |\n",
+)
+replace_one(
+    "Tests/M5PlayerCombatInputChecks.h",
+    "    if (disconnected.turnAround || disconnected.selectContact || disconnected.prepareWeapon ||\n        disconnected.fireWeapon || disconnected.activeSonarPing || disconnected.deployDecoy)\n",
+    "    if (disconnected.turnAround || disconnected.selectContact || disconnected.previousWeapon ||\n        disconnected.nextWeapon || disconnected.prepareWeapon || disconnected.fireWeapon ||\n        disconnected.activeSonarPing || disconnected.deployDecoy)\n",
+)
+replace_one(
+    "Tests/M5PlayerCombatInputChecks.h",
+    "    if (!controller.turnAround || !controller.selectContact || !controller.prepareWeapon ||\n        !controller.fireWeapon || !controller.activeSonarPing || !controller.deployDecoy)\n",
+    "    if (!controller.turnAround || !controller.selectContact || !controller.previousWeapon ||\n        !controller.nextWeapon || !controller.prepareWeapon || !controller.fireWeapon ||\n        !controller.activeSonarPing || !controller.deployDecoy)\n",
+)
+replace_one(
+    "Tests/M5PlayerCombatInputChecks.h",
+    "    if (triggerActions.turnAround || triggerActions.selectContact || triggerActions.prepareWeapon || !triggerActions.fireWeapon ||\n        triggerActions.activeSonarPing || triggerActions.deployDecoy ||\n",
+    "    if (triggerActions.turnAround || triggerActions.selectContact || triggerActions.previousWeapon ||\n        triggerActions.nextWeapon || triggerActions.prepareWeapon || !triggerActions.fireWeapon ||\n        triggerActions.activeSonarPing || triggerActions.deployDecoy ||\n",
+)
+p = Path("Tests/M5PlayerCombatInputChecks.h")
+text = p.read_text(encoding="utf-8")
+marker = "    input.BeginFrame();\n    const std::array prepareKeyDown{\n"
+insert = """    input.BeginFrame();
+    const std::array previousWeaponDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::Z}};
+    input.ProcessEvents(previousWeaponDown);
+    if (!input.State().WasPressed(InputAction::PreviousWeapon) ||
+        input.State().PressSequence(InputAction::PreviousWeapon) == 0U ||
+        input.State().IsDown(InputAction::NextWeapon))
+    {
+        return false;
+    }
+    const std::array previousWeaponUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::Z}};
+    input.ProcessEvents(previousWeaponUp);
+
+    input.BeginFrame();
+    const std::array nextWeaponDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::C}};
+    input.ProcessEvents(nextWeaponDown);
+    if (!input.State().WasPressed(InputAction::NextWeapon) ||
+        input.State().PressSequence(InputAction::NextWeapon) == 0U ||
+        input.State().IsDown(InputAction::PreviousWeapon))
+    {
+        return false;
+    }
+    const std::array nextWeaponUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::C}};
+    input.ProcessEvents(nextWeaponUp);
+
+"""
+if text.count(marker) != 1:
+    raise SystemExit("M5PlayerCombatInputChecks.h: prepare marker mismatch")
+p.write_text(text.replace(marker, insert + marker, 1), encoding="utf-8")
+
+replace_one(
+    "Tests/P700LauncherInventoryTest.cpp",
+    '#include "Game/Weapons/P700LauncherInventory.h"\n',
+    '#include "Game/Weapons/P700LauncherInventory.h"\n#include "Game/Weapons/PlayerWeaponSelection.h"\n',
+)
+p = Path("Tests/P700LauncherInventoryTest.cpp")
+text = p.read_text(encoding="utf-8")
+marker = "[[nodiscard]] bool RunWorldGeometryChecks()\n"
+insert = r'''[[nodiscard]] bool RunWeaponSelectorChecks()
+{
+    using namespace DeepRun::Game::Armament;
+    if (PlayerWeaponName(PlayerWeaponType::HeavyweightTorpedo) != "USET-80" ||
+        PlayerWeaponName(PlayerWeaponType::P700Granit) != "P-700 GRANIT" ||
+        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, 1) != PlayerWeaponType::P700Granit ||
+        CyclePlayerWeapon(PlayerWeaponType::P700Granit, 1) != PlayerWeaponType::HeavyweightTorpedo ||
+        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, -1) != PlayerWeaponType::P700Granit)
+    {
+        std::cerr << "M5 two-item Weapon Selector cycle is invalid\n";
+        return false;
+    }
+    return true;
+}
+
+'''
+if text.count(marker) != 1:
+    raise SystemExit("P700LauncherInventoryTest.cpp: geometry marker mismatch")
+text = text.replace(marker, insert + marker, 1)
+old = "    if (!RunInventoryChecks() || !RunWorldGeometryChecks())\n"
+if text.count(old) != 1:
+    raise SystemExit("P700LauncherInventoryTest.cpp: main marker mismatch")
+text = text.replace(old, "    if (!RunInventoryChecks() || !RunWeaponSelectorChecks() || !RunWorldGeometryChecks())\n", 1)
+p.write_text(text, encoding="utf-8")
