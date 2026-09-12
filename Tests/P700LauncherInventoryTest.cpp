@@ -1,3 +1,4 @@
+#include "Game/Weapons/P700LaunchGeometry.h"
 #include "Game/Weapons/P700LauncherInventory.h"
 
 #include <array>
@@ -30,7 +31,12 @@ BuildAnchors()
     return anchors;
 }
 
-[[nodiscard]] bool RunChecks()
+[[nodiscard]] bool Near(const float first, const float second) noexcept
+{
+    return std::abs(first - second) <= 1.0e-4F;
+}
+
+[[nodiscard]] bool RunInventoryChecks()
 {
     using namespace DeepRun::Game::Weapons;
 
@@ -110,14 +116,71 @@ BuildAnchors()
     }
     return true;
 }
+
+[[nodiscard]] bool RunWorldGeometryChecks()
+{
+    using namespace DeepRun;
+    using namespace DeepRun::Game::Weapons;
+
+    const auto anchors = BuildAnchors();
+    const Physics::PhysicsBodyState body{
+        .position = {.x = 100.0F, .y = -20.0F, .z = 7.0F},
+        .orientation = {},
+        .linearVelocity = {},
+        .angularVelocity = {},
+        .active = true};
+    Assets::ModelTransform modelToBody{};
+    modelToBody.values[12] = -5.0F;
+    modelToBody.values[13] = 3.0F;
+    modelToBody.values[14] = 2.0F;
+
+    const auto forward = ComposeP700WorldLaunchAnchor(anchors.front(), body, modelToBody, 1, false);
+    if (!forward || forward->semanticId != anchors.front().semanticId ||
+        !Near(forward->positionMeters.x, 105.0F) || !Near(forward->positionMeters.y, -15.0F) ||
+        !Near(forward->positionMeters.z, 10.0F) ||
+        !Near(forward->forwardUnitVector.x, anchors.front().launchForward.x) ||
+        !Near(forward->forwardUnitVector.y, anchors.front().launchForward.y) ||
+        !Near(forward->forwardUnitVector.z, 0.0F))
+    {
+        std::cerr << "P-700 forward-facing production anchor composition is invalid\n";
+        return false;
+    }
+
+    const auto reversed = ComposeP700WorldLaunchAnchor(anchors.front(), body, modelToBody, -1, false);
+    if (!reversed || !Near(reversed->positionMeters.x, 95.0F) ||
+        !Near(reversed->positionMeters.y, -15.0F) || !Near(reversed->positionMeters.z, 4.0F) ||
+        !Near(reversed->forwardUnitVector.x, -anchors.front().launchForward.x) ||
+        !Near(reversed->forwardUnitVector.y, anchors.front().launchForward.y) ||
+        !Near(reversed->forwardUnitVector.z, 0.0F))
+    {
+        std::cerr << "P-700 reversed 2.5D-facing anchor composition is invalid\n";
+        return false;
+    }
+
+    if (ComposeP700WorldLaunchAnchor(anchors.front(), body, modelToBody, 1, true) ||
+        ComposeP700WorldLaunchAnchor(anchors.front(), body, modelToBody, 0, false))
+    {
+        std::cerr << "P-700 launch geometry did not reject turnaround/invalid-facing state\n";
+        return false;
+    }
+
+    auto malformedModelToBody = modelToBody;
+    malformedModelToBody.values[12] = std::numeric_limits<float>::infinity();
+    if (ComposeP700WorldLaunchAnchor(anchors.front(), body, malformedModelToBody, 1, false))
+    {
+        std::cerr << "P-700 launch geometry accepted non-finite model-to-body correction\n";
+        return false;
+    }
+    return true;
+}
 } // namespace
 
 int main()
 {
-    if (!RunChecks())
+    if (!RunInventoryChecks() || !RunWorldGeometryChecks())
     {
         return EXIT_FAILURE;
     }
-    std::cout << "P-700 24-slot launcher inventory: PASS\n";
+    std::cout << "P-700 24-slot launcher inventory/world geometry: PASS\n";
     return EXIT_SUCCESS;
 }
