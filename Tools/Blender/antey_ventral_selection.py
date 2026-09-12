@@ -82,7 +82,14 @@ def _nearest_unique(points: list[Vector], selected: dict[int, Vector], tolerance
     return resolved
 
 
-def resolve_on_mesh(mesh, selection: dict, *, matrix: Matrix | None = None, tolerance: float = TOLERANCE_M) -> dict:
+def resolve_on_mesh(
+    mesh,
+    selection: dict,
+    *,
+    matrix: Matrix | None = None,
+    tolerance: float = TOLERANCE_M,
+    require_all_edges: bool = True,
+) -> dict:
     transform = matrix if matrix is not None else Matrix.Identity(4)
     points = [transform @ vertex.co for vertex in mesh.vertices]
     resolved_vertices = _nearest_unique(points, selection["vertices"], tolerance)
@@ -95,7 +102,7 @@ def resolve_on_mesh(mesh, selection: dict, *, matrix: Matrix | None = None, tole
             missing_edges.append({"edge": edge_id, "vertices": [left, right], "resolved": list(pair)})
         else:
             resolved_edges[edge_id] = pair
-    if missing_edges:
+    if require_all_edges and missing_edges:
         raise RuntimeError(f"Ventral selection edges do not resolve on mesh: {missing_edges[:20]} total={len(missing_edges)}")
     return {
         "points": points,
@@ -103,6 +110,7 @@ def resolve_on_mesh(mesh, selection: dict, *, matrix: Matrix | None = None, tole
         "vertexSet": set(resolved_vertices.values()),
         "edges": resolved_edges,
         "edgeSet": set(resolved_edges.values()),
+        "missingEdges": missing_edges,
         "edgeIndexByPair": edge_by_pair,
     }
 
@@ -155,6 +163,10 @@ def strict_surface_faces(mesh, resolved: dict, allowed_face_tuples: Iterable[tup
         legacy for legacy, index in resolved["vertices"].items()
         if index not in selected_vertices_from_faces
     )
+    # Only edges that physically exist on the mesh being classified can be
+    # required from this patch.  On the current GameReady lower hull, some
+    # fixture edges already live exclusively on the articulated rudder; the
+    # final combined rudder validator requires all 357 edges to be surface-owned.
     missing_edges = sorted(
         edge_id for edge_id, pair in resolved["edges"].items()
         if pair not in selected_edges_from_faces
@@ -166,12 +178,13 @@ def strict_surface_faces(mesh, resolved: dict, allowed_face_tuples: Iterable[tup
         "touchingFaceIndices": sorted(touching),
         "missingSurfaceVertices": missing_vertices,
         "missingSurfaceEdges": missing_edges,
+        "unresolvedMeshEdges": resolved.get("missingEdges", []),
         "pass": not missing_vertices and not missing_edges,
     }
 
 
 def surface_incidence(obj, selection: dict, *, tolerance: float = TOLERANCE_M) -> dict:
-    resolved = resolve_on_mesh(obj.data, selection, matrix=obj.matrix_world, tolerance=tolerance)
+    resolved = resolve_on_mesh(obj.data, selection, matrix=obj.matrix_world, tolerance=tolerance, require_all_edges=True)
     vertex_incidence = Counter()
     edge_incidence = Counter()
     for polygon in obj.data.polygons:
