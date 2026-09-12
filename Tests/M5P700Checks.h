@@ -73,7 +73,7 @@ namespace M5P700Detail
 }
 }
 
-[[nodiscard]] inline bool RunM5P700Checks()
+[[nodiscard]] inline bool RunM5P700Checks(Physics::PhysicsWorld& physicsWorld)
 {
     using namespace M5P700Detail;
     using namespace Weapons;
@@ -139,13 +139,6 @@ namespace M5P700Detail
         surfaceRuntime->deploymentProgress != 0.0F)
     {
         return fail("surface launch must be accepted and bypass UnderwaterLaunch while remaining stowed");
-    }
-
-    Diagnostics::Logger logger;
-    Physics::PhysicsWorld physicsWorld(logger);
-    if (!physicsWorld.Initialize())
-    {
-        return fail("PhysicsWorld initialization");
     }
 
     const Physics::PhysicsBodyHandle carrierBody = physicsWorld.CreateStaticBoxBody(

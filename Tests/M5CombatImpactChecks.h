@@ -271,7 +271,7 @@ namespace M5CombatImpactDetail
         return fail("M5-I physical contact mine composition");
     }
 
-    if (!RunM5P700Checks())
+    if (!RunM5P700Checks(physicsWorld))
     {
         return fail("M5 P-700 perceived-track launch, surface/submerged exit, deployment and physical impact lifecycle");
     }
