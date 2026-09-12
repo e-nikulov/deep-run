@@ -1,0 +1,32 @@
+name: M5 V2-A Ownship Follow Repair
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Apply scoped ownship follow repair
+        run: python .github/m5_v2a_ownship_follow_fix.py
+      - name: Validate diff
+        run: git diff --check
+      - name: Commit repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DeepRun/Main.cpp Game/Camera/MultiScaleTacticalCamera.h Tests/M5MultiScaleCameraChecks.h
+          git commit -m "feat: follow authoritative ownship in normal navigation"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
