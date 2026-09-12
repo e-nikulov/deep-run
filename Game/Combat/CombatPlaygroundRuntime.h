@@ -957,14 +957,15 @@ private:
                 pendingPlayerTorpedoSeekerEmissions_.clear();
                 playerTorpedoActivePulse_.reset();
                 playerTorpedoActiveReflector_.reset();
-                if (impact->physicsHit.body != destroyer_.body)
+                // Any Jolt hit physically consumes the weapon. Only a hit on the intended destroyer body
+                // applies destroyer integrity damage; terrain/other-body contact is a legitimate terminal miss.
+                if (impact->physicsHit.body == destroyer_.body)
                 {
-                    return std::unexpected("M5-E.1 torpedo struck an unexpected physical body");
-                }
-                const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, impact->damage);
-                if (!damaged)
-                {
-                    return std::unexpected("M5-E.1 destroyer damage application failed: " + damaged.error());
+                    const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, impact->damage);
+                    if (!damaged)
+                    {
+                        return std::unexpected("M5-E.1 destroyer damage application failed: " + damaged.error());
+                    }
                 }
             }
         }

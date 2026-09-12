@@ -171,6 +171,7 @@ namespace M5CombatImpactDetail
 
     const auto& impact = **impactResult;
     if (impact.physicsHit.body != targetBody || torpedo.movementDomain != MovementDomain::Spent ||
+        torpedo.terminalReason != ConventionalTorpedoTerminalReason::Impact ||
         torpedo.impactedBody != targetBody || torpedo.speedMetersPerSecond != 0.0F ||
         std::abs(torpedo.positionMeters.x - 26.0F) > 0.1F ||
         impact.damage.targetBody != targetBody || impact.damage.damage != definition.directImpactDamage ||
