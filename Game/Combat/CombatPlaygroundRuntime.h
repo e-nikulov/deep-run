@@ -11,6 +11,7 @@
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Simulation/Weapons/NavalMine.h"
 #include "Simulation/Weapons/TorpedoSeeker.h"
+#include "Simulation/Weapons/WeaponEmploymentEnvelope.h"
 
 #include <algorithm>
 #include <cmath>
@@ -638,7 +639,7 @@ private:
         {
             if (!playerTorpedo_.has_value())
             {
-                const auto automated = AdvanceAutomatedPlayerCommander(simulationTimeSeconds);
+                const auto automated = AdvanceAutomatedPlayerCommander(playerSnapshot, simulationTimeSeconds);
                 if (!automated)
                 {
                     return std::unexpected(automated.error());
@@ -673,6 +674,23 @@ private:
                 if (playerTorpedo_.has_value())
                 {
                     continue; // Preserve J2's post-launch weapon-command behavior; J4 decoy remains available.
+                }
+                if (command.type == PlayerCombatCommandType::FireWeapon)
+                {
+                    const auto employment = AssessPlayerUset80Employment(playerSnapshot);
+                    if (!employment)
+                    {
+                        return std::unexpected("M5 weapon employment assessment failed: " + employment.error());
+                    }
+                    if (!employment->allowed)
+                    {
+                        lastCombatCommand_ = PlayerCombatCommandFeedback{
+                            .command = PlayerCombatCommandType::FireWeapon,
+                            .accepted = false,
+                            .trackId = playerCombat_.SelectedTrackId(),
+                            .message = "USET-80 launch blocked: " + employment->reason};
+                        continue;
+                    }
                 }
                 const auto executed = playerCombat_.Execute(command, playerTracks_.Tracks(), simulationTimeSeconds);
                 if (!executed)
@@ -884,6 +902,11 @@ private:
         }
         PlayerCombatPresentationSnapshot playerCombatPresentation =
             playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);
+        if (playerCombatPresentation.canFireWeapon)
+        {
+            const auto employment = AssessPlayerUset80Employment(playerSnapshot);
+            playerCombatPresentation.canFireWeapon = employment.has_value() && employment->allowed;
+        }
         ApplyIncomingThreatPresentation(playerCombatPresentation);
         const auto selectedPlayerTrack = FindTrack(
             playerTrackSnapshot, playerCombat_.SelectedTrackId());
@@ -909,7 +932,52 @@ private:
             .playerDestroyed = playerDestroyed};
     }
 
+    [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerUset80Employment(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot) const
+    {
+        if (!currentPlayerPhysicalProxy_.has_value() || !currentPlayerPhysicalProxy_->orientation.IsFinite() ||
+            !playerSnapshot.emitter.positionMeters.IsFinite() ||
+            !playerSnapshot.emitter.velocityMetersPerSecond.IsFinite() || !std::isfinite(playerSnapshot.signedDepthMeters))
+        {
+            return std::unexpected("live ownship state is unavailable for weapon employment");
+        }
+
+        const auto selected = FindTrack(playerTracks_.Tracks(), playerCombat_.SelectedTrackId());
+        if (!selected.has_value() || !selected->estimatedPositionMeters.has_value())
+        {
+            return Weapons::WeaponEmploymentAssessment{
+                .allowed = false,
+                .reason = "selected perceived track has no spatial estimate"};
+        }
+
+        const auto& orientation = currentPlayerPhysicalProxy_->orientation;
+        const float launcherHeadingRadians = static_cast<float>(std::atan2(
+            2.0 * (static_cast<double>(orientation.w) * orientation.z +
+                   static_cast<double>(orientation.x) * orientation.y),
+            1.0 - 2.0 * (static_cast<double>(orientation.y) * orientation.y +
+                         static_cast<double>(orientation.z) * orientation.z)));
+        const auto& velocity = playerSnapshot.emitter.velocityMetersPerSecond;
+        const float carrierSpeedMetersPerSecond = static_cast<float>(std::sqrt(
+            static_cast<double>(velocity.x) * velocity.x +
+            static_cast<double>(velocity.y) * velocity.y +
+            static_cast<double>(velocity.z) * velocity.z));
+        const float surfaceLevelMeters = playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+        const float perceivedTargetDepthMeters = (std::max)(
+            0.0F, surfaceLevelMeters - selected->estimatedPositionMeters->y);
+
+        return Weapons::EvaluateWeaponEmployment(
+            Weapons::Uset80EmploymentEnvelope,
+            Weapons::WeaponEmploymentContext{
+                .launchPositionMeters = playerSnapshot.emitter.positionMeters,
+                .perceivedTargetPositionMeters = *selected->estimatedPositionMeters,
+                .launchDepthMeters = playerSnapshot.signedDepthMeters,
+                .perceivedTargetDepthMeters = perceivedTargetDepthMeters,
+                .carrierSpeedMetersPerSecond = carrierSpeedMetersPerSecond,
+                .launcherHeadingRadians = launcherHeadingRadians});
+    }
+
     [[nodiscard]] std::expected<void, std::string> AdvanceAutomatedPlayerCommander(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const double simulationTimeSeconds)
     {
         const std::vector<Perception::Track> tracks = playerTracks_.Tracks();
@@ -945,6 +1013,15 @@ private:
         }
         if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
         {
+            const auto employment = AssessPlayerUset80Employment(playerSnapshot);
+            if (!employment)
+            {
+                return std::unexpected("M5-H automated weapon employment assessment failed: " + employment.error());
+            }
+            if (!employment->allowed)
+            {
+                return {}; // Valid perceived target, but the carrier/geometry is outside the launch envelope.
+            }
             const auto fired = playerCombat_.Execute(
                 {.type = PlayerCombatCommandType::FireWeapon}, tracks, simulationTimeSeconds);
             if (!fired || !fired->accepted)
