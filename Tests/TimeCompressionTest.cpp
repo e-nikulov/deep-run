@@ -8,6 +8,7 @@ namespace
 {
 using DeepRun::Core::FixedStepAccumulator;
 using DeepRun::Core::PublishTimeCompressionSafetyCap;
+using DeepRun::Core::ShouldInterruptCompressedFixedPacket;
 using DeepRun::Core::TimeCompressionController;
 using DeepRun::Core::TimeCompressionMultiplier;
 using DeepRun::Core::TimeCompressionRate;
@@ -55,6 +56,14 @@ using DeepRun::Weapons::P700GranitPhase;
             ResolveCombatTimeCompressionMaximum(
                 CombatTimeCompressionSignals{.incomingThreatDetected = true}) == TimeCompressionRate::X1,
             "incoming threat must force 1x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{
+                    .incomingThreatDetected = true,
+                    .hasPerceivedContact = true,
+                    .selectedTrackWeaponQualified = true,
+                    .p700Phase = P700GranitPhase::Cruise}) == TimeCompressionRate::X1,
+            "strict incoming-threat cap must dominate softer combat signals") ||
         !Expect(
             ResolveCombatTimeCompressionMaximum(
                 CombatTimeCompressionSignals{.importantImpactEvent = true}) == TimeCompressionRate::X1,
@@ -122,7 +131,15 @@ int main()
     if (!Expect(controller.SetMaximumRate(TimeCompressionRate::X2), "valid safety ceiling must be accepted") ||
         !Expect(controller.RequestedRate() == TimeCompressionRate::X8, "safety clamp must preserve player intent") ||
         !Expect(controller.EffectiveRate() == TimeCompressionRate::X2, "safety clamp must limit effective rate") ||
-        !Expect(StepsForOneRealFrame(controller) == 2U, "safety-clamped rate must drive fixed work"))
+        !Expect(StepsForOneRealFrame(controller) == 2U, "safety-clamped rate must drive fixed work") ||
+        !Expect(ShouldInterruptCompressedFixedPacket(TimeCompressionRate::X8, TimeCompressionRate::X2),
+                "8x packet must interrupt when gameplay tightens to 2x") ||
+        !Expect(ShouldInterruptCompressedFixedPacket(TimeCompressionRate::X4, TimeCompressionRate::X1),
+                "4x packet must interrupt when gameplay tightens to 1x") ||
+        !Expect(!ShouldInterruptCompressedFixedPacket(TimeCompressionRate::X2, TimeCompressionRate::X2),
+                "unchanged cap must not interrupt packet") ||
+        !Expect(!ShouldInterruptCompressedFixedPacket(TimeCompressionRate::X2, TimeCompressionRate::X4),
+                "released cap must not retroactively interrupt packet"))
     {
         return 1;
     }
@@ -177,6 +194,9 @@ int main()
                 "invalid safety ceiling must be rejected") ||
         !Expect(!controller.TightenMaximumRate(static_cast<TimeCompressionRate>(255U)),
                 "invalid tightening cap must be rejected") ||
+        !Expect(!ShouldInterruptCompressedFixedPacket(
+                    static_cast<TimeCompressionRate>(255U), TimeCompressionRate::X1),
+                "invalid packet-start rate must not request interruption") ||
         !Expect(TimeCompressionMultiplier(TimeCompressionRate::X8) == 8.0, "8x multiplier contract"))
     {
         return 1;
