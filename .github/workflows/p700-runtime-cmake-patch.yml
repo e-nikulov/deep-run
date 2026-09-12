@@ -19,16 +19,17 @@ jobs:
           ref: feature/m5-v2-player-navigation-sonar
           fetch-depth: 0
 
-      - name: Wire staged P-700 runtime and tests
-        shell: python
+      - name: Wire staged P700 runtime and tests
+        shell: bash
         run: |
+          python3 <<'PY'
           from pathlib import Path
 
-          path = Path('CMakeLists.txt')
-          text = path.read_text(encoding='utf-8')
+          path = Path("CMakeLists.txt")
+          text = path.read_text(encoding="utf-8")
 
-          anchor = 'add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})\n'
-          block = '''add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})
+          anchor = "add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})\n"
+          block = """add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})
 
 set(DEEPRUN_P700_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Content/Weapons/P700")
 set(DEEPRUN_P700_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/Weapons/P700")
@@ -51,43 +52,44 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(DeepRunP700RuntimeAssets DEPENDS ${DEEPRUN_P700_RUNTIME_FILES})
-'''
-          if 'DeepRunP700RuntimeAssets' not in text:
+"""
+          if "DeepRunP700RuntimeAssets" not in text:
               if anchor not in text:
-                  raise SystemExit('Antey staging anchor not found')
+                  raise SystemExit("Antey staging anchor not found")
               text = text.replace(anchor, block, 1)
 
-          source_anchor = '    Game/PropulsionPresentation.cpp\n    Game/Submarine/ProductionAnteyAsset.cpp\n'
-          source_replacement = '    Game/PropulsionPresentation.cpp\n    Game/Submarine/ProductionAnteyAsset.cpp\n    Game/Weapons/ProductionP700Asset.cpp\n'
-          if '    Game/Weapons/ProductionP700Asset.cpp\n' not in text.split('add_executable(DeepRun',1)[1].split(')',1)[0]:
+          source_anchor = "    Game/PropulsionPresentation.cpp\n    Game/Submarine/ProductionAnteyAsset.cpp\n"
+          source_replacement = "    Game/PropulsionPresentation.cpp\n    Game/Submarine/ProductionAnteyAsset.cpp\n    Game/Weapons/ProductionP700Asset.cpp\n"
+          deep_run_sources = text.split("add_executable(DeepRun", 1)[1].split(")", 1)[0]
+          if "Game/Weapons/ProductionP700Asset.cpp" not in deep_run_sources:
               if source_anchor not in text:
-                  raise SystemExit('DeepRun source anchor not found')
+                  raise SystemExit("DeepRun source anchor not found")
               text = text.replace(source_anchor, source_replacement, 1)
 
-          dependency_anchor = 'add_dependencies(DeepRun DeepRunAnteyRuntimeAssets)\n'
-          if 'add_dependencies(DeepRun DeepRunP700RuntimeAssets)' not in text:
+          dependency_anchor = "add_dependencies(DeepRun DeepRunAnteyRuntimeAssets)\n"
+          if "add_dependencies(DeepRun DeepRunP700RuntimeAssets)" not in text:
               if dependency_anchor not in text:
-                  raise SystemExit('DeepRun dependency anchor not found')
+                  raise SystemExit("DeepRun dependency anchor not found")
               text = text.replace(
                   dependency_anchor,
-                  dependency_anchor + 'add_dependencies(DeepRun DeepRunP700RuntimeAssets)\n',
+                  dependency_anchor + "add_dependencies(DeepRun DeepRunP700RuntimeAssets)\n",
                   1)
 
-          copy_anchor = '''    COMMAND ${CMAKE_COMMAND} -E copy_directory
+          copy_anchor = """    COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${DEEPRUN_ANTEY_RUNTIME_DIR}"
         "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/Antey"
-'''
-          copy_replacement = copy_anchor + '''    COMMAND ${CMAKE_COMMAND} -E copy_directory
+"""
+          copy_replacement = copy_anchor + """    COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${DEEPRUN_P700_RUNTIME_DIR}"
         "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/P700"
-'''
-          if '"$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/P700"' not in text:
+"""
+          if "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/P700" not in text:
               if copy_anchor not in text:
-                  raise SystemExit('DeepRun copy anchor not found')
+                  raise SystemExit("DeepRun copy anchor not found")
               text = text.replace(copy_anchor, copy_replacement, 1)
 
-          test_marker = 'set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)'
-          test_block = '''# M5 P-700 production content gate. It loads only the staged hash-validated package and verifies
+          marker = "set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)"
+          test_block = """# M5 P-700 production content gate. It loads only the staged hash-validated package and verifies
 # the bounded P700_Deploy metadata, the eight-object LOD0 partition and six fixed-hinge surfaces.
 add_executable(DeepRunP700ProductionAssetTests
     Tests/P700ProductionAssetTest.cpp
@@ -113,13 +115,14 @@ set_tests_properties(DeepRunP700ProductionAssetTests PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:DeepRunP700ProductionAssetTests>"
 )
 
-set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)'''
-          if 'add_executable(DeepRunP700ProductionAssetTests' not in text:
-              if test_marker not in text:
-                  raise SystemExit('CMake final marker not found')
-              text = text.replace(test_marker, test_block, 1)
+set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)"""
+          if "add_executable(DeepRunP700ProductionAssetTests" not in text:
+              if marker not in text:
+                  raise SystemExit("CMake final marker not found")
+              text = text.replace(marker, test_block, 1)
 
-          path.write_text(text, encoding='utf-8')
+          path.write_text(text, encoding="utf-8")
+          PY
 
       - name: Validate CMake wiring
         shell: bash
