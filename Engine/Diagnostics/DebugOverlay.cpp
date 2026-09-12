@@ -130,6 +130,14 @@ void DebugOverlay::Draw(const DebugStatus& status)
     ImGui::Text("FPS: %.1f", status.framesPerSecond);
     ImGui::Text("Frame time: %.2f ms", status.frameMilliseconds);
     ImGui::Text("Elapsed: %.2f s", status.elapsedSeconds);
+    ImGui::Text("Simulation: %.2f s", status.simulationTimeSeconds);
+    ImGui::Text("Time: %.0fx", status.effectiveTimeCompression);
+    if (status.requestedTimeCompression != status.effectiveTimeCompression)
+    {
+        ImGui::Text("Requested: %.0fx / cap %.0fx",
+                    status.requestedTimeCompression,
+                    status.maximumTimeCompression);
+    }
     ImGui::Text("Frame: %llu", static_cast<unsigned long long>(status.frameIndex));
     ImGui::Text("Entities: %zu", status.entityCount);
     ImGui::Text("Resources: %zu", status.resourceCount);
