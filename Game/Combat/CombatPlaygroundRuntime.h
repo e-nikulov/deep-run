@@ -51,6 +51,13 @@ inline constexpr float M5CombatTorpedoSeekerAssociationGateRadians = 0.03F;
 inline constexpr float M5CombatDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr float M5CombatPlayerDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr double M5CombatIncomingThreatEmissionSampleIntervalSeconds = 0.10;
+// M5/P-700 fire-control ranging profile. GAME POLICY only: the generic M4 sonar defaults remain unchanged.
+// At the canonical 20.1 km acceptance range this profile yields ~405 m positional uncertainty, preserving
+// the P-700 <=500 m Track-quality gate without fabricating target state or weakening weapon requirements.
+inline constexpr Acoustics::ActiveSonarConfig M5CombatPlayerFireControlActiveSonarConfig{
+    .bearingUncertaintyRadians = 0.0174532925F, // 1 degree
+    .minimumRangeUncertaintyMeters = 5.0F,
+    .fractionalRangeUncertainty = 0.01F};
 
 struct CombatPlaygroundFrame final
 {
@@ -719,7 +726,8 @@ private:
             Acoustics::AcousticReceiver activeReceiver = playerSnapshot.passiveReceiver;
             activeReceiver.positionMeters = activePulse_->originMeters;
             const auto activeEcho = Acoustics::CollectMonostaticActiveEchoObservation(
-                acousticWorld_, *activePulse_, *activeReflector_, activeReceiver, simulationTimeSeconds);
+                acousticWorld_, *activePulse_, *activeReflector_, activeReceiver, simulationTimeSeconds,
+                {}, {}, M5CombatPlayerFireControlActiveSonarConfig);
             if (!activeEcho)
             {
                 return std::unexpected("M5-H player active echo failed: " + activeEcho.error());

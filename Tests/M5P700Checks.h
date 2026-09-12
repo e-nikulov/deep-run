@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/Diagnostics/Logger.h"
+#include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Engine/Physics/PhysicsWorld.h"
 #include "Simulation/Weapons/P700Granit.h"
 
@@ -89,6 +90,20 @@ namespace M5P700Detail
     if (!ValidateP700GranitDefinition(definition))
     {
         return fail("definition validation");
+    }
+
+    constexpr float acceptanceRangeMeters = 20'100.0F;
+    const auto& fireControl = Game::Combat::M5CombatPlayerFireControlActiveSonarConfig;
+    const float lateralUncertaintyMeters =
+        acceptanceRangeMeters * fireControl.bearingUncertaintyRadians;
+    const float rangeUncertaintyMeters = (std::max)(
+        fireControl.minimumRangeUncertaintyMeters,
+        acceptanceRangeMeters * fireControl.fractionalRangeUncertainty);
+    const float fireControlPositionUncertaintyMeters = static_cast<float>(std::hypot(
+        static_cast<double>(lateralUncertaintyMeters), static_cast<double>(rangeUncertaintyMeters)));
+    if (fireControlPositionUncertaintyMeters > definition.weapon.targeting.maximumPositionUncertaintyMeters)
+    {
+        return fail("20.1 km fire-control sonar must satisfy the P-700 spatial Track-quality gate");
     }
 
     const Perception::Track targetTrack = MakeTrack(7001U, 25'000.0F);
