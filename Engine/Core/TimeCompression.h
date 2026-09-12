@@ -74,6 +74,14 @@ enum class TimeCompressionRate : std::uint8_t
     return TimeCompressionRate::X1;
 }
 
+[[nodiscard]] constexpr bool ShouldInterruptCompressedFixedPacket(
+    const TimeCompressionRate frameStartRate,
+    const TimeCompressionRate currentRate) noexcept
+{
+    return IsValidTimeCompressionRate(frameStartRate) && IsValidTimeCompressionRate(currentRate) &&
+           static_cast<std::uint8_t>(currentRate) < static_cast<std::uint8_t>(frameStartRate);
+}
+
 class TimeCompressionController final
 {
 public:
@@ -206,4 +214,6 @@ static_assert(TimeCompressionMultiplier(TimeCompressionRate::X1) == 1.0);
 static_assert(TimeCompressionMultiplier(TimeCompressionRate::X8) == 8.0);
 static_assert(IncreaseTimeCompressionRate(TimeCompressionRate::X8) == TimeCompressionRate::X8);
 static_assert(DecreaseTimeCompressionRate(TimeCompressionRate::X1) == TimeCompressionRate::X1);
+static_assert(ShouldInterruptCompressedFixedPacket(TimeCompressionRate::X8, TimeCompressionRate::X1));
+static_assert(!ShouldInterruptCompressedFixedPacket(TimeCompressionRate::X4, TimeCompressionRate::X4));
 }
