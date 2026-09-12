@@ -1,0 +1,164 @@
+name: M5 Closure Finalize
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m5-closure-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Apply final M5 closure fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def rep(path, old, new, label):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected one match, got {n}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          # A stationary physical surface target is a valid bounded scenario. Zero velocity is finite state,
+          # not an invalid definition. Normal M5 still authors -2 m/s through its explicit scenario default.
+          rep(
+              'Game/Combat/SimpleDestroyerRuntime.h',
+              "        definition.massKilograms <= 0.0F || !std::isfinite(definition.cruiseVelocityXMetersPerSecond) ||\n"
+              "        definition.cruiseVelocityXMetersPerSecond == 0.0F || !std::isfinite(definition.bodyCenterBelowSurfaceMeters) ||\n",
+              "        definition.massKilograms <= 0.0F || !std::isfinite(definition.cruiseVelocityXMetersPerSecond) ||\n"
+              "        !std::isfinite(definition.bodyCenterBelowSurfaceMeters) ||\n",
+              'allow finite stationary destroyer')
+
+          test_path = 'Tests/M5SimpleDestroyerRuntimeChecks.h'
+          insertion = """    const auto destroyerDefinition = MakeDestroyerDefinition();\n"""
+          stationary = """    auto stationaryDefinition = MakeDestroyerDefinition();
+    stationaryDefinition.id = \"m5.stationary-destroyer-proxy\";
+    stationaryDefinition.weapon.id = \"m5.stationary-destroyer-weapon\";
+    stationaryDefinition.cruiseVelocityXMetersPerSecond = 0.0F;
+    auto stationaryResult = CreateSimpleDestroyerRuntime(
+        stationaryDefinition,
+        physicsWorld,
+        0.0F,
+        -60.0F,
+        0.0F,
+        0.0);
+    if (!stationaryResult)
+    {
+        return false;
+    }
+    const auto stationaryInitial = physicsWorld.GetBodyState(stationaryResult->body);
+    if (!stationaryInitial || std::abs(stationaryInitial->position.x + 60.0F) > 0.001F ||
+        std::abs(stationaryInitial->linearVelocity.x) > 0.001F)
+    {
+        return false;
+    }
+    for (int step = 0; step < 60; ++step)
+    {
+        physicsWorld.Step(1.0F / 60.0F);
+    }
+    const auto stationaryLater = physicsWorld.GetBodyState(stationaryResult->body);
+    if (!stationaryLater || std::abs(stationaryLater->position.x + 60.0F) > 0.001F ||
+        std::abs(stationaryLater->linearVelocity.x) > 0.001F || !physicsWorld.DestroyBody(stationaryResult->body))
+    {
+        return false;
+    }
+
+    const auto destroyerDefinition = MakeDestroyerDefinition();
+"""
+          rep(test_path, insertion, stationary, 'stationary destroyer regression')
+
+          rep(
+              'Game/Combat/P700VisualAcceptance.h',
+              "    case Weapons::P700GranitPhase::Terminal: return \"Terminal\";\n"
+              "    case Weapons::P700GranitPhase::Impact: return \"Impact\";\n",
+              "    case Weapons::P700GranitPhase::Terminal: return \"Terminal\";\n"
+              "    case Weapons::P700GranitPhase::Defeated: return \"Defeated\";\n"
+              "    case Weapons::P700GranitPhase::Impact: return \"Impact\";\n",
+              'P700 defeated phase name')
+
+          rep(
+              'Game/Combat/CombatCommandUi.h',
+              "// J2-B shipping-playground presentation only. The UI receives a read-only perceived-world/weapon projection;\n"
+              "// it cannot mutate TrackManager, weapon state, PhysicsWorld, or issue commands directly.\n"
+              "void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot);\n"
+              "void DrawSonarScope(const SonarPresentationSnapshot& snapshot);\n",
+              "// J2-B shipping-playground presentation only. The UI receives a read-only perceived-world/weapon projection;\n"
+              "// it cannot mutate TrackManager, weapon state, PhysicsWorld, or issue commands directly.\n"
+              "struct CombatUiPresentationSettings final\n"
+              "{\n"
+              "    bool sonarVisualizationEnabled = true;\n"
+              "};\n\n"
+              "void DrawCombatCommandUi(\n"
+              "    const PlayerCombatPresentationSnapshot& snapshot,\n"
+              "    CombatUiPresentationSettings* presentationSettings = nullptr);\n"
+              "void DrawSonarScope(const SonarPresentationSnapshot& snapshot);\n",
+              'combat UI presentation settings declaration')
+
+          rep(
+              'Game/Combat/CombatCommandUi.cpp',
+              "void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)\n",
+              "void DrawCombatCommandUi(\n"
+              "    const PlayerCombatPresentationSnapshot& snapshot,\n"
+              "    CombatUiPresentationSettings* presentationSettings)\n",
+              'combat UI signature')
+          rep(
+              'Game/Combat/CombatCommandUi.cpp',
+              "    ImGui::Text(\"Active sonar: %s\",\n"
+              "                snapshot.activeSonarPulsePending ? \"PING OUT\" : (snapshot.canActiveSonarPing ? \"READY\" : \"UNAVAILABLE\"));\n"
+              "    ImGui::Text(\"Decoy available: %s\", snapshot.canDeployDecoy ? \"YES\" : \"NO\");\n",
+              "    ImGui::Text(\"Active sonar: %s\",\n"
+              "                snapshot.activeSonarPulsePending ? \"PING OUT\" : (snapshot.canActiveSonarPing ? \"READY\" : \"UNAVAILABLE\"));\n"
+              "    if (presentationSettings != nullptr)\n"
+              "    {\n"
+              "        ImGui::Checkbox(\"Sonar visualization\", &presentationSettings->sonarVisualizationEnabled);\n"
+              "    }\n"
+              "    ImGui::Text(\"Decoy available: %s\", snapshot.canDeployDecoy ? \"YES\" : \"NO\");\n",
+              'sonar visualization checkbox')
+
+          rep(
+              'DeepRun/Main.cpp',
+              "        std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;\n"
+              "        std::optional<DeepRun::Physics::PhysicsVector3> initialOwnshipNavigationPositionMeters;\n",
+              "        std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;\n"
+              "        DeepRun::Game::Combat::CombatUiPresentationSettings combatUiPresentationSettings{};\n"
+              "        std::optional<DeepRun::Physics::PhysicsVector3> initialOwnshipNavigationPositionMeters;\n",
+              'main presentation settings state')
+          rep(
+              'DeepRun/Main.cpp',
+              "            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot, &smokeCombatCameraDirector,\n",
+              "            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot,\n"
+              "             &combatUiPresentationSettings, &smokeCombatCameraDirector,\n",
+              'render lambda settings capture')
+          rep(
+              'DeepRun/Main.cpp',
+              "                        DeepRun::Game::Combat::DrawCombatCommandUi(*combatUiSnapshot);\n"
+              "                        DeepRun::Game::Combat::DrawSonarScope(combatUiSnapshot->sonar);\n",
+              "                        DeepRun::Game::Combat::DrawCombatCommandUi(\n"
+              "                            *combatUiSnapshot, &combatUiPresentationSettings);\n"
+              "                        if (combatUiPresentationSettings.sonarVisualizationEnabled)\n"
+              "                        {\n"
+              "                            DeepRun::Game::Combat::DrawSonarScope(combatUiSnapshot->sonar);\n"
+              "                        }\n",
+              'render-only sonar visibility gate')
+          PY
+          git diff --check
+      - name: Commit product closure
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Game/Combat/SimpleDestroyerRuntime.h Tests/M5SimpleDestroyerRuntimeChecks.h Game/Combat/P700VisualAcceptance.h Game/Combat/CombatCommandUi.h Game/Combat/CombatCommandUi.cpp DeepRun/Main.cpp
+          git diff --cached --check
+          git commit -m "fix: close M5 acceptance and sonar presentation gaps"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
