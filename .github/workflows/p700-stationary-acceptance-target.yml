@@ -1,0 +1,139 @@
+name: P700 Stationary Acceptance Target
+
+on:
+  push:
+    paths:
+      - '.github/workflows/p700-stationary-acceptance-target.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Apply scenario-only target motion policy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def rep(path, old, new, label):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected one match, got {n}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          runtime = 'Game/Combat/CombatPlaygroundRuntime.h'
+          rep(runtime,
+              "inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;\n",
+              "inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;\n"
+              "inline constexpr float M5CombatDestroyerCruiseVelocityXMetersPerSecond = -2.0F;\n",
+              'destroyer velocity constant')
+          rep(runtime,
+              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode = false)\n",
+              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode = false,\n"
+              "        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)\n",
+              'base create signature')
+          rep(runtime,
+              "            !std::isfinite(destroyerInitialXMeters) || destroyerInitialXMeters <= 0.0F ||\n"
+              "            !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)\n",
+              "            !std::isfinite(destroyerInitialXMeters) || destroyerInitialXMeters <= 0.0F ||\n"
+              "            !std::isfinite(destroyerCruiseVelocityXMetersPerSecond) ||\n"
+              "            !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)\n",
+              'base create validation')
+          rep(runtime,
+              "            .cruiseVelocityXMetersPerSecond = -2.0F,\n",
+              "            .cruiseVelocityXMetersPerSecond = destroyerCruiseVelocityXMetersPerSecond,\n",
+              'destroyer scenario velocity')
+          rep(runtime,
+              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode = false)\n"
+              "    {\n"
+              "        if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount",
+              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode = false,\n"
+              "        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)\n"
+              "    {\n"
+              "        if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount",
+              'production create signature')
+          rep(runtime,
+              "        auto runtime = Create(physicsWorld, surfaceLevelY, simulationTimeSeconds, destroyerInitialXMeters, p700AcceptanceMode);\n",
+              "        auto runtime = Create(\n"
+              "            physicsWorld, surfaceLevelY, simulationTimeSeconds, destroyerInitialXMeters,\n"
+              "            p700AcceptanceMode, destroyerCruiseVelocityXMetersPerSecond);\n",
+              'production create forwarding')
+
+          composition = 'Game/Combat/CombatPlaygroundWindowedComposition.h'
+          rep(composition,
+              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode = false)\n",
+              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode = false,\n"
+              "        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)\n",
+              'composition create signature')
+          rep(composition,
+              "            std::move(*view), std::move(*p700Carrier), destroyerInitialXMeters, p700AcceptanceMode);\n",
+              "            std::move(*view), std::move(*p700Carrier), destroyerInitialXMeters, p700AcceptanceMode,\n"
+              "            destroyerCruiseVelocityXMetersPerSecond);\n",
+              'composition create forwarding')
+          rep(composition,
+              "        const float destroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode)\n"
+              "        : view_(std::move(view)),\n"
+              "          p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract)),\n"
+              "          destroyerInitialXMeters_(destroyerInitialXMeters),\n"
+              "          p700AcceptanceMode_(p700AcceptanceMode)\n",
+              "        const float destroyerInitialXMeters,\n"
+              "        const bool p700AcceptanceMode,\n"
+              "        const float destroyerCruiseVelocityXMetersPerSecond)\n"
+              "        : view_(std::move(view)),\n"
+              "          p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract)),\n"
+              "          destroyerInitialXMeters_(destroyerInitialXMeters),\n"
+              "          p700AcceptanceMode_(p700AcceptanceMode),\n"
+              "          destroyerCruiseVelocityXMetersPerSecond_(destroyerCruiseVelocityXMetersPerSecond)\n",
+              'composition constructor')
+          rep(composition,
+              "            destroyerInitialXMeters_,\n"
+              "            p700AcceptanceMode_);\n",
+              "            destroyerInitialXMeters_,\n"
+              "            p700AcceptanceMode_,\n"
+              "            destroyerCruiseVelocityXMetersPerSecond_);\n",
+              'ensure runtime scenario forwarding')
+          rep(composition,
+              "    bool p700AcceptanceMode_ = false;\n"
+              "    std::optional<CombatPlaygroundRuntime> runtime_{};\n",
+              "    bool p700AcceptanceMode_ = false;\n"
+              "    float destroyerCruiseVelocityXMetersPerSecond_ = M5CombatDestroyerCruiseVelocityXMetersPerSecond;\n"
+              "    std::optional<CombatPlaygroundRuntime> runtime_{};\n",
+              'composition scenario member')
+
+          main = 'DeepRun/Main.cpp'
+          rep(main,
+              "                        options.p700SmokeTest ? 20'100.0F : DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters,\n"
+              "                        options.p700SmokeTest);\n",
+              "                        options.p700SmokeTest ? 20'100.0F : DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters,\n"
+              "                        options.p700SmokeTest,\n"
+              "                        options.p700SmokeTest\n"
+              "                            ? 0.0F\n"
+              "                            : DeepRun::Game::Combat::M5CombatDestroyerCruiseVelocityXMetersPerSecond);\n",
+              'main acceptance scenario target motion')
+          PY
+          git diff --check
+      - name: Commit scenario policy
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Game/Combat/CombatPlaygroundRuntime.h Game/Combat/CombatPlaygroundWindowedComposition.h DeepRun/Main.cpp
+          git diff --cached --check
+          git commit -m "test: isolate P-700 visual acceptance target motion"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
