@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "identity": "65-76A Kit-inspired 650 mm heavy torpedo visual draft",
+  "status": "VISUAL_REVIEW_REQUIRED",
+  "asset": "65-76A_Kit_review.glb",
+  "geometry": {
+    "nominalLengthMeters": 11.3,
+    "nominalBodyDiameterMeters": 0.650,
+    "forwardAxis": "+X",
+    "vertices": 257,
+    "triangles": 404
+  },
+  "source": "ORIGINAL_PROCEDURAL_GEOMETRY",
+  "referenceUse": "The user-supplied low-poly pack was used only to choose an approximate visual-density target; no donor vertices, textures, materials or mesh topology are copied.",
+  "runtimeIntegration": "NOT_STARTED",
+  "approval": "USER_VISUAL_REVIEW_REQUIRED"
+}
