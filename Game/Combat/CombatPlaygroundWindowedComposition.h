@@ -171,8 +171,16 @@ private:
         {
             return std::unexpected("M5-H.1 windowed combat could not derive the live surface level");
         }
+        auto p700Inventory = p700CarrierLaunchContract_.CreateInventory();
+        if (!p700Inventory)
+        {
+            return std::unexpected("M5 P-700 windowed launcher inventory creation failed: " + p700Inventory.error());
+        }
         auto runtime = CombatPlaygroundRuntime::Create(
-            physicsWorld, static_cast<float>(surfaceLevel), simulationTimeSeconds);
+            physicsWorld,
+            static_cast<float>(surfaceLevel),
+            simulationTimeSeconds,
+            std::move(*p700Inventory));
         if (!runtime)
         {
             return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());

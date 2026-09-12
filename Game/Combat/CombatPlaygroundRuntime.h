@@ -4,6 +4,7 @@
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
+#include "Game/Weapons/P700LauncherInventory.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Perception/SensorObservation.h"
 #include "Simulation/Perception/TrackManager.h"
@@ -231,6 +232,30 @@ public:
             simulationTimeSeconds);
     }
 
+    // Production/windowed overload. Existing headless M5 tests keep the three-argument factory and therefore
+    // retain the accepted torpedo-only fixture. Normal play injects one validated 24-slot P-700 inventory;
+    // this is carrier load state only and does not grant a target, launch solution or renderer authority.
+    [[nodiscard]] static std::expected<CombatPlaygroundRuntime, std::string> Create(
+        Physics::PhysicsWorld& physicsWorld,
+        const float surfaceLevelY,
+        const double simulationTimeSeconds,
+        Armament::P700LauncherInventory p700LauncherInventory)
+    {
+        if (p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||
+            p700LauncherInventory.LoadedCount() != Armament::AnteyP700LauncherSlotCount ||
+            p700LauncherInventory.SpentCount() != 0U)
+        {
+            return std::unexpected("M5 P-700 production runtime requires a fresh 24-slot launcher inventory");
+        }
+        auto runtime = Create(physicsWorld, surfaceLevelY, simulationTimeSeconds);
+        if (!runtime)
+        {
+            return runtime;
+        }
+        runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);
+        return std::move(*runtime);
+    }
+
     // Accepted H/H.1 smoke and headless regression path. It deliberately retains deterministic automatic
     // commander decisions so existing combat/capture gates remain reproducible after J2 introduces live input.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> Advance(
@@ -378,6 +403,10 @@ public:
     [[nodiscard]] const std::optional<DeepRun::Combat::CombatExplosionEvent>& LastExplosion() const noexcept
     {
         return lastExplosion_;
+    }
+    [[nodiscard]] const std::optional<Armament::P700LauncherInventory>& P700Launchers() const noexcept
+    {
+        return p700LauncherInventory_;
     }
 
 private:
@@ -1693,6 +1722,9 @@ private:
     std::optional<Physics::PhysicsVector3> destroyerTorpedoLaunchPosition_{};
     float destroyerTorpedoForwardSign_ = -1.0F;
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
+    // Present only in the production/windowed composition until Weapon Selector materializes a P-700 launch.
+    // Inventory is Game authority for 24 Loaded/Spent carrier slots; simulation missile state remains separate.
+    std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
