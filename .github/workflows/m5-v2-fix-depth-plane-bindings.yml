@@ -1,0 +1,58 @@
+name: M5 V2 Repair Merged Antey Bindings
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Repair current-main depth-plane node references
+        shell: python
+        run: |
+          from pathlib import Path
+
+          for name in (
+              'Content/submarines/Antey/Antey.authoring.json',
+              'Engine/Assets/submarines/Antey/Antey.authoring.json',
+          ):
+              path = Path(name)
+              text = path.read_text(encoding='utf-8')
+              for old, new in (
+                  ('SM_Antey_LOD0_TailPlane_Port', 'SM_Antey_LOD0_SternPlane_Port'),
+                  ('SM_Antey_LOD0_TailPlane_Starboard', 'SM_Antey_LOD0_SternPlane_Starboard'),
+              ):
+                  if text.count(old) != 1:
+                      raise RuntimeError(f'{name}: expected exactly one {old}')
+                  text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+
+          path = Path('Game/Submarine/ProductionAnteyAsset.cpp')
+          text = path.read_text(encoding='utf-8')
+          old = 'throw std::runtime_error(std::format("Antey GLB has no node for a required propeller presentation binding"));'
+          new = 'throw std::runtime_error(std::format("Antey GLB has no node for required presentation binding: {}", privateNodeReference));'
+          if text.count(old) != 1:
+              raise RuntimeError('generic presentation binding diagnostic not found exactly once')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - name: Remove temporary inspection and repair workflows
+        run: |
+          git rm .github/workflows/m5-v2-inspect-antey-glb.yml
+          git rm .github/workflows/m5-v2-fix-depth-plane-bindings.yml
+      - name: Validate and commit
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Content/submarines/Antey/Antey.authoring.json Engine/Assets/submarines/Antey/Antey.authoring.json Game/Submarine/ProductionAnteyAsset.cpp
+          git commit -m "fix: align V2 depth-plane bindings with merged Antey GLB"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
