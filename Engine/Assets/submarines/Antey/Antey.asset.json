@@ -3,11 +3,11 @@
   "assetId": "C0 Player Submarine",
   "name": "Antey",
   "identity": "neutral Project 949A-inspired production asset",
-  "blend": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Antey_GameReady.blend",
-  "blendSha256": "8535E96A04CDFEFF702E960F04FA886D2DEBEA878161751DE10A3E9E3353EE42",
-  "glb": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Antey.glb",
-  "glbSha256": "2ED11B62ACDEE424B76C29DE50622261AC24F57465C5761C6D4088FA09614C4C",
-  "source": "C:\\Users\\es.nikulov\\source\\repos\\deep-run\\Content\\submarines\\Antey\\Source\\Antey_Source.blend",
+  "blend": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Antey_GameReady.blend",
+  "blendSha256": "B35EAFA2A17ED4BCF7B4BA01B14B0CDFBAF256A3E6A460ABB9C309B7E4BB924F",
+  "glb": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Antey.glb",
+  "glbSha256": "74B5E90145D3447C8A185CA6C2BAEE549347DD4AC2E6F0ED329BA15A63F07C80",
+  "source": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Source\\Antey_Source.blend",
   "sourceSha256": "BCC3F34A23825F5DD3887ABF0C226BA8CCB0A1DF57DAC2B566407B46A68BAB3F",
   "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
   "dimensionsMeters": {
@@ -22,23 +22,23 @@
   "lods": {
     "LOD0": {
       "objects": 66,
-      "vertices": 65548,
+      "vertices": 65551,
       "triangles": 120374
     },
     "LOD1": {
       "objects": 66,
-      "vertices": 38018,
-      "triangles": 66156
+      "vertices": 37943,
+      "triangles": 66265
     },
     "LOD2": {
       "objects": 66,
-      "vertices": 22742,
-      "triangles": 36127
+      "vertices": 22636,
+      "triangles": 36200
     },
     "LOD3": {
       "objects": 66,
-      "vertices": 11623,
-      "triangles": 14666
+      "vertices": 11517,
+      "triangles": 14739
     }
   },
   "materials": [
@@ -58,9 +58,9 @@
     "realMissingVisibleSourceFaces": 0,
     "unexplainedSourceFaces": 0,
     "replacementWithoutProof": 0,
-    "unintentionalCandidateDuplicateSourceFaces": 0,
+    "unintentionalCandidateDuplicateSourceFaces": "REPORTED_BY_SOURCE_PARTITION_AUDIT",
     "syntheticClosureFaces": 4,
-    "status": "PASS"
+    "status": "REQUIRES_SOURCE_PARTITION_AUDIT"
   },
   "p700Contract": {
     "launchPositions": 24,

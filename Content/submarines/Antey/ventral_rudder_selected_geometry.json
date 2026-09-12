@@ -1,0 +1,14 @@
+{
+  "fixture": "selected_geometry_ventral.txt",
+  "fixtureVertices": 195,
+  "fixtureEdges": 357,
+  "surfaceOwnedVertices": 195,
+  "surfaceOwnedEdges": 357,
+  "looseVertices": [],
+  "looseEdges": [],
+  "transferredStaticHullFaces": 123,
+  "neutralUnionMissing": 0,
+  "neutralUnionExtra": 0,
+  "candidateSha256": "B35EAFA2A17ED4BCF7B4BA01B14B0CDFBAF256A3E6A460ABB9C309B7E4BB924F",
+  "status": "PASS"
+}
