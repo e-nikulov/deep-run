@@ -518,7 +518,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
         {
             Require(launcherCount == 2U, "each Antey P700 hatch group must own exactly two launchers");
             const bool port = hatchGroup.starts_with("PORT_HATCH_");
-            const bool starboard = hatchGroup.starts_with("STBD_HATCH_");
+            const bool starboard = hatchGroup.starts_with("STARBOARD_HATCH_");
             Require(port || starboard, "P700 hatch group semantic ID must identify port or starboard bank");
             const std::string ordinal = hatchGroup.substr(hatchGroup.size() - 2U);
             const std::string privateNodeReference = std::format(
