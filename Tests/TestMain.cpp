@@ -310,8 +310,30 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
         return false;
     }
 
+    const auto model = assets.LoadModel(AnteyModelPath);
+    if (!model)
+    {
+        return false;
+    }
+    for (const auto& propeller : definition->propellers)
+    {
+        if (propeller.presentationNodeBindingIndex >= model->Get()->nodeBindings.size())
+        {
+            return false;
+        }
+        const auto& binding = model->Get()->nodeBindings[propeller.presentationNodeBindingIndex];
+        if (binding.drawableMeshNodeIndices.empty() ||
+            std::any_of(
+                binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
+                [&model](const std::size_t index) { return index >= model->Get()->nodes.size(); }))
+        {
+            return false;
+        }
+    }
+
     // Detailed geometry and source-first semantic checks live in the focused
-    // IG1-B / IG1-B.1 tests below; this gate only proves staged loading.
+    // IG1-B / IG1-B.1 tests below; this gate also proves opaque transform-only
+    // presentation roots resolve to a non-empty drawable subtree.
     return true;
 }
 

@@ -75,6 +75,10 @@ struct ModelNodeBindingData final
     // This remains an Assets-layer resolution detail; semantic consumers retain
     // only the opaque nodeBindings index.
     std::optional<std::size_t> meshNodeIndex;
+    // Mesh nodes contributed by this binding's complete imported subtree. This lets
+    // presentation animate a semantic transform-only root without leaking child GLB
+    // names into Game code. Direct drawable bindings include their own mesh node.
+    std::vector<std::size_t> drawableMeshNodeIndices;
 };
 
 struct ModelAsset final

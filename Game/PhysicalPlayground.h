@@ -402,7 +402,7 @@ private:
     std::array<float, 2> committedControlSurfaceDeflections_{};
     float committedThrottleFraction_ = 0.0F;
     std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
-    std::vector<std::size_t> propellerMeshNodeIndices_{};
+    std::vector<std::size_t> propellerNodeBindingIndices_{};
     Submarine::AnteyFacingState facingState_{};
     std::uint64_t consumedTurnAroundPressSequence_ = 0;
 

@@ -618,6 +618,7 @@ private:
         if (sourceNode.meshIndex.has_value())
         {
             binding.meshNodeIndex = output_.nodes.size();
+            binding.drawableMeshNodeIndices.push_back(*binding.meshNodeIndex);
             auto primitiveIndices = ImportMesh(*sourceNode.meshIndex);
             if (!primitiveIndices)
             {
@@ -646,14 +647,24 @@ private:
             }
             output_.nodes.push_back(std::move(node));
         }
+        const std::size_t bindingIndex = output_.nodeBindings.size();
         output_.nodeBindings.push_back(std::move(binding));
 
         for (const std::size_t childIndex : sourceNode.children)
         {
+            const std::size_t childBindingIndex = output_.nodeBindings.size();
             if (auto result = VisitNode(childIndex, localToModel); !result)
             {
                 return result;
             }
+            if (childBindingIndex >= output_.nodeBindings.size())
+            {
+                return std::unexpected(MakeError(
+                    AssetErrorCode::InvalidData, path_, id_, "scene child produced no imported node binding"));
+            }
+            const auto& childDrawables = output_.nodeBindings[childBindingIndex].drawableMeshNodeIndices;
+            auto& parentDrawables = output_.nodeBindings[bindingIndex].drawableMeshNodeIndices;
+            parentDrawables.insert(parentDrawables.end(), childDrawables.begin(), childDrawables.end());
         }
         nodeVisitState_[nodeIndex] = 2;
         return {};

@@ -436,8 +436,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground requires two production bow and two stern depth-plane nodes");
     }
 
-    std::vector<std::size_t> propellerMeshNodeIndices;
-    propellerMeshNodeIndices.reserve(productionDefinition->propellers.size());
+    std::vector<std::size_t> propellerNodeBindingIndices;
+    propellerNodeBindingIndices.reserve(productionDefinition->propellers.size());
     for (const Submarine::ProductionPropellerAnchor& propeller : productionDefinition->propellers)
     {
         if (propeller.rotationAxis != "+X" ||
@@ -445,16 +445,17 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         {
             return std::unexpected("physical playground production propeller semantic binding is invalid");
         }
-        const auto meshNodeIndex = (*model)->nodeBindings[propeller.presentationNodeBindingIndex].meshNodeIndex;
-        if (!meshNodeIndex.has_value())
+        const Assets::ModelNodeBindingData& binding =
+            (*model)->nodeBindings[propeller.presentationNodeBindingIndex];
+        if (binding.drawableMeshNodeIndices.empty())
         {
-            return std::unexpected("physical playground production propeller binding is not drawable");
+            return std::unexpected("physical playground production propeller binding has no drawable subtree");
         }
-        propellerMeshNodeIndices.push_back(*meshNodeIndex);
+        propellerNodeBindingIndices.push_back(propeller.presentationNodeBindingIndex);
     }
-    if (propellerMeshNodeIndices.size() != 2U)
+    if (propellerNodeBindingIndices.size() != 2U)
     {
-        return std::unexpected("physical playground requires two production Antey propeller nodes");
+        return std::unexpected("physical playground requires two production Antey propeller bindings");
     }
 
     if (productionDefinition->collisionProxies.size() != 1U)
@@ -1072,7 +1073,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     committedControlSurfaceDeflections_ = {};
     committedThrottleFraction_ = 0.0F;
     depthPlaneMeshNodeIndices_ = std::move(depthPlaneMeshNodeIndices);
-    propellerMeshNodeIndices_ = std::move(propellerMeshNodeIndices);
+    propellerNodeBindingIndices_ = std::move(propellerNodeBindingIndices);
     facingState_ = {};
     consumedTurnAroundPressSequence_ = 0;
     propellerPresentationAngleRadians_ = 0.0F;
@@ -1602,7 +1603,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     std::vector<Render::ModelNodeTransformOverride> submarineNodeOverrides = submergedSailDeviceOverrides_;
     submarineNodeOverrides.reserve(
         submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2BowPlaneIndex].size() +
-        depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size() + propellerMeshNodeIndices_.size());
+        depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
     for (std::size_t group = 0; group < depthPlaneMeshNodeIndices_.size(); ++group)
     {
         const Assets::ModelTransform postTransform = DepthPlanePostTransform(committedControlSurfaceDeflections_[group]);
@@ -1613,11 +1614,15 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     const Assets::ModelTransform propellerPostTransform =
         PropellerPostTransform(propellerPresentationAngleRadians_);
-    for (const std::size_t meshNodeIndex : propellerMeshNodeIndices_)
+    std::vector<Render::ModelBindingTransformOverride> submarineBindingOverrides;
+    submarineBindingOverrides.reserve(propellerNodeBindingIndices_.size());
+    for (const std::size_t bindingIndex : propellerNodeBindingIndices_)
     {
-        submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = propellerPostTransform});
+        submarineBindingOverrides.push_back(
+            {.bindingIndex = bindingIndex, .bindingLocalPostTransform = propellerPostTransform});
     }
-    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, submarineNodeOverrides);
+    const auto draws = Render::PrepareModelDraws(
+        *modelAsset_, modelToWorld, submarineNodeOverrides, submarineBindingOverrides);
     if (!draws)
     {
         return std::unexpected(draws.error());
