@@ -66,7 +66,7 @@ namespace DeepRun::Tests
     }
 
     const auto granitNominal = at(P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 0.0F, 45.0F, 1.0F);
-    const auto granitTooShallow = at(P700GranitEmploymentEnvelope, 29.9F, 120'000.0F, 0.0F, 0.0F, 0.0F);
+    const auto granitSurfaceLaunch = at(P700GranitEmploymentEnvelope, 0.0F, 120'000.0F, 0.0F, 0.0F, 0.0F);
     const auto granitTooDeep = at(P700GranitEmploymentEnvelope, 50.1F, 120'000.0F, 0.0F, 0.0F, 0.0F);
     const auto granitTooClose = at(P700GranitEmploymentEnvelope, 40.0F, 19'999.0F, 0.0F, 0.0F, 0.0F);
     const auto granitTooFar = at(P700GranitEmploymentEnvelope, 40.0F, 550'001.0F, 0.0F, 0.0F, 0.0F);
@@ -74,7 +74,7 @@ namespace DeepRun::Tests
     const auto granitTooFast = at(
         P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 0.0F, 0.0F, KnotsToMetersPerSecond(5.1F));
     const auto granitSubmergedTarget = at(P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 30.0F, 0.0F, 0.0F);
-    return granitNominal.allowed && !granitTooShallow.allowed && !granitTooDeep.allowed && !granitTooClose.allowed &&
+    return granitNominal.allowed && granitSurfaceLaunch.allowed && !granitTooDeep.allowed && !granitTooClose.allowed &&
            !granitTooFar.allowed && !granitWrongSector.allowed && !granitTooFast.allowed && !granitSubmergedTarget.allowed;
 }
 } // namespace DeepRun::Tests

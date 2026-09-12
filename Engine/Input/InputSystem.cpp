@@ -88,6 +88,7 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
                                    ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
                                    : 0.0F;
     return ControllerSemanticActions{
+        .turnAround = HasGamepadButton(gamepad, GamepadButton::LeftStick),
         .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
         .prepareWeapon = leftTrigger >= TriggerActionThreshold,
         .fireWeapon = rightTrigger >= TriggerActionThreshold,
@@ -149,6 +150,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, true);
             }
+            else if (event.key == Platform::Key::T)
+            {
+                turnAroundKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::Tab)
             {
                 selectContactKeyDown_ = true;
@@ -156,6 +161,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::R)
             {
                 prepareWeaponKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Enter)
+            {
+                fireWeaponKeyDown_ = true;
             }
             else if (event.key == Platform::Key::Space)
             {
@@ -216,6 +225,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 state_.SetActionDown(InputAction::ToggleDebugUi, false);
             }
+            else if (event.key == Platform::Key::T)
+            {
+                turnAroundKeyDown_ = false;
+            }
             else if (event.key == Platform::Key::Tab)
             {
                 selectContactKeyDown_ = false;
@@ -223,6 +236,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::R)
             {
                 prepareWeaponKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Enter)
+            {
+                fireWeaponKeyDown_ = false;
             }
             else if (event.key == Platform::Key::Space)
             {
@@ -350,6 +367,7 @@ void InputSystem::RefreshSemanticAxes() noexcept
 void InputSystem::RefreshSemanticActions() noexcept
 {
     const ControllerSemanticActions controller = SemanticActionsForGamepad(state_.Gamepad());
+    state_.SetActionDown(InputAction::TurnAround, turnAroundKeyDown_ || controller.turnAround);
     state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);
     state_.SetActionDown(
         InputAction::PrepareWeapon,
@@ -358,7 +376,8 @@ void InputSystem::RefreshSemanticActions() noexcept
             controller.prepareWeapon);
     state_.SetActionDown(
         InputAction::FireWeapon,
-        state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
+        fireWeaponKeyDown_ ||
+            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
             controller.fireWeapon);
     state_.SetActionDown(
         InputAction::ActiveSonarPing,

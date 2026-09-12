@@ -17,6 +17,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
+#include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/BuoyancySystem.h"
@@ -155,7 +156,9 @@ public:
             .body = physicsBody_,
             .positionMeters = bodyState->position,
             .orientation = bodyState->orientation,
-            .halfExtentsMeters = submarineCollisionHalfExtents_};
+            .halfExtentsMeters = submarineCollisionHalfExtents_,
+            .gameplayLongitudinalFacingSign = static_cast<float>(facingState_.longitudinalSign),
+            .turningAround = facingState_.turningAround};
     }
 
     // Presentation-only framing. The default untouched 0/0/600 frame preserves the accepted M2/M3 benchmark.
@@ -289,7 +292,10 @@ public:
             return std::unexpected("physical playground presentation camera transforms are unavailable");
         }
 
-        const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
+        const Assets::ModelTransform facingPresentation =
+            Submarine::BuildAnteyFacingPresentationTransform(facingState_);
+        const Assets::ModelTransform modelToWorld =
+            Render::Multiply(Render::Multiply(*bodyToWorld, facingPresentation), modelToBody_);
         const auto worldBounds = TransformBounds(modelAsset_->bounds, modelToWorld);
         const auto surfaceFloatWorldBounds = TransformBounds(surfaceFloatModel_->bounds, *surfaceFloatToWorld);
         const auto faunaWorldBounds = TransformBounds(faunaField_->renderGeometry.bounds, *faunaToWorld);
@@ -396,6 +402,9 @@ private:
     std::array<float, 2> committedControlSurfaceDeflections_{};
     float committedThrottleFraction_ = 0.0F;
     std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
+    std::vector<std::size_t> propellerMeshNodeIndices_{};
+    Submarine::AnteyFacingState facingState_{};
+    std::uint64_t consumedTurnAroundPressSequence_ = 0;
 
     // World-space fixed camera target initialized from the production body's initial center. M5 free navigation
     // shifts only this retained presentation target, never the body or any simulation authority.
@@ -421,8 +430,8 @@ private:
     bool loggedHapticFailure_ = false;
     mutable bool loggedRenderPresentation_ = false;
 
-    // Presentation state derived only from authoritative shaft RPM. Production propeller hierarchy animation
-    // is intentionally deferred beyond IG1-B; this state remains M2 simulation-compatible but is not drawn.
+    // Presentation state derived only from authoritative signed shaft RPM. Both production propeller bindings
+    // consume this angle, so astern shaft rotation visibly reverses without feeding presentation back to physics.
     float propellerPresentationAngleRadians_ = 0.0F;
 };
 } // namespace DeepRun::Game

@@ -13,5 +13,8 @@ struct AnteyPhysicalCollisionProxySnapshot final
     Physics::PhysicsVector3 positionMeters{};
     Physics::PhysicsQuaternion orientation{};
     Physics::PhysicsVector3 halfExtentsMeters{};
+    // 2.5D longitudinal facing is Game authority, not an extra Jolt degree of freedom.
+    float gameplayLongitudinalFacingSign = 1.0F;
+    bool turningAround = false;
 };
 } // namespace DeepRun::Game::Submarine

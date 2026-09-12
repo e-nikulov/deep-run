@@ -38,6 +38,7 @@ Key TranslateKey(const WPARAM virtualKey)
     case VK_ESCAPE: return Key::Escape;
     case VK_F1: return Key::F1;
     case VK_TAB: return Key::Tab;
+    case VK_RETURN: return Key::Enter;
     case VK_SPACE: return Key::Space;
     case 'A': return Key::A;
     case 'D': return Key::D;
@@ -45,6 +46,7 @@ Key TranslateKey(const WPARAM virtualKey)
     case 'S': return Key::S;
     case 'R': return Key::R;
     case 'F': return Key::F;
+    case 'T': return Key::T;
     case VK_LEFT: return Key::Left;
     case VK_RIGHT: return Key::Right;
     case VK_UP: return Key::Up;

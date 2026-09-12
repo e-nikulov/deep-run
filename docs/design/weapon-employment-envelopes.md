@@ -44,13 +44,15 @@ Deep Run must explicitly select `fast` or `economy`; selecting the longer range 
 
 | Limit | Deep Run value | Basis |
 | --- | ---: | --- |
-| Minimum launch depth | 30 m | OPEN-SOURCE/CONSERVATIVE: public secondary descriptions commonly state underwater launch around 30-50 m. |
-| Maximum launch depth | 50 m | OPEN-SOURCE Project 949/949A figure. |
+| Minimum launch depth | 0 m (surface) | OPEN-SOURCE/CONSERVATIVE: public descriptions allow surface launch as well as submerged launch. |
+| Maximum launch depth | 50 m | OPEN-SOURCE Project 949/949A figure; secondary descriptions commonly place submerged launch in the 30-50 m band. |
 | Minimum target range | 20 km | OPEN-SOURCE secondary technical compilation. |
 | Maximum target range | 550 km | OPEN-SOURCE Project 949A / P-700 figure selected as the conservative canonical value. |
 | Horizontal off-boresight | 0..90 deg | GAME POLICY. The fixed canister's ~40 deg elevation is **not** the same thing as target bearing; no reliable public horizontal fire-control limit was found. |
 | Maximum carrier speed | 5 kt | OPEN-SOURCE Project 949/949A launch figure. |
 | Target depth | 0..25 m | GAME POLICY: anti-surface weapon; prevents a submerged Track from qualifying. |
+
+Deep Run intentionally treats carrier depth `0..50 m` as one eligibility envelope. The frequently quoted `30..50 m` figure describes submerged launch conditions; it is not used as a fake prohibition on a surfaced carrier. Future IG2 sea-state, hatch, gas-generator and water-exit phases may impose additional stateful constraints without rewriting this depth contract.
 
 The authored SM-225/P-700 launcher geometry remains content authority. The employment sector is only a target-eligibility rule and must never rotate the launcher or rewrite asset geometry.
 

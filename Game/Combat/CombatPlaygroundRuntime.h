@@ -262,6 +262,7 @@ public:
             !proxy.positionMeters.IsFinite() || !proxy.orientation.IsFinite() ||
             !proxy.halfExtentsMeters.IsFinite() || proxy.halfExtentsMeters.x <= 0.0F ||
             proxy.halfExtentsMeters.y <= 0.0F || proxy.halfExtentsMeters.z <= 0.0F ||
+            (proxy.gameplayLongitudinalFacingSign != 1.0F && proxy.gameplayLongitudinalFacingSign != -1.0F) ||
             !playerSnapshot.emitter.positionMeters.IsFinite() || !std::isfinite(simulationTimeSeconds) ||
             simulationTimeSeconds < lastUpdateTimeSeconds_)
         {
@@ -320,6 +321,7 @@ public:
         if (!playerIntegrity_ || !mine_ || !previousPlayerPositionMeters_ || !playerBody_.IsValid() ||
             proxy.body != playerBody_ || !proxy.positionMeters.IsFinite() || !proxy.orientation.IsFinite() ||
             !proxy.halfExtentsMeters.IsFinite() ||
+            (proxy.gameplayLongitudinalFacingSign != 1.0F && proxy.gameplayLongitudinalFacingSign != -1.0F) ||
             Distance(proxy.positionMeters, playerSnapshot.emitter.positionMeters) > 0.05 ||
             Distance(proxy.halfExtentsMeters, playerCollisionHalfExtentsMeters_) > 1.0e-4 ||
             physicsWorld_ == nullptr || !physicsWorld_->GetBodyState(proxy.body).has_value())
@@ -942,6 +944,13 @@ private:
             return std::unexpected("live ownship state is unavailable for weapon employment");
         }
 
+        if (currentPlayerPhysicalProxy_->turningAround)
+        {
+            return Weapons::WeaponEmploymentAssessment{
+                .allowed = false,
+                .reason = "weapon launch is blocked while the 2.5D carrier is turning around"};
+        }
+
         const auto selected = FindTrack(playerTracks_.Tracks(), playerCombat_.SelectedTrackId());
         if (!selected.has_value() || !selected->estimatedPositionMeters.has_value())
         {
@@ -951,11 +960,15 @@ private:
         }
 
         const auto& orientation = currentPlayerPhysicalProxy_->orientation;
-        const float launcherHeadingRadians = static_cast<float>(std::atan2(
+        float launcherHeadingRadians = static_cast<float>(std::atan2(
             2.0 * (static_cast<double>(orientation.w) * orientation.z +
                    static_cast<double>(orientation.x) * orientation.y),
             1.0 - 2.0 * (static_cast<double>(orientation.y) * orientation.y +
                          static_cast<double>(orientation.z) * orientation.z)));
+        if (currentPlayerPhysicalProxy_->gameplayLongitudinalFacingSign < 0.0F)
+        {
+            launcherHeadingRadians = Weapons::WrapEmploymentAngle(launcherHeadingRadians + 3.14159265358979323846F);
+        }
         const auto& velocity = playerSnapshot.emitter.velocityMetersPerSecond;
         const float carrierSpeedMetersPerSecond = static_cast<float>(std::sqrt(
             static_cast<double>(velocity.x) * velocity.x +
@@ -1194,18 +1207,27 @@ private:
             return std::unexpected("M5-J2 launch materialization requires the accepted perceived spatial track");
         }
 
-        const float targetDeltaX = targetTrack.estimatedPositionMeters->x - playerSnapshot.emitter.positionMeters.x;
-        if (!std::isfinite(targetDeltaX) || std::abs(targetDeltaX) <= 1.0e-3F)
+        if (!currentPlayerPhysicalProxy_.has_value() || currentPlayerPhysicalProxy_->turningAround)
         {
-            return std::unexpected("M5-H torpedo launch has no horizontal separation from its perceived track");
+            return std::unexpected("M5-H torpedo launch requires a stable 2.5D ownship facing");
         }
-        playerTorpedoForwardSign_ = targetDeltaX > 0.0F ? 1.0F : -1.0F;
+        const auto& orientation = currentPlayerPhysicalProxy_->orientation;
+        float launchHeading = static_cast<float>(std::atan2(
+            2.0 * (static_cast<double>(orientation.w) * orientation.z +
+                   static_cast<double>(orientation.x) * orientation.y),
+            1.0 - 2.0 * (static_cast<double>(orientation.y) * orientation.y +
+                         static_cast<double>(orientation.z) * orientation.z)));
+        playerTorpedoForwardSign_ = currentPlayerPhysicalProxy_->gameplayLongitudinalFacingSign;
+        if (playerTorpedoForwardSign_ < 0.0F)
+        {
+            launchHeading = Weapons::WrapEmploymentAngle(launchHeading + 3.14159265358979323846F);
+        }
         const Physics::PhysicsVector3 launchPosition{
             .x = playerSnapshot.emitter.positionMeters.x +
-                 playerTorpedoForwardSign_ * M5CombatTorpedoLaunchClearanceMeters,
-            .y = playerSnapshot.emitter.positionMeters.y,
+                 std::cos(launchHeading) * M5CombatTorpedoLaunchClearanceMeters,
+            .y = playerSnapshot.emitter.positionMeters.y +
+                 std::sin(launchHeading) * M5CombatTorpedoLaunchClearanceMeters,
             .z = playerSnapshot.emitter.positionMeters.z};
-        const float launchHeading = playerTorpedoForwardSign_ > 0.0F ? 0.0F : 3.1415927F;
         const auto launched = Weapons::CreateLaunchedConventionalTorpedo(
             playerTorpedoDefinition_, playerCombat_.Weapon(), launchPosition, launchHeading,
             targetTrack, simulationTimeSeconds);

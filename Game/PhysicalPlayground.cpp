@@ -41,10 +41,9 @@ constexpr float IG1BProductionLengthMaximumMeters = 158.0F;
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
 
-// Temporary Game-owned Antey playground tuning (ADR-0008). This is not production mass authoring and is
-// not a claim about Project 949A hydrostatics. Production collision/buoyancy proxies provide spatial
-// authority only; effective neutral displacement remains mass / water density for this accepted M2/M3 scenario.
-constexpr float M2GameAnteyMassTuningKg = 12'000'000.0F;
+// Fully-submerged Project 949A gameplay mass. The public-source basis and displacement-definition caveat live
+// in AnteyHandlingModel.h; collision/buoyancy proxy geometry remains spatial authority only.
+constexpr float M2GameAnteyMassTuningKg = Submarine::AnteyCanonicalFullSubmergedMassKg;
 
 // Game-owned M2 environment tuning (Slice D2). These are scenario values for this concrete playground, not
 // properties of the generic WaterBody: they stay here and never move into Simulation/Marine.
@@ -110,15 +109,9 @@ constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
 constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{150.0F, 1800.0F, 2200.0F};
 constexpr Physics::PhysicsVector3 M2AngularEffectiveMomentMeters5{0.0F, 0.0F, 50'000'000.0F};
 
-// G2 Game-owned one-shaft prototype tuning. These are gameplay values, not measured or classified vessel
-// data, not mesh/collision-derived, and not universal submarine constants.
-constexpr Marine::PropulsionComponent M2Propulsion{
-    .maxForwardRpm = 180.0F,
-    .maxReverseRpm = 120.0F,
-    .maxForwardThrustNewtons = 12'000'000.0F,
-    .maxReverseThrustNewtons = 4'800'000.0F,
-    .spinUpRateRpmPerSecond = 30.0F,
-    .spinDownRateRpmPerSecond = 45.0F};
+// Aggregate synchronized twin-propeller gameplay drive. Ahead/astern asymmetry is explicit GAME POLICY; the
+// generic Marine propulsion system still owns signed shaft spin-down-through-zero and thrust calculation.
+constexpr Marine::PropulsionComponent M2Propulsion = Submarine::AnteyGameplayPropulsion;
 
 // Temporary M2 scenario truth until the later power system exists. The direct throttle command remains the only
 // source of requested drive in I1; this value must not become an M6 power-management system early.
@@ -156,6 +149,19 @@ std::string FormatVector(const Physics::PhysicsVector3& value)
     std::ostringstream stream;
     stream << '(' << value.x << ", " << value.y << ", " << value.z << ')';
     return stream.str();
+}
+
+Assets::ModelTransform PropellerPostTransform(const float radians) noexcept
+{
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    Assets::ModelTransform transform{};
+    // Production propeller semantic contract is local +X; origins are hub-centred.
+    transform.values[5] = cosine;
+    transform.values[6] = sine;
+    transform.values[9] = -sine;
+    transform.values[10] = cosine;
+    return transform;
 }
 
 Assets::ModelTransform DepthPlanePostTransform(const float committedDeflectionFraction) noexcept
@@ -428,6 +434,27 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         depthPlaneMeshNodeIndices[M2SternPlaneIndex].size() != 2U)
     {
         return std::unexpected("physical playground requires two production bow and two stern depth-plane nodes");
+    }
+
+    std::vector<std::size_t> propellerMeshNodeIndices;
+    propellerMeshNodeIndices.reserve(productionDefinition->propellers.size());
+    for (const Submarine::ProductionPropellerAnchor& propeller : productionDefinition->propellers)
+    {
+        if (propeller.rotationAxis != "+X" ||
+            propeller.presentationNodeBindingIndex >= (*model)->nodeBindings.size())
+        {
+            return std::unexpected("physical playground production propeller semantic binding is invalid");
+        }
+        const auto meshNodeIndex = (*model)->nodeBindings[propeller.presentationNodeBindingIndex].meshNodeIndex;
+        if (!meshNodeIndex.has_value())
+        {
+            return std::unexpected("physical playground production propeller binding is not drawable");
+        }
+        propellerMeshNodeIndices.push_back(*meshNodeIndex);
+    }
+    if (propellerMeshNodeIndices.size() != 2U)
+    {
+        return std::unexpected("physical playground requires two production Antey propeller nodes");
     }
 
     if (productionDefinition->collisionProxies.size() != 1U)
@@ -1045,6 +1072,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     committedControlSurfaceDeflections_ = {};
     committedThrottleFraction_ = 0.0F;
     depthPlaneMeshNodeIndices_ = std::move(depthPlaneMeshNodeIndices);
+    propellerMeshNodeIndices_ = std::move(propellerMeshNodeIndices);
+    facingState_ = {};
+    consumedTurnAroundPressSequence_ = 0;
     propellerPresentationAngleRadians_ = 0.0F;
     propulsorBodyLocalPosition_ = propulsorBodyLocalPosition;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
@@ -1138,6 +1168,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     {
         return std::unexpected("physical playground buoyancy configuration is unavailable");
     }
+
+    const bool turnAroundRequested = command.turnAroundPressSequence != consumedTurnAroundPressSequence_;
+    const auto facingAdvance = Submarine::AdvanceAnteyFacing(
+        facingState_, turnAroundRequested, fixedDeltaSeconds);
+    if (!facingAdvance)
+    {
+        return std::unexpected("physical playground 2.5D facing advance failed: " + facingAdvance.error());
+    }
+    const float facingProjection =
+        Submarine::AnteyLongitudinalForwardProjection(facingAdvance->nextState);
 
     // Exactly one authoritative body snapshot per fixed tick. E2 transforms all four body-local points from
     // this copy; no point performs another body query and no render state participates.
@@ -1243,14 +1283,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
     const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(
         state->orientation,
-        {propulsionResult->thrustNewtons, 0.0F, 0.0F});
+        {propulsionResult->thrustNewtons * facingProjection, 0.0F, 0.0F});
     if (!propulsionForceWorld)
     {
         return std::unexpected("physical playground propulsion force transform failed: " +
                                propulsionForceWorld.error());
     }
+    Physics::PhysicsVector3 projectedPropulsorBodyLocalPosition = propulsorBodyLocalPosition_;
+    projectedPropulsorBodyLocalPosition.x *= facingProjection;
     const auto propulsorWorldPosition = TransformBodyLocalPointToWorld(
-        state->position, state->orientation, propulsorBodyLocalPosition_);
+        state->position, state->orientation, projectedPropulsorBodyLocalPosition);
     if (!propulsorWorldPosition)
     {
         return std::unexpected("physical playground propulsor position transform failed: " +
@@ -1341,6 +1383,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     // including both H2 surface forces, succeeds.
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
+    facingState_ = facingAdvance->nextState;
+    consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
     committedThrottleFraction_ = command.throttleFraction;
     committedControlSurfaceDeflections_ = controlDeflections;
 
@@ -1524,7 +1568,10 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     {
         return std::unexpected(bodyToWorld.error());
     }
-    const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
+    const Assets::ModelTransform facingPresentation =
+        Submarine::BuildAnteyFacingPresentationTransform(facingState_);
+    const Assets::ModelTransform modelToWorld =
+        Render::Multiply(Render::Multiply(*bodyToWorld, facingPresentation), modelToBody_);
 
     // The procedural float model origin is its body origin, so its physics-to-render transform is direct.
     // The rendered pose always comes from Jolt after the preceding fixed step, never from SampleWaveSurface.
@@ -1555,7 +1602,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     std::vector<Render::ModelNodeTransformOverride> submarineNodeOverrides = submergedSailDeviceOverrides_;
     submarineNodeOverrides.reserve(
         submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2BowPlaneIndex].size() +
-        depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
+        depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size() + propellerMeshNodeIndices_.size());
     for (std::size_t group = 0; group < depthPlaneMeshNodeIndices_.size(); ++group)
     {
         const Assets::ModelTransform postTransform = DepthPlanePostTransform(committedControlSurfaceDeflections_[group]);
@@ -1563,6 +1610,12 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         {
             submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = postTransform});
         }
+    }
+    const Assets::ModelTransform propellerPostTransform =
+        PropellerPostTransform(propellerPresentationAngleRadians_);
+    for (const std::size_t meshNodeIndex : propellerMeshNodeIndices_)
+    {
+        submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = propellerPostTransform});
     }
     const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, submarineNodeOverrides);
     if (!draws)

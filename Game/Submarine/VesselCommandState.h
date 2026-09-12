@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <string>
 
@@ -18,6 +19,8 @@ struct VesselCommandState final
     float throttleFraction = 0.0F;
     // [-1, +1]: surface / nose-up -> dive / nose-down.
     float depthCommandFraction = 0.0F;
+    // Monotonic semantic edge; PhysicalPlayground consumes each requested 180-degree 2.5D turn once.
+    std::uint64_t turnAroundPressSequence = 0;
 };
 
 [[nodiscard]] std::expected<VesselCommandState, std::string> VesselCommandStateFromInput(

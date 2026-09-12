@@ -580,3 +580,23 @@ docs/design/game-loop.md
 ```
 
 <!-- deeprun-command-controls:end -->
+
+## Current production control-budget audit (2026-09-12)
+
+The current playable mechanics have a direct Xbox-controller binding and a keyboard binding; mouse remains an optional duplicate, never the only way to perform a gameplay action.
+
+| Current mechanic | Xbox controller | Keyboard | Notes |
+| --- | --- | --- | --- |
+| Ahead / astern drive | Left stick X | `D` / `A` | Signed shaft command. Astern first brakes an ahead-turning shaft through zero. |
+| Dive / surface planes | Left stick Y | `S` / `W` | Direct normalized depth-plane command. |
+| Turn boat 180 degrees in 2.5D | Left-stick click | `T` | Starts one slow 60 s GAME-POLICY presentation/longitudinal-facing turn; repeated input while turning is ignored. |
+| Camera pan | Right stick X | Left / Right arrows | Presentation-only. |
+| Camera zoom | Right stick Y | `Q` / `E` | Continuous tactical scale. |
+| Select next contact | `Y` | `Tab` | Perceived-track selection. |
+| Prepare weapon | `LT` | `R` | Right mouse remains optional duplicate. |
+| Fire weapon | `RT` | `Enter` | Left mouse remains optional duplicate. |
+| Active-sonar ping | `RB` | `Space` | Selected perceived contact bearing. |
+| Deploy acoustic decoy | `X` | `F` | One-shot defensive action in the current playground. |
+| Debug UI | n/a | `F1` | Development-only. |
+
+Reserved capacity is still sufficient for planned gameplay: `A/B` remain interact/cancel, `LB` remains silent-running, D-pad remains four quick-system slots, View remains tactical/map mode, Menu remains pause, and both right-stick click plus contextual combinations remain unused. P-700 selection/launcher lifecycle must consume this semantic budget deliberately rather than adding device-specific shortcuts.

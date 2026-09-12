@@ -10,6 +10,7 @@ enum class InputAction
 {
     Quit,
     ToggleDebugUi,
+    TurnAround,
     SelectContact,
     PrepareWeapon,
     FireWeapon,

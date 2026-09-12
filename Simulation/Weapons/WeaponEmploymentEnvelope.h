@@ -93,12 +93,14 @@ inline constexpr WeaponEmploymentEnvelope Type6576AEconomyEmploymentEnvelope{
     .minimumTargetDepthMeters = 0.0F,
     .maximumTargetDepthMeters = 25.0F};
 
-// P-700/Project 949A public sources consistently describe underwater launch near 30-50 m, a 50 m maximum
-// launch depth, carrier speed up to 5 kt and ~550 km maximum range. A 20 km minimum is reported by a secondary
-// technical compilation. The +/-90 degree horizontal target sector and shallow surface-target band are Game policy.
+// P-700/Project 949A public descriptions allow launch from the surface as well as submerged launch, with
+// underwater depth commonly described around 30-50 m and a 50 m maximum. Deep Run therefore treats 0..50 m
+// as one carrier-depth envelope; sea state/hatch/water-exit constraints belong to the future IG2 launcher
+// lifecycle. A 20 km minimum is reported by a secondary technical compilation. The +/-90 degree horizontal
+// target sector and shallow surface-target band are Game policy.
 inline constexpr WeaponEmploymentEnvelope P700GranitEmploymentEnvelope{
     .id = "P-700-Granit",
-    .minimumLaunchDepthMeters = 30.0F,
+    .minimumLaunchDepthMeters = 0.0F,
     .maximumLaunchDepthMeters = 50.0F,
     .minimumTargetRangeMeters = 20'000.0F,
     .maximumTargetRangeMeters = 550'000.0F,
@@ -204,6 +206,7 @@ static_assert(Uset80EmploymentEnvelope.maximumTargetRangeMeters == 18'000.0F);
 static_assert(Uset80EmploymentEnvelope.maximumLaunchDepthMeters == 400.0F);
 static_assert(Type6576AFastEmploymentEnvelope.maximumTargetRangeMeters == 50'000.0F);
 static_assert(Type6576AEconomyEmploymentEnvelope.maximumTargetRangeMeters == 100'000.0F);
+static_assert(P700GranitEmploymentEnvelope.minimumLaunchDepthMeters == 0.0F);
 static_assert(P700GranitEmploymentEnvelope.minimumTargetRangeMeters == 20'000.0F);
 static_assert(P700GranitEmploymentEnvelope.maximumTargetRangeMeters == 550'000.0F);
 static_assert(P700GranitEmploymentEnvelope.maximumLaunchDepthMeters == 50.0F);
