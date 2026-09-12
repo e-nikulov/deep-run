@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Game/Combat/SonarPresentation.h"
+#include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -16,6 +19,8 @@ namespace DeepRun::Game::Combat
 enum class PlayerCombatCommandType
 {
     SelectNextTrack,
+    PreviousWeapon,
+    NextWeapon,
     PrepareWeapon,
     FireWeapon,
     ActiveSonarPing,
@@ -39,6 +44,8 @@ struct PlayerCombatCommandFeedback final
 // rather than hostile Transform/entity truth and cannot mutate weapon, TrackManager, physics, or simulation.
 struct PlayerCombatPresentationSnapshot final
 {
+    Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
+    std::size_t p700LoadedCount = 0U;
     Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;
     std::optional<std::uint64_t> weaponTargetTrackId{};
     std::optional<std::uint64_t> selectedTrackId{};
@@ -48,11 +55,13 @@ struct PlayerCombatPresentationSnapshot final
     std::optional<float> selectedBearingUncertaintyRadians{};
     std::optional<float> selectedPositionUncertaintyMeters{};
     bool selectedTrackHasEstimatedPosition = false;
+    std::optional<Physics::PhysicsVector3> selectedTrackEstimatedPositionMeters{};
     bool selectedTrackWeaponQualified = false;
     bool canPrepareWeapon = false;
     bool canFireWeapon = false;
     bool canActiveSonarPing = false;
     bool activeSonarPulsePending = false;
+    SonarPresentationSnapshot sonar{};
 
     // M5-J3 is populated by CombatPlaygroundRuntime from a dedicated passive-acoustic perceived-world path.
     // No hostile transform, range estimate, weapon runtime pointer, or PhysicsBodyHandle is exposed to UI.
@@ -91,6 +100,30 @@ public:
         return {};
     }
 
+    // Weapon Selector changes the actual qualification/preparation profile, not merely a UI label. Switching is
+    // legal only from Stored so readiness/target state from one weapon type can never bleed into another type.
+    [[nodiscard]] std::expected<void, std::string> ReconfigureStoredWeapon(
+        Weapons::WeaponDefinition definition,
+        const double simulationTimeSeconds)
+    {
+        if (const auto advanced = Advance(simulationTimeSeconds); !advanced)
+        {
+            return std::unexpected(advanced.error());
+        }
+        if (weapon_.phase != Weapons::WeaponPhase::Stored)
+        {
+            return std::unexpected("M5 weapon selection can only change while the current weapon is Stored");
+        }
+        auto replacement = Weapons::CreateWeaponRuntime(definition, simulationTimeSeconds);
+        if (!replacement)
+        {
+            return std::unexpected("M5 weapon selection profile creation failed: " + replacement.error());
+        }
+        definition_ = std::move(definition);
+        weapon_ = std::move(*replacement);
+        return {};
+    }
+
     [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> Execute(
         const PlayerCombatCommand command,
         const std::span<const Perception::Track> tracks,
@@ -107,6 +140,9 @@ public:
         {
         case PlayerCombatCommandType::SelectNextTrack:
             return SelectNextTrack(tracks);
+        case PlayerCombatCommandType::PreviousWeapon:
+        case PlayerCombatCommandType::NextWeapon:
+            return std::unexpected("M5 Weapon Selector is owned by CombatPlaygroundRuntime, not weapon runtime");
         case PlayerCombatCommandType::PrepareWeapon:
             return Prepare(simulationTimeSeconds);
         case PlayerCombatCommandType::FireWeapon:
@@ -141,6 +177,7 @@ public:
         snapshot.selectedBearingUncertaintyRadians = selected->bearingUncertaintyRadians;
         snapshot.selectedPositionUncertaintyMeters = selected->positionUncertaintyMeters;
         snapshot.selectedTrackHasEstimatedPosition = selected->estimatedPositionMeters.has_value();
+        snapshot.selectedTrackEstimatedPositionMeters = selected->estimatedPositionMeters;
         snapshot.selectedTrackWeaponQualified = Weapons::ValidateTrackForWeapon(definition_, *selected).has_value();
         snapshot.canFireWeapon = weapon_.phase == Weapons::WeaponPhase::Ready &&
                                  snapshot.selectedTrackWeaponQualified;

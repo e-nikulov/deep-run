@@ -17,6 +17,7 @@
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
+#include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/BuoyancySystem.h"
@@ -49,6 +50,16 @@ class PhysicsWorld;
 
 namespace DeepRun::Game
 {
+struct VesselPresentationTelemetry final
+{
+    float signedDepthMeters = 0.0F;
+    // World +Y is upward, so positive values mean surfacing and negative values mean diving.
+    float verticalSpeedMetersPerSecond = 0.0F;
+    float throttleFraction = 0.0F;
+    float bowPlaneDeflectionFraction = 0.0F;
+    float sternPlaneDeflectionFraction = 0.0F;
+};
+
 // M2 Slice C2: the canonical submarine is rendered from authoritative Jolt rigid-body state.
 //
 // Authority flow (the only allowed direction):
@@ -77,7 +88,8 @@ public:
         Assets::AssetManager& assets,
         Physics::PhysicsWorld& physics,
         Render::D3D12Renderer& renderer,
-        bool verifyDistinctUploads);
+        bool verifyDistinctUploads,
+        float initialSubmarineDepthMeters = 100.0F);
 
     // Produces and applies transient marine forces/torques from one authoritative body snapshot for one
     // fixed tick at beginning-of-step SimulationTime. The Engine calls this before PhysicsWorld::Step; this
@@ -125,6 +137,8 @@ public:
 
     // M5-I.2 live hazard bridge. The snapshot is a value copy of the already-authoritative production collision
     // body and proxy dimensions. Combat may use it for generic sweeps but cannot mutate physics through it.
+    [[nodiscard]] std::expected<VesselPresentationTelemetry, std::string> BuildVesselPresentationTelemetry() const;
+
     [[nodiscard]] std::expected<Submarine::AnteyPhysicalCollisionProxySnapshot, std::string>
     BuildPhysicalCollisionProxySnapshot() const
     {
@@ -143,7 +157,9 @@ public:
             .body = physicsBody_,
             .positionMeters = bodyState->position,
             .orientation = bodyState->orientation,
-            .halfExtentsMeters = submarineCollisionHalfExtents_};
+            .halfExtentsMeters = submarineCollisionHalfExtents_,
+            .gameplayLongitudinalFacingSign = static_cast<float>(facingState_.longitudinalSign),
+            .turningAround = facingState_.turningAround};
     }
 
     // Presentation-only framing. The default untouched 0/0/600 frame preserves the accepted M2/M3 benchmark.
@@ -166,9 +182,10 @@ public:
         // M5-V1.3 keeps world projection aspect-correct (no stretched ships/submarines) while changing
         // composition with scale. Local play reserves ~15% for sky; tactical/operational/strategic views
         // progressively move the surface lower to make future ASW aircraft/helicopters readable.
-        constexpr float M5SurfaceCompositionMinimumHorizontalSpanMeters = 600.0F;
-        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F &&
-            horizontalSpanMeters >= M5SurfaceCompositionMinimumHorizontalSpanMeters)
+        // M5-V1.7 continuity: once free-presentation framing is active, every supported horizontal span
+        // uses the same surface-anchor policy. The previous 600 m activation threshold produced a visible
+        // vertical snap when zoom crossed 600 m (for example 0.54 km -> 0.64 km).
+        if (water_.has_value() && std::abs(targetOffsetYMeters) <= 1.0e-4F)
         {
             const float unshiftedTargetYMeters =
                 initialBodyWorldCenter_.y - presentationCameraTargetOffsetYMeters_;
@@ -219,6 +236,41 @@ public:
         return M2GameplayCameraHorizontalSpanMeters;
     }
 
+    // Presentation-only bridge from the P-700 lifecycle. Semantic hatch identity was resolved from production
+    // authoring once at Initialize; no raw GLB node name or gameplay launch decision enters the renderer.
+    [[nodiscard]] std::expected<void, std::string> SetP700HatchPresentation(
+        const std::optional<std::string>& hatchGroupSemanticId,
+        const float openProgress)
+    {
+        if (!std::isfinite(openProgress) || openProgress < 0.0F || openProgress > 1.0F)
+            return std::unexpected("P-700 hatch presentation progress must be finite in [0,1]");
+        if (hatchGroupSemanticId.has_value())
+        {
+            const auto found = std::ranges::find_if(p700HatchBindings_, [&](const auto& hatch) {
+                return hatch.first == *hatchGroupSemanticId;
+            });
+            if (found == p700HatchBindings_.end())
+                return std::unexpected("P-700 hatch presentation semantic group is not present in production Antey");
+        }
+        activeP700HatchGroup_ = hatchGroupSemanticId;
+        activeP700HatchOpenProgress_ = openProgress;
+        return {};
+    }
+
+    [[nodiscard]] std::expected<float, std::string> ProductionSubmarinePresentationLengthMeters() const
+    {
+        if (!modelAsset_.IsValid())
+        {
+            return std::unexpected("physical playground production submarine model is unavailable");
+        }
+        const float lengthMeters = modelAsset_->bounds.maximum.x - modelAsset_->bounds.minimum.x;
+        if (!std::isfinite(lengthMeters) || !(lengthMeters > 0.0F))
+        {
+            return std::unexpected("physical playground production submarine length is invalid");
+        }
+        return lengthMeters;
+    }
+
     [[nodiscard]] float PresentationCameraTargetOffsetXMeters() const noexcept
     {
         return presentationCameraTargetOffsetXMeters_;
@@ -262,7 +314,10 @@ public:
             return std::unexpected("physical playground presentation camera transforms are unavailable");
         }
 
-        const Assets::ModelTransform modelToWorld = Render::Multiply(*bodyToWorld, modelToBody_);
+        const Assets::ModelTransform facingPresentation =
+            Submarine::BuildAnteyFacingPresentationTransform(facingState_);
+        const Assets::ModelTransform modelToWorld =
+            Render::Multiply(Render::Multiply(*bodyToWorld, facingPresentation), modelToBody_);
         const auto worldBounds = TransformBounds(modelAsset_->bounds, modelToWorld);
         const auto surfaceFloatWorldBounds = TransformBounds(surfaceFloatModel_->bounds, *surfaceFloatToWorld);
         const auto faunaWorldBounds = TransformBounds(faunaField_->renderGeometry.bounds, *faunaToWorld);
@@ -364,6 +419,17 @@ private:
     Marine::PropulsionComponent propulsion_;
     Marine::PropulsionState propulsionState_{};
     std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
+    // M5-V2-B committed simulation-control state. Presentation reads only these values after the full fixed
+    // transaction succeeds; raw keyboard/controller state never drives model articulation directly.
+    std::array<float, 2> committedControlSurfaceDeflections_{};
+    float committedThrottleFraction_ = 0.0F;
+    std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
+    std::vector<std::size_t> propellerNodeBindingIndices_{};
+    std::vector<std::pair<std::string, std::size_t>> p700HatchBindings_{};
+    std::optional<std::string> activeP700HatchGroup_{};
+    float activeP700HatchOpenProgress_ = 0.0F;
+    Submarine::AnteyFacingState facingState_{};
+    std::uint64_t consumedTurnAroundPressSequence_ = 0;
 
     // World-space fixed camera target initialized from the production body's initial center. M5 free navigation
     // shifts only this retained presentation target, never the body or any simulation authority.
@@ -389,8 +455,8 @@ private:
     bool loggedHapticFailure_ = false;
     mutable bool loggedRenderPresentation_ = false;
 
-    // Presentation state derived only from authoritative shaft RPM. Production propeller hierarchy animation
-    // is intentionally deferred beyond IG1-B; this state remains M2 simulation-compatible but is not drawn.
+    // Presentation state derived only from authoritative signed shaft RPM. Both production propeller bindings
+    // consume this angle, so astern shaft rotation visibly reverses without feeding presentation back to physics.
     float propellerPresentationAngleRadians_ = 0.0F;
 };
 } // namespace DeepRun::Game

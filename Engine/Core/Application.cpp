@@ -179,6 +179,10 @@ ApplicationOptions ApplicationOptions::Parse(const std::span<const std::string_v
         {
             options.smokeTest = true;
         }
+        else if (argument == "--smoke-p700")
+        {
+            options.p700SmokeTest = true;
+        }
         else if (argument == "--benchmark-m3") options.benchmarkM3 = true;
         else if (argument == "--benchmark-hdr") options.benchmarkHdr = true;
         else if (argument == "--benchmark-stability") options.benchmarkStability = true;
@@ -198,7 +202,8 @@ Application::Application(
 
 int Application::Run()
 {
-    if ((options_.benchmarkM3 && (options_.headless || options_.smokeTest)) ||
+    if ((options_.benchmarkM3 && (options_.headless || options_.smokeTest || options_.p700SmokeTest)) ||
+        (options_.p700SmokeTest && (options_.headless || options_.smokeTest || options_.benchmarkHdr || options_.benchmarkStability)) ||
         (!options_.benchmarkM3 && (options_.benchmarkHdr || options_.benchmarkStability)))
     {
         std::cerr << "[Benchmark] Invalid option combination\n";

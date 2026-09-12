@@ -38,6 +38,37 @@ namespace DeepRun::Tests
     }
     const auto playerSnapshot = *playerSnapshotResult;
 
+    // Weapon-employment gating consumes the same authoritative ownship physical snapshot as windowed play.
+    // Keep this direct-runtime test honest by binding a real PhysicsWorld body instead of bypassing the gate.
+    const Physics::PhysicsVector3 playerHalfExtentsMeters{.x = 75.0F, .y = 8.0F, .z = 8.0F};
+    const auto playerBody = physicsWorld.CreateDynamicBoxBody(Physics::DynamicBoxBodyCreateInfo{
+        .halfExtents = playerHalfExtentsMeters,
+        .mass = 12'000'000.0F,
+        .position = playerSnapshot.emitter.positionMeters,
+        .orientation = {},
+        .gravityEnabled = false,
+        .linearDamping = 0.0F,
+        .angularDamping = 0.0F,
+        .initialLinearVelocity = {},
+        .initialAngularVelocity = {}});
+    if (!playerBody.IsValid())
+    {
+        return false;
+    }
+    const auto boundPlayer = runtime.BindPlayerPhysicalProxy(
+        Game::Submarine::AnteyPhysicalCollisionProxySnapshot{
+            .body = playerBody,
+            .positionMeters = playerSnapshot.emitter.positionMeters,
+            .orientation = {},
+            .halfExtentsMeters = playerHalfExtentsMeters},
+        playerSnapshot,
+        0.0);
+    if (!boundPlayer)
+    {
+        (void)physicsWorld.DestroyBody(playerBody);
+        return false;
+    }
+
     constexpr float fixedDeltaSeconds = 1.0F / 60.0F;
     double commandTimeSeconds = 0.0;
     bool sawPassiveBearingOnlyTrack = false;
@@ -252,6 +283,10 @@ namespace DeepRun::Tests
         return false;
     }
 
-    return physicsWorld.DestroyBody(runtime.Destroyer().body);
+    const auto mineBody = runtime.Mine() ? runtime.Mine()->body : Physics::PhysicsBodyHandle{};
+    const bool destroyedMine = !mineBody.IsValid() || physicsWorld.DestroyBody(mineBody);
+    const bool destroyedPlayer = physicsWorld.DestroyBody(playerBody);
+    const bool destroyedDestroyer = physicsWorld.DestroyBody(runtime.Destroyer().body);
+    return destroyedMine && destroyedPlayer && destroyedDestroyer;
 }
 } // namespace DeepRun::Tests

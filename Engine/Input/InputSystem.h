@@ -33,7 +33,10 @@ struct ControllerSemanticAxes final
 
 struct ControllerSemanticActions final
 {
+    bool turnAround = false;
     bool selectContact = false;
+    bool previousWeapon = false;
+    bool nextWeapon = false;
     bool prepareWeapon = false;
     bool fireWeapon = false;
     bool activeSonarPing = false;
@@ -90,8 +93,12 @@ private:
     bool cameraPanDownKeyDown_ = false;
     bool cameraZoomInKeyDown_ = false;
     bool cameraZoomOutKeyDown_ = false;
+    bool turnAroundKeyDown_ = false;
     bool selectContactKeyDown_ = false;
+    bool previousWeaponKeyDown_ = false;
+    bool nextWeaponKeyDown_ = false;
     bool prepareWeaponKeyDown_ = false;
+    bool fireWeaponKeyDown_ = false;
     bool activeSonarPingKeyDown_ = false;
     bool deployDecoyKeyDown_ = false;
 };

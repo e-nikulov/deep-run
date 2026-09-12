@@ -2830,6 +2830,40 @@
       ]
     }
   ],
+  "controlSurfaces": [
+    {
+      "semanticId": "depth-plane.bow.01",
+      "group": "BOW",
+      "nodeReference": "SM_Antey_LOD0_BowPlane_Port",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    },
+    {
+      "semanticId": "depth-plane.bow.02",
+      "group": "BOW",
+      "nodeReference": "SM_Antey_LOD0_BowPlane_Starboard",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    },
+    {
+      "semanticId": "depth-plane.stern.01",
+      "group": "STERN",
+      "nodeReference": "SM_Antey_LOD0_SternPlane_Port",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    },
+    {
+      "semanticId": "depth-plane.stern.02",
+      "group": "STERN",
+      "nodeReference": "SM_Antey_LOD0_SternPlane_Starboard",
+      "articulation": "ROTATION",
+      "hingeAxisSource": "LOCAL_Y",
+      "simulationOwnsAngle": true
+    }
+  ],
   "collision": [
     {
       "semanticId": "collision.primary",

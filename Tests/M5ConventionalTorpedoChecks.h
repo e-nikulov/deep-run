@@ -122,6 +122,12 @@ namespace M5ConventionalTorpedoDetail
         return false;
     }
     invalidDefinition = definition;
+    invalidDefinition.maximumRunTimeSeconds = 0.0;
+    if (ValidateConventionalTorpedoDefinition(invalidDefinition))
+    {
+        return false;
+    }
+    invalidDefinition = definition;
     invalidDefinition.maximumVerticalCourseAngleRadians = 0.0F;
     if (ValidateConventionalTorpedoDefinition(invalidDefinition))
     {
@@ -171,6 +177,33 @@ namespace M5ConventionalTorpedoDetail
         !UpdateConventionalTorpedoGuidance(constrainedDefinition, *constrainedTorpedo, elevatedTrack, 1.0) ||
         std::abs(constrainedTorpedo->headingRadians - 0.20F) > 0.001F ||
         constrainedTorpedo->positionMeters.y <= -100.0F)
+    {
+        return false;
+    }
+
+    // A missed weapon cannot pursue forever. Endurance expiry is a clean terminal miss state with no physical
+    // impact body; values are authored gameplay policy rather than claimed real torpedo endurance.
+    auto shortEnduranceDefinition = definition;
+    shortEnduranceDefinition.maximumRunTimeSeconds = 1.0;
+    auto shortWeaponResult = CreateWeaponRuntime(shortEnduranceDefinition.weapon, 0.0);
+    if (!shortWeaponResult)
+    {
+        return false;
+    }
+    auto shortWeapon = *shortWeaponResult;
+    if (!PrepareWeapon(shortEnduranceDefinition.weapon, shortWeapon, 0.0) ||
+        !AssignWeaponTarget(shortEnduranceDefinition.weapon, shortWeapon, initialTrack, 0.0) ||
+        !LaunchWeapon(shortEnduranceDefinition.weapon, shortWeapon, 0.0))
+    {
+        return false;
+    }
+    auto shortTorpedo = CreateLaunchedConventionalTorpedo(
+        shortEnduranceDefinition, shortWeapon, {.x = 0.0F, .y = 0.0F, .z = 0.0F}, 0.0F, initialTrack, 0.0);
+    if (!shortTorpedo || !UpdateConventionalTorpedoGuidance(
+            shortEnduranceDefinition, *shortTorpedo, std::nullopt, 1.1) ||
+        shortTorpedo->movementDomain != MovementDomain::Spent || shortTorpedo->speedMetersPerSecond != 0.0F ||
+        shortTorpedo->terminalReason != ConventionalTorpedoTerminalReason::EnduranceExpired ||
+        shortTorpedo->impactedBody.has_value())
     {
         return false;
     }

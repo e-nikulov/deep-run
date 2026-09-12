@@ -53,6 +53,9 @@ jobs:
           $exitCode = $LASTEXITCODE
           $text = ($smokeOutput | Out-String)
           if ($exitCode -ne 0) {
+            Write-Host "----- DeepRun smoke output -----"
+            Write-Host $text
+            Write-Host "----- end smoke output -----"
             throw "DeepRun windowed smoke failed with exit code $exitCode"
           }
           if ($text -notmatch "\[Game\]\[Acoustics\] Passive contact acquired:") {
@@ -69,6 +72,59 @@ jobs:
           if (-not $report.all_state_checkpoints_seen -or $report.checkpoints.Count -ne 5) {
             throw "M5 visual acceptance did not observe all five required checkpoints"
           }
+
+      - name: P-700 production launch smoke
+        shell: pwsh
+        run: |
+          $executable = ".\build\${{ matrix.preset }}\${{ matrix.configuration }}\DeepRun.exe"
+          $output = & $executable --smoke-p700 2>&1 | Tee-Object -Variable p700Output
+          $exitCode = $LASTEXITCODE
+          $text = ($p700Output | Out-String)
+          if ($exitCode -ne 0) {
+            Write-Host "----- P-700 smoke output -----"
+            Write-Host $text
+            Write-Host "----- end P-700 smoke output -----"
+            throw "P-700 production smoke failed with exit code $exitCode"
+          }
+          foreach ($marker in @("HATCH_OPENING", "UNDERWATER_BOOSTER_EXIT", "WATER_EXIT", "HARDWARE_SEPARATION", "AERODYNAMIC_DEPLOY", "CRUISE", "TERMINAL", "PHYSICAL_IMPACT")) {
+            if ($text -notmatch "\[Game\]\[P700\] $marker") {
+              throw "P-700 smoke missed lifecycle marker $marker"
+            }
+          }
+          if ($text -notmatch "PHYSICAL_IMPACT damage=100") {
+            throw "P-700 smoke did not apply the accepted 100 HP direct hit"
+          }
+          $p700ReportPath = "m5-p700-acceptance.json"
+          if (-not (Test-Path $p700ReportPath)) {
+            throw "P-700 visual acceptance did not produce its machine-readable report"
+          }
+          $p700Report = Get-Content -Raw $p700ReportPath | ConvertFrom-Json
+          if (-not $p700Report.all_state_checkpoints_seen -or $p700Report.checkpoints.Count -ne 5) {
+            throw "P-700 visual acceptance did not observe all five required checkpoints"
+          }
+          $badInventory = @($p700Report.checkpoints | Where-Object { $_.p700_loaded_count -ne 23 })
+          if ($badInventory.Count -ne 0) {
+            throw "P-700 visual acceptance did not retain the expected 23/24 launcher inventory after launch"
+          }
+          $impact = @($p700Report.checkpoints | Where-Object { $_.name -eq 'M5_P700_IMPACT' })
+          if ($impact.Count -ne 1 -or -not $impact[0].impact.target_is_destroyer_body -or $impact[0].impact.damage -ne 100) {
+            throw "P-700 visual acceptance report did not confirm the physical 100 HP destroyer impact"
+          }
+
+      - name: Retain P-700 visual acceptance artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-p700-visual-${{ matrix.preset }}
+          if-no-files-found: warn
+          path: |
+            m5-p700-acceptance.json
+            m5-p700-launch.bmp
+            m5-p700-water-exit.bmp
+            m5-p700-deploy.bmp
+            m5-p700-cruise-terminal.bmp
+            m5-p700-impact.bmp
 
       - name: Retain M5 visual acceptance artifacts
         if: always()

@@ -8,6 +8,7 @@
 #include "Tests/M5CombatPlaygroundRuntimeChecks.h"
 #include "Tests/M5MultiScaleCameraChecks.h"
 #include "Tests/M5NavalMineChecks.h"
+#include "Tests/M5P700Checks.h"
 #include "Tests/M5PlayerCombatCommandChecks.h"
 #include "Tests/M5PlayerCombatInputChecks.h"
 #include "Tests/M5PlayerDefensiveDecoyChecks.h"
@@ -170,6 +171,7 @@ namespace M5CombatImpactDetail
 
     const auto& impact = **impactResult;
     if (impact.physicsHit.body != targetBody || torpedo.movementDomain != MovementDomain::Spent ||
+        torpedo.terminalReason != ConventionalTorpedoTerminalReason::Impact ||
         torpedo.impactedBody != targetBody || torpedo.speedMetersPerSecond != 0.0F ||
         std::abs(torpedo.positionMeters.x - 26.0F) > 0.1F ||
         impact.damage.targetBody != targetBody || impact.damage.damage != definition.directImpactDamage ||
@@ -268,6 +270,11 @@ namespace M5CombatImpactDetail
     if (!RunM5NavalMineChecks(physicsWorld))
     {
         return fail("M5-I physical contact mine composition");
+    }
+
+    if (!RunM5P700Checks(physicsWorld))
+    {
+        return fail("M5 P-700 perceived-track launch, surface/submerged exit, deployment and physical impact lifecycle");
     }
 
     return true;

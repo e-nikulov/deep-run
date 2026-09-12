@@ -26,7 +26,8 @@ std::expected<VesselCommandState, std::string> VesselCommandStateFromInput(const
 {
     const VesselCommandState command{
         .throttleFraction = input.Axis(Input::InputAxis::Throttle),
-        .depthCommandFraction = input.Axis(Input::InputAxis::Depth)};
+        .depthCommandFraction = input.Axis(Input::InputAxis::Depth),
+        .turnAroundPressSequence = input.PressSequence(Input::InputAction::TurnAround)};
     const auto validated = ValidateVesselCommandState(command);
     if (!validated)
     {

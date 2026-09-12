@@ -1,9 +1,10 @@
-"""Rename Antey cover QA animation data and mark it authoring-only."""
+"""Keep Antey cover geometry runtime-presentable while isolating its QA animation."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 import bpy
@@ -28,9 +29,21 @@ def main() -> None:
     changed_tracks = 0
     changed_objects = 0
     covers = [obj for obj in bpy.context.scene.objects if obj.name.startswith("SM_Antey_P700_Cover_")]
+    lod_counts = Counter(int(obj.get("lod", -1)) for obj in covers)
+    expected_lods = {0: 12, 1: 12, 2: 12, 3: 12}
+    if len(covers) != 48 or dict(lod_counts) != expected_lods:
+        raise RuntimeError(
+            f"Antey P700 cover LOD partition must remain 12 meshes per LOD; "
+            f"covers={len(covers)} lods={dict(sorted(lod_counts.items()))}"
+        )
+
     for obj in covers:
-        obj["AUTHORING_ONLY"] = True
-        obj["RUNTIME_EXPORT"] = False
+        # Cover geometry is canonical runtime presentation content at its existing authored LOD.  The QA
+        # NLA/action below remains authoring-only; gameplay supplies the actual opening progress at runtime.
+        # Never rewrite obj['lod'] here: doing so would collapse LOD1..3 covers into LOD0.
+        obj["AUTHORING_ONLY"] = False
+        obj["RUNTIME_EXPORT"] = True
+        obj["runtime_export"] = True
         obj["P700_DEPLOYMENT_OPERATION"] = QA_ANIMATION
         changed_objects += 1
         if not obj.animation_data:
@@ -78,7 +91,8 @@ def main() -> None:
     bpy.ops.wm.save_as_mainfile(filepath=str(blend), check_existing=False)
     print(
         f"ANTEY_ANIMATION_OWNERSHIP_FIX_OK {blend} covers={changed_objects} "
-        f"tracks={changed_tracks} actions={len(changed_actions)} qa={QA_ANIMATION}"
+        f"lods={dict(sorted(lod_counts.items()))} tracks={changed_tracks} "
+        f"actions={len(changed_actions)} qa={QA_ANIMATION}"
     )
 
 

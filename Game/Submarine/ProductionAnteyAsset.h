@@ -68,6 +68,28 @@ struct ProductionLaunchAnchor final
     std::string semanticId;
     ProductionLocalTransform localTransform{};
     Assets::ModelVector3 launchForward{};
+    // Empty for non-P700 launchers. P-700 anchors retain only an opaque semantic group, never a raw GLB node.
+    std::string hatchGroupSemanticId;
+};
+
+struct ProductionP700Hatch final
+{
+    std::string semanticId;
+    std::size_t presentationNodeBindingIndex = 0;
+};
+
+enum class ProductionDepthPlaneGroup
+{
+    Bow,
+    Stern,
+};
+
+struct ProductionDepthPlane final
+{
+    std::string semanticId;
+    ProductionDepthPlaneGroup group = ProductionDepthPlaneGroup::Bow;
+    // Opaque Assets-layer binding index; raw GLB/source names stop in the loader.
+    std::size_t presentationNodeBindingIndex = 0;
 };
 
 struct ProductionCompartment final
@@ -117,8 +139,10 @@ struct ProductionSubmarineAssetDefinition final
     std::array<ProductionRenderLod, 4> renderLods;
     std::vector<ProductionPropellerAnchor> propellers;
     std::vector<ProductionRetractableSailDevice> retractableSailDevices;
+    std::vector<ProductionDepthPlane> depthPlanes;
     std::vector<ProductionLaunchAnchor> torpedoLaunchAnchors;
     std::vector<ProductionLaunchAnchor> p700LaunchAnchors;
+    std::vector<ProductionP700Hatch> p700Hatches;
     std::vector<ProductionCompartment> compartments;
     std::vector<ProductionCollisionDefinition> collisionProxies;
     ProductionBuoyancyDefinition buoyancyProxy;

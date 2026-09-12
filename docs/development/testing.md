@@ -27,11 +27,7 @@ command:           DeepRunTests --asset-root Assets
 environment:       no test-specific environment variables
 ```
 
-`Assets` is relative to the test executable's output directory. CMake copies
-the canonical prototype asset to `Assets/submarines/prototype/` there after
-each test-target build. CTest therefore reports one registered test (`1/1`),
-while `DeepRunTests` reports its individual assertion count (currently
-`249/249`).
+`Assets` is relative to the test executable's output directory. CMake stages the required canonical runtime assets into the build output. The current M5 gate registers six CTest targets: `DeepRunTests`, `DeepRunIG1DLodPolicyTests`, `DeepRunM4AcousticTests`, `DeepRunM5WeaponRuntimeTests`, `DeepRunP700ProductionAssetTests`, and `DeepRunP700LauncherInventoryTests`. Milestone acceptance requires all six in both Debug and Release; do not rely on an old single-entry `1/1` assumption.
 
 Do not assume a bare `DeepRunTests.exe` launch is equivalent to CTest. A
 supported direct invocation is:
@@ -58,6 +54,17 @@ build-output assets, and is not an acceptance result.
 `--smoke-test` is the canonical windowed rendering and resize smoke path. In a
 Debug build it also enables the existing D3D12 debug validation path; do not
 add separate message suppression merely to run this check.
+
+For final M5 acceptance, also run:
+
+```powershell
+.\build\windows-debug\Debug\DeepRun.exe --smoke-p700
+.\build\windows-release\Release\DeepRun.exe --smoke-p700
+```
+
+`--smoke-test` must produce the five combat acceptance checkpoints and machine-readable report. `--smoke-p700` must produce five P-700 state checkpoints plus the mandatory lifecycle markers from hatch opening through terminal and a real `PHYSICAL_IMPACT damage=100`; the report must retain `23/24` launcher inventory and identify the destroyer Jolt body as the physical impact target. Both smoke paths retain BMP/JSON artifact packages in CI. The original technical M5 closure is evidenced by run `34712161730` (#488) on `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`, where Debug and Release passed all six CTest targets and both windowed smokes.
+
+The later M5 torpedo-seeker closure hardening does not add a seventh CTest target or a new smoke command. Its mixed passive/active state machine, delayed active echo, off-beam failure, quiet-target passive failure, decoy seduction, bounded steering, finite endurance and impact terminal-state checks execute inside the existing M5 test composition. Final branch promotion must therefore rerun the same six CTest targets and both windowed smokes in Debug and Release on the clean closure HEAD. The authoritative contract is documented in `m5-torpedo-active-passive-seeker.md`.
 
 For milestone acceptance, report the exact Debug and Release CTest commands
 and their results. Treat registered CTest results—not an ad-hoc direct launch

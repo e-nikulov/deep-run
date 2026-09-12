@@ -9,6 +9,7 @@
 #include "Game/Combat/CombatPlaygroundAcceptance.h"
 #include "Game/Combat/CombatPlaygroundCamera.h"
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
+#include "Game/Combat/P700VisualAcceptance.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicalPlayground.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -401,6 +402,57 @@ bool WriteM5AcceptanceReport(
     output << report.dump(2) << '\n';
     return static_cast<bool>(output);
 }
+
+bool WriteM5P700AcceptanceReport(
+    const std::filesystem::path& path,
+    const DeepRun::Game::Combat::M5P700VisualAcceptance& acceptance)
+{
+    nlohmann::json report;
+    report["schema"] = "deeprun.m5.p700.visual-acceptance.v1";
+    report["all_state_checkpoints_seen"] = acceptance.AllStateCheckpointsSeen();
+    report["checkpoints"] = nlohmann::json::array();
+    for (const auto& record : acceptance.Records())
+    {
+        if (!record.has_value())
+            continue;
+        const auto& state = record->state;
+        nlohmann::json entry{
+            {"name", DeepRun::Game::Combat::M5P700AcceptanceCheckpointName(record->checkpoint)},
+            {"simulation_time_seconds", state.simulationTimeSeconds},
+            {"phase", DeepRun::Game::Combat::M5P700PhaseName(state.phase)},
+            {"missile_position_meters", JsonVector(state.missilePositionMeters)},
+            {"hatch_open_progress", state.hatchOpenProgress},
+            {"deployment_progress", state.deploymentProgress},
+            {"p700_loaded_count", state.p700LoadedCount},
+            {"destroyer_integrity", state.destroyerIntegrity},
+            {"combat_draw_calls", state.combatDrawCalls},
+            {"combat_submitted_primitives", state.combatSubmittedPrimitives},
+            {"combat_submitted_indices", state.combatSubmittedIndices},
+            {"camera_aspect_ratio", state.cameraAspectRatio},
+            {"camera_horizontal_span_meters", state.cameraHorizontalSpanMeters},
+            {"gpu_presentation_handle_valid", state.gpuPresentationHandleValid},
+            {"image_captured", record->imageCaptured},
+            {"image_path", record->imagePath}};
+        entry["impact"] = {
+            {"present", state.hasImpact},
+            {"body_handle_valid", state.impactBodyHandleValid},
+            {"target_is_destroyer_body", state.impactTargetIsDestroyer},
+            {"damage", state.impactDamage}};
+        if (state.impactPositionMeters.has_value())
+            entry["impact"]["position_meters"] = JsonVector(*state.impactPositionMeters);
+        if (state.explosionPositionMeters.has_value())
+            entry["explosion_position_meters"] = JsonVector(*state.explosionPositionMeters);
+        else
+            entry["explosion_position_meters"] = nullptr;
+        report["checkpoints"].push_back(std::move(entry));
+    }
+    std::ofstream output(path);
+    if (!output)
+        return false;
+    output << report.dump(2) << '\n';
+    return static_cast<bool>(output);
+}
+
 } // namespace
 
 int main(const int argumentCount, char** argumentValues)
@@ -420,13 +472,20 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
         std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
         std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
+        std::optional<DeepRun::Game::Combat::M5P700VisualAcceptance> p700Acceptance;
+        std::array<bool, 8> p700LifecycleLogged{};
         std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;
+        DeepRun::Game::Combat::CombatUiPresentationSettings combatUiPresentationSettings{};
+        std::optional<DeepRun::Physics::PhysicsVector3> initialOwnshipNavigationPositionMeters;
+        std::optional<DeepRun::Physics::PhysicsVector3> currentOwnshipNavigationPositionMeters;
         DeepRun::Game::Combat::CombatPlaygroundCameraDirector smokeCombatCameraDirector;
         DeepRun::Game::Combat::CalmLaunchCameraAssist calmLaunchCameraAssist;
         DeepRun::Game::Camera::MultiScaleTacticalCamera multiScaleCamera;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         std::uint64_t consumedSelectContactSequence = 0;
+        std::uint64_t consumedPreviousWeaponSequence = 0;
+        std::uint64_t consumedNextWeaponSequence = 0;
         std::uint64_t consumedPrepareWeaponSequence = 0;
         std::uint64_t consumedFireWeaponSequence = 0;
         std::uint64_t consumedActiveSonarPingSequence = 0;
@@ -450,6 +509,7 @@ int main(const int argumentCount, char** argumentValues)
         DeepRun::Core::Application application(
             options,
             [&options, &playground, &acousticPlaygroundRuntime, &combatPlayground, &multiScaleCamera,
+             &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
              &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
                 engineServices = &engine;
@@ -477,11 +537,25 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                const auto initialized = playground.Initialize(engine.Assets(), *physics, *renderer, options.smokeTest);
+                const auto initialized = playground.Initialize(
+                    engine.Assets(), *physics, *renderer, options.smokeTest || options.p700SmokeTest,
+                    options.p700SmokeTest ? 30.0F : 100.0F);
                 if (!initialized)
                 {
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
                     return false;
+                }
+                if (!options.benchmarkM3)
+                {
+                    const auto initialOwnship = playground.BuildPhysicalCollisionProxySnapshot();
+                    if (!initialOwnship)
+                    {
+                        std::cerr << "[Game][ERROR] M5-V2 initial ownship navigation snapshot failed: "
+                                  << initialOwnship.error() << '\n';
+                        return false;
+                    }
+                    initialOwnshipNavigationPositionMeters = initialOwnship->positionMeters;
+                    currentOwnshipNavigationPositionMeters = initialOwnship->positionMeters;
                 }
 
                 const auto acousticRuntime = DeepRun::Game::AcousticPlaygroundRuntime::Create();
@@ -518,7 +592,14 @@ int main(const int argumentCount, char** argumentValues)
                         }
                     }
 
-                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer);
+                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
+                        *renderer,
+                        engine.Assets(),
+                        options.p700SmokeTest ? 20'100.0F : DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters,
+                        options.p700SmokeTest,
+                        options.p700SmokeTest
+                            ? 0.0F
+                            : DeepRun::Game::Combat::M5CombatDestroyerCruiseVelocityXMetersPerSecond);
                     if (!combat)
                     {
                         std::cerr << "[Game][ERROR] " << combat.error() << '\n';
@@ -529,13 +610,15 @@ int main(const int argumentCount, char** argumentValues)
                 return playground.SubmarineModel().IsValid();
             },
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
-             &combatAcceptance, &combatUiSnapshot, &inputState, &engineServices,
-             &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
+             &combatAcceptance, &p700Acceptance, &p700LifecycleLogged, &combatUiSnapshot,
+             &currentOwnshipNavigationPositionMeters, &inputState, &engineServices,
+             &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
+             &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
-                const auto command = (options.smokeTest || options.benchmarkM3)
+                const auto command = (options.smokeTest || options.p700SmokeTest || options.benchmarkM3)
                                          ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
                                                DeepRun::Game::VesselCommandState{}}
                                          : inputState != nullptr
@@ -615,8 +698,9 @@ int main(const int argumentCount, char** argumentValues)
                                   << playerCollisionProxy.error() << '\n';
                         return false;
                     }
+                    currentOwnshipNavigationPositionMeters = playerCollisionProxy->positionMeters;
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 5> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 7> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -636,6 +720,12 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::SelectContact,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::SelectNextTrack,
                                 consumedSelectContactSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::PreviousWeapon,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::PreviousWeapon,
+                                consumedPreviousWeaponSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::NextWeapon,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::NextWeapon,
+                                consumedNextWeaponSequence);
                         consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::PrepareWeapon,
                                 consumedPrepareWeaponSequence);
@@ -653,7 +743,10 @@ int main(const int argumentCount, char** argumentValues)
                     const auto combatFrame = options.smokeTest
                         ? combatPlayground->Advance(
                               *acousticSnapshot, *playerCollisionProxy, *physics, simulationTimeSeconds)
-                        : combatPlayground->AdvancePlayerControlled(
+                        : options.p700SmokeTest
+                            ? combatPlayground->AdvanceP700Acceptance(
+                                  *acousticSnapshot, *playerCollisionProxy, *physics, simulationTimeSeconds)
+                            : combatPlayground->AdvancePlayerControlled(
                               *acousticSnapshot,
                               *playerCollisionProxy,
                               *physics,
@@ -666,6 +759,24 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
                     combatUiSnapshot = combatFrame->playerCombat;
+                    if (combatPlayground->Runtime().has_value())
+                    {
+                        const auto& runtime = *combatPlayground->Runtime();
+                        std::optional<std::string> hatchGroup{};
+                        float hatchProgress = 0.0F;
+                        if (runtime.PlayerP700().has_value())
+                        {
+                            hatchGroup = runtime.PlayerP700HatchGroupSemanticId();
+                            hatchProgress = runtime.PlayerP700()->hatchOpenProgress;
+                        }
+                        const auto hatchPresentation = playground.SetP700HatchPresentation(hatchGroup, hatchProgress);
+                        if (!hatchPresentation)
+                        {
+                            std::cerr << "[Game][ERROR] M5 P-700 production hatch presentation failed: "
+                                      << hatchPresentation.error() << '\n';
+                            return false;
+                        }
+                    }
                     if (options.smokeTest)
                     {
                         if (!combatAcceptance.has_value())
@@ -681,6 +792,57 @@ int main(const int argumentCount, char** argumentValues)
                         if (!acceptanceObserved)
                         {
                             std::cerr << "[Game][ERROR] " << acceptanceObserved.error() << '\n';
+                            return false;
+                        }
+                    }
+                    if (options.p700SmokeTest && combatPlayground->Runtime().has_value())
+                    {
+                        const auto& runtime = *combatPlayground->Runtime();
+                        if (!p700Acceptance.has_value())
+                            p700Acceptance.emplace();
+                        const auto accepted = p700Acceptance->ObserveFixed(
+                            runtime, *physics, *combatFrame, simulationTimeSeconds);
+                        if (!accepted)
+                        {
+                            std::cerr << "[Game][ERROR] " << accepted.error() << '\n';
+                            return false;
+                        }
+                        if (runtime.PlayerP700().has_value())
+                        {
+                            const auto& missile = *runtime.PlayerP700();
+                            const auto logOnce = [&p700LifecycleLogged](const std::size_t index, const std::string& text)
+                            {
+                                if (!p700LifecycleLogged[index])
+                                {
+                                    p700LifecycleLogged[index] = true;
+                                    std::cout << text << '\n';
+                                }
+                            };
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::HatchOpening && missile.hatchOpenProgress > 0.0F)
+                                logOnce(0U, "[Game][P700] HATCH_OPENING progress=" + std::to_string(missile.hatchOpenProgress));
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::UnderwaterLaunch)
+                                logOnce(1U, "[Game][P700] UNDERWATER_BOOSTER_EXIT");
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::WaterExit)
+                                logOnce(2U, "[Game][P700] WATER_EXIT");
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::PostExitTransition)
+                                logOnce(3U, "[Game][P700] HARDWARE_SEPARATION progress=" + std::to_string(missile.postExitTransitionProgress));
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::AirborneDeploying)
+                                logOnce(4U, "[Game][P700] AERODYNAMIC_DEPLOY progress=" + std::to_string(missile.deploymentProgress));
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::Cruise)
+                                logOnce(5U, "[Game][P700] CRUISE speed_mps=" + std::to_string(missile.speedMetersPerSecond));
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::Terminal)
+                                logOnce(6U, "[Game][P700] TERMINAL speed_mps=" + std::to_string(missile.speedMetersPerSecond));
+                        }
+                        if (combatFrame->playerP700Impact.has_value() && !p700LifecycleLogged[7])
+                        {
+                            p700LifecycleLogged[7] = true;
+                            std::cout << "[Game][P700] PHYSICAL_IMPACT damage="
+                                      << combatFrame->playerP700Impact->damage.damage << " radius="
+                                      << combatFrame->playerP700Impact->explosion.radiusMeters << "\n";
+                        }
+                        if (simulationTimeSeconds > 95.0)
+                        {
+                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded 95 s SimulationTime without completed impact capture\n";
                             return false;
                         }
                     }
@@ -729,8 +891,11 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,
-             &calmLaunchCameraAssist, &multiScaleCamera, &inputState, &frameCapture, &captureEnabled, &options,
+            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot,
+             &combatUiPresentationSettings, &smokeCombatCameraDirector,
+             &calmLaunchCameraAssist, &multiScaleCamera,
+             &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
+             &inputState, &frameCapture, &captureEnabled, &options,
              &renderFrames, &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
@@ -739,7 +904,25 @@ int main(const int argumentCount, char** argumentValues)
 
                 if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
                 {
-                    if (options.smokeTest)
+                    if (options.p700SmokeTest)
+                    {
+                        float targetOffsetXMeters = 0.0F;
+                        float spanMeters = 900.0F;
+                        if (combatPlayground->Runtime()->PlayerP700().has_value() && initialOwnshipNavigationPositionMeters.has_value())
+                        {
+                            const auto& missile = *combatPlayground->Runtime()->PlayerP700();
+                            targetOffsetXMeters = missile.positionMeters.x - initialOwnshipNavigationPositionMeters->x;
+                            spanMeters = missile.phase == DeepRun::Weapons::P700GranitPhase::Terminal ? 1'800.0F : 1'200.0F;
+                        }
+                        const auto appliedFraming = playground.SetPresentationCameraFraming(
+                            targetOffsetXMeters, 0.0F, spanMeters, renderer.AspectRatio());
+                        if (!appliedFraming)
+                        {
+                            std::cerr << "[Game][ERROR] P-700 acceptance camera failed: " << appliedFraming.error() << '\n';
+                            return false;
+                        }
+                    }
+                    else if (options.smokeTest)
                     {
                         const auto cameraFraming = smokeCombatCameraDirector.Evaluate(
                             *combatPlayground->Runtime(), simulationTimeSeconds);
@@ -760,6 +943,26 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     else
                     {
+                        const auto ownshipLengthMeters = playground.ProductionSubmarinePresentationLengthMeters();
+                        const std::uint32_t viewportWidthPixels = renderer.MemoryDiagnostics().width;
+                        const auto maximumCameraSpan = ownshipLengthMeters
+                            ? DeepRun::Game::Camera::MaximumHorizontalSpanForProjectedWidth(
+                                  *ownshipLengthMeters, viewportWidthPixels)
+                            : std::expected<float, std::string>{std::unexpected(ownshipLengthMeters.error())};
+                        if (!maximumCameraSpan)
+                        {
+                            std::cerr << "[Game][ERROR] M5 visual zoom limit failed: "
+                                      << maximumCameraSpan.error() << '\n';
+                            return false;
+                        }
+                        const auto maximumApplied = multiScaleCamera.SetMaximumHorizontalSpanMeters(*maximumCameraSpan);
+                        if (!maximumApplied)
+                        {
+                            std::cerr << "[Game][ERROR] M5 visual zoom cap application failed: "
+                                      << maximumApplied.error() << '\n';
+                            return false;
+                        }
+
                         DeepRun::Game::Camera::MultiScaleCameraInput cameraInput =
                             inputState != nullptr
                                 ? DeepRun::Game::Camera::MultiScaleCameraInputFromState(*inputState)
@@ -775,8 +978,24 @@ int main(const int argumentCount, char** argumentValues)
                                       << cameraFraming.error() << '\n';
                             return false;
                         }
+                        if (!initialOwnshipNavigationPositionMeters.has_value() ||
+                            !currentOwnshipNavigationPositionMeters.has_value())
+                        {
+                            std::cerr << "[Game][ERROR] M5-V2 ownship navigation state is unavailable\n";
+                            return false;
+                        }
+                        const auto ownshipFollowOffset = DeepRun::Game::Camera::ComposeOwnshipFollowOffsetMeters(
+                            initialOwnshipNavigationPositionMeters->x,
+                            currentOwnshipNavigationPositionMeters->x,
+                            cameraFraming->targetOffsetXMeters);
+                        if (!ownshipFollowOffset)
+                        {
+                            std::cerr << "[Game][ERROR] M5-V2 ownship camera follow failed: "
+                                      << ownshipFollowOffset.error() << '\n';
+                            return false;
+                        }
                         const auto appliedFraming = playground.SetPresentationCameraFraming(
-                            cameraFraming->targetOffsetXMeters,
+                            *ownshipFollowOffset,
                             cameraFraming->targetOffsetYMeters,
                             cameraFraming->horizontalSpanMeters, renderer.AspectRatio());
                         if (!appliedFraming)
@@ -816,16 +1035,70 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
                         return false;
                     }
-                    if (combatRendered->stats.drawCalls < 2U || combatRendered->stats.drawCalls > 8U ||
+                    if (combatRendered->stats.drawCalls < 2U || combatRendered->stats.drawCalls > 20U ||
                         combatRendered->stats.submittedPrimitives != combatRendered->stats.drawCalls ||
-                        combatRendered->stats.submittedIndices != combatRendered->stats.drawCalls * 36U)
+                        combatRendered->stats.submittedIndices < 72U)
                     {
                         std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
                         return false;
                     }
-                    if (!options.smokeTest && combatUiSnapshot.has_value())
+                    if (!options.smokeTest && !options.p700SmokeTest && combatUiSnapshot.has_value())
                     {
-                        DeepRun::Game::Combat::DrawCombatCommandUi(*combatUiSnapshot);
+                        DeepRun::Game::Combat::DrawCombatCommandUi(
+                            *combatUiSnapshot, &combatUiPresentationSettings);
+                        if (combatUiPresentationSettings.sonarVisualizationEnabled)
+                        {
+                            DeepRun::Game::Combat::DrawSonarScope(combatUiSnapshot->sonar);
+                        }
+                        const auto ownshipLengthMeters = playground.ProductionSubmarinePresentationLengthMeters();
+                        const auto framing = multiScaleCamera.Framing();
+                        const std::uint32_t viewportWidthPixels = renderer.MemoryDiagnostics().width;
+                        if (ownshipLengthMeters)
+                        {
+                            DeepRun::Game::Combat::DrawCameraScaleHud({
+                                .band = framing.band,
+                                .horizontalSpanMeters = framing.horizontalSpanMeters,
+                                .maximumHorizontalSpanMeters = multiScaleCamera.MaximumHorizontalSpanMeters(),
+                                .ownshipProjectedPixels = DeepRun::Game::Camera::ProjectedHorizontalPixels(
+                                    *ownshipLengthMeters, framing.horizontalSpanMeters, viewportWidthPixels)});
+                        }
+                        const auto navigationTelemetry = playground.BuildVesselPresentationTelemetry();
+                        if (!navigationTelemetry)
+                        {
+                            std::cerr << "[Game][ERROR] M5-V2 vessel navigation HUD failed: "
+                                      << navigationTelemetry.error() << '\n';
+                            return false;
+                        }
+                        DeepRun::Game::Combat::DrawVesselNavigationHud({
+                            .signedDepthMeters = navigationTelemetry->signedDepthMeters,
+                            .verticalSpeedMetersPerSecond = navigationTelemetry->verticalSpeedMetersPerSecond,
+                            .throttleFraction = navigationTelemetry->throttleFraction,
+                            .bowPlaneDeflectionFraction = navigationTelemetry->bowPlaneDeflectionFraction,
+                            .sternPlaneDeflectionFraction = navigationTelemetry->sternPlaneDeflectionFraction});
+
+                        if (framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Operational ||
+                            framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Strategic)
+                        {
+                            const auto ownship = playground.BuildPhysicalCollisionProxySnapshot();
+                            if (!ownship)
+                            {
+                                std::cerr << "[Game][ERROR] M5 symbol-view ownship snapshot failed: "
+                                          << ownship.error() << '\n';
+                                return false;
+                            }
+                            std::optional<DeepRun::Physics::PhysicsVector3> playerTorpedoPosition{};
+                            if (combatRendered->presentation.playerTorpedo)
+                            {
+                                playerTorpedoPosition = combatRendered->presentation.playerTorpedo->positionMeters;
+                            }
+                            DeepRun::Game::Combat::DrawTacticalSituationOverlay(
+                                framing.band,
+                                *camera,
+                                ownship->positionMeters,
+                                combatUiSnapshot->selectedTrackEstimatedPositionMeters,
+                                combatUiSnapshot->selectedTrackId,
+                                playerTorpedoPosition);
+                        }
                     }
                     if (combatAcceptance.has_value())
                     {
@@ -874,9 +1147,56 @@ int main(const int argumentCount, char** argumentValues)
                                 "m5-combat-acceptance.json", *combatAcceptance));
                         }
                     }
+                    if (p700Acceptance.has_value())
+                    {
+                        const auto acceptanceRendered = p700Acceptance->ObserveRender(
+                            combatRendered->presentation, *camera, combatRendered->stats,
+                            renderer.AspectRatio(), combatPlayground->PresentationModelValid(renderer),
+                            combatRendered->explosionDrawn);
+                        if (!acceptanceRendered)
+                        {
+                            std::cerr << "[Game][ERROR] " << acceptanceRendered.error() << '\n';
+                            return false;
+                        }
+                        if (acceptanceRendered->has_value())
+                        {
+                            const auto checkpoint = **acceptanceRendered;
+                            const std::filesystem::path imagePath = [&checkpoint]() {
+                                using Checkpoint = DeepRun::Game::Combat::M5P700AcceptanceCheckpoint;
+                                switch (checkpoint)
+                                {
+                                case Checkpoint::Launch: return std::filesystem::path("m5-p700-launch.bmp");
+                                case Checkpoint::WaterExit: return std::filesystem::path("m5-p700-water-exit.bmp");
+                                case Checkpoint::Deploy: return std::filesystem::path("m5-p700-deploy.bmp");
+                                case Checkpoint::CruiseTerminal: return std::filesystem::path("m5-p700-cruise-terminal.bmp");
+                                case Checkpoint::Impact: return std::filesystem::path("m5-p700-impact.bmp");
+                                }
+                                return std::filesystem::path("m5-p700-unknown.bmp");
+                            }();
+                            if (captureEnabled)
+                            {
+                                std::vector<std::byte> pixels;
+                                std::uint32_t width = 0;
+                                std::uint32_t height = 0;
+                                if (frameCapture.Capture(pixels, width, height) && WriteBmp(imagePath, pixels, width, height))
+                                {
+                                    p700Acceptance->MarkImageCaptured(checkpoint, imagePath.string());
+                                    std::cout << "[Game][P700] Captured "
+                                              << DeepRun::Game::Combat::M5P700AcceptanceCheckpointName(checkpoint)
+                                              << " to " << imagePath.string() << '\n';
+                                }
+                            }
+                            static_cast<void>(WriteM5P700AcceptanceReport("m5-p700-acceptance.json", *p700Acceptance));
+                            if (checkpoint == DeepRun::Game::Combat::M5P700AcceptanceCheckpoint::Impact &&
+                                p700Acceptance->AllStateCheckpointsSeen())
+                            {
+                                engineServices->RequestShutdown();
+                            }
+                        }
+                    }
                 }
 
-                if (captureEnabled && !options.headless && !capturedInitial && renderFrames == 3)
+                if (captureEnabled && !options.headless && !options.p700SmokeTest && !capturedInitial && renderFrames == 3)
                 {
                     std::vector<std::byte> pixels;
                     std::uint32_t width = 0;
@@ -889,7 +1209,7 @@ int main(const int argumentCount, char** argumentValues)
                         std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
                     }
                 }
-                if (captureEnabled && !options.headless && !capturedLater && renderFrames == 90)
+                if (captureEnabled && !options.headless && !options.p700SmokeTest && !capturedLater && renderFrames == 90)
                 {
                     std::vector<std::byte> pixels;
                     std::uint32_t width = 0;
@@ -929,6 +1249,15 @@ int main(const int argumentCount, char** argumentValues)
             {
                 std::cerr << "[Game][ERROR] M5 visual acceptance did not observe every required checkpoint\n";
                 return 13;
+            }
+        }
+        if (p700Acceptance.has_value())
+        {
+            static_cast<void>(WriteM5P700AcceptanceReport("m5-p700-acceptance.json", *p700Acceptance));
+            if (applicationExitCode == 0 && options.p700SmokeTest && !p700Acceptance->AllStateCheckpointsSeen())
+            {
+                std::cerr << "[Game][ERROR] P-700 visual acceptance did not observe every required checkpoint\n";
+                return 14;
             }
         }
         return applicationExitCode;

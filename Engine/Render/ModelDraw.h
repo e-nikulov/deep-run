@@ -46,6 +46,15 @@ struct ModelNodeTransformOverride final
     Assets::ModelTransform nodeLocalPostTransform{};
 };
 
+// Presentation-only transform applied at an imported semantic binding root. The
+// Assets layer expands the opaque binding to its drawable subtree, while Render
+// preserves parent-space transform order for every descendant mesh node.
+struct ModelBindingTransformOverride final
+{
+    std::size_t bindingIndex = 0;
+    Assets::ModelTransform bindingLocalPostTransform{};
+};
+
 [[nodiscard]] Assets::ModelMaterialData DefaultModelMaterial();
 [[nodiscard]] Assets::ModelTransform Multiply(
     const Assets::ModelTransform& left,
@@ -58,5 +67,6 @@ struct ModelNodeTransformOverride final
 [[nodiscard]] std::expected<std::vector<ModelDrawInstance>, std::string> PrepareModelDraws(
     const Assets::ModelAsset& model,
     const Assets::ModelTransform& modelToWorld = {},
-    std::span<const ModelNodeTransformOverride> nodeTransformOverrides = {});
+    std::span<const ModelNodeTransformOverride> nodeTransformOverrides = {},
+    std::span<const ModelBindingTransformOverride> bindingTransformOverrides = {});
 }

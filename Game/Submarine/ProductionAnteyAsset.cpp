@@ -210,7 +210,7 @@ namespace
             return index;
         }
     }
-    throw std::runtime_error(std::format("Antey GLB has no node for a required propeller presentation binding"));
+    throw std::runtime_error(std::format("Antey GLB has no node for required presentation binding: {}", privateNodeReference));
 }
 
 void Require(const bool condition, const std::string_view message)
@@ -337,8 +337,10 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             .renderLods = {},
             .propellers = {},
             .retractableSailDevices = {},
+            .depthPlanes = {},
             .torpedoLaunchAnchors = {},
             .p700LaunchAnchors = {},
+            .p700Hatches = {},
             .compartments = {},
             .collisionProxies = {},
             .buoyancyProxy = {}};
@@ -376,6 +378,79 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 .rotationAxis = propeller.at("axis").get<std::string>(),
                 .presentationNodeBindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference)});
         }
+
+        // M5-V2-B: exact node references are private source-first authoring metadata. Resolve them once here
+        // and expose only semantic group + opaque model binding index to Game/runtime code.
+        Json controlSurfaces;
+        if (authoring.contains("controlSurfaces"))
+        {
+            controlSurfaces = authoring.at("controlSurfaces");
+        }
+        else
+        {
+            // Current production authoring keeps control-surface identity in accepted asset metadata
+            // while the GLB owns drawable nodes. Adapt it only at this private loader boundary.
+            const Json& controlSurfaceAuthoring = metadata.at("controlSurfaceAuthoring");
+            const auto appendDepthPlaneGroup = [&controlSurfaces, &controlSurfaceAuthoring](
+                const std::string_view metadataKey,
+                const std::string_view semanticGroup,
+                const std::string_view groupValue)
+            {
+                const Json& names = controlSurfaceAuthoring.at(std::string(metadataKey));
+                Require(names.is_array() && names.size() == 2U,
+                        std::format("Antey controlSurfaceAuthoring.{} must contain exactly two names", metadataKey));
+                for (std::size_t index = 0; index < names.size(); ++index)
+                {
+                    Require(names[index].is_string() && !names[index].get<std::string>().empty(),
+                            std::format("Antey controlSurfaceAuthoring.{} names must be non-empty strings", metadataKey));
+                    const std::string sourceName = names[index].get<std::string>();
+                    controlSurfaces.push_back({
+                        {"semanticId", std::format("depth-plane.{}.{:02}", semanticGroup, index + 1U)},
+                        {"group", std::string(groupValue)},
+                        {"nodeReference", "SM_Antey_LOD0_" + sourceName},
+                        {"articulation", "ROTATION"},
+                        {"hingeAxisSource", "LOCAL_Y"},
+                        {"simulationOwnsAngle", true}});
+                }
+            };
+            appendDepthPlaneGroup("bowPlanes", "bow", "BOW");
+            appendDepthPlaneGroup("sternPlanes", "stern", "STERN");
+        }
+        Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
+                "Antey production metadata must resolve four production depth-plane records");
+
+        std::unordered_set<std::size_t> depthPlaneBindingIndices;
+        std::size_t bowPlaneCount = 0U;
+        std::size_t sternPlaneCount = 0U;
+        for (const Json& record : controlSurfaces)
+        {
+            Require(record.is_object(), "Antey depth-plane authoring record must be an object");
+            const std::string semanticId = record.at("semanticId").get<std::string>();
+            const std::string groupValue = record.at("group").get<std::string>();
+            const std::string privateNodeReference = record.at("nodeReference").get<std::string>();
+            Require(record.at("articulation").get<std::string>() == "ROTATION" &&
+                    record.at("hingeAxisSource").get<std::string>() == "LOCAL_Y" &&
+                    record.at("simulationOwnsAngle").get<bool>(),
+                    "Antey depth-plane articulation authoring contract is invalid");
+            const ProductionDepthPlaneGroup group = groupValue == "BOW"
+                ? ProductionDepthPlaneGroup::Bow
+                : groupValue == "STERN"
+                    ? ProductionDepthPlaneGroup::Stern
+                    : throw std::runtime_error("Antey depth-plane group must be BOW or STERN");
+            if (group == ProductionDepthPlaneGroup::Bow) ++bowPlaneCount;
+            else ++sternPlaneCount;
+            const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
+            Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value(),
+                    "Antey depth-plane binding must resolve to a drawable mesh node");
+            Require(depthPlaneBindingIndices.insert(bindingIndex).second,
+                    "Antey depth-plane bindings must be unique");
+            definition.depthPlanes.push_back({
+                .semanticId = semanticId,
+                .group = group,
+                .presentationNodeBindingIndex = bindingIndex});
+        }
+        Require(bowPlaneCount == 2U && sternPlaneCount == 2U,
+                "Antey must expose two bow and two stern production depth planes");
 
         const Json& retractableSailDevices = authoring.at("retractableSailDevices");
         Require(retractableSailDevices.is_array() && !retractableSailDevices.empty(),
@@ -419,20 +494,42 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             definition.torpedoLaunchAnchors.push_back({
                 .semanticId = std::format("torpedo.{}.{}", torpedo.at("tubeClass").get<std::string>(), torpedoOrdinal),
                 .localTransform = ReadTransform(torpedo.at("transform"), "torpedo transform"),
-                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(torpedo.at("launchForward"), "torpedo launch forward"))});
+                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(torpedo.at("launchForward"), "torpedo launch forward")),
+                .hatchGroupSemanticId = {}});
         }
 
         const Json& p700Launchers = authoring.at("p700Launchers");
         Require(p700Launchers.is_array() && p700Launchers.size() == 24U, "Antey must have 24 P700 launcher records");
+        std::unordered_map<std::string, std::size_t> p700HatchUseCounts;
         for (const Json& launcher : p700Launchers)
         {
             const std::string hatchGroup = launcher.at("hatchGroup").get<std::string>();
             const std::size_t pairIndex = ReadCount(launcher.at("pairIndex"), "P700 pair index");
+            Require(pairIndex == 1U || pairIndex == 2U, "P700 paired-hatch launcher index must be 1 or 2");
+            ++p700HatchUseCounts[hatchGroup];
             definition.p700LaunchAnchors.push_back({
                 .semanticId = std::format("p700.{}.{}", hatchGroup, pairIndex),
                 .localTransform = ReadTransform(launcher.at("transform"), "P700 transform"),
-                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(launcher.at("launchForward"), "P700 launch forward"))});
+                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(launcher.at("launchForward"), "P700 launch forward")),
+                .hatchGroupSemanticId = hatchGroup});
         }
+        Require(p700HatchUseCounts.size() == 12U, "Antey must expose exactly twelve paired P700 hatch groups");
+        for (const auto& [hatchGroup, launcherCount] : p700HatchUseCounts)
+        {
+            Require(launcherCount == 2U, "each Antey P700 hatch group must own exactly two launchers");
+            const bool port = hatchGroup.starts_with("PORT_HATCH_");
+            const bool starboard = hatchGroup.starts_with("STARBOARD_HATCH_");
+            Require(port || starboard, "P700 hatch group semantic ID must identify port or starboard bank");
+            const std::string ordinal = hatchGroup.substr(hatchGroup.size() - 2U);
+            const std::string privateNodeReference = std::format(
+                "SM_Antey_P700_Cover_{}_{}", port ? "Port" : "Starboard", ordinal);
+            const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
+            Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value() &&
+                    !(**model).nodeBindings.at(bindingIndex).drawableMeshNodeIndices.empty(),
+                    "Antey P700 hatch binding must resolve to drawable production geometry");
+            definition.p700Hatches.push_back({.semanticId = hatchGroup, .presentationNodeBindingIndex = bindingIndex});
+        }
+        std::ranges::sort(definition.p700Hatches, {}, &ProductionP700Hatch::semanticId);
 
         const Json& compartments = authoring.at("compartments");
         Require(compartments.is_array() && compartments.size() == 10U, "Antey must have ten compartment records");
