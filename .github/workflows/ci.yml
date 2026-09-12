@@ -29,6 +29,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Antey compartment contract
+        shell: pwsh
+        run: python Tools/validate_antey_compartment_contract.py
+
       - name: Configure
         shell: pwsh
         run: cmake --preset ${{ matrix.preset }}

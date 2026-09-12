@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
+  "referenceBasis": {
+    "platform": "Project 949A Antey",
+    "source": "user-supplied longitudinal section and general-arrangement drawings",
+    "geometryStatus": "REFERENCE_DERIVED_APPROXIMATE",
+    "longitudinalToleranceMeters": 1.0,
+    "notes": [
+      "Compartment numbering and primary functions follow the supplied Project 949A longitudinal-section legend.",
+      "Longitudinal pressure-bulkhead positions are scaled from the undimensioned longitudinal section against the accepted 154 m production length and rounded to reviewable half-metre/metre boundaries.",
+      "The first pressure compartment ends before the forward sonar allocation; torpedo tube mouths may extend forward of its pressure-hull volume.",
+      "P-700 launch containers, VVD bottles, sail equipment, bow sonar allocation, shafting and steering gear are not reclassified as pressure-hull compartments."
+    ]
+  },
+  "compartments": [
+    {
+      "semanticId": "compartment.01",
+      "displayNameRu": "Первый (носовой, торпедный) отсек",
+      "functionalRole": "TORPEDO",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [56.5, 0.0, -0.15],
+      "halfExtents": [10.0, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [46.5, 66.5],
+      "systemTags": ["TORPEDO_ROCKET_WEAPONS", "WEAPON_RACKS_AND_HANDLING", "BATTERY_GROUP"]
+    },
+    {
+      "semanticId": "compartment.02",
+      "displayNameRu": "Второй (центральный) отсек",
+      "functionalRole": "CENTRAL",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [40.25, 0.0, -0.15],
+      "halfExtents": [6.25, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [34.0, 46.5],
+      "systemTags": ["CENTRAL_POST_SUPPORT", "BATTERY_GROUP", "SAIL_ACCESS_SUPPORT"]
+    },
+    {
+      "semanticId": "compartment.03",
+      "displayNameRu": "Третий отсек",
+      "functionalRole": "THIRD_UNSPECIFIED",
+      "functionalRoleStatus": "REFERENCE_UNSPECIFIED",
+      "center": [28.5, 0.0, -0.15],
+      "halfExtents": [5.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [23.0, 34.0],
+      "systemTags": []
+    },
+    {
+      "semanticId": "compartment.04",
+      "displayNameRu": "Четвёртый (жилой) отсек",
+      "functionalRole": "HABITABILITY",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [14.5, 0.0, -0.15],
+      "halfExtents": [8.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [6.0, 23.0],
+      "systemTags": ["HABITABILITY"]
+    },
+    {
+      "semanticId": "compartment.05",
+      "displayNameRu": "Пятый отсек (вспомогательные механизмы)",
+      "functionalRole": "AUXILIARY_MACHINERY_1",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [2.5, 0.0, -0.15],
+      "halfExtents": [3.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-1.0, 6.0],
+      "systemTags": ["AUXILIARY_MACHINERY"]
+    },
+    {
+      "semanticId": "compartment.06",
+      "displayNameRu": "Шестой отсек (вспомогательные механизмы)",
+      "functionalRole": "AUXILIARY_MACHINERY_2",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-4.5, 0.0, -0.15],
+      "halfExtents": [3.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-8.0, -1.0],
+      "systemTags": ["AUXILIARY_MACHINERY"]
+    },
+    {
+      "semanticId": "compartment.07",
+      "displayNameRu": "Седьмой (реакторный) отсек",
+      "functionalRole": "REACTOR",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-13.5, 0.0, -0.15],
+      "halfExtents": [5.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-19.0, -8.0],
+      "systemTags": ["REACTOR_PLANT", "TWO_REACTOR_UNITS"]
+    },
+    {
+      "semanticId": "compartment.08",
+      "displayNameRu": "Восьмой (турбинный) отсек",
+      "functionalRole": "TURBINE_FORWARD",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-26.0, 0.0, -0.15],
+      "halfExtents": [7.0, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-33.0, -19.0],
+      "systemTags": ["FORWARD_TURBINE_PLANT", "FORWARD_MAIN_SWITCHBOARD"]
+    },
+    {
+      "semanticId": "compartment.09",
+      "displayNameRu": "Девятый (турбинный) отсек",
+      "functionalRole": "TURBINE_AFT",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-39.75, 0.0, -0.15],
+      "halfExtents": [6.75, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-46.5, -33.0],
+      "systemTags": ["AFT_TURBINE_PLANT", "AFT_MAIN_SWITCHBOARD"]
+    },
+    {
+      "semanticId": "compartment.10",
+      "displayNameRu": "Десятый отсек (ГЭД)",
+      "functionalRole": "PROPULSION_ELECTRIC",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-51.75, 0.0, -0.15],
+      "halfExtents": [5.25, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-57.0, -46.5],
+      "systemTags": ["PROPULSION_ELECTRIC_MOTOR"]
+    }
+  ],
+  "nonCompartmentRegions": [
+    {
+      "semanticId": "external.bow_sonar",
+      "role": "MGK540_BOW_ARRAY",
+      "xRangeMeters": [66.5, 77.0],
+      "status": "EXISTING_SEMANTIC_REGION"
+    },
+    {
+      "semanticId": "external.p700_banks",
+      "role": "P700_LAUNCH_CONTAINERS",
+      "status": "OUTSIDE_PRESSURE_COMPARTMENT_CONTRACT"
+    },
+    {
+      "semanticId": "external.aft_shaft_steering",
+      "role": "SHAFTING_AND_STEERING_GEAR",
+      "xRangeMeters": [-77.0, -57.0],
+      "status": "OUTSIDE_PRESSURE_COMPARTMENT_CONTRACT"
+    }
+  ],
+  "runtimeBoundary": "Spatial and functional compartment authoring only; Simulation owns damage, flooding, fire, crew, atmosphere, access boundaries and equipment state."
+}
