@@ -1,6 +1,6 @@
 # Project 949A / Antey handling contract
 
-Status: production gameplay contract for the canonical Deep Run Project 949A-inspired player submarine.
+Status: production gameplay contract for the canonical Deep Run Project 949A-inspired player submarine. Contract acceptance requires both Windows Debug and Release CI, including M5 weapon/input regressions and the windowed combat smoke.
 
 ## Public-source boundary
 
