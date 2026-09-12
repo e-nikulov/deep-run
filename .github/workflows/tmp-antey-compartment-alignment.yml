@@ -1,0 +1,36 @@
+name: Temporary Antey compartment alignment
+
+on:
+  push:
+    branches:
+      - feature/antey-compartment-reference-alignment
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: ${{ !contains(github.event.head_commit.message, 'apply Antey compartment reference alignment') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply reference-derived compartment contract
+        run: python Tools/tmp_align_antey_compartments.py
+      - name: Remove temporary migration helpers
+        run: |
+          rm Tools/tmp_align_antey_compartments.py
+          rm .github/workflows/tmp-antey-compartment-alignment.yml
+      - name: Commit generated production alignment
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No migration changes to commit"
+            exit 0
+          fi
+          git commit -m "fix: apply Antey compartment reference alignment"
+          git push origin HEAD:feature/antey-compartment-reference-alignment
