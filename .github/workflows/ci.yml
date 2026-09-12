@@ -53,6 +53,9 @@ jobs:
           $exitCode = $LASTEXITCODE
           $text = ($smokeOutput | Out-String)
           if ($exitCode -ne 0) {
+            Write-Host "----- DeepRun smoke output -----"
+            Write-Host $text
+            Write-Host "----- end smoke output -----"
             throw "DeepRun windowed smoke failed with exit code $exitCode"
           }
           if ($text -notmatch "\[Game\]\[Acoustics\] Passive contact acquired:") {
