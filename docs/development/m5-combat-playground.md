@@ -18,6 +18,27 @@ The retained Debug/Release artifacts are `m5-combat-visual-*` and `m5-p700-visua
 its machine-readable report plus launch, water-exit, deploy, cruise/terminal and impact captures. Detailed
 compartment/flooding/system damage remains M6 scope.
 
+### M5 closure hardening — autonomous torpedo seeker and causal misses
+
+Status: ACCEPTED as corrective M5 closure work; this does not open a new gameplay milestone.
+
+The conventional torpedo path now closes the remaining autonomy gap after launch. Following the bounded straight-run
+phase, live carrier Track updates stop controlling the weapon and the torpedo owns a local mixed seeker state machine:
+`Dormant -> PassiveSearch/PassiveTrack -> ActiveSearch/ActiveTrack -> Reacquire -> Exhausted`. Passive and active
+observations both cross the normal `AcousticWorld -> SensorObservation -> TrackManager` perceived-world boundary;
+no hostile Transform/body identity or privileged decoy flag enters seeker guidance.
+
+Misses are causal rather than a hidden percentage roll: insufficient SNR, propagation delay, thermocline attenuation,
+active-beam geometry, weak echo, contact loss/reacquisition failure, acoustic-decoy seduction, bounded turn authority,
+stale onboard solution, physical off-target collision, pure near-miss, and finite GAME-POLICY endurance can all prevent
+a hit. Endurance expiry terminates as `Spent / EnduranceExpired` without fabricated damage. A real collision with a
+non-selected physical body is a legitimate terminal miss relative to the selected target instead of a runtime error.
+
+The hostile torpedo's active-seeker transmission is also an ordinary timestamped acoustic emission in incoming-threat
+perception, so active homing is not acoustically invisible. The warning path uses the same propagation, SNR and
+`AcousticEnvironment` thermocline attenuation as the rest of M5 acoustics. See
+`docs/development/m5-torpedo-active-passive-seeker.md` for the full authority and failure-mode contract.
+
 ## Current accepted baseline
 
 The stable M5 branch now includes the A-D weapon/perception/impact foundation; live decoy seeker integration;
