@@ -1,0 +1,285 @@
+name: Antey Ventral Surface Repair
+
+on:
+  push:
+    branches:
+      - fix/antey-ventral-rudder-selected-geometry
+    paths:
+      - .github/workflows/antey-ventral-rebuild.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: antey-ventral-rebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch production source-first builder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python Tools/Blender/patch_antey_ventral_builder_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'Builder source patch failed' }
+          git diff --check
+          python -m py_compile `
+            Tools/Blender/antey_ventral_selection.py `
+            Tools/Blender/repair_antey_ventral_selected_geometry.py `
+            Tools/Blender/validate_antey_ventral_selected_geometry.py `
+            Tools/Blender/build_antey_source_first.py
+
+      - name: Capture immutable baselines
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (Get-FileHash 'Content/submarines/Antey/Source/Antey_Source.blend' -Algorithm SHA256).Hash
+          $p700Blend = (Get-FileHash 'Content/Weapons/P700/P700_Granit_GameReady.blend' -Algorithm SHA256).Hash
+          $p700Glb = (Get-FileHash 'Content/Weapons/P700/P700_Granit.glb' -Algorithm SHA256).Hash
+          "SOURCE_SHA=$source" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "P700_BLEND_SHA=$p700Blend" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "P700_GLB_SHA=$p700Glb" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Antey source: $source"
+          Write-Host "P700 BLEND: $p700Blend"
+          Write-Host "P700 GLB: $p700Glb"
+
+      - name: Download Blender 5.2.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'blender-5.2.1-windows-x64.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'blender-5.2.1'
+          curl.exe -L --fail --retry 4 --retry-delay 5 `
+            -o $zip `
+            https://download.blender.org/release/Blender5.2/blender-5.2.1-windows-x64.zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $blender = Get-ChildItem -Path $dir -Filter blender.exe -Recurse | Select-Object -First 1
+          if (-not $blender) { throw 'Blender 5.2.1 executable not found' }
+          "BLENDER_EXE=$($blender.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $blender.FullName --version
+
+      - name: Repair Ventral candidate from current main GameReady
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'artifacts/antey-ventral' | Out-Null
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/repair_antey_ventral_selected_geometry.py' `
+            -- `
+            --input 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --selection 'Content/submarines/Antey/selected_geometry_ventral.txt' `
+            --output 'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' `
+            --report 'artifacts/antey-ventral/repair.json'
+          if ($LASTEXITCODE -ne 0) { throw "Ventral repair failed: $LASTEXITCODE" }
+          Get-Content -Raw 'artifacts/antey-ventral/repair.json'
+
+      - name: Hard-gate all selected Ventral points and edges as polygon surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_ventral_selected_geometry.py' `
+            -- `
+            --candidate 'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' `
+            --selection 'Content/submarines/Antey/selected_geometry_ventral.txt' `
+            --output 'artifacts/antey-ventral/selected-surface-validation.json'
+          if ($LASTEXITCODE -ne 0) { throw "Ventral selected-surface validation failed: $LASTEXITCODE" }
+
+      - name: Source-first regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_source_first.py' `
+            -- `
+            --candidate 'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' `
+            --output 'artifacts/antey-ventral/source-first.json'
+          if ($LASTEXITCODE -ne 0) { throw "Source-first regression failed: $LASTEXITCODE" }
+
+      - name: Mechanical regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_final_mechanical.py' `
+            -- `
+            --candidate 'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --output 'artifacts/antey-ventral/final-mechanical.json'
+          if ($LASTEXITCODE -ne 0) { throw "Mechanical regression failed: $LASTEXITCODE" }
+
+      - name: Stern exterior regression from v1.1 repair
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_exterior_continuity.py' `
+            -- `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --candidate 'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' `
+            --selected-geometry 'Content/submarines/Antey/selected_geometry.txt' `
+            --output 'artifacts/antey-ventral/exterior-continuity.json'
+          if ($LASTEXITCODE -ne 0) { throw "Exterior continuity regression failed: $LASTEXITCODE" }
+
+      - name: Promote accepted technical candidate to GameReady
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -Force `
+            'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' `
+            'Content/submarines/Antey/Antey_GameReady.blend'
+          $candidate = (Get-FileHash 'artifacts/antey-ventral/Antey_VentralSurface_candidate.blend' -Algorithm SHA256).Hash
+          $canonical = (Get-FileHash 'Content/submarines/Antey/Antey_GameReady.blend' -Algorithm SHA256).Hash
+          if ($candidate -ne $canonical) { throw 'GameReady promotion is not byte-identical to candidate' }
+          Write-Host "Promoted GameReady SHA256=$canonical"
+
+      - name: Export fresh LOD0 runtime GLB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --python 'Tools/Blender/export_runtime_glb.py' `
+            -- `
+            --output 'Content/submarines/Antey/Antey.glb' `
+            --lod 0 `
+            --animation-contract none
+          if ($LASTEXITCODE -ne 0) { throw "Runtime GLB export failed: $LASTEXITCODE" }
+
+      - name: Fresh-import runtime GLB validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_runtime_glb.py' `
+            -- `
+            --glb 'Content/submarines/Antey/Antey.glb' `
+            --output 'artifacts/antey-ventral/runtime-glb.json' `
+            --asset antey
+          if ($LASTEXITCODE -ne 0) { throw "Runtime GLB validation failed: $LASTEXITCODE" }
+
+      - name: Animation ownership regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python Tools/Blender/validate_animation_ownership.py `
+            -- `
+            --antey 'Content/submarines/Antey/Antey.glb' `
+            --p700 'Content/Weapons/P700/P700_Granit.glb' `
+            --output 'artifacts/antey-ventral/animation-ownership.json'
+          if ($LASTEXITCODE -ne 0) { throw "Animation ownership failed: $LASTEXITCODE" }
+
+      - name: Regenerate canonical sidecars
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --python 'Tools/Blender/write_production_sidecars.py' `
+            -- `
+            --asset antey `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --glb 'Content/submarines/Antey/Antey.glb' `
+            --asset-json 'Content/submarines/Antey/Antey.asset.json' `
+            --authoring-json 'Content/submarines/Antey/Antey.authoring.json'
+          if ($LASTEXITCODE -ne 0) { throw "Sidecar regeneration failed: $LASTEXITCODE" }
+
+      - name: Record Ventral selected-surface contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repair = Get-Content -Raw 'artifacts/antey-ventral/repair.json' | ConvertFrom-Json -Depth 100
+          $validation = Get-Content -Raw 'artifacts/antey-ventral/selected-surface-validation.json' | ConvertFrom-Json -Depth 100
+          $contract = [ordered]@{
+            fixture = 'selected_geometry_ventral.txt'
+            fixtureVertices = [int]$validation.fixture.vertices
+            fixtureEdges = [int]$validation.fixture.edges
+            surfaceOwnedVertices = [int]$validation.surface.surfaceOwnedVertices
+            surfaceOwnedEdges = [int]$validation.surface.surfaceOwnedEdges
+            looseVertices = @($validation.surface.looseVertices)
+            looseEdges = @($validation.surface.looseEdges)
+            transferredStaticHullFaces = [int]$repair.transfer.transferredFaces
+            neutralUnionMissing = [int]$repair.after.neutralUnionMissing
+            neutralUnionExtra = [int]$repair.after.neutralUnionExtra
+            candidateSha256 = [string]$repair.candidateSha256
+            status = 'PASS'
+          }
+          $contract | ConvertTo-Json -Depth 100 | Set-Content -Encoding utf8 'Content/submarines/Antey/ventral_rudder_selected_geometry.json'
+
+      - name: Mirror runtime assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -Force 'Content/submarines/Antey/Antey.glb' 'Engine/Assets/submarines/Antey/Antey.glb'
+          Copy-Item -Force 'Content/submarines/Antey/Antey.asset.json' 'Engine/Assets/submarines/Antey/Antey.asset.json'
+          Copy-Item -Force 'Content/submarines/Antey/Antey.authoring.json' 'Engine/Assets/submarines/Antey/Antey.authoring.json'
+
+      - name: Verify immutable source and P700
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (Get-FileHash 'Content/submarines/Antey/Source/Antey_Source.blend' -Algorithm SHA256).Hash
+          $p700Blend = (Get-FileHash 'Content/Weapons/P700/P700_Granit_GameReady.blend' -Algorithm SHA256).Hash
+          $p700Glb = (Get-FileHash 'Content/Weapons/P700/P700_Granit.glb' -Algorithm SHA256).Hash
+          if ($source -ne $env:SOURCE_SHA) { throw "Antey source changed: $source != $env:SOURCE_SHA" }
+          if ($p700Blend -ne $env:P700_BLEND_SHA) { throw "P700 BLEND changed: $p700Blend != $env:P700_BLEND_SHA" }
+          if ($p700Glb -ne $env:P700_GLB_SHA) { throw "P700 GLB changed: $p700Glb != $env:P700_GLB_SHA" }
+          Write-Host 'Source/P700 immutability PASS'
+
+      - name: Final canonical Ventral gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_ventral_selected_geometry.py' `
+            -- `
+            --candidate 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --selection 'Content/submarines/Antey/selected_geometry_ventral.txt' `
+            --output 'artifacts/antey-ventral/canonical-selected-surface-validation.json'
+          if ($LASTEXITCODE -ne 0) { throw "Canonical Ventral gate failed: $LASTEXITCODE" }
+
+      - name: Commit regenerated production assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add `
+            Tools/Blender/build_antey_source_first.py `
+            Content/submarines/Antey/Antey_GameReady.blend `
+            Content/submarines/Antey/Antey.glb `
+            Content/submarines/Antey/Antey.asset.json `
+            Content/submarines/Antey/Antey.authoring.json `
+            Content/submarines/Antey/ventral_rudder_selected_geometry.json `
+            Engine/Assets/submarines/Antey/Antey.glb `
+            Engine/Assets/submarines/Antey/Antey.asset.json `
+            Engine/Assets/submarines/Antey/Antey.authoring.json
+          git diff --cached --check
+          git status --short
+          if (git diff --cached --quiet) { throw 'No production repair changes were generated' }
+          git commit -m 'fix: preserve full Antey Ventral rudder surface'
+          git push origin HEAD:fix/antey-ventral-rudder-selected-geometry
+
+      - name: Upload repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antey-ventral-surface-repair
+          if-no-files-found: warn
+          path: artifacts/antey-ventral/**
