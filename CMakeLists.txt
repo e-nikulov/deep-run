@@ -407,4 +407,18 @@ set_tests_properties(DeepRunP700ProductionAssetTests PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:DeepRunP700ProductionAssetTests>"
 )
 
+# Game-layer launcher inventory is intentionally independent from renderer, asset I/O and PhysicsWorld.
+# It proves exactly 24 production-anchor-shaped slots and one-way Loaded -> Spent consumption semantics.
+add_executable(DeepRunP700LauncherInventoryTests
+    Tests/P700LauncherInventoryTest.cpp
+)
+target_compile_features(DeepRunP700LauncherInventoryTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunP700LauncherInventoryTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunP700LauncherInventoryTests)
+target_link_libraries(DeepRunP700LauncherInventoryTests PRIVATE DeepRunEngine)
+add_test(NAME DeepRunP700LauncherInventoryTests COMMAND DeepRunP700LauncherInventoryTests)
+
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)
