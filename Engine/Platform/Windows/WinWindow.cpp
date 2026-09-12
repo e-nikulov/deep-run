@@ -55,6 +55,8 @@ Key TranslateKey(const WPARAM virtualKey)
     case VK_DOWN: return Key::Down;
     case 'Q': return Key::Q;
     case 'E': return Key::E;
+    case VK_OEM_MINUS: return Key::Minus;
+    case VK_OEM_PLUS: return Key::Equals;
     default: return Key::Unknown;
     }
 }
