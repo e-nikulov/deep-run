@@ -1,0 +1,41 @@
+name: Fix P700 Starboard Hatch Prefix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-p700-starboard-hatch-prefix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Patch canonical starboard hatch prefix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('Game/Submarine/ProductionAnteyAsset.cpp')
+          text = path.read_text(encoding='utf-8')
+          old = 'const bool starboard = hatchGroup.starts_with("STBD_HATCH_");'
+          new = 'const bool starboard = hatchGroup.starts_with("STARBOARD_HATCH_");'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one legacy STBD hatch-prefix check, got {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          git diff --check
+          grep -n 'STARBOARD_HATCH_' Game/Submarine/ProductionAnteyAsset.cpp
+      - name: Commit product fix only
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Game/Submarine/ProductionAnteyAsset.cpp
+          git commit -m "fix: honor canonical starboard P-700 hatch groups"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
