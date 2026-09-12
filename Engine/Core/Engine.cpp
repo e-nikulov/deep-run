@@ -239,6 +239,7 @@ public:
         // Compression increases the amount of authoritative fixed-step work accumulated from this RealTime
         // frame. The PhysicsWorld step itself remains config.physics.fixedHz (normally 60 Hz), preserving the
         // deterministic SimulationTime contract for acoustics, tracks, AI, weapons, damage and future M6 systems.
+        const TimeCompressionRate frameStartEffectiveRate = timeCompression.EffectiveRate();
         const double compressedDeltaSeconds = timer.DeltaSeconds() * timeCompression.EffectiveMultiplier();
         const std::uint32_t fixedSteps = fixedStepAccumulator.Accumulate(compressedDeltaSeconds);
         const float fixedDeltaSeconds = static_cast<float>(fixedStepAccumulator.StepSeconds());
@@ -248,6 +249,15 @@ public:
             if (!RunFixedStep(fixedUpdateHook, fixedDeltaSeconds))
             {
                 return false;
+            }
+
+            // A gameplay safety producer may discover danger during the first accelerated tick. Do not run the
+            // rest of a precomputed 4x/8x packet after that discovery. The unused packet is deliberately dropped:
+            // a safety break changes pacing from this authoritative tick onward rather than owing future sim time.
+            if (static_cast<std::uint8_t>(timeCompression.EffectiveRate()) <
+                static_cast<std::uint8_t>(frameStartEffectiveRate))
+            {
+                break;
             }
         }
 
@@ -316,12 +326,13 @@ public:
         }
         previousTimeCompressionGamepadButtons = currentButtons;
 
-        // Explicit high-consequence player actions break compression before this frame accumulates fixed ticks.
-        // Incoming-threat/casualty/collision policies can independently use SetMaximumTimeCompressionRate().
+        // A launch/defensive action gets an immediate one-frame safety ceiling before gameplay has advanced far
+        // enough to publish its richer combat state. Preserve requested player intent so acceleration can resume
+        // automatically when the authoritative gameplay safety policy releases the cap.
         if (input->WasPressed(Input::InputAction::FireWeapon) ||
             input->WasPressed(Input::InputAction::DeployDecoy))
         {
-            timeCompression.BreakToRealtime();
+            static_cast<void>(timeCompression.TightenMaximumRate(TimeCompressionRate::X1));
         }
 
         if (timeCompression.RequestedRate() != previousRequestedRate)
@@ -344,6 +355,11 @@ public:
         const float stepSeconds = fixedDeltaSeconds > 0.0F
                                       ? fixedDeltaSeconds
                                       : static_cast<float>(fixedStepAccumulator.StepSeconds());
+
+        // Safety caps are re-authored every fixed tick. The previous tick's cap remains in force while this
+        // frame decides how much work to accumulate, then gameplay may tighten the fresh 8x ceiling below.
+        static_cast<void>(timeCompression.SetMaximumRate(TimeCompressionRate::X8));
+        TimeCompressionSafetyScope safetyScope(timeCompression);
         if (fixedUpdateHook && !fixedUpdateHook(stepSeconds))
         {
             core.Log().Error(Diagnostics::LogCategory::Core, "Game fixed-update hook failed");
@@ -447,7 +463,7 @@ public:
 
         core.Log().Info(Diagnostics::LogCategory::Core, "Clearing active scene before dependent services");
         scene.Clear();
-        core.Log().Info(Diagnostics::LogCategory::Assets, "Clearing manager-owned asset cache after scene");
+        core.Log().Info(Diagnostics::LogCategory::Core, "Clearing manager-owned asset cache after scene");
         assets.Clear();
 
         hapticMixer.Reset();
