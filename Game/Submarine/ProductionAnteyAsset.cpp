@@ -210,7 +210,7 @@ namespace
             return index;
         }
     }
-    throw std::runtime_error(std::format("Antey GLB has no node for a required propeller presentation binding"));
+    throw std::runtime_error(std::format("Antey GLB has no node for a required production presentation binding"));
 }
 
 void Require(const bool condition, const std::string_view message)
@@ -337,6 +337,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             .renderLods = {},
             .propellers = {},
             .retractableSailDevices = {},
+            .depthPlanes = {},
             .torpedoLaunchAnchors = {},
             .p700LaunchAnchors = {},
             .compartments = {},
@@ -376,6 +377,36 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 .rotationAxis = propeller.at("axis").get<std::string>(),
                 .presentationNodeBindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference)});
         }
+
+        // M5-V2-B consumes production control-surface authoring only as a private node-resolution source.
+        // The public runtime definition retains semantic group + opaque node binding, never raw GLB names.
+        const Json& controlSurfaceAuthoring = metadata.at("controlSurfaceAuthoring");
+        Require(controlSurfaceAuthoring.is_object(), "Antey controlSurfaceAuthoring must be an object");
+        std::unordered_set<std::size_t> depthPlaneBindingIndices;
+        const auto appendDepthPlanes = [&](const std::string_view key,
+                                           const ProductionDepthPlaneGroup group,
+                                           const std::string_view semanticPrefix)
+        {
+            const Json& records = controlSurfaceAuthoring.at(std::string(key));
+            Require(records.is_array() && records.size() == 2U,
+                    std::format("Antey {} must contain two depth planes", key));
+            for (std::size_t index = 0; index < records.size(); ++index)
+            {
+                const std::string privateNodeReference = records[index].get<std::string>();
+                const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
+                Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value(),
+                        "Antey depth-plane binding must resolve to a drawable mesh node");
+                Require(depthPlaneBindingIndices.insert(bindingIndex).second,
+                        "Antey depth-plane bindings must be unique");
+                definition.depthPlanes.push_back({
+                    .semanticId = std::format("depth-plane.{}.{:02}", semanticPrefix, index + 1U),
+                    .group = group,
+                    .presentationNodeBindingIndex = bindingIndex});
+            }
+        };
+        appendDepthPlanes("bowPlanes", ProductionDepthPlaneGroup::Bow, "bow");
+        appendDepthPlanes("sternPlanes", ProductionDepthPlaneGroup::Stern, "stern");
+        Require(definition.depthPlanes.size() == 4U, "Antey must expose four production depth-plane bindings");
 
         const Json& retractableSailDevices = authoring.at("retractableSailDevices");
         Require(retractableSailDevices.is_array() && !retractableSailDevices.empty(),

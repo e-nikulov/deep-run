@@ -49,6 +49,16 @@ class PhysicsWorld;
 
 namespace DeepRun::Game
 {
+struct VesselPresentationTelemetry final
+{
+    float signedDepthMeters = 0.0F;
+    // World +Y is upward, so positive values mean surfacing and negative values mean diving.
+    float verticalSpeedMetersPerSecond = 0.0F;
+    float throttleFraction = 0.0F;
+    float bowPlaneDeflectionFraction = 0.0F;
+    float sternPlaneDeflectionFraction = 0.0F;
+};
+
 // M2 Slice C2: the canonical submarine is rendered from authoritative Jolt rigid-body state.
 //
 // Authority flow (the only allowed direction):
@@ -125,6 +135,8 @@ public:
 
     // M5-I.2 live hazard bridge. The snapshot is a value copy of the already-authoritative production collision
     // body and proxy dimensions. Combat may use it for generic sweeps but cannot mutate physics through it.
+    [[nodiscard]] std::expected<VesselPresentationTelemetry, std::string> BuildVesselPresentationTelemetry() const;
+
     [[nodiscard]] std::expected<Submarine::AnteyPhysicalCollisionProxySnapshot, std::string>
     BuildPhysicalCollisionProxySnapshot() const
     {
@@ -379,6 +391,11 @@ private:
     Marine::PropulsionComponent propulsion_;
     Marine::PropulsionState propulsionState_{};
     std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
+    // M5-V2-B committed simulation-control state. Presentation reads only these values after the full fixed
+    // transaction succeeds; raw keyboard/controller state never drives model articulation directly.
+    std::array<float, 2> committedControlSurfaceDeflections_{};
+    float committedThrottleFraction_ = 0.0F;
+    std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
 
     // World-space fixed camera target initialized from the production body's initial center. M5 free navigation
     // shifts only this retained presentation target, never the body or any simulation authority.

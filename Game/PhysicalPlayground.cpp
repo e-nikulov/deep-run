@@ -139,6 +139,9 @@ constexpr std::array<Marine::ControlSurfaceComponent, 2> M2ControlSurfaces{{
      .maxEffectiveLiftAreaSquareMeters = 40.0F}}};
 
 constexpr float M2MaximumPlaneDeflection = 0.5F;
+// Presentation-only articulation envelope. This is not a claim about classified/production hardware limits;
+// it maps the accepted normalized H2 simulation deflection visibly onto the authored production plane pivots.
+constexpr float M5DepthPlaneVisualMaximumRadians = 0.436332313F; // 25 degrees
 constexpr std::array<std::string_view, 2> M2ControlSurfaceNames{"bow", "stern"};
 
 // Diagnostics-only logger for the playground; the Engine's logger is not reachable through the generic API.
@@ -153,6 +156,23 @@ std::string FormatVector(const Physics::PhysicsVector3& value)
     std::ostringstream stream;
     stream << '(' << value.x << ", " << value.y << ", " << value.z << ')';
     return stream.str();
+}
+
+Assets::ModelTransform DepthPlanePostTransform(const float committedDeflectionFraction) noexcept
+{
+    const float normalized = M2MaximumPlaneDeflection > 0.0F
+        ? std::clamp(committedDeflectionFraction / M2MaximumPlaneDeflection, -1.0F, 1.0F)
+        : 0.0F;
+    // Blender LOCAL_Y hinge maps to runtime -Z under the accepted Antey basis conversion.
+    const float radians = -normalized * M5DepthPlaneVisualMaximumRadians;
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    Assets::ModelTransform transform{};
+    transform.values[0] = cosine;
+    transform.values[1] = sine;
+    transform.values[4] = -sine;
+    transform.values[5] = cosine;
+    return transform;
 }
 
 std::string FormatBounds(const EnvironmentBounds& bounds)
@@ -387,6 +407,27 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         }
         submergedSailDeviceOverrides.push_back(
             {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
+    }
+    std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices;
+    for (const Submarine::ProductionDepthPlane& plane : productionDefinition->depthPlanes)
+    {
+        if (plane.presentationNodeBindingIndex >= (*model)->nodeBindings.size())
+        {
+            return std::unexpected("physical playground production depth-plane binding is invalid");
+        }
+        const auto meshNodeIndex = (*model)->nodeBindings[plane.presentationNodeBindingIndex].meshNodeIndex;
+        if (!meshNodeIndex.has_value())
+        {
+            return std::unexpected("physical playground production depth-plane binding is not drawable");
+        }
+        const std::size_t groupIndex = plane.group == Submarine::ProductionDepthPlaneGroup::Bow
+            ? M2BowPlaneIndex : M2SternPlaneIndex;
+        depthPlaneMeshNodeIndices[groupIndex].push_back(*meshNodeIndex);
+    }
+    if (depthPlaneMeshNodeIndices[M2BowPlaneIndex].size() != 2U ||
+        depthPlaneMeshNodeIndices[M2SternPlaneIndex].size() != 2U)
+    {
+        return std::unexpected("physical playground requires two production bow and two stern depth-plane nodes");
     }
 
     if (productionDefinition->collisionProxies.size() != 1U)
@@ -1001,6 +1042,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     propulsion_ = M2Propulsion;
     propulsionState_ = {};
     controlSurfaces_ = std::move(controlSurfaces);
+    committedControlSurfaceDeflections_ = {};
+    committedThrottleFraction_ = 0.0F;
+    depthPlaneMeshNodeIndices_ = std::move(depthPlaneMeshNodeIndices);
     propellerPresentationAngleRadians_ = 0.0F;
     propulsorBodyLocalPosition_ = propulsorBodyLocalPosition;
     initialBodyWorldCenter_ = initialBodyWorldCenter;
@@ -1297,6 +1341,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     // including both H2 surface forces, succeeds.
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
+    committedThrottleFraction_ = command.throttleFraction;
+    committedControlSurfaceDeflections_ = controlDeflections;
 
     // I2 presentation producer: derive semantic intensity only from the newly committed authoritative shaft
     // RPM. A malformed impossible state is validated and diagnosed once, but haptic presentation can never
@@ -1413,6 +1459,30 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     return {};
 }
 
+std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::BuildVesselPresentationTelemetry() const
+{
+    if (physics_ == nullptr || !physicsBody_.IsValid() || !water_.has_value())
+    {
+        return std::unexpected("vessel presentation telemetry authorities are unavailable");
+    }
+    const auto state = physics_->GetBodyState(physicsBody_);
+    if (!state || !state->position.IsFinite() || !state->linearVelocity.IsFinite())
+    {
+        return std::unexpected("vessel presentation telemetry body state is unavailable");
+    }
+    const auto waterSample = water_->Sample(state->position);
+    if (!waterSample || !std::isfinite(waterSample->signedDepthMeters))
+    {
+        return std::unexpected("vessel presentation telemetry depth sample is unavailable");
+    }
+    return VesselPresentationTelemetry{
+        .signedDepthMeters = waterSample->signedDepthMeters,
+        .verticalSpeedMetersPerSecond = state->linearVelocity.y,
+        .throttleFraction = committedThrottleFraction_,
+        .bowPlaneDeflectionFraction = committedControlSurfaceDeflections_[M2BowPlaneIndex],
+        .sternPlaneDeflectionFraction = committedControlSurfaceDeflections_[M2SternPlaneIndex]};
+}
+
 std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     Render::D3D12Renderer& renderer,
     const double simulationTimeSeconds,
@@ -1480,9 +1550,21 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     surfaceFloatDraw.normalToWorld = *surfaceFloatNormal;
 
-    // IG1-B deliberately leaves production propellers static. Their semantic anchors resolve through IG1-A,
-    // but the existing M2 override addresses a prototype mesh node and must not leak raw GLB names into Game.
-    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, submergedSailDeviceOverrides_);
+    // M5-V2-B composes dynamic production depth-plane articulation after the already accepted submerged
+    // sail-device overrides. Both consume committed Game state; neither mutates ModelAsset or physics.
+    std::vector<Render::ModelNodeTransformOverride> submarineNodeOverrides = submergedSailDeviceOverrides_;
+    submarineNodeOverrides.reserve(
+        submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2BowPlaneIndex].size() +
+        depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
+    for (std::size_t group = 0; group < depthPlaneMeshNodeIndices_.size(); ++group)
+    {
+        const Assets::ModelTransform postTransform = DepthPlanePostTransform(committedControlSurfaceDeflections_[group]);
+        for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[group])
+        {
+            submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = postTransform});
+        }
+    }
+    const auto draws = Render::PrepareModelDraws(*modelAsset_, modelToWorld, submarineNodeOverrides);
     if (!draws)
     {
         return std::unexpected(draws.error());

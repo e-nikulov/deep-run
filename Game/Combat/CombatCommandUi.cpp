@@ -249,6 +249,40 @@ void DrawCameraScaleHud(const CameraScaleHudSnapshot& snapshot)
     ImGui::End();
 }
 
+void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport != nullptr)
+    {
+        constexpr float margin = 16.0F;
+        constexpr float cameraHudClearance = 112.0F;
+        ImGui::SetNextWindowPos(
+            ImVec2(viewport->WorkPos.x + margin,
+                   viewport->WorkPos.y + viewport->WorkSize.y - margin - cameraHudClearance),
+            ImGuiCond_Always,
+            ImVec2(0.0F, 1.0F));
+    }
+    ImGui::SetNextWindowBgAlpha(0.78F);
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize |
+                                       ImGuiWindowFlags_NoDecoration |
+                                       ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoNavInputs |
+                                       ImGuiWindowFlags_NoInputs;
+    if (!ImGui::Begin("##VESSEL_NAV", nullptr, flags))
+    {
+        ImGui::End();
+        return;
+    }
+    ImGui::TextUnformatted("NAV");
+    ImGui::Text("Depth: %.1f m", snapshot.signedDepthMeters);
+    ImGui::Text("V/S: %+0.2f m/s (UP+)", snapshot.verticalSpeedMetersPerSecond);
+    ImGui::Text("Throttle: %+0.0f%%", snapshot.throttleFraction * 100.0F);
+    ImGui::Text("Planes B/S: %+0.0f%% / %+0.0f%%",
+                snapshot.bowPlaneDeflectionFraction * 100.0F,
+                snapshot.sternPlaneDeflectionFraction * 100.0F);
+    ImGui::End();
+}
+
 void DrawTacticalSituationOverlay(
     const Camera::MultiScaleCameraBand band,
     const Render::OrthographicCamera& camera,

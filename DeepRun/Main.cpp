@@ -892,6 +892,19 @@ int main(const int argumentCount, char** argumentValues)
                                 .ownshipProjectedPixels = DeepRun::Game::Camera::ProjectedHorizontalPixels(
                                     *ownshipLengthMeters, framing.horizontalSpanMeters, viewportWidthPixels)});
                         }
+                        const auto navigationTelemetry = playground.BuildVesselPresentationTelemetry();
+                        if (!navigationTelemetry)
+                        {
+                            std::cerr << "[Game][ERROR] M5-V2 vessel navigation HUD failed: "
+                                      << navigationTelemetry.error() << '\n';
+                            return false;
+                        }
+                        DeepRun::Game::Combat::DrawVesselNavigationHud({
+                            .signedDepthMeters = navigationTelemetry->signedDepthMeters,
+                            .verticalSpeedMetersPerSecond = navigationTelemetry->verticalSpeedMetersPerSecond,
+                            .throttleFraction = navigationTelemetry->throttleFraction,
+                            .bowPlaneDeflectionFraction = navigationTelemetry->bowPlaneDeflectionFraction,
+                            .sternPlaneDeflectionFraction = navigationTelemetry->sternPlaneDeflectionFraction});
 
                         if (framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Operational ||
                             framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Strategic)

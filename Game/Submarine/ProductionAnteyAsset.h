@@ -70,6 +70,20 @@ struct ProductionLaunchAnchor final
     Assets::ModelVector3 launchForward{};
 };
 
+enum class ProductionDepthPlaneGroup
+{
+    Bow,
+    Stern,
+};
+
+struct ProductionDepthPlane final
+{
+    std::string semanticId;
+    ProductionDepthPlaneGroup group = ProductionDepthPlaneGroup::Bow;
+    // Opaque Assets-layer binding index; raw GLB/source names stop in the loader.
+    std::size_t presentationNodeBindingIndex = 0;
+};
+
 struct ProductionCompartment final
 {
     std::string semanticId;
@@ -113,6 +127,7 @@ struct ProductionSubmarineAssetDefinition final
     std::array<ProductionRenderLod, 4> renderLods;
     std::vector<ProductionPropellerAnchor> propellers;
     std::vector<ProductionRetractableSailDevice> retractableSailDevices;
+    std::vector<ProductionDepthPlane> depthPlanes;
     std::vector<ProductionLaunchAnchor> torpedoLaunchAnchors;
     std::vector<ProductionLaunchAnchor> p700LaunchAnchors;
     std::vector<ProductionCompartment> compartments;

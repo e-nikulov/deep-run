@@ -24,6 +24,17 @@ struct CameraScaleHudSnapshot final
 
 void DrawCameraScaleHud(const CameraScaleHudSnapshot& snapshot);
 
+struct VesselNavigationHudSnapshot final
+{
+    float signedDepthMeters = 0.0F;
+    float verticalSpeedMetersPerSecond = 0.0F;
+    float throttleFraction = 0.0F;
+    float bowPlaneDeflectionFraction = 0.0F;
+    float sternPlaneDeflectionFraction = 0.0F;
+};
+
+void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot);
+
 void DrawTacticalSituationOverlay(
     Camera::MultiScaleCameraBand band,
     const Render::OrthographicCamera& camera,
