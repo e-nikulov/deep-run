@@ -437,6 +437,13 @@ public:
     {
         return playerP700_;
     }
+    [[nodiscard]] std::optional<std::string> PlayerP700HatchGroupSemanticId() const
+    {
+        if (!playerP700LaunchSlotIndex_ || !p700LauncherInventory_ ||
+            *playerP700LaunchSlotIndex_ >= p700LauncherInventory_->Slots().size())
+            return std::nullopt;
+        return p700LauncherInventory_->Slots()[*playerP700LaunchSlotIndex_].anchor.hatchGroupSemanticId;
+    }
 
 private:
     CombatPlaygroundRuntime(
@@ -1559,6 +1566,7 @@ private:
         {
             return std::unexpected("M5 P-700 launcher consumption failed after accepted launch: " + consumed.error());
         }
+        playerP700LaunchSlotIndex_ = launch->slotIndex;
         playerP700_ = std::move(*missile);
         return {};
     }
@@ -1975,6 +1983,7 @@ private:
     std::optional<Armament::P700CarrierLaunchContract> p700CarrierLaunchContract_{};
     std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
     std::optional<Weapons::P700GranitRuntimeState> playerP700_{};
+    std::optional<std::size_t> playerP700LaunchSlotIndex_{};
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};

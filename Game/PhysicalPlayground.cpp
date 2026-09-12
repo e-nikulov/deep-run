@@ -181,6 +181,15 @@ Assets::ModelTransform DepthPlanePostTransform(const float committedDeflectionFr
     return transform;
 }
 
+Assets::ModelTransform P700HatchOpenPostTransform(const float progress) noexcept
+{
+    Assets::ModelTransform transform{};
+    // The accepted production hatch meshes are distinct but do not yet publish physical hinge pivots. Until
+    // authoring adds that semantic, use a bounded vertical lift-open presentation rather than inventing a hinge.
+    transform.values[13] = 2.4F * std::clamp(progress, 0.0F, 1.0F);
+    return transform;
+}
+
 std::string FormatBounds(const EnvironmentBounds& bounds)
 {
     std::ostringstream stream;
@@ -457,6 +466,18 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     {
         return std::unexpected("physical playground requires two production Antey propeller bindings");
     }
+
+    std::vector<std::pair<std::string, std::size_t>> p700HatchBindings;
+    p700HatchBindings.reserve(productionDefinition->p700Hatches.size());
+    for (const Submarine::ProductionP700Hatch& hatch : productionDefinition->p700Hatches)
+    {
+        if (hatch.semanticId.empty() || hatch.presentationNodeBindingIndex >= (*model)->nodeBindings.size() ||
+            (*model)->nodeBindings[hatch.presentationNodeBindingIndex].drawableMeshNodeIndices.empty())
+            return std::unexpected("physical playground production P-700 hatch semantic binding is invalid");
+        p700HatchBindings.emplace_back(hatch.semanticId, hatch.presentationNodeBindingIndex);
+    }
+    if (p700HatchBindings.size() != 12U)
+        return std::unexpected("physical playground requires twelve production P-700 paired hatch bindings");
 
     if (productionDefinition->collisionProxies.size() != 1U)
     {
@@ -1074,6 +1095,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     committedThrottleFraction_ = 0.0F;
     depthPlaneMeshNodeIndices_ = std::move(depthPlaneMeshNodeIndices);
     propellerNodeBindingIndices_ = std::move(propellerNodeBindingIndices);
+    p700HatchBindings_ = std::move(p700HatchBindings);
+    activeP700HatchGroup_.reset();
+    activeP700HatchOpenProgress_ = 0.0F;
     facingState_ = {};
     consumedTurnAroundPressSequence_ = 0;
     propellerPresentationAngleRadians_ = 0.0F;
@@ -1615,11 +1639,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     const Assets::ModelTransform propellerPostTransform =
         PropellerPostTransform(propellerPresentationAngleRadians_);
     std::vector<Render::ModelBindingTransformOverride> submarineBindingOverrides;
-    submarineBindingOverrides.reserve(propellerNodeBindingIndices_.size());
+    submarineBindingOverrides.reserve(propellerNodeBindingIndices_.size() + 1U);
     for (const std::size_t bindingIndex : propellerNodeBindingIndices_)
     {
         submarineBindingOverrides.push_back(
             {.bindingIndex = bindingIndex, .bindingLocalPostTransform = propellerPostTransform});
+    }
+    if (activeP700HatchGroup_.has_value() && activeP700HatchOpenProgress_ > 0.0F)
+    {
+        const auto hatch = std::ranges::find_if(p700HatchBindings_, [&](const auto& value) {
+            return value.first == *activeP700HatchGroup_;
+        });
+        if (hatch == p700HatchBindings_.end())
+            return std::unexpected("physical playground active P-700 hatch binding disappeared");
+        submarineBindingOverrides.push_back({
+            .bindingIndex = hatch->second,
+            .bindingLocalPostTransform = P700HatchOpenPostTransform(activeP700HatchOpenProgress_)});
     }
     const auto draws = Render::PrepareModelDraws(
         *modelAsset_, modelToWorld, submarineNodeOverrides, submarineBindingOverrides);

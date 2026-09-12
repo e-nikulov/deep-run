@@ -25,6 +25,7 @@ struct ProductionP700AssetDefinition final
     std::string deploymentAnimationName;
     float authoredDeploymentDurationSeconds = 0.0F;
     std::vector<std::size_t> lod0MeshNodeIndices;
+    std::vector<std::size_t> boosterLod0MeshNodeIndices;
     std::vector<ProductionP700MovableSurface> movableSurfaces;
 };
 
@@ -41,6 +42,10 @@ BuildProductionP700DeploymentOverrides(
     float deploymentProgress);
 
 [[nodiscard]] bool IsProductionP700Lod0MeshNode(
+    const ProductionP700AssetDefinition& definition,
+    std::size_t meshNodeIndex) noexcept;
+
+[[nodiscard]] bool IsProductionP700BoosterLod0MeshNode(
     const ProductionP700AssetDefinition& definition,
     std::size_t meshNodeIndex) noexcept;
 } // namespace DeepRun::Game::Armament

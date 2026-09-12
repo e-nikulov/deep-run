@@ -691,6 +691,24 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
                     combatUiSnapshot = combatFrame->playerCombat;
+                    if (combatPlayground->Runtime().has_value())
+                    {
+                        const auto& runtime = *combatPlayground->Runtime();
+                        std::optional<std::string> hatchGroup{};
+                        float hatchProgress = 0.0F;
+                        if (runtime.PlayerP700().has_value())
+                        {
+                            hatchGroup = runtime.PlayerP700HatchGroupSemanticId();
+                            hatchProgress = runtime.PlayerP700()->hatchOpenProgress;
+                        }
+                        const auto hatchPresentation = playground.SetP700HatchPresentation(hatchGroup, hatchProgress);
+                        if (!hatchPresentation)
+                        {
+                            std::cerr << "[Game][ERROR] M5 P-700 production hatch presentation failed: "
+                                      << hatchPresentation.error() << '\n';
+                            return false;
+                        }
+                    }
                     if (options.smokeTest)
                     {
                         if (!combatAcceptance.has_value())

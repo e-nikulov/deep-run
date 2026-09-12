@@ -235,6 +235,27 @@ public:
         return M2GameplayCameraHorizontalSpanMeters;
     }
 
+    // Presentation-only bridge from the P-700 lifecycle. Semantic hatch identity was resolved from production
+    // authoring once at Initialize; no raw GLB node name or gameplay launch decision enters the renderer.
+    [[nodiscard]] std::expected<void, std::string> SetP700HatchPresentation(
+        const std::optional<std::string>& hatchGroupSemanticId,
+        const float openProgress)
+    {
+        if (!std::isfinite(openProgress) || openProgress < 0.0F || openProgress > 1.0F)
+            return std::unexpected("P-700 hatch presentation progress must be finite in [0,1]");
+        if (hatchGroupSemanticId.has_value())
+        {
+            const auto found = std::ranges::find_if(p700HatchBindings_, [&](const auto& hatch) {
+                return hatch.first == *hatchGroupSemanticId;
+            });
+            if (found == p700HatchBindings_.end())
+                return std::unexpected("P-700 hatch presentation semantic group is not present in production Antey");
+        }
+        activeP700HatchGroup_ = hatchGroupSemanticId;
+        activeP700HatchOpenProgress_ = openProgress;
+        return {};
+    }
+
     [[nodiscard]] std::expected<float, std::string> ProductionSubmarinePresentationLengthMeters() const
     {
         if (!modelAsset_.IsValid())
@@ -403,6 +424,9 @@ private:
     float committedThrottleFraction_ = 0.0F;
     std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
     std::vector<std::size_t> propellerNodeBindingIndices_{};
+    std::vector<std::pair<std::string, std::size_t>> p700HatchBindings_{};
+    std::optional<std::string> activeP700HatchGroup_{};
+    float activeP700HatchOpenProgress_ = 0.0F;
     Submarine::AnteyFacingState facingState_{};
     std::uint64_t consumedTurnAroundPressSequence_ = 0;
 

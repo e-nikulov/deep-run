@@ -340,6 +340,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             .depthPlanes = {},
             .torpedoLaunchAnchors = {},
             .p700LaunchAnchors = {},
+            .p700Hatches = {},
             .compartments = {},
             .collisionProxies = {},
             .buoyancyProxy = {}};
@@ -493,20 +494,42 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             definition.torpedoLaunchAnchors.push_back({
                 .semanticId = std::format("torpedo.{}.{}", torpedo.at("tubeClass").get<std::string>(), torpedoOrdinal),
                 .localTransform = ReadTransform(torpedo.at("transform"), "torpedo transform"),
-                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(torpedo.at("launchForward"), "torpedo launch forward"))});
+                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(torpedo.at("launchForward"), "torpedo launch forward")),
+                .hatchGroupSemanticId = {}});
         }
 
         const Json& p700Launchers = authoring.at("p700Launchers");
         Require(p700Launchers.is_array() && p700Launchers.size() == 24U, "Antey must have 24 P700 launcher records");
+        std::unordered_map<std::string, std::size_t> p700HatchUseCounts;
         for (const Json& launcher : p700Launchers)
         {
             const std::string hatchGroup = launcher.at("hatchGroup").get<std::string>();
             const std::size_t pairIndex = ReadCount(launcher.at("pairIndex"), "P700 pair index");
+            Require(pairIndex == 1U || pairIndex == 2U, "P700 paired-hatch launcher index must be 1 or 2");
+            ++p700HatchUseCounts[hatchGroup];
             definition.p700LaunchAnchors.push_back({
                 .semanticId = std::format("p700.{}.{}", hatchGroup, pairIndex),
                 .localTransform = ReadTransform(launcher.at("transform"), "P700 transform"),
-                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(launcher.at("launchForward"), "P700 launch forward"))});
+                .launchForward = ConvertAnteyAuthoringVector(ReadVector3(launcher.at("launchForward"), "P700 launch forward")),
+                .hatchGroupSemanticId = hatchGroup});
         }
+        Require(p700HatchUseCounts.size() == 12U, "Antey must expose exactly twelve paired P700 hatch groups");
+        for (const auto& [hatchGroup, launcherCount] : p700HatchUseCounts)
+        {
+            Require(launcherCount == 2U, "each Antey P700 hatch group must own exactly two launchers");
+            const bool port = hatchGroup.starts_with("PORT_HATCH_");
+            const bool starboard = hatchGroup.starts_with("STBD_HATCH_");
+            Require(port || starboard, "P700 hatch group semantic ID must identify port or starboard bank");
+            const std::string ordinal = hatchGroup.substr(hatchGroup.size() - 2U);
+            const std::string privateNodeReference = std::format(
+                "SM_P700_Hatch_{}_{}", port ? "Port" : "Starboard", ordinal);
+            const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
+            Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value() &&
+                    !(**model).nodeBindings.at(bindingIndex).drawableMeshNodeIndices.empty(),
+                    "Antey P700 hatch binding must resolve to drawable production geometry");
+            definition.p700Hatches.push_back({.semanticId = hatchGroup, .presentationNodeBindingIndex = bindingIndex});
+        }
+        std::ranges::sort(definition.p700Hatches, {}, &ProductionP700Hatch::semanticId);
 
         const Json& compartments = authoring.at("compartments");
         Require(compartments.is_array() && compartments.size() == 10U, "Antey must have ten compartment records");

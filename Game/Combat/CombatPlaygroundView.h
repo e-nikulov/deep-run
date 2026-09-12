@@ -258,7 +258,9 @@ public:
             std::vector<Render::ModelDrawInstance> p700Draws;
             for (const auto& draw : *prepared)
             {
-                if (Armament::IsProductionP700Lod0MeshNode(p700Definition_, draw.nodeIndex))
+                if (Armament::IsProductionP700Lod0MeshNode(p700Definition_, draw.nodeIndex) &&
+                    (snapshot->playerP700->launchBoosterAttached ||
+                     !Armament::IsProductionP700BoosterLod0MeshNode(p700Definition_, draw.nodeIndex)))
                 {
                     p700Draws.push_back(draw);
                 }
@@ -276,6 +278,30 @@ public:
                     : "M5 production P-700 draw failed: " + p700Stats.error());
             }
             accumulate(*p700Stats);
+
+            // During the bounded separation phase draw the canonical booster mesh once more as a detached
+            // presentation object. It is no longer part of missile collision/authority; this is visual evidence
+            // of the lifecycle state only.
+            if (!snapshot->playerP700->launchBoosterAttached &&
+                snapshot->playerP700->phase == Weapons::P700GranitPhase::PostExitTransition &&
+                snapshot->playerP700->postExitTransitionProgress < 0.95F)
+            {
+                const float p = snapshot->playerP700->postExitTransitionProgress;
+                Assets::ModelTransform separation{};
+                separation.values[12] = -4.0F * p;
+                separation.values[13] = -2.0F * p;
+                const Assets::ModelTransform detachedToWorld = Render::Multiply(*modelToWorld, separation);
+                const auto detachedPrepared = Render::PrepareModelDraws(*p700Asset_, detachedToWorld);
+                if (!detachedPrepared) return std::unexpected("M5 detached P-700 booster draw preparation failed: " + detachedPrepared.error());
+                std::vector<Render::ModelDrawInstance> detachedBoosterDraws;
+                for (const auto& draw : *detachedPrepared)
+                    if (Armament::IsProductionP700BoosterLod0MeshNode(p700Definition_, draw.nodeIndex)) detachedBoosterDraws.push_back(draw);
+                if (detachedBoosterDraws.empty()) return std::unexpected("M5 detached P-700 booster has no LOD0 draw");
+                const auto detachedStats = renderer.DrawModel(p700GpuModel_,
+                    std::span<const Render::ModelDrawInstance>(detachedBoosterDraws.data(), detachedBoosterDraws.size()), camera);
+                if (!detachedStats) return std::unexpected("M5 detached P-700 booster draw failed: " + detachedStats.error());
+                accumulate(*detachedStats);
+            }
         }
         if (totalStats.drawCalls < proxyDraws.size() ||
             totalStats.submittedPrimitives != totalStats.drawCalls || totalStats.submittedIndices < 72U)

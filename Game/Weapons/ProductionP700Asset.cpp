@@ -261,11 +261,19 @@ std::expected<ProductionP700AssetDefinition, std::string> LoadProductionP700Asse
             return std::unexpected("P-700 LOD0 deployment surface set is incomplete");
         }
 
+        const auto boosterBindingIndex = FindUniqueBinding(*model, "SM_P700_LOD0_Booster");
+        if (!boosterBindingIndex || model->nodeBindings[*boosterBindingIndex].drawableMeshNodeIndices.empty())
+        {
+            return std::unexpected("staged P-700 LOD0 booster must have one unique drawable semantic binding");
+        }
+        const std::vector<std::size_t> boosterNodes =
+            model->nodeBindings[*boosterBindingIndex].drawableMeshNodeIndices;
         return ProductionP700AssetDefinition{
             .modelAssetId = model->id,
             .deploymentAnimationName = animation.name,
             .authoredDeploymentDurationSeconds = animation.durationSeconds,
             .lod0MeshNodeIndices = std::move(lod0MeshNodes),
+            .boosterLod0MeshNodeIndices = boosterNodes,
             .movableSurfaces = std::move(surfaces)};
     }
     catch (const std::exception& exception)
@@ -311,4 +319,13 @@ bool IsProductionP700Lod0MeshNode(
     return std::find(definition.lod0MeshNodeIndices.begin(), definition.lod0MeshNodeIndices.end(), meshNodeIndex) !=
            definition.lod0MeshNodeIndices.end();
 }
+
+bool IsProductionP700BoosterLod0MeshNode(
+    const ProductionP700AssetDefinition& definition,
+    const std::size_t meshNodeIndex) noexcept
+{
+    return std::find(definition.boosterLod0MeshNodeIndices.begin(), definition.boosterLod0MeshNodeIndices.end(), meshNodeIndex) !=
+           definition.boosterLod0MeshNodeIndices.end();
+}
 } // namespace DeepRun::Game::Armament
+
