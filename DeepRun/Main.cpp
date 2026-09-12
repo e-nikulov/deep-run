@@ -745,11 +745,9 @@ int main(const int argumentCount, char** argumentValues)
                             if (missile.phase == DeepRun::Weapons::P700GranitPhase::HatchOpening && missile.hatchOpenProgress > 0.0F)
                                 std::cout << "[Game][P700] HATCH_OPENING progress=" << missile.hatchOpenProgress << '\n';
                             if (missile.phase == DeepRun::Weapons::P700GranitPhase::UnderwaterLaunch)
-                                std::cout << "[Game][P700] UNDERWATER_BOOSTER_EXIT
-";
+                                std::cout << "[Game][P700] UNDERWATER_BOOSTER_EXIT\n";
                             if (missile.phase == DeepRun::Weapons::P700GranitPhase::WaterExit)
-                                std::cout << "[Game][P700] WATER_EXIT
-";
+                                std::cout << "[Game][P700] WATER_EXIT\n";
                             if (missile.phase == DeepRun::Weapons::P700GranitPhase::PostExitTransition)
                                 std::cout << "[Game][P700] HARDWARE_SEPARATION progress=" << missile.postExitTransitionProgress << '\n';
                             if (missile.phase == DeepRun::Weapons::P700GranitPhase::AirborneDeploying)
@@ -763,14 +761,12 @@ int main(const int argumentCount, char** argumentValues)
                         {
                             std::cout << "[Game][P700] PHYSICAL_IMPACT damage="
                                       << combatFrame->playerP700Impact->damage.damage << " radius="
-                                      << combatFrame->playerP700Impact->explosion.radiusMeters << "
-";
+                                      << combatFrame->playerP700Impact->explosion.radiusMeters << "\n";
                             engineServices->RequestShutdown();
                         }
                         if (simulationTimeSeconds > 75.0)
                         {
-                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded 75 s SimulationTime without impact
-";
+                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded 75 s SimulationTime without impact\n";
                             return false;
                         }
                     }
