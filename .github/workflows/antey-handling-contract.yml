@@ -1,0 +1,40 @@
+name: Antey Handling Contract Patch
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+    paths:
+      - Tools/patch_antey_handling_contract.py
+      - .github/workflows/antey-handling-contract.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply Antey handling contract
+        run: python Tools/patch_antey_handling_contract.py
+      - name: Validate patch shape
+        shell: bash
+        run: |
+          git diff --check
+          grep -q "AnteyCanonicalFullSubmergedMassKg = 24'000'000.0F" Game/Submarine/AnteyHandlingModel.h
+          grep -q "minimumLaunchDepthMeters = 0.0F" Simulation/Weapons/WeaponEmploymentEnvelope.h
+          grep -q "InputAction::TurnAround" Engine/Input/InputSystem.cpp
+          grep -q "propellerMeshNodeIndices_" Game/PhysicalPlayground.cpp
+          grep -q "gameplayLongitudinalFacingSign" Game/Combat/CombatPlaygroundRuntime.h
+      - name: Commit production patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Engine Game Simulation Tests docs
+          git rm Tools/patch_antey_handling_contract.py .github/workflows/antey-handling-contract.yml
+          git commit -m "feat: complete Antey handling and launch contracts"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
