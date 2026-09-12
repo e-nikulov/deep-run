@@ -1,0 +1,40 @@
+name: M5 Weapon Employment Repair
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+    paths:
+      - Tools/patch_m5_weapon_employment.py
+      - .github/workflows/m5-weapon-employment-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply scoped runtime patch
+        run: python Tools/patch_m5_weapon_employment.py
+
+      - name: Validate patch shape
+        run: |
+          git diff --check
+          grep -q 'AssessPlayerUset80Employment' Game/Combat/CombatPlaygroundRuntime.h
+          grep -q 'RunM5WeaponEmploymentChecks' Tests/M5WeaponRuntimeTest.cpp
+
+      - name: Commit production patch and remove temporary repair files
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Game/Combat/CombatPlaygroundRuntime.h Tests/M5WeaponRuntimeTest.cpp
+          git rm Tools/patch_m5_weapon_employment.py .github/workflows/m5-weapon-employment-repair.yml
+          git commit -m "feat: enforce weapon employment envelopes"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
