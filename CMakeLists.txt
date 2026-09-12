@@ -146,6 +146,28 @@ add_custom_command(
 )
 add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})
 
+set(DEEPRUN_P700_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Content/Weapons/P700")
+set(DEEPRUN_P700_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/Weapons/P700")
+set(DEEPRUN_P700_RUNTIME_FILES
+    "${DEEPRUN_P700_RUNTIME_DIR}/P700_Granit.glb"
+    "${DEEPRUN_P700_RUNTIME_DIR}/P700.asset.json"
+    "${DEEPRUN_P700_RUNTIME_DIR}/P700.authoring.json"
+)
+add_custom_command(
+    OUTPUT ${DEEPRUN_P700_RUNTIME_FILES}
+    COMMAND ${CMAKE_COMMAND}
+        -DDEEPRUN_P700_SOURCE_DIR=${DEEPRUN_P700_SOURCE_DIR}
+        -DDEEPRUN_P700_DESTINATION_DIR=${DEEPRUN_P700_RUNTIME_DIR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageP700Runtime.cmake"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageP700Runtime.cmake"
+        "${DEEPRUN_P700_SOURCE_DIR}/P700_Granit.glb"
+        "${DEEPRUN_P700_SOURCE_DIR}/P700.asset.json"
+        "${DEEPRUN_P700_SOURCE_DIR}/P700.authoring.json"
+    VERBATIM
+)
+add_custom_target(DeepRunP700RuntimeAssets DEPENDS ${DEEPRUN_P700_RUNTIME_FILES})
+
 add_library(DeepRunEngine STATIC
     Engine/Assets/AssetManager.cpp
     Engine/Assets/GltfModelLoader.cpp
@@ -222,6 +244,7 @@ add_executable(DeepRun
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
     Game/Submarine/ProductionAnteyAsset.cpp
+    Game/Weapons/ProductionP700Asset.cpp
     Game/SurfaceFloatModel.cpp
     Game/Submarine/VesselCommandState.cpp
     Game/WaterPresentation.cpp
@@ -240,6 +263,7 @@ add_custom_target(DeepRunConfig ALL
 add_dependencies(DeepRun DeepRunConfig)
 add_dependencies(DeepRun DeepRunShaders)
 add_dependencies(DeepRun DeepRunAnteyRuntimeAssets)
+add_dependencies(DeepRun DeepRunP700RuntimeAssets)
 add_custom_command(TARGET DeepRun POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/prototype"
@@ -249,6 +273,9 @@ add_custom_command(TARGET DeepRun POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${DEEPRUN_ANTEY_RUNTIME_DIR}"
         "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/Antey"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${DEEPRUN_P700_RUNTIME_DIR}"
+        "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/P700"
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/Torpedoes/USET80"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -353,5 +380,31 @@ target_compile_definitions(DeepRunM5WeaponRuntimeTests PRIVATE
 deeprun_set_project_warnings(DeepRunM5WeaponRuntimeTests)
 target_link_libraries(DeepRunM5WeaponRuntimeTests PRIVATE DeepRunEngine)
 add_test(NAME DeepRunM5WeaponRuntimeTests COMMAND DeepRunM5WeaponRuntimeTests)
+
+# M5 P-700 production content gate. It loads only the staged hash-validated package and verifies
+# the bounded P700_Deploy metadata, the eight-object LOD0 partition and six fixed-hinge surfaces.
+add_executable(DeepRunP700ProductionAssetTests
+    Tests/P700ProductionAssetTest.cpp
+    Game/Weapons/ProductionP700Asset.cpp
+)
+target_compile_features(DeepRunP700ProductionAssetTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunP700ProductionAssetTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunP700ProductionAssetTests)
+target_link_libraries(DeepRunP700ProductionAssetTests PRIVATE DeepRunEngine nlohmann_json::nlohmann_json)
+add_dependencies(DeepRunP700ProductionAssetTests DeepRunP700RuntimeAssets)
+add_custom_command(TARGET DeepRunP700ProductionAssetTests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DeepRunP700ProductionAssetTests>/Assets/Weapons"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${DEEPRUN_P700_RUNTIME_DIR}"
+        "$<TARGET_FILE_DIR:DeepRunP700ProductionAssetTests>/Assets/Weapons/P700"
+)
+add_test(NAME DeepRunP700ProductionAssetTests COMMAND DeepRunP700ProductionAssetTests)
+set_tests_properties(DeepRunP700ProductionAssetTests PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:DeepRunP700ProductionAssetTests>"
+)
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)
