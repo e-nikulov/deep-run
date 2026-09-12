@@ -75,9 +75,12 @@ public:
     [[nodiscard]] static std::expected<CombatPlaygroundRuntime, std::string> Create(
         Physics::PhysicsWorld& physicsWorld,
         const float surfaceLevelY,
-        const double simulationTimeSeconds)
+        const double simulationTimeSeconds,
+        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,
+        const bool p700AcceptanceMode = false)
     {
         if (!physicsWorld.IsInitialized() || !std::isfinite(surfaceLevelY) ||
+            !std::isfinite(destroyerInitialXMeters) || destroyerInitialXMeters <= 0.0F ||
             !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
         {
             return std::unexpected("M5-H combat playground creation input is invalid");
@@ -167,7 +170,7 @@ public:
             destroyerDefinition,
             physicsWorld,
             surfaceLevelY,
-            M5CombatDestroyerInitialXMeters,
+            destroyerInitialXMeters,
             0.0F,
             simulationTimeSeconds);
         if (!destroyer)
@@ -250,7 +253,8 @@ public:
             std::move(*playerCombat),
             decoyDefinition,
             playerDecoyDefinition,
-            simulationTimeSeconds);
+            simulationTimeSeconds,
+            p700AcceptanceMode);
     }
 
     // Production/windowed overload. Existing headless M5 tests keep the three-argument factory and therefore
@@ -261,7 +265,9 @@ public:
         const float surfaceLevelY,
         const double simulationTimeSeconds,
         Armament::P700CarrierLaunchContract p700CarrierLaunchContract,
-        Armament::P700LauncherInventory p700LauncherInventory)
+        Armament::P700LauncherInventory p700LauncherInventory,
+        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,
+        const bool p700AcceptanceMode = false)
     {
         if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount ||
             p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||
@@ -270,7 +276,7 @@ public:
         {
             return std::unexpected("M5 P-700 production runtime requires a fresh 24-slot launcher inventory");
         }
-        auto runtime = Create(physicsWorld, surfaceLevelY, simulationTimeSeconds);
+        auto runtime = Create(physicsWorld, surfaceLevelY, simulationTimeSeconds, destroyerInitialXMeters, p700AcceptanceMode);
         if (!runtime)
         {
             return runtime;
@@ -297,6 +303,43 @@ public:
         const double simulationTimeSeconds)
     {
         return AdvanceImpl(playerSnapshot, commands, simulationTimeSeconds, false);
+    }
+
+    // Dedicated windowed acceptance driver. It issues only the same semantic commands normal input can issue;
+    // perception/ranging/readiness/employment/materialization all stay on the production path.
+    [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvanceP700Acceptance(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const double simulationTimeSeconds)
+    {
+        std::array<PlayerCombatCommand, 2> commands{};
+        std::size_t count = 0U;
+        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit &&
+            playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
+        {
+            commands[count++] = {.type = PlayerCombatCommandType::NextWeapon};
+        }
+        const auto tracks = playerTracks_.Tracks();
+        if (!playerCombat_.SelectedTrackId().has_value() && !tracks.empty())
+        {
+            commands[count++] = {.type = PlayerCombatCommandType::SelectNextTrack};
+        }
+        else if (playerCombat_.SelectedTrackId().has_value() && selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit)
+        {
+            const auto selected = FindTrack(tracks, playerCombat_.SelectedTrackId());
+            if (selected && !selected->estimatedPositionMeters.has_value() && !activePulse_.has_value() &&
+                simulationTimeSeconds + 1.0e-9 >= nextActivePulseTimeSeconds_)
+            {
+                commands[count++] = {.type = PlayerCombatCommandType::ActiveSonarPing};
+            }
+            else if (selected && selected->estimatedPositionMeters.has_value())
+            {
+                if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
+                    commands[count++] = {.type = PlayerCombatCommandType::PrepareWeapon};
+                else if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
+                    commands[count++] = {.type = PlayerCombatCommandType::FireWeapon};
+            }
+        }
+        return AdvanceImpl(playerSnapshot, std::span<const PlayerCombatCommand>{commands.data(), count}, simulationTimeSeconds, false);
     }
 
     // M5-I.2 binds the production Antey physical proxy once after the windowed composition has both the
@@ -462,7 +505,8 @@ private:
         PlayerCombatCommandRuntime playerCombat,
         Weapons::AcousticDecoyDefinition decoyDefinition,
         Weapons::AcousticDecoyDefinition playerDecoyDefinition,
-        const double simulationTimeSeconds)
+        const double simulationTimeSeconds,
+        const bool p700AcceptanceMode)
         : physicsWorld_(&physicsWorld),
           acousticWorld_(std::move(acousticWorld)),
           playerTracks_(std::move(playerTracks)),
@@ -480,7 +524,8 @@ private:
           playerDecoyDefinition_(std::move(playerDecoyDefinition)),
           nextActivePulseTimeSeconds_(simulationTimeSeconds),
           nextDestroyerActivePulseTimeSeconds_(simulationTimeSeconds),
-          lastUpdateTimeSeconds_(simulationTimeSeconds)
+          lastUpdateTimeSeconds_(simulationTimeSeconds),
+          p700AcceptanceMode_(p700AcceptanceMode)
     {
     }
 
@@ -876,8 +921,11 @@ private:
             playerP700_->phase != Weapons::P700GranitPhase::Spent)
         {
             const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerP700_->guidanceTrackId);
+            const std::optional<Weapons::P700TerminalDefenseProfile> targetDefense = p700AcceptanceMode_
+                ? std::nullopt
+                : std::optional<Weapons::P700TerminalDefenseProfile>{Weapons::P700TerminalDefenseProfile{}};
             const auto advanced = Weapons::AdvanceP700GranitWithCollision(
-                playerP700Definition_, *playerP700_, perceivedTrack, *physicsWorld_, simulationTimeSeconds, playerBody_);
+                playerP700Definition_, *playerP700_, perceivedTrack, *physicsWorld_, simulationTimeSeconds, playerBody_, targetDefense);
             if (!advanced)
             {
                 return std::unexpected("M5 P-700 fixed-step advance failed: " + advanced.error());
@@ -1566,6 +1614,9 @@ private:
         {
             return std::unexpected("M5 P-700 launcher consumption failed after accepted launch: " + consumed.error());
         }
+        missile->terminalRandomSeed = Weapons::P700SplitMix64(
+            missile->terminalRandomSeed ^ static_cast<std::uint64_t>(launch->slotIndex + 1U) ^
+            static_cast<std::uint64_t>(std::llround(simulationTimeSeconds * 60.0)));
         playerP700LaunchSlotIndex_ = launch->slotIndex;
         playerP700_ = std::move(*missile);
         return {};
@@ -2011,5 +2062,6 @@ private:
     double nextDestroyerActivePulseTimeSeconds_ = 0.0;
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
+    bool p700AcceptanceMode_ = false;
 };
 } // namespace DeepRun::Game::Combat

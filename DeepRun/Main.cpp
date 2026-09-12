@@ -482,7 +482,9 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                const auto initialized = playground.Initialize(engine.Assets(), *physics, *renderer, options.smokeTest);
+                const auto initialized = playground.Initialize(
+                    engine.Assets(), *physics, *renderer, options.smokeTest || options.p700SmokeTest,
+                    options.p700SmokeTest ? 30.0F : 100.0F);
                 if (!initialized)
                 {
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
@@ -535,7 +537,11 @@ int main(const int argumentCount, char** argumentValues)
                         }
                     }
 
-                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer, engine.Assets());
+                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
+                        *renderer,
+                        engine.Assets(),
+                        options.p700SmokeTest ? 20'100.0F : DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters,
+                        options.p700SmokeTest);
                     if (!combat)
                     {
                         std::cerr << "[Game][ERROR] " << combat.error() << '\n';
@@ -553,7 +559,7 @@ int main(const int argumentCount, char** argumentValues)
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
-                const auto command = (options.smokeTest || options.benchmarkM3)
+                const auto command = (options.smokeTest || options.p700SmokeTest || options.benchmarkM3)
                                          ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
                                                DeepRun::Game::VesselCommandState{}}
                                          : inputState != nullptr
@@ -678,7 +684,10 @@ int main(const int argumentCount, char** argumentValues)
                     const auto combatFrame = options.smokeTest
                         ? combatPlayground->Advance(
                               *acousticSnapshot, *playerCollisionProxy, *physics, simulationTimeSeconds)
-                        : combatPlayground->AdvancePlayerControlled(
+                        : options.p700SmokeTest
+                            ? combatPlayground->AdvanceP700Acceptance(
+                                  *acousticSnapshot, *playerCollisionProxy, *physics, simulationTimeSeconds)
+                            : combatPlayground->AdvancePlayerControlled(
                               *acousticSnapshot,
                               *playerCollisionProxy,
                               *physics,
@@ -724,6 +733,44 @@ int main(const int argumentCount, char** argumentValues)
                         if (!acceptanceObserved)
                         {
                             std::cerr << "[Game][ERROR] " << acceptanceObserved.error() << '\n';
+                            return false;
+                        }
+                    }
+                    if (options.p700SmokeTest && combatPlayground->Runtime().has_value())
+                    {
+                        const auto& runtime = *combatPlayground->Runtime();
+                        if (runtime.PlayerP700().has_value())
+                        {
+                            const auto& missile = *runtime.PlayerP700();
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::HatchOpening && missile.hatchOpenProgress > 0.0F)
+                                std::cout << "[Game][P700] HATCH_OPENING progress=" << missile.hatchOpenProgress << '\n';
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::UnderwaterLaunch)
+                                std::cout << "[Game][P700] UNDERWATER_BOOSTER_EXIT
+";
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::WaterExit)
+                                std::cout << "[Game][P700] WATER_EXIT
+";
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::PostExitTransition)
+                                std::cout << "[Game][P700] HARDWARE_SEPARATION progress=" << missile.postExitTransitionProgress << '\n';
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::AirborneDeploying)
+                                std::cout << "[Game][P700] AERODYNAMIC_DEPLOY progress=" << missile.deploymentProgress << '\n';
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::Cruise)
+                                std::cout << "[Game][P700] CRUISE speed_mps=" << missile.speedMetersPerSecond << '\n';
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::Terminal)
+                                std::cout << "[Game][P700] TERMINAL speed_mps=" << missile.speedMetersPerSecond << '\n';
+                        }
+                        if (combatFrame->playerP700Impact.has_value())
+                        {
+                            std::cout << "[Game][P700] PHYSICAL_IMPACT damage="
+                                      << combatFrame->playerP700Impact->damage.damage << " radius="
+                                      << combatFrame->playerP700Impact->explosion.radiusMeters << "
+";
+                            engineServices->RequestShutdown();
+                        }
+                        if (simulationTimeSeconds > 75.0)
+                        {
+                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded 75 s SimulationTime without impact
+";
                             return false;
                         }
                     }
@@ -784,7 +831,26 @@ int main(const int argumentCount, char** argumentValues)
 
                 if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
                 {
-                    if (options.smokeTest)
+                    if (options.p700SmokeTest)
+                    {
+                        float targetOffsetXMeters = 0.0F;
+                        float spanMeters = 900.0F;
+                        if (combatPlayground->Runtime()->PlayerP700().has_value() && initialOwnshipNavigationPositionMeters.has_value())
+                        {
+                            const auto& missile = *combatPlayground->Runtime()->PlayerP700();
+                            targetOffsetXMeters = missile.positionMeters.x - initialOwnshipNavigationPositionMeters->x;
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::Cruise) spanMeters = 4'000.0F;
+                            if (missile.phase == DeepRun::Weapons::P700GranitPhase::Terminal) spanMeters = 7'000.0F;
+                        }
+                        const auto appliedFraming = playground.SetPresentationCameraFraming(
+                            targetOffsetXMeters, 0.0F, spanMeters, renderer.AspectRatio());
+                        if (!appliedFraming)
+                        {
+                            std::cerr << "[Game][ERROR] P-700 acceptance camera failed: " << appliedFraming.error() << '\n';
+                            return false;
+                        }
+                    }
+                    else if (options.smokeTest)
                     {
                         const auto cameraFraming = smokeCombatCameraDirector.Evaluate(
                             *combatPlayground->Runtime(), simulationTimeSeconds);

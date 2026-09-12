@@ -17,6 +17,7 @@ struct ApplicationOptions
 {
     bool headless = false;
     bool smokeTest = false;
+    bool p700SmokeTest = false;
     bool benchmarkM3 = false;
     bool benchmarkHdr = false;
     bool benchmarkStability = false;

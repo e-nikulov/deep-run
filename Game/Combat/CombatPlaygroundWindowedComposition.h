@@ -22,7 +22,9 @@ class CombatPlaygroundWindowedComposition final
 public:
     [[nodiscard]] static std::expected<CombatPlaygroundWindowedComposition, std::string> Create(
         Render::D3D12Renderer& renderer,
-        Assets::AssetManager& assets)
+        Assets::AssetManager& assets,
+        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,
+        const bool p700AcceptanceMode = false)
     {
         auto view = CombatPlaygroundView::Create(renderer, assets);
         if (!view)
@@ -47,7 +49,8 @@ public:
         {
             return std::unexpected("M5 P-700 carrier launch contract creation failed: " + p700Carrier.error());
         }
-        return CombatPlaygroundWindowedComposition(std::move(*view), std::move(*p700Carrier));
+        return CombatPlaygroundWindowedComposition(
+            std::move(*view), std::move(*p700Carrier), destroyerInitialXMeters, p700AcceptanceMode);
     }
 
     // Deterministic H/H.1 smoke path retained unchanged in behavior.
@@ -102,6 +105,21 @@ public:
         return *frame;
     }
 
+    [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvanceP700Acceptance(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const Submarine::AnteyPhysicalCollisionProxySnapshot& playerCollisionProxy,
+        Physics::PhysicsWorld& physicsWorld,
+        const double simulationTimeSeconds)
+    {
+        const auto ready = EnsureRuntime(playerSnapshot, playerCollisionProxy, physicsWorld, simulationTimeSeconds);
+        if (!ready) return std::unexpected(ready.error());
+        const auto synced = runtime_->UpdatePlayerPhysicalProxy(playerCollisionProxy, playerSnapshot);
+        if (!synced) return std::unexpected("M5 P-700 acceptance physical proxy update failed: " + synced.error());
+        const auto frame = runtime_->AdvanceP700Acceptance(playerSnapshot, simulationTimeSeconds);
+        if (!frame) return std::unexpected("M5 P-700 acceptance advance failed: " + frame.error());
+        return *frame;
+    }
+
     [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(
         Render::D3D12Renderer& renderer,
         const Physics::PhysicsWorld& physicsWorld,
@@ -144,9 +162,13 @@ public:
 private:
     CombatPlaygroundWindowedComposition(
         CombatPlaygroundView view,
-        Armament::P700CarrierLaunchContract p700CarrierLaunchContract)
+        Armament::P700CarrierLaunchContract p700CarrierLaunchContract,
+        const float destroyerInitialXMeters,
+        const bool p700AcceptanceMode)
         : view_(std::move(view)),
-          p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract))
+          p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract)),
+          destroyerInitialXMeters_(destroyerInitialXMeters),
+          p700AcceptanceMode_(p700AcceptanceMode)
     {
     }
 
@@ -181,7 +203,9 @@ private:
             static_cast<float>(surfaceLevel),
             simulationTimeSeconds,
             p700CarrierLaunchContract_,
-            std::move(*p700Inventory));
+            std::move(*p700Inventory),
+            destroyerInitialXMeters_,
+            p700AcceptanceMode_);
         if (!runtime)
         {
             return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());
@@ -198,6 +222,8 @@ private:
 
     CombatPlaygroundView view_;
     Armament::P700CarrierLaunchContract p700CarrierLaunchContract_;
+    float destroyerInitialXMeters_ = M5CombatDestroyerInitialXMeters;
+    bool p700AcceptanceMode_ = false;
     std::optional<CombatPlaygroundRuntime> runtime_{};
 };
 } // namespace DeepRun::Game::Combat

@@ -1,6 +1,6 @@
 # M5 V2 — P-700 Granit runtime integration
 
-Status: PRODUCTION RUNTIME INTEGRATED, CI PENDING. Headless lifecycle, canonical production asset staging, 24-slot Antey launcher inventory, Weapon Selector, production launch-anchor materialization and lifecycle-driven LOD0 presentation are implemented. Dedicated >20 km visual acceptance remains open.
+Status: FULL LAUNCH/FLIGHT/TERMINAL SEQUENCE IMPLEMENTED, CI PENDING. Headless lifecycle, canonical production asset staging, 24-slot Antey launcher inventory, Weapon Selector, production launch-anchor materialization and lifecycle-driven LOD0 presentation are implemented. Dedicated >20 km visual acceptance remains open.
 
 ## Authority and employment
 
@@ -41,3 +41,11 @@ The regression fixture uses a target beyond the real 20 km minimum range rather 
 ## Remaining acceptance slice
 
 The existing 1.8 km destroyer fixture remains intentionally torpedo-scale and therefore cannot legally authorize P-700 employment. Do not reduce the canonical 20 km minimum. The remaining acceptance work is a dedicated >=20 km P-700 scenario that visibly separates production-anchor launch, water exit, post-exit deployment, cruise/terminal presentation and physical impact/explosion while preserving the same perception and physics authority boundaries.
+
+## Final gameplay contract
+
+The player launch sequence is now explicit and simulation-owned: selected paired production hatch opening -> attached launch-booster underwater exit -> physical water crossing -> bounded water-exit climb -> protective nose-cap and booster separation -> main-engine ignition -> `P700_Deploy` wing/tail articulation -> cruise -> terminal -> physical impact or terminal defeat. The canonical P-700 GLB owns the missile and booster geometry; the current source asset has no separately authored nose protection cap, so that cap is a clearly presentation-only fairing proxy until art authoring publishes a dedicated mesh. The selected Antey hatch is one of the twelve actual production hatch meshes, resolved through the launcher's semantic `hatchGroup`.
+
+Current explicit GAME POLICY values are `680 m/s` cruise and `750 m/s` terminal speed, `20..550 km` employment range, and `100 HP` direct impact with a `30 m` coarse explosion radius. These are gameplay tuning, not historical/classified exact performance claims.
+
+Normal-play terminal effectiveness uses deterministic-seeded independent failure opportunities: 4% base seeker failure plus up to 20 percentage points from perceived position uncertainty, 10% soft-kill, 16% hard-kill, and 4% maneuver defeat. A failure enters `Defeated` and cannot fabricate collision damage. A clean terminal solution still requires the real PhysicsWorld sweep to produce `Impact`. The dedicated acceptance scenario disables defensive defeat only so CI can prove the complete production launch-to-physical-impact path; a separate headless regression forces a 100% hard-kill profile and proves defeat-without-impact.

@@ -360,8 +360,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     Assets::AssetManager& assets,
     Physics::PhysicsWorld& physics,
     Render::D3D12Renderer& renderer,
-    const bool verifyDistinctUploads)
+    const bool verifyDistinctUploads,
+    const float initialSubmarineDepthMeters)
 {
+    if (!std::isfinite(initialSubmarineDepthMeters) || initialSubmarineDepthMeters <= 0.0F ||
+        initialSubmarineDepthMeters > NormalGameplayMaximumVisibleDepthMeters)
+    {
+        return std::unexpected("physical playground initial submarine depth is outside the visible gameplay ocean");
+    }
     const auto productionDefinition = Submarine::LoadProductionAnteyAssetDefinition(assets);
     if (!productionDefinition)
     {
@@ -734,13 +740,13 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     // D2 world placement: the authoritative collision/reference point starts exactly M2InitialSubmarineDepthMeters
     // below the WaterBody surface. X/Z come from the production collision center; Y comes exclusively from WaterBody.
     const Physics::PhysicsVector3 initialBodyWorldCenter = ComputeInitialBodyWorldCenter(
-        water->Config().surfaceLevelY, M2InitialSubmarineDepthMeters, collisionCenterModel);
+        water->Config().surfaceLevelY, initialSubmarineDepthMeters, collisionCenterModel);
 
     // Verify placement against the authoritative water body before any physics/render work: sampling the
     // initial world center must report exactly the desired signed depth.
     const auto initialDepthSample = water->Sample(initialBodyWorldCenter);
     if (!initialDepthSample ||
-        std::abs(initialDepthSample->signedDepthMeters - M2InitialSubmarineDepthMeters) > 1.0e-3F)
+        std::abs(initialDepthSample->signedDepthMeters - initialSubmarineDepthMeters) > 1.0e-3F)
     {
         return std::unexpected(
             "physical playground initial placement does not match the authoritative water depth");
