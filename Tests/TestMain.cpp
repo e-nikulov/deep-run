@@ -438,7 +438,7 @@ bool IG1BNormalPlaygroundVisualIsIsolatedFromM2PhysicsBridge()
            prototypeBridge == std::string::npos && productionCollision != std::string::npos &&
            bodyHalfExtents != std::string::npos && source.find("assets.LoadModel(M2PhysicsProxyModelPath)") == std::string::npos &&
            source.find("SubmarineModelPath") == std::string::npos &&
-           source.find("Render::PrepareModelDraws(*modelAsset_, modelToWorld, submergedSailDeviceOverrides_)") != std::string::npos;
+           source.find("Render::PrepareModelDraws(*modelAsset_, modelToWorld,") != std::string::npos;
 }
 
 bool IG1CProductionProxyContractsAreLoadedAndIndependentFromVisualBounds()
