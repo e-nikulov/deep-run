@@ -1,14 +1,20 @@
 #include "Engine/Core/FixedStepAccumulator.h"
 #include "Engine/Core/TimeCompression.h"
+#include "Game/Combat/CombatTimeCompressionPolicy.h"
 
 #include <iostream>
 
 namespace
 {
 using DeepRun::Core::FixedStepAccumulator;
+using DeepRun::Core::PublishTimeCompressionSafetyCap;
 using DeepRun::Core::TimeCompressionController;
 using DeepRun::Core::TimeCompressionMultiplier;
 using DeepRun::Core::TimeCompressionRate;
+using DeepRun::Core::TimeCompressionSafetyScope;
+using DeepRun::Game::Combat::CombatTimeCompressionSignals;
+using DeepRun::Game::Combat::ResolveCombatTimeCompressionMaximum;
+using DeepRun::Weapons::P700GranitPhase;
 
 [[nodiscard]] bool Expect(const bool condition, const char* message)
 {
@@ -26,6 +32,56 @@ using DeepRun::Core::TimeCompressionRate;
 {
     FixedStepAccumulator accumulator(1.0 / 60.0);
     return accumulator.Accumulate(realDeltaSeconds * controller.EffectiveMultiplier());
+}
+
+[[nodiscard]] bool RunCombatPolicyChecks()
+{
+    if (!Expect(
+            ResolveCombatTimeCompressionMaximum({}) == TimeCompressionRate::X8,
+            "quiet combat state must permit 8x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.hasPerceivedContact = true}) == TimeCompressionRate::X4,
+            "perceived contact must cap at 4x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.selectedTrackWeaponQualified = true}) == TimeCompressionRate::X2,
+            "qualified firing solution must cap at 2x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.conventionalTorpedoInFlight = true}) == TimeCompressionRate::X2,
+            "conventional torpedo in flight must cap at 2x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.incomingThreatDetected = true}) == TimeCompressionRate::X1,
+            "incoming threat must force 1x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.importantImpactEvent = true}) == TimeCompressionRate::X1,
+            "impact event must force 1x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.playerDestroyed = true}) == TimeCompressionRate::X1,
+            "destroyed player state must force 1x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.p700Phase = P700GranitPhase::HatchOpening}) ==
+                TimeCompressionRate::X1,
+            "P-700 launch sequence must force 1x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.p700Phase = P700GranitPhase::Cruise}) ==
+                TimeCompressionRate::X4,
+            "P-700 cruise must permit 4x") ||
+        !Expect(
+            ResolveCombatTimeCompressionMaximum(
+                CombatTimeCompressionSignals{.p700Phase = P700GranitPhase::Terminal}) ==
+                TimeCompressionRate::X1,
+            "P-700 terminal must force 1x"))
+    {
+        return false;
+    }
+    return true;
 }
 }
 
@@ -77,9 +133,34 @@ int main()
         return 1;
     }
 
+    {
+        TimeCompressionSafetyScope scope(controller);
+        if (!Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X4), "bound safety publisher must accept 4x") ||
+            !Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X1), "bound safety publisher must accept 1x") ||
+            !Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X4), "later looser cap must be accepted but not relax") ||
+            !Expect(controller.MaximumRate() == TimeCompressionRate::X1,
+                    "multiple safety producers must retain the strictest cap") ||
+            !Expect(controller.RequestedRate() == TimeCompressionRate::X8,
+                    "safety publisher must never rewrite requested player intent"))
+        {
+            return 1;
+        }
+    }
+    if (!Expect(!PublishTimeCompressionSafetyCap(TimeCompressionRate::X1),
+                "publisher outside fixed-update safety scope must be rejected"))
+    {
+        return 1;
+    }
+
+    if (!Expect(controller.SetMaximumRate(TimeCompressionRate::X8), "test must release safety ceiling") ||
+        !RunCombatPolicyChecks())
+    {
+        return 1;
+    }
+
     controller.BreakToRealtime();
-    if (!Expect(controller.RequestedRate() == TimeCompressionRate::X1, "combat break must reset player intent to 1x") ||
-        !Expect(controller.EffectiveRate() == TimeCompressionRate::X1, "combat break must become effective immediately"))
+    if (!Expect(controller.RequestedRate() == TimeCompressionRate::X1, "explicit break API must reset player intent to 1x") ||
+        !Expect(controller.EffectiveRate() == TimeCompressionRate::X1, "explicit break must become effective immediately"))
     {
         return 1;
     }
@@ -94,6 +175,8 @@ int main()
                 "invalid requested rate must be rejected") ||
         !Expect(!controller.SetMaximumRate(static_cast<TimeCompressionRate>(255U)),
                 "invalid safety ceiling must be rejected") ||
+        !Expect(!controller.TightenMaximumRate(static_cast<TimeCompressionRate>(255U)),
+                "invalid tightening cap must be rejected") ||
         !Expect(TimeCompressionMultiplier(TimeCompressionRate::X8) == 8.0, "8x multiplier contract"))
     {
         return 1;
