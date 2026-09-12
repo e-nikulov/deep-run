@@ -17,13 +17,36 @@ namespace DeepRun::Weapons
 enum class P700GranitPhase
 {
     Stored,
+    HatchOpening,
     UnderwaterLaunch,
     WaterExit,
+    PostExitTransition,
     AirborneDeploying,
     Cruise,
     Terminal,
+    Defeated,
     Impact,
     Spent,
+};
+
+enum class P700TerminalEngagementOutcome
+{
+    Unresolved,
+    HitPath,
+    SeekerLost,
+    SoftKill,
+    HardKill,
+    ManeuverMiss,
+};
+
+// Explicit GAME POLICY for terminal effectiveness. These probabilities model independent terminal failure
+// opportunities after a legal Track-based launch; they are not claims about classified P-700 seeker/EW/PВО data.
+struct P700TerminalDefenseProfile final
+{
+    float seekerFailureProbability = 0.04F;
+    float softKillProbability = 0.10F;
+    float hardKillProbability = 0.16F;
+    float maneuverDefeatProbability = 0.04F;
 };
 
 // Bounded M5 P-700 flight tuning. Employment limits remain the separately documented canonical envelope.
@@ -35,10 +58,13 @@ struct P700GranitDefinition final
     float underwaterExitSpeedMetersPerSecond = 50.0F;
     float waterExitSpeedMetersPerSecond = 100.0F;
     float deploymentFlightSpeedMetersPerSecond = 180.0F;
-    float cruiseSpeedMetersPerSecond = 500.0F;
-    float terminalSpeedMetersPerSecond = 500.0F;
+    // M5 gameplay flight policy: ~Mach 2 class cruise/terminal pacing without claiming a historical exact profile.
+    float cruiseSpeedMetersPerSecond = 680.0F;
+    float terminalSpeedMetersPerSecond = 750.0F;
     float maximumAirborneTurnRateRadiansPerSecond = 0.35F;
+    double launcherHatchOpeningSeconds = 0.75;
     double waterExitTransitionSeconds = 0.50;
+    double postExitTransitionSeconds = 0.60;
     double deploymentSeconds = 1.50;
     float terminalRangeMeters = 5'000.0F;
     Physics::PhysicsVector3 collisionHalfExtentsMeters{5.0F, 0.70F, 0.70F};
@@ -65,7 +91,15 @@ struct P700GranitRuntimeState final
     float surfaceLevelYMeters = 0.0F;
     float headingRadians = 0.0F;
     float speedMetersPerSecond = 0.0F;
+    float hatchOpenProgress = 0.0F;
+    float postExitTransitionProgress = 0.0F;
     float deploymentProgress = 0.0F;
+    bool launchBoosterActive = false;
+    bool launchBoosterAttached = true;
+    bool noseProtectionCapAttached = true;
+    bool mainEngineActive = false;
+    P700TerminalEngagementOutcome terminalOutcome = P700TerminalEngagementOutcome::Unresolved;
+    std::uint64_t terminalRandomSeed = 0U;
     double phaseStartTimeSeconds = 0.0;
     double lastUpdateTimeSeconds = 0.0;
     std::optional<std::uint64_t> guidanceTrackId{};
@@ -125,6 +159,53 @@ struct P700GranitImpact final
         .w = static_cast<float>(std::cos(static_cast<double>(half)))};
 }
 
+[[nodiscard]] inline bool ValidateP700TerminalDefenseProfile(const P700TerminalDefenseProfile& profile) noexcept
+{
+    const auto validProbability = [](const float value) noexcept {
+        return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+    };
+    return validProbability(profile.seekerFailureProbability) && validProbability(profile.softKillProbability) &&
+           validProbability(profile.hardKillProbability) && validProbability(profile.maneuverDefeatProbability);
+}
+
+[[nodiscard]] inline std::uint64_t P700SplitMix64(std::uint64_t value) noexcept
+{
+    value += 0x9E3779B97F4A7C15ULL;
+    value = (value ^ (value >> 30U)) * 0xBF58476D1CE4E5B9ULL;
+    value = (value ^ (value >> 27U)) * 0x94D049BB133111EBULL;
+    return value ^ (value >> 31U);
+}
+
+[[nodiscard]] inline float P700UnitRandom(const std::uint64_t seed, const std::uint64_t stream) noexcept
+{
+    const std::uint64_t bits = P700SplitMix64(seed ^ (stream * 0xD1B54A32D192ED03ULL));
+    return static_cast<float>((bits >> 40U) * (1.0 / 16777216.0));
+}
+
+[[nodiscard]] inline P700TerminalEngagementOutcome ResolveP700TerminalEngagement(
+    const P700TerminalDefenseProfile& defense,
+    const std::uint64_t seed,
+    const float perceivedPositionUncertaintyMeters) noexcept
+{
+    if (!ValidateP700TerminalDefenseProfile(defense) || !std::isfinite(perceivedPositionUncertaintyMeters) ||
+        perceivedPositionUncertaintyMeters < 0.0F)
+    {
+        return P700TerminalEngagementOutcome::SeekerLost;
+    }
+    // Uncertainty is already bounded by WeaponTargetingRequirements at launch/update. It contributes up to
+    // another 20 percentage points of terminal seeker failure rather than becoming a hidden distance shortcut.
+    const float uncertaintyPenalty = std::clamp(perceivedPositionUncertaintyMeters / 2'500.0F, 0.0F, 0.20F);
+    if (P700UnitRandom(seed, 1U) < std::clamp(defense.seekerFailureProbability + uncertaintyPenalty, 0.0F, 1.0F))
+        return P700TerminalEngagementOutcome::SeekerLost;
+    if (P700UnitRandom(seed, 2U) < defense.softKillProbability)
+        return P700TerminalEngagementOutcome::SoftKill;
+    if (P700UnitRandom(seed, 3U) < defense.hardKillProbability)
+        return P700TerminalEngagementOutcome::HardKill;
+    if (P700UnitRandom(seed, 4U) < defense.maneuverDefeatProbability)
+        return P700TerminalEngagementOutcome::ManeuverMiss;
+    return P700TerminalEngagementOutcome::HitPath;
+}
+
 [[nodiscard]] inline std::expected<void, std::string> ValidateP700GranitDefinition(
     const P700GranitDefinition& definition)
 {
@@ -141,7 +222,9 @@ struct P700GranitImpact final
         !std::isfinite(definition.maximumAirborneTurnRateRadiansPerSecond) ||
         definition.maximumAirborneTurnRateRadiansPerSecond <= 0.0F ||
         definition.maximumAirborneTurnRateRadiansPerSecond > 3.14159265358979323846F ||
+        !std::isfinite(definition.launcherHatchOpeningSeconds) || definition.launcherHatchOpeningSeconds <= 0.0 ||
         !std::isfinite(definition.waterExitTransitionSeconds) || definition.waterExitTransitionSeconds <= 0.0 ||
+        !std::isfinite(definition.postExitTransitionSeconds) || definition.postExitTransitionSeconds <= 0.0 ||
         !std::isfinite(definition.deploymentSeconds) || definition.deploymentSeconds <= 0.0 ||
         !std::isfinite(definition.terminalRangeMeters) || definition.terminalRangeMeters <= 0.0F ||
         definition.terminalRangeMeters >= P700GranitEmploymentEnvelope.maximumTargetRangeMeters ||
@@ -230,18 +313,24 @@ struct P700GranitImpact final
         return employment;
     }
 
-    state.phase = carrier.launchDepthMeters > 0.05F
-        ? P700GranitPhase::UnderwaterLaunch
-        : P700GranitPhase::WaterExit;
+    // Fire commits the weapon to the launch sequence, but the missile remains physically in its canister until
+    // the selected paired hatch is fully open. Presentation consumes hatchOpenProgress from this same state.
+    state.phase = P700GranitPhase::HatchOpening;
     state.positionMeters = carrier.launchPositionMeters;
     state.launchForwardUnitVector = *launchForward;
     state.surfaceLevelYMeters = carrier.surfaceLevelYMeters;
     state.headingRadians = static_cast<float>(std::atan2(
         static_cast<double>(launchForward->y), static_cast<double>(launchForward->x)));
-    state.speedMetersPerSecond = state.phase == P700GranitPhase::UnderwaterLaunch
-        ? definition.underwaterExitSpeedMetersPerSecond
-        : definition.waterExitSpeedMetersPerSecond;
+    state.speedMetersPerSecond = 0.0F;
+    state.hatchOpenProgress = 0.0F;
+    state.postExitTransitionProgress = 0.0F;
     state.deploymentProgress = 0.0F;
+    state.launchBoosterActive = false;
+    state.launchBoosterAttached = true;
+    state.noseProtectionCapAttached = true;
+    state.mainEngineActive = false;
+    state.terminalOutcome = P700TerminalEngagementOutcome::Unresolved;
+    state.terminalRandomSeed = P700SplitMix64(targetTrack.trackId ^ 0x503730304752414EULL);
     state.phaseStartTimeSeconds = simulationTimeSeconds;
     state.lastUpdateTimeSeconds = simulationTimeSeconds;
     state.guidanceTrackId = targetTrack.trackId;
@@ -282,7 +371,8 @@ struct P700GranitImpact final
     const std::optional<Perception::Track>& perceivedTrack,
     Physics::PhysicsWorld& physicsWorld,
     const double simulationTimeSeconds,
-    const Physics::PhysicsBodyHandle ignoredCarrierBody = {})
+    const Physics::PhysicsBodyHandle ignoredCarrierBody = {},
+    const std::optional<P700TerminalDefenseProfile>& targetDefense = std::nullopt)
 {
     const auto definitionValid = ValidateP700GranitDefinition(definition);
     if (!definitionValid)
@@ -293,12 +383,16 @@ struct P700GranitImpact final
         state.phase == P700GranitPhase::Spent || !state.positionMeters.IsFinite() ||
         !state.launchForwardUnitVector.IsFinite() || !std::isfinite(state.surfaceLevelYMeters) ||
         !std::isfinite(state.headingRadians) || !std::isfinite(state.speedMetersPerSecond) ||
-        !std::isfinite(state.deploymentProgress) || state.deploymentProgress < 0.0F || state.deploymentProgress > 1.0F ||
+        !std::isfinite(state.hatchOpenProgress) || state.hatchOpenProgress < 0.0F || state.hatchOpenProgress > 1.0F ||
+        !std::isfinite(state.postExitTransitionProgress) || state.postExitTransitionProgress < 0.0F ||
+        state.postExitTransitionProgress > 1.0F || !std::isfinite(state.deploymentProgress) ||
+        state.deploymentProgress < 0.0F || state.deploymentProgress > 1.0F ||
+        (targetDefense.has_value() && !ValidateP700TerminalDefenseProfile(*targetDefense)) ||
         !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < state.lastUpdateTimeSeconds)
     {
         return std::unexpected("P-700 runtime is invalid, stored/spent, or time-reversing");
     }
-    if (state.phase == P700GranitPhase::Impact)
+    if (state.phase == P700GranitPhase::Impact || state.phase == P700GranitPhase::Defeated)
     {
         state.phase = P700GranitPhase::Spent;
         state.phaseStartTimeSeconds = simulationTimeSeconds;
@@ -387,11 +481,47 @@ struct P700GranitImpact final
             return std::unexpected("P-700 lifecycle advance exceeded its bounded integration guard");
         }
 
+        if (state.phase == P700GranitPhase::HatchOpening)
+        {
+            if (state.speedMetersPerSecond != 0.0F || state.deploymentProgress != 0.0F ||
+                state.postExitTransitionProgress != 0.0F || state.launchBoosterActive || state.mainEngineActive ||
+                !state.launchBoosterAttached || !state.noseProtectionCapAttached)
+            {
+                return std::unexpected("P-700 hatch-opening component contract is invalid");
+            }
+            const double elapsed = cursorTime - state.phaseStartTimeSeconds;
+            const double phaseRemaining = std::max(0.0, definition.launcherHatchOpeningSeconds - elapsed);
+            const double stepSeconds = std::min(remainingSeconds, phaseRemaining);
+            cursorTime += stepSeconds;
+            remainingSeconds -= stepSeconds;
+            state.lastUpdateTimeSeconds = cursorTime;
+            state.hatchOpenProgress = std::clamp(
+                static_cast<float>((cursorTime - state.phaseStartTimeSeconds) / definition.launcherHatchOpeningSeconds),
+                0.0F, 1.0F);
+            if (phaseRemaining <= stepSeconds + 1.0e-9)
+            {
+                state.hatchOpenProgress = 1.0F;
+                state.launchBoosterActive = true;
+                state.phase = state.positionMeters.y < state.surfaceLevelYMeters - 0.05F
+                    ? P700GranitPhase::UnderwaterLaunch
+                    : P700GranitPhase::WaterExit;
+                state.phaseStartTimeSeconds = cursorTime;
+                state.speedMetersPerSecond = state.phase == P700GranitPhase::UnderwaterLaunch
+                    ? definition.underwaterExitSpeedMetersPerSecond
+                    : definition.waterExitSpeedMetersPerSecond;
+                continue;
+            }
+            break;
+        }
+
         if (state.phase == P700GranitPhase::UnderwaterLaunch)
         {
-            if (state.deploymentProgress != 0.0F || state.launchForwardUnitVector.y <= 0.0F)
+            if (state.deploymentProgress != 0.0F || state.hatchOpenProgress != 1.0F ||
+                state.postExitTransitionProgress != 0.0F || state.launchForwardUnitVector.y <= 0.0F ||
+                !state.launchBoosterActive || !state.launchBoosterAttached || !state.noseProtectionCapAttached ||
+                state.mainEngineActive)
             {
-                return std::unexpected("P-700 underwater launch/deployment contract is invalid");
+                return std::unexpected("P-700 underwater booster launch/deployment contract is invalid");
             }
             const double verticalSpeed = static_cast<double>(state.launchForwardUnitVector.y) *
                                          definition.underwaterExitSpeedMetersPerSecond;
@@ -421,9 +551,11 @@ struct P700GranitImpact final
 
         if (state.phase == P700GranitPhase::WaterExit)
         {
-            if (state.deploymentProgress != 0.0F)
+            if (state.deploymentProgress != 0.0F || state.hatchOpenProgress != 1.0F ||
+                state.postExitTransitionProgress != 0.0F || !state.launchBoosterActive ||
+                !state.launchBoosterAttached || !state.noseProtectionCapAttached || state.mainEngineActive)
             {
-                return std::unexpected("P-700 must remain stowed through WaterExit");
+                return std::unexpected("P-700 must remain booster-driven and stowed through WaterExit");
             }
             const double elapsed = cursorTime - state.phaseStartTimeSeconds;
             const double phaseRemaining = std::max(0.0, definition.waterExitTransitionSeconds - elapsed);
@@ -440,6 +572,54 @@ struct P700GranitImpact final
             }
             if (phaseRemaining <= stepSeconds + 1.0e-9)
             {
+                state.phase = P700GranitPhase::PostExitTransition;
+                state.phaseStartTimeSeconds = cursorTime;
+                state.postExitTransitionProgress = 0.0F;
+                state.speedMetersPerSecond = definition.deploymentFlightSpeedMetersPerSecond;
+                continue;
+            }
+            break;
+        }
+
+        if (state.phase == P700GranitPhase::PostExitTransition)
+        {
+            if (state.deploymentProgress != 0.0F || state.hatchOpenProgress != 1.0F)
+            {
+                return std::unexpected("P-700 post-exit transition must precede aerodynamic deployment");
+            }
+            const double elapsed = cursorTime - state.phaseStartTimeSeconds;
+            const double phaseRemaining = std::max(0.0, definition.postExitTransitionSeconds - elapsed);
+            const double stepSeconds = std::min(remainingSeconds, phaseRemaining);
+            if (stepSeconds > 0.0)
+            {
+                const auto impact = moveSegment(
+                    state.launchForwardUnitVector, definition.deploymentFlightSpeedMetersPerSecond, stepSeconds);
+                if (!impact) return std::unexpected(impact.error());
+                if (*impact) return *impact;
+                cursorTime += stepSeconds;
+                remainingSeconds -= stepSeconds;
+                state.lastUpdateTimeSeconds = cursorTime;
+            }
+            state.postExitTransitionProgress = std::clamp(
+                static_cast<float>((cursorTime - state.phaseStartTimeSeconds) / definition.postExitTransitionSeconds),
+                0.0F, 1.0F);
+            // The protective nose cap clears first; the launch booster separates next; only then does the
+            // main engine own thrust. Fractions are explicit visual/gameplay timing policy.
+            if (state.postExitTransitionProgress >= 0.25F)
+                state.noseProtectionCapAttached = false;
+            if (state.postExitTransitionProgress >= 0.50F)
+            {
+                state.launchBoosterAttached = false;
+                state.launchBoosterActive = false;
+                state.mainEngineActive = true;
+            }
+            if (phaseRemaining <= stepSeconds + 1.0e-9)
+            {
+                state.postExitTransitionProgress = 1.0F;
+                state.noseProtectionCapAttached = false;
+                state.launchBoosterAttached = false;
+                state.launchBoosterActive = false;
+                state.mainEngineActive = true;
                 state.phase = P700GranitPhase::AirborneDeploying;
                 state.phaseStartTimeSeconds = cursorTime;
                 state.speedMetersPerSecond = definition.deploymentFlightSpeedMetersPerSecond;
@@ -450,6 +630,11 @@ struct P700GranitImpact final
 
         if (state.phase == P700GranitPhase::AirborneDeploying)
         {
+            if (!state.mainEngineActive || state.launchBoosterActive || state.launchBoosterAttached ||
+                state.noseProtectionCapAttached || state.postExitTransitionProgress != 1.0F)
+            {
+                return std::unexpected("P-700 aerodynamic deployment requires completed launch-hardware separation and main-engine ignition");
+            }
             const double elapsed = cursorTime - state.phaseStartTimeSeconds;
             const double phaseRemaining = std::max(0.0, definition.deploymentSeconds - elapsed);
             const double stepSeconds = std::min(remainingSeconds, phaseRemaining);
@@ -482,7 +667,9 @@ struct P700GranitImpact final
         {
             return std::unexpected("P-700 lifecycle reached an unsupported active phase");
         }
-        if (!state.perceivedAimPointMeters || !state.perceivedAimPointMeters->IsFinite() || state.deploymentProgress != 1.0F)
+        if (!state.mainEngineActive || state.launchBoosterActive || state.launchBoosterAttached ||
+            state.noseProtectionCapAttached || !state.perceivedAimPointMeters ||
+            !state.perceivedAimPointMeters->IsFinite() || state.deploymentProgress != 1.0F)
         {
             return std::unexpected("P-700 airborne guidance requires a deployed weapon and perceived aim point");
         }
@@ -496,6 +683,23 @@ struct P700GranitImpact final
         {
             state.phase = P700GranitPhase::Terminal;
             state.phaseStartTimeSeconds = cursorTime;
+            if (state.terminalOutcome == P700TerminalEngagementOutcome::Unresolved)
+            {
+                state.terminalOutcome = targetDefense.has_value()
+                    ? ResolveP700TerminalEngagement(
+                          *targetDefense,
+                          state.terminalRandomSeed,
+                          state.perceivedPositionUncertaintyMeters.value_or(500.0F))
+                    : P700TerminalEngagementOutcome::HitPath;
+            }
+            if (state.terminalOutcome != P700TerminalEngagementOutcome::HitPath)
+            {
+                state.phase = P700GranitPhase::Defeated;
+                state.speedMetersPerSecond = 0.0F;
+                state.mainEngineActive = false;
+                state.lastUpdateTimeSeconds = cursorTime;
+                return std::optional<P700GranitImpact>{};
+            }
         }
 
         constexpr double MaximumAirborneIntegrationStepSeconds = 0.25;
