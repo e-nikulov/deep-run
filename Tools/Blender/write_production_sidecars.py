@@ -228,6 +228,42 @@ def compartment_metadata(obj: bpy.types.Object) -> dict:
     }
 
 
+def canonical_antey_compartment_records() -> list[dict]:
+    contract_path = Path(__file__).resolve().parents[2] / "Content/submarines/Antey/Antey.compartments.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    if contract.get("schemaVersion") != 1 or contract.get("coordinateContract") != "+X bow; +Y port; +Z up; 1 BU = 1 m":
+        raise RuntimeError("Antey compartment reference contract is invalid")
+    source = contract.get("compartments")
+    if not isinstance(source, list) or len(source) != 10:
+        raise RuntimeError("Antey compartment reference contract must contain exactly ten records")
+    records = []
+    for index, item in enumerate(source, 1):
+        semantic_id = f"compartment.{index:02d}"
+        if item.get("semanticId") != semantic_id:
+            raise RuntimeError(f"Unexpected Antey compartment semantic ID: {item.get('semanticId')} != {semantic_id}")
+        center = [float(value) for value in item["center"]]
+        half_extents = [float(value) for value in item["halfExtents"]]
+        x_min, x_max = [float(value) for value in item["xRangeMeters"]]
+        if not math.isclose(center[0], (x_min + x_max) * 0.5, abs_tol=1.0e-6) or not math.isclose(half_extents[0], (x_max - x_min) * 0.5, abs_tol=1.0e-6):
+            raise RuntimeError(f"Antey compartment spatial contract is inconsistent: {semantic_id}")
+        transform = identity_matrix_values()
+        transform[0][3], transform[1][3], transform[2][3] = center
+        records.append({
+            "name": f"Antey_Compartment_{index:02d}",
+            "semanticId": semantic_id,
+            "displayNameRu": item["displayNameRu"],
+            "functionalRole": item["functionalRole"],
+            "functionalRoleStatus": item["functionalRoleStatus"],
+            "systemTags": item["systemTags"],
+            "center": center,
+            "orientationQuaternionWXYZ": [float(value) for value in item["orientationQuaternionWXYZ"]],
+            "halfExtents": half_extents,
+            "xRangeMeters": [x_min, x_max],
+            "transform": transform,
+        })
+    return records
+
+
 def validate_semantic_spatial_metadata(
     propellers: list[dict], compartments: list[dict], hull_minimum: Vector, hull_maximum: Vector
 ) -> None:
@@ -511,10 +547,14 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
                 "transform": matrix_values(obj),
                 "launchForward": list(obj.rotation_quaternion @ Vector((1.0, 0.0, 0.0))),
             })
-    compartments = []
     compartment_prefix = "VOL_COMP_" if any(obj.name.startswith("VOL_COMP_") for obj in objects.values()) else "Antey_Compartment_"
-    for obj in sorted((obj for obj in objects.values() if obj.name.startswith(compartment_prefix)), key=lambda item: item.name):
-        compartments.append(compartment_metadata(obj))
+    authored_compartment_objects = sorted((obj for obj in objects.values() if obj.name.startswith(compartment_prefix)), key=lambda item: item.name)
+    if len(authored_compartment_objects) != 10:
+        raise RuntimeError(f"Production Antey requires ten hidden compartment authoring objects, found {len(authored_compartment_objects)}")
+    # Spatial/function metadata is reference-derived and canonical in the JSON
+    # contract. The hidden BLEND objects remain authoring helpers; they are not
+    # allowed to silently overwrite reviewed bulkhead positions on sidecar regen.
+    compartments = canonical_antey_compartment_records()
     props = []
     for name, semantic_id in (("SM_Propeller_Port", "propeller.port"), ("SM_Propeller_Starboard", "propeller.starboard")):
         obj = objects.get(name)

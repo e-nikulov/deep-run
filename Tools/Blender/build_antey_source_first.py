@@ -1220,37 +1220,62 @@ def _make_hidden_volume(name: str, location: tuple[float, float, float], dimensi
     return obj
 
 
+def _load_antey_compartment_contract() -> dict:
+    path = Path(__file__).resolve().parents[2] / "Content/submarines/Antey/Antey.compartments.json"
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    if contract.get("schemaVersion") != 1 or contract.get("coordinateContract") != "+X bow; +Y port; +Z up; 1 BU = 1 m":
+        raise RuntimeError("Antey compartment reference contract is invalid")
+    compartments = contract.get("compartments")
+    if not isinstance(compartments, list) or len(compartments) != 10:
+        raise RuntimeError("Antey compartment reference contract must contain exactly ten records")
+    return contract
+
+
 def add_compartment_and_mass_contract() -> None:
     """Author hidden functional zones and tunable mass/COM contracts only."""
     collection = bpy.data.collections.new("ANTEY_COMPARTMENTS")
     bpy.context.scene.collection.children.link(collection)
-    # Section boundaries follow the public Project 949A longitudinal cutaway;
-    # they are envelopes, not a reconstruction of the pressure-hull interior.
-    edges = [(56.0, 77.0), (42.0, 56.0), (27.0, 42.0), (10.0, 27.0), (-5.0, 10.0), (-20.0, -5.0), (-36.0, -20.0), (-51.0, -36.0), (-65.0, -51.0), (-77.0, -65.0)]
-    roles = [
-        ("TORPEDO_FORWARD_WEAPONS", 420000.0, 0.0, True, True, "BATTERY_MAIN", "PUMP_FORWARD", "TORPEDO_ROOM_ACCESS"),
-        ("CONTROL", 280000.0, 18.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "CONTROL_ROOM_ACCESS"),
-        ("COMBAT_RADIO_ELECTRONICS", 330000.0, 12.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "ELECTRONICS_ACCESS"),
-        ("HABITABILITY_CREW", 240000.0, 36.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "CREW_CORRIDOR"),
-        ("REACTOR_A", 1200000.0, 0.0, True, True, "REACTOR_A", "PUMP_MAIN", "REACTOR_ACCESS"),
-        ("REACTOR_B", 1200000.0, 0.0, True, True, "REACTOR_B", "PUMP_MAIN", "REACTOR_ACCESS"),
-        ("PROPULSION_ENGINEERING", 950000.0, 0.0, True, True, "REACTOR_A/B", "PUMP_AFT", "AFT_ENGINEERING_HATCH"),
-        ("TURBINE_A", 760000.0, 0.0, True, True, "REACTOR_A", "PUMP_AFT", "MACHINERY_ACCESS"),
-        ("TURBINE_B", 760000.0, 0.0, True, True, "REACTOR_B", "PUMP_AFT", "MACHINERY_ACCESS"),
-        ("ELECTRIC_MOTOR_AFT_MACHINERY", 620000.0, 0.0, True, True, "BATTERY_MAIN", "PUMP_AFT", "MOTOR_ROOM_ACCESS"),
+    contract = _load_antey_compartment_contract()
+    compartment_specs = contract["compartments"]
+    # Gameplay/mass numbers remain tunable authoring approximations. Their total
+    # equipment mass is preserved from the previous accepted contract, while the
+    # functional identity and spatial boundaries now come from the reviewed 949A
+    # reference contract rather than an invented even longitudinal partition.
+    tuning = [
+        (420000.0, 0.0, True, True, "BATTERY_MAIN", "PUMP_FORWARD", "TORPEDO_ROOM_ACCESS"),
+        (280000.0, 18.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "CENTRAL_ACCESS"),
+        (330000.0, 12.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "COMPARTMENT_03_ACCESS"),
+        (240000.0, 36.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "CREW_CORRIDOR"),
+        (475000.0, 0.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "AUXILIARY_ACCESS"),
+        (475000.0, 0.0, True, True, "DISTRIBUTION_MAIN", "PUMP_MAIN", "AUXILIARY_ACCESS"),
+        (2400000.0, 0.0, True, True, "REACTOR_PLANT", "PUMP_MAIN", "REACTOR_ACCESS"),
+        (760000.0, 0.0, True, True, "REACTOR_PLANT", "PUMP_AFT", "TURBINE_ACCESS"),
+        (760000.0, 0.0, True, True, "REACTOR_PLANT", "PUMP_AFT", "TURBINE_ACCESS"),
+        (620000.0, 0.0, True, True, "DISTRIBUTION_AFT", "PUMP_AFT", "MOTOR_ROOM_ACCESS"),
     ]
     compartment_records: list[dict[str, object]] = []
-    for index, ((x_min, x_max), (role, equipment_mass, crew_weight, floodable, fire_capable, power, pump, repair_access)) in enumerate(zip(edges, roles), 1):
+    for index, (spec, (equipment_mass, crew_weight, floodable, fire_capable, power, pump, repair_access)) in enumerate(zip(compartment_specs, tuning), 1):
+        semantic_id = f"compartment.{index:02d}"
+        if spec.get("semanticId") != semantic_id:
+            raise RuntimeError(f"Unexpected Antey compartment semantic ID: {spec.get('semanticId')} != {semantic_id}")
+        x_min, x_max = (float(value) for value in spec["xRangeMeters"])
         length = x_max - x_min
-        centre = ((x_min + x_max) * 0.5, 0.0, -0.15)
-        dimensions = (length, 8.8, 6.0)
+        centre = tuple(float(value) for value in spec["center"])
+        half_extents = tuple(float(value) for value in spec["halfExtents"])
+        if not math.isclose(centre[0], (x_min + x_max) * 0.5, abs_tol=1.0e-6) or not math.isclose(half_extents[0], length * 0.5, abs_tol=1.0e-6):
+            raise RuntimeError(f"Antey compartment spatial contract is inconsistent: {semantic_id}")
+        dimensions = tuple(value * 2.0 for value in half_extents)
         name = f"Antey_Compartment_{index:02d}"
         volume = _make_hidden_volume(name, centre, dimensions, collection)
         volume["compartment_id"] = index
-        volume["role"] = role
+        volume["semantic_id"] = semantic_id
+        volume["display_name_ru"] = spec["displayNameRu"]
+        volume["role"] = spec["functionalRole"]
+        volume["functional_role_status"] = spec["functionalRoleStatus"]
+        volume["system_tags_json"] = json.dumps(spec["systemTags"], ensure_ascii=False)
         volume["X_MIN"] = x_min
         volume["X_MAX"] = x_max
-        volume["LOCAL_VOLUME_M3"] = length * dimensions[1] * dimensions[2]
+        volume["LOCAL_VOLUME_M3"] = dimensions[0] * dimensions[1] * dimensions[2]
         volume["CENTER"] = list(centre)
         volume["CREW_CAPACITY_WEIGHT_KG"] = crew_weight
         volume["FLOODABLE"] = floodable
@@ -1258,8 +1283,19 @@ def add_compartment_and_mass_contract() -> None:
         volume["POWER_DEPENDENCY"] = power
         volume["PUMP_DEPENDENCY"] = pump
         volume["REPAIR_ACCESS"] = repair_access
-        volume["source_basis"] = "PUBLIC_PROJECT_949A_SECTION_ENVELOPE"
-        compartment_records.append({"name": name, "index": index, "X_MIN": x_min, "X_MAX": x_max, "LOCAL_VOLUME": length * dimensions[1] * dimensions[2], "CENTER": list(centre), "ROLE": role, "CREW_CAPACITY_WEIGHT": crew_weight, "FLOODABLE": floodable, "FIRE_CAPABLE": fire_capable, "POWER_DEPENDENCY": power, "PUMP_DEPENDENCY": pump, "REPAIR_ACCESS": repair_access, "equipment_mass_kg": equipment_mass})
+        volume["source_basis"] = contract["referenceBasis"]["geometryStatus"]
+        compartment_records.append({
+            "name": name, "index": index, "semanticId": semantic_id,
+            "displayNameRu": spec["displayNameRu"], "functionalRole": spec["functionalRole"],
+            "functionalRoleStatus": spec["functionalRoleStatus"], "systemTags": spec["systemTags"],
+            "X_MIN": x_min, "X_MAX": x_max,
+            "LOCAL_VOLUME": dimensions[0] * dimensions[1] * dimensions[2],
+            "CENTER": list(centre), "ROLE": spec["functionalRole"],
+            "CREW_CAPACITY_WEIGHT": crew_weight, "FLOODABLE": floodable,
+            "FIRE_CAPABLE": fire_capable, "POWER_DEPENDENCY": power,
+            "PUMP_DEPENDENCY": pump, "REPAIR_ACCESS": repair_access,
+            "equipment_mass_kg": equipment_mass,
+        })
     bpy.context.scene["antey_compartments"] = compartment_records
     bpy.context.scene["damage_repair_contract"] = {
         "per_compartment_state": ["Integrity", "Flooding", "Fire", "Smoke", "Power", "CrewPresent", "CrewInjured", "RepairProgress"],
