@@ -21,8 +21,11 @@ constexpr std::string_view ModelPath = "Weapons/P700/P700_Granit.glb";
 constexpr std::string_view CoordinateContract = "+X forward; +Y port; +Z up; 1 BU = 1 m";
 constexpr std::string_view DeploymentAnimation = "P700_Deploy";
 constexpr std::string_view Lod0Prefix = "SM_P700_LOD0_";
+constexpr std::string_view ProductionLodPrefix = "SM_P700_LOD";
 constexpr std::size_t ExpectedLod0ObjectCount = 8U;
 constexpr std::size_t ExpectedMovableSurfaceCount = 6U;
+constexpr std::size_t ExpectedProductionLodCount = 4U;
+constexpr std::size_t ExpectedAnimationTargetCount = ExpectedMovableSurfaceCount * ExpectedProductionLodCount;
 constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
 
 [[nodiscard]] float ReadFiniteFloat(const Json& value, const std::string_view label)
@@ -69,6 +72,12 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
     return std::abs(first[0] - second[0]) <= tolerance &&
            std::abs(first[1] - second[1]) <= tolerance &&
            std::abs(first[2] - second[2]) <= tolerance;
+}
+
+[[nodiscard]] bool IsMovableProductionLodBinding(const std::string_view name) noexcept
+{
+    return name.starts_with(ProductionLodPrefix) &&
+        (name.find("_Wing_") != std::string_view::npos || name.find("_Tail_") != std::string_view::npos);
 }
 
 [[nodiscard]] std::optional<std::size_t> FindUniqueBinding(
@@ -160,6 +169,28 @@ std::expected<ProductionP700AssetDefinition, std::string> LoadProductionP700Asse
         }
         const Assets::ModelAnimationClipData& animation = model->animations.front();
 
+        std::unordered_set<std::string> expectedAnimationTargets;
+        for (const Assets::ModelNodeBindingData& binding : model->nodeBindings)
+        {
+            if (!IsMovableProductionLodBinding(binding.name))
+            {
+                continue;
+            }
+            if (binding.drawableMeshNodeIndices.empty() || !expectedAnimationTargets.insert(binding.name).second)
+            {
+                return std::unexpected("staged P-700 movable LOD binding partition is empty or duplicated");
+            }
+        }
+        const std::unordered_set<std::string> animationTargets(
+            animation.targetNodeNames.begin(), animation.targetNodeNames.end());
+        if (animation.targetNodeNames.size() != animationTargets.size() ||
+            expectedAnimationTargets.size() != ExpectedAnimationTargetCount ||
+            animationTargets != expectedAnimationTargets)
+        {
+            return std::unexpected(
+                "P700_Deploy must target exactly the six movable surfaces in each of LOD0..LOD3 and nothing else");
+        }
+
         std::vector<std::size_t> lod0MeshNodes;
         std::unordered_set<std::size_t> uniqueLod0MeshNodes;
         std::size_t lod0BindingCount = 0U;
@@ -200,7 +231,7 @@ std::expected<ProductionP700AssetDefinition, std::string> LoadProductionP700Asse
         {
             const std::string name = surface.at("name").get<std::string>();
             if (!uniqueSurfaceNames.insert(name).second || !name.starts_with(Lod0Prefix) ||
-                std::find(animation.targetNodeNames.begin(), animation.targetNodeNames.end(), name) == animation.targetNodeNames.end())
+                animationTargets.find(name) == animationTargets.end())
             {
                 return std::unexpected(std::format("P-700 movable surface '{}' is duplicated, non-LOD0, or absent from P700_Deploy", name));
             }
@@ -225,9 +256,9 @@ std::expected<ProductionP700AssetDefinition, std::string> LoadProductionP700Asse
                 .stowedRotationXRadians = ReadRotationX(surface.at("stowed"), name + " STOWED"),
                 .deployedRotationXRadians = ReadRotationX(surface.at("deployed"), name + " DEPLOYED")});
         }
-        if (animation.targetNodeNames.size() != ExpectedMovableSurfaceCount)
+        if (uniqueSurfaceNames.size() != ExpectedMovableSurfaceCount)
         {
-            return std::unexpected("P700_Deploy targets nodes outside the accepted six-surface production contract");
+            return std::unexpected("P-700 LOD0 deployment surface set is incomplete");
         }
 
         return ProductionP700AssetDefinition{
