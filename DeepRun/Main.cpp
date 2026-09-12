@@ -880,6 +880,7 @@ int main(const int argumentCount, char** argumentValues)
                     if (!options.smokeTest && combatUiSnapshot.has_value())
                     {
                         DeepRun::Game::Combat::DrawCombatCommandUi(*combatUiSnapshot);
+                        DeepRun::Game::Combat::DrawSonarScope(combatUiSnapshot->sonar);
                         const auto ownshipLengthMeters = playground.ProductionSubmarinePresentationLengthMeters();
                         const auto framing = multiScaleCamera.Framing();
                         const std::uint32_t viewportWidthPixels = renderer.MemoryDiagnostics().width;

@@ -614,6 +614,7 @@ private:
             }
             if (activeEcho->has_value())
             {
+                lastPlayerActiveEchoObservation_ = **activeEcho;
                 const auto perceived = Perception::FromAcousticObservation(
                     **activeEcho, activePulse_->originMeters);
                 if (!perceived || !playerTracks_.IntegrateObservation(*perceived))
@@ -916,6 +917,34 @@ private:
             selectedPlayerTrack->lifecycle != Perception::TrackLifecycleState::Lost &&
             !activePulse_.has_value() && simulationTimeSeconds + 1.0e-9 >= nextActivePulseTimeSeconds_;
         playerCombatPresentation.activeSonarPulsePending = activePulse_.has_value();
+
+        float sonarOwnshipHeadingRadians = 0.0F;
+        if (currentPlayerPhysicalProxy_.has_value())
+        {
+            const auto& orientation = currentPlayerPhysicalProxy_->orientation;
+            sonarOwnshipHeadingRadians = static_cast<float>(std::atan2(
+                2.0 * (static_cast<double>(orientation.w) * orientation.z +
+                       static_cast<double>(orientation.x) * orientation.y),
+                1.0 - 2.0 * (static_cast<double>(orientation.y) * orientation.y +
+                             static_cast<double>(orientation.z) * orientation.z)));
+            if (currentPlayerPhysicalProxy_->gameplayLongitudinalFacingSign < 0.0F)
+            {
+                sonarOwnshipHeadingRadians += 3.14159265358979323846F;
+            }
+        }
+        const auto sonarPresentation = BuildSonarPresentation(
+            playerTrackSnapshot,
+            playerCombat_.SelectedTrackId(),
+            playerSnapshot.passiveReceiver.positionMeters,
+            sonarOwnshipHeadingRadians,
+            activePulse_,
+            lastPlayerActiveEchoObservation_,
+            simulationTimeSeconds);
+        if (!sonarPresentation)
+        {
+            return std::unexpected("M5-V2 sonar presentation projection failed: " + sonarPresentation.error());
+        }
+        playerCombatPresentation.sonar = *sonarPresentation;
         playerCombatPresentation.canDeployDecoy = playerDecoyAvailable_;
         playerCombatPresentation.playerDecoyActive = playerDecoy_.has_value() && playerDecoy_->active;
         if (lastCombatCommand_)
@@ -1684,6 +1713,7 @@ private:
     float playerTorpedoForwardSign_ = 1.0F;
     std::optional<Acoustics::ActiveAcousticPulse> activePulse_{};
     std::optional<Acoustics::AcousticReflector> activeReflector_{};
+    std::optional<Acoustics::AcousticObservation> lastPlayerActiveEchoObservation_{};
     double nextActivePulseTimeSeconds_ = 0.0;
     std::optional<Acoustics::ActiveAcousticPulse> destroyerActivePulse_{};
     std::optional<Acoustics::AcousticReflector> destroyerActiveReflector_{};

@@ -219,6 +219,161 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
     ImGui::End();
 }
 
+
+void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    if (viewport != nullptr)
+    {
+        constexpr float margin = 16.0F;
+        ImGui::SetNextWindowPos(
+            ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - margin,
+                   viewport->WorkPos.y + viewport->WorkSize.y - margin),
+            ImGuiCond_Always,
+            ImVec2(1.0F, 1.0F));
+    }
+    ImGui::SetNextWindowSize(ImVec2(330.0F, 370.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.88F);
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoNavInputs |
+                                       ImGuiWindowFlags_NoInputs;
+    if (!ImGui::Begin("SONAR", nullptr, flags))
+    {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::Text("Range: %.1f km", snapshot.displayRangeMeters / 1000.0F);
+    ImGui::SameLine();
+    ImGui::Text("Contacts: %d", static_cast<int>(snapshot.tracks.size()));
+    if (snapshot.activePulse)
+    {
+        ImGui::SameLine();
+        ImGui::TextUnformatted("PING OUT");
+    }
+    else if (snapshot.recentEcho)
+    {
+        ImGui::SameLine();
+        ImGui::TextUnformatted("ECHO");
+    }
+
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const float scopeSize = std::max(160.0F, std::min(available.x, available.y - 22.0F));
+    const ImVec2 topLeft = ImGui::GetCursorScreenPos();
+    const ImVec2 center(topLeft.x + scopeSize * 0.5F, topLeft.y + scopeSize * 0.5F);
+    const float radius = scopeSize * 0.46F;
+    ImGui::InvisibleButton("##SONAR_SCOPE", ImVec2(scopeSize, scopeSize));
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    if (drawList == nullptr || snapshot.displayRangeMeters <= 0.0F)
+    {
+        ImGui::End();
+        return;
+    }
+
+    const ImU32 gridColor = IM_COL32(90, 135, 145, 120);
+    const ImU32 textColor = IM_COL32(185, 225, 230, 220);
+    const ImU32 contactColor = IM_COL32(105, 235, 190, 235);
+    const ImU32 selectedColor = IM_COL32(255, 220, 100, 255);
+    const ImU32 pingColor = IM_COL32(90, 210, 255, 210);
+    const ImU32 echoColor = IM_COL32(255, 175, 90, 240);
+
+    for (int ring = 1; ring <= 4; ++ring)
+    {
+        drawList->AddCircle(center, radius * (static_cast<float>(ring) / 4.0F), gridColor, 64, 1.0F);
+    }
+    drawList->AddLine(ImVec2(center.x - radius, center.y), ImVec2(center.x + radius, center.y), gridColor, 1.0F);
+    drawList->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y + radius), gridColor, 1.0F);
+    drawList->AddTriangleFilled(
+        ImVec2(center.x + radius + 2.0F, center.y),
+        ImVec2(center.x + radius - 6.0F, center.y - 4.0F),
+        ImVec2(center.x + radius - 6.0F, center.y + 4.0F),
+        textColor);
+    drawList->AddText(ImVec2(center.x + radius - 18.0F, center.y + 7.0F), textColor, "BOW");
+
+    const auto pointAt = [&center](const float bearingRadians, const float distancePixels) {
+        return ImVec2(
+            center.x + std::cos(bearingRadians) * distancePixels,
+            center.y - std::sin(bearingRadians) * distancePixels);
+    };
+
+    for (const auto& contact : snapshot.tracks)
+    {
+        const ImU32 color = contact.selected ? selectedColor : contactColor;
+        const float bearing = contact.relativeBearingRadians;
+        const float uncertainty = std::min(contact.bearingUncertaintyRadians, 1.2F);
+        if (!contact.estimatedRangeMeters)
+        {
+            const ImVec2 bearingPoint = pointAt(bearing, radius);
+            drawList->AddLine(center, bearingPoint, color, contact.selected ? 2.0F : 1.0F);
+            drawList->AddLine(center, pointAt(bearing - uncertainty, radius), IM_COL32(105, 235, 190, 80), 1.0F);
+            drawList->AddLine(center, pointAt(bearing + uncertainty, radius), IM_COL32(105, 235, 190, 80), 1.0F);
+            drawList->AddCircleFilled(bearingPoint, contact.selected ? 5.0F : 3.5F, color, 12);
+        }
+        else
+        {
+            const float normalizedRange = std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F);
+            const ImVec2 contactPoint = pointAt(bearing, radius * normalizedRange);
+            if (contact.positionUncertaintyMeters)
+            {
+                const float uncertaintyPixels = std::clamp(
+                    *contact.positionUncertaintyMeters / snapshot.displayRangeMeters * radius, 2.0F, radius * 0.25F);
+                drawList->AddCircle(contactPoint, uncertaintyPixels, IM_COL32(105, 235, 190, 100), 24, 1.0F);
+            }
+            drawList->AddCircleFilled(contactPoint, contact.selected ? 5.5F : 4.0F, color, 16);
+            drawList->AddLine(
+                pointAt(bearing - uncertainty, radius * normalizedRange),
+                pointAt(bearing + uncertainty, radius * normalizedRange),
+                IM_COL32(105, 235, 190, 100), 1.0F);
+        }
+
+        const ImVec2 labelPoint = pointAt(
+            bearing,
+            contact.estimatedRangeMeters
+                ? radius * std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F)
+                : radius);
+        const std::string label = "#" + std::to_string(static_cast<unsigned long long>(contact.trackId));
+        drawList->AddText(ImVec2(labelPoint.x + 6.0F, labelPoint.y - 7.0F), color, label.c_str());
+    }
+
+    if (snapshot.activePulse)
+    {
+        const double elapsedSeconds = std::max(0.0, snapshot.simulationTimeSeconds - snapshot.activePulse->emissionTimeSeconds);
+        constexpr double soundSpeedMetersPerSecond = 1500.0;
+        const float waveRangeMeters = static_cast<float>(elapsedSeconds * soundSpeedMetersPerSecond);
+        const float waveRadius = radius * std::clamp(waveRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F);
+        const float bearing = snapshot.activePulse->relativeBearingRadians;
+        const float halfAngle = snapshot.activePulse->beamHalfAngleRadians;
+        drawList->AddLine(center, pointAt(bearing - halfAngle, radius), pingColor, 1.0F);
+        drawList->AddLine(center, pointAt(bearing + halfAngle, radius), pingColor, 1.0F);
+        if (waveRadius > 1.0F)
+        {
+            drawList->PathClear();
+            drawList->PathArcTo(center, waveRadius, -(bearing + halfAngle), -(bearing - halfAngle), 24);
+            drawList->PathStroke(pingColor, 0, 2.0F);
+        }
+    }
+
+    if (snapshot.recentEcho)
+    {
+        const float normalizedRange = std::clamp(
+            snapshot.recentEcho->estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F);
+        const ImVec2 echoPoint = pointAt(snapshot.recentEcho->relativeBearingRadians, radius * normalizedRange);
+        const float echoUncertaintyPixels = std::clamp(
+            snapshot.recentEcho->rangeUncertaintyMeters / snapshot.displayRangeMeters * radius,
+            2.0F,
+            radius * 0.20F);
+        drawList->AddCircle(echoPoint, echoUncertaintyPixels, echoColor, 24, 2.0F);
+        drawList->AddLine(ImVec2(echoPoint.x - 6.0F, echoPoint.y - 6.0F),
+                          ImVec2(echoPoint.x + 6.0F, echoPoint.y + 6.0F), echoColor, 2.0F);
+        drawList->AddLine(ImVec2(echoPoint.x - 6.0F, echoPoint.y + 6.0F),
+                          ImVec2(echoPoint.x + 6.0F, echoPoint.y - 6.0F), echoColor, 2.0F);
+    }
+
+    ImGui::TextUnformatted("Bearing-only = radial line | ranged = contact point");
+    ImGui::End();
+}
+
 void DrawCameraScaleHud(const CameraScaleHudSnapshot& snapshot)
 {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();

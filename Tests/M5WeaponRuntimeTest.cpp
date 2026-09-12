@@ -1,9 +1,11 @@
+#include "Game/Combat/SonarPresentation.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 #include "Tests/M5CombatImpactChecks.h"
 #include "Tests/M5ConventionalTorpedoChecks.h"
 #include "Tests/M5WeaponEmploymentChecks.h"
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -247,6 +249,67 @@ int main()
     agedSpatialTrack.positionUncertaintyMeters = 160.0F;
     Require(!ValidateTrackForWeapon(torpedo, agedSpatialTrack).has_value(),
             "weapon must reject spatial evidence after its uncertainty exceeds the authored budget");
+
+    {
+        auto bearingOnlySonarTrack = MakeTrack();
+        bearingOnlySonarTrack.trackId = 51U;
+        bearingOnlySonarTrack.estimatedBearingRadians = 0.50F;
+        bearingOnlySonarTrack.estimatedPositionMeters.reset();
+        bearingOnlySonarTrack.positionUncertaintyMeters.reset();
+
+        auto rangedSonarTrack = MakeTrack();
+        rangedSonarTrack.trackId = 52U;
+        rangedSonarTrack.estimatedBearingRadians = 0.25F;
+        rangedSonarTrack.estimatedPositionMeters = DeepRun::Physics::PhysicsVector3{.x = 1100.0F, .y = -100.0F, .z = 0.0F};
+        rangedSonarTrack.positionUncertaintyMeters = 75.0F;
+
+        const std::array sonarTracks{bearingOnlySonarTrack, rangedSonarTrack};
+        const DeepRun::Physics::PhysicsVector3 ownship{.x = 100.0F, .y = -100.0F, .z = 0.0F};
+        const DeepRun::Acoustics::ActiveAcousticPulse pulse{
+            .originMeters = ownship,
+            .forwardUnitVector = {.x = 0.0F, .y = 1.0F, .z = 0.0F},
+            .beamHalfAngleRadians = 0.25F,
+            .emissionTimeSeconds = 40.0};
+        const DeepRun::Acoustics::AcousticObservation echo{
+            .kind = DeepRun::Acoustics::AcousticObservationKind::ActiveEcho,
+            .sensorId = "MGK540_BOW_ARRAY",
+            .observationTimeSeconds = 41.0,
+            .arrivalTimeSeconds = 41.0,
+            .measuredBearingRadians = 0.25F,
+            .bearingUncertaintyRadians = 0.03F,
+            .estimatedRangeMeters = 1000.0F,
+            .rangeUncertaintyMeters = 20.0F,
+            .confidence = 0.85F};
+
+        const auto sonar = DeepRun::Game::Combat::BuildSonarPresentation(
+            sonarTracks, 51U, ownship, 0.25F, pulse, echo, 42.0);
+        Require(sonar.has_value(), "M5 sonar presentation must accept perceived tracks and own active evidence");
+        Require(sonar->tracks.size() == 2U, "M5 sonar presentation must retain all non-lost perceived tracks");
+        Require(sonar->tracks[0].selected && !sonar->tracks[0].estimatedRangeMeters.has_value(),
+                "bearing-only sonar contact must remain bearing-only and selectable");
+        Require(std::abs(sonar->tracks[0].relativeBearingRadians - 0.25F) < 0.001F,
+                "sonar bearing must be relative to current ownship facing");
+        Require(sonar->tracks[1].estimatedRangeMeters.has_value() &&
+                    std::abs(*sonar->tracks[1].estimatedRangeMeters - 1000.0F) < 0.01F,
+                "ranged sonar contact must derive range only from the perceived spatial estimate");
+        Require(sonar->activePulse.has_value() && sonar->recentEcho.has_value(),
+                "own ping and measured echo evidence must be visible to sonar presentation");
+        Require(std::abs(sonar->recentEcho->estimatedRangeMeters - 1000.0F) < 0.01F,
+                "sonar echo range must come from measured AcousticObservation evidence");
+
+        const auto staleEcho = DeepRun::Game::Combat::BuildSonarPresentation(
+            sonarTracks, 51U, ownship, 0.25F, std::nullopt, echo, 46.0);
+        Require(staleEcho.has_value() && !staleEcho->recentEcho.has_value(),
+                "old active echo evidence must age out of the presentation without mutating Tracks");
+
+        auto lost = bearingOnlySonarTrack;
+        lost.lifecycle = TrackLifecycleState::Lost;
+        const std::array lostOnly{lost};
+        const auto lostPresentation = DeepRun::Game::Combat::BuildSonarPresentation(
+            lostOnly, 51U, ownship, 0.25F, std::nullopt, std::nullopt, 42.0);
+        Require(lostPresentation.has_value() && lostPresentation->tracks.empty(),
+                "Lost tracks must not remain on the player sonar scope");
+    }
 
     Require(DeepRun::Tests::RunM5ConventionalTorpedoChecks(),
             "M5-C conventional torpedo runtime must remain track-bound and SimulationTime deterministic");

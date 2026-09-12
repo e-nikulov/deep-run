@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/SonarPresentation.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
 #include <cstdint>
@@ -54,6 +55,7 @@ struct PlayerCombatPresentationSnapshot final
     bool canFireWeapon = false;
     bool canActiveSonarPing = false;
     bool activeSonarPulsePending = false;
+    SonarPresentationSnapshot sonar{};
 
     // M5-J3 is populated by CombatPlaygroundRuntime from a dedicated passive-acoustic perceived-world path.
     // No hostile transform, range estimate, weapon runtime pointer, or PhysicsBodyHandle is exposed to UI.
