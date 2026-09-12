@@ -130,3 +130,10 @@ The merged Antey GLB node contract was inspected directly from its glTF JSON chu
 bindings use `SM_Antey_LOD0_BowPlane_Port`, `SM_Antey_LOD0_BowPlane_Starboard`,
 `SM_Antey_LOD0_SternPlane_Port`, and `SM_Antey_LOD0_SternPlane_Starboard`. This keeps the V2 articulation layer
 aligned with the current-main production GLB rather than stale pre-merge `TailPlane` authoring names.
+
+The 2026-09-12 resync takes `main` commit `89991d702502fbea0bfa8024520a4c46aa3136dc` as the authoritative Antey
+production content again. The accepted Ventral Rudder repair, GameReady BLEND, runtime GLB, mirrored Engine
+runtime package and ventral authoring/validation tooling are preserved byte-for-byte from that `main` state.
+M5-V2 adapts runtime/tests to these assets rather than rewriting the model. The historical IG1-C source gate now
+checks the production model draw boundary without depending on the obsolete name of the node-override container;
+the actual prohibition on prototype physics/model paths remains unchanged.
