@@ -125,3 +125,8 @@ torpedo. This pairing exists only to exercise both visual candidates in the play
 weapon simulation, tube/loadout truth, collision, guidance, seeker, damage, acoustic authority, or production
 promotion status. Both GLBs render at authored metre scale; the old 24 x 5 x 5 proxy-cube torpedo visual is not
 used when a live underwater torpedo is rendered.
+
+The merged Antey GLB node contract was inspected directly from its glTF JSON chunk after the sync. V2 depth-plane
+bindings use `SM_Antey_LOD0_BowPlane_Port`, `SM_Antey_LOD0_BowPlane_Starboard`,
+`SM_Antey_LOD0_SternPlane_Port`, and `SM_Antey_LOD0_SternPlane_Starboard`. This keeps the V2 articulation layer
+aligned with the current-main production GLB rather than stale pre-merge `TailPlane` authoring names.
