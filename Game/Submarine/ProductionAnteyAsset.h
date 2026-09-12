@@ -73,6 +73,10 @@ struct ProductionLaunchAnchor final
 struct ProductionCompartment final
 {
     std::string semanticId;
+    std::string displayNameRu;
+    std::string functionalRole;
+    std::string functionalRoleStatus;
+    std::vector<std::string> systemTags;
     Assets::ModelVector3 localCenter{};
     std::array<float, 4> orientationQuaternionWxyz{};
     Assets::ModelVector3 halfExtents{};

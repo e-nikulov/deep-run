@@ -144,7 +144,7 @@ Future sonar simulation may support abstract acoustic bands and passive/active
 modes, but real-world MGK-540 frequency parameters are not verified content
 contract data and are not recorded here.
 
-Ten `VOL_COMP_*` logical volumes prepare future damage/flooding authoring.
+Ten stable `compartment.01` .. `compartment.10` logical volumes prepare future damage/flooding authoring. Their longitudinal boundaries and functional roles are aligned to the supplied Project 949A longitudinal-section reference through `Antey.compartments.json`. The bulkhead X positions are `REFERENCE_DERIVED_APPROXIMATE` (nominal tolerance about +/-1 m), because the supplied drawing is not dimensioned shipyard documentation. Compartment 03 intentionally remains `THIRD_UNSPECIFIED` rather than inventing a function absent from the supplied legend. P-700 containers, bow sonar allocation, VVD bottles, shafting, steering gear, and sail equipment remain outside the pressure-compartment contract.
 Simulation remains authoritative for loading, hatch state, propulsion,
 damage, flooding, fire, and crew state.
 
