@@ -19,11 +19,21 @@ enum class MovementDomain
     Spent,
 };
 
+enum class ConventionalTorpedoTerminalReason
+{
+    None,
+    Impact,
+    EnduranceExpired,
+};
+
 struct ConventionalTorpedoDefinition final
 {
     WeaponDefinition weapon{};
     float underwaterSpeedMetersPerSecond = 20.0F;
     float maximumTurnRateRadiansPerSecond = 0.25F;
+    // GAME POLICY only: finite propulsion/energy endurance prevents a missed weapon from pursuing forever.
+    // This is not an exact endurance/range claim for any real torpedo.
+    double maximumRunTimeSeconds = 300.0;
 
     // Gameplay-authored 2.5D depth-course limit. pi/2 preserves the pre-M5-C behaviour by default; concrete
     // scenarios may choose a smaller value to prevent a conventional underwater weapon from visually behaving
@@ -47,7 +57,9 @@ struct ConventionalTorpedoRuntimeState final
     Physics::PhysicsVector3 positionMeters{};
     float headingRadians = 0.0F;
     float speedMetersPerSecond = 0.0F;
+    double launchTimeSeconds = 0.0;
     double lastUpdateTimeSeconds = 0.0;
+    ConventionalTorpedoTerminalReason terminalReason = ConventionalTorpedoTerminalReason::None;
     std::optional<std::uint64_t> guidanceTrackId{};
     std::optional<Physics::PhysicsVector3> guidanceAimPointMeters{};
     std::optional<float> guidancePositionUncertaintyMeters{};
@@ -110,6 +122,7 @@ struct ConventionalTorpedoImpact final
         !std::isfinite(definition.maximumTurnRateRadiansPerSecond) ||
         definition.maximumTurnRateRadiansPerSecond <= 0.0F ||
         definition.maximumTurnRateRadiansPerSecond > 3.1415927F ||
+        !std::isfinite(definition.maximumRunTimeSeconds) || definition.maximumRunTimeSeconds <= 0.0 ||
         !std::isfinite(definition.maximumVerticalCourseAngleRadians) ||
         definition.maximumVerticalCourseAngleRadians <= 0.0F ||
         definition.maximumVerticalCourseAngleRadians > 1.5707963F ||
@@ -164,11 +177,40 @@ struct ConventionalTorpedoImpact final
         .headingRadians = ClampConventionalTorpedoVerticalCourse(
             launchHeadingRadians, definition.maximumVerticalCourseAngleRadians),
         .speedMetersPerSecond = definition.underwaterSpeedMetersPerSecond,
+        .launchTimeSeconds = simulationTimeSeconds,
         .lastUpdateTimeSeconds = simulationTimeSeconds,
+        .terminalReason = ConventionalTorpedoTerminalReason::None,
         .guidanceTrackId = targetTrack.trackId,
         .guidanceAimPointMeters = targetTrack.estimatedPositionMeters,
         .guidancePositionUncertaintyMeters = targetTrack.positionUncertaintyMeters,
         .impactedBody = std::nullopt};
+}
+
+[[nodiscard]] inline std::expected<bool, std::string> ExpireConventionalTorpedoEnduranceIfNeeded(
+    const ConventionalTorpedoDefinition& definition,
+    ConventionalTorpedoRuntimeState& state,
+    const double simulationTimeSeconds)
+{
+    if (!std::isfinite(simulationTimeSeconds) || !std::isfinite(state.launchTimeSeconds) ||
+        simulationTimeSeconds < state.lastUpdateTimeSeconds || simulationTimeSeconds < state.launchTimeSeconds)
+    {
+        return std::unexpected("conventional torpedo endurance time is invalid or time-reversing");
+    }
+    if (state.movementDomain != MovementDomain::Underwater || state.impactedBody.has_value())
+    {
+        return false;
+    }
+    const double elapsedSeconds = simulationTimeSeconds - state.launchTimeSeconds;
+    if (elapsedSeconds + 1.0e-9 < definition.maximumRunTimeSeconds)
+    {
+        return false;
+    }
+    state.speedMetersPerSecond = 0.0F;
+    state.movementDomain = MovementDomain::Spent;
+    state.terminalReason = ConventionalTorpedoTerminalReason::EnduranceExpired;
+    state.lastUpdateTimeSeconds = simulationTimeSeconds;
+    state.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;
+    return true;
 }
 
 [[nodiscard]] inline std::expected<void, std::string> UpdateConventionalTorpedoGuidance(
@@ -181,6 +223,15 @@ struct ConventionalTorpedoImpact final
     if (!definitionValid)
     {
         return std::unexpected(definitionValid.error());
+    }
+    const auto expired = ExpireConventionalTorpedoEnduranceIfNeeded(definition, state, simulationTimeSeconds);
+    if (!expired)
+    {
+        return std::unexpected(expired.error());
+    }
+    if (*expired)
+    {
+        return {};
     }
     if (state.weapon.definitionId != definition.weapon.id || state.weapon.phase != WeaponPhase::Launched ||
         state.movementDomain != MovementDomain::Underwater || state.impactedBody.has_value() ||
@@ -291,6 +342,7 @@ AdvanceConventionalTorpedoWithCollision(
     candidate.positionMeters = hit.positionMeters;
     candidate.speedMetersPerSecond = 0.0F;
     candidate.movementDomain = MovementDomain::Spent;
+    candidate.terminalReason = ConventionalTorpedoTerminalReason::Impact;
     candidate.impactedBody = hit.body;
     candidate.lastUpdateTimeSeconds = simulationTimeSeconds;
     candidate.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;

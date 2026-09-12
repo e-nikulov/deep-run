@@ -346,6 +346,15 @@ struct TorpedoSeekerModeDecision final
     {
         return std::unexpected(seekerValid.error());
     }
+    const auto expired = ExpireConventionalTorpedoEnduranceIfNeeded(definition, torpedo, simulationTimeSeconds);
+    if (!expired)
+    {
+        return std::unexpected(expired.error());
+    }
+    if (*expired)
+    {
+        return {};
+    }
     if (torpedo.weapon.definitionId != definition.weapon.id || torpedo.weapon.phase != WeaponPhase::Launched ||
         torpedo.movementDomain != MovementDomain::Underwater || torpedo.impactedBody.has_value() ||
         !torpedo.positionMeters.IsFinite() || !std::isfinite(torpedo.headingRadians) ||
@@ -435,6 +444,7 @@ AdvanceConventionalTorpedoWithSeekerCueAndCollision(
     candidate.positionMeters = hit.positionMeters;
     candidate.speedMetersPerSecond = 0.0F;
     candidate.movementDomain = MovementDomain::Spent;
+    candidate.terminalReason = ConventionalTorpedoTerminalReason::Impact;
     candidate.impactedBody = hit.body;
     candidate.lastUpdateTimeSeconds = simulationTimeSeconds;
     candidate.weapon.lastUpdateTimeSeconds = simulationTimeSeconds;

@@ -8,6 +8,7 @@
 #include "Game/Weapons/P700LauncherInventory.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
+#include "Simulation/Acoustics/AcousticEnvironment.h"
 #include "Simulation/Perception/SensorObservation.h"
 #include "Simulation/Perception/TrackManager.h"
 #include "Simulation/Weapons/AcousticDecoy.h"
@@ -1746,8 +1747,14 @@ private:
                 ++emission;
                 continue;
             }
+            const float referenceSurfaceYMeters = destroyerAcoustics.emitter.positionMeters.y +
+                destroyerDefinition_.bodyCenterBelowSurfaceMeters;
+            const auto environment = Acoustics::EvaluateAcousticEnvironmentPath(
+                emission->positionMeters, passiveReceiver.positionMeters, referenceSurfaceYMeters, 0.0F);
+            if (!environment)
+                return std::unexpected("M5 torpedo passive environment path failed: " + environment.error());
             const auto observed = acousticWorld_.CollectPassiveDirectObservation(
-                *emission, passiveReceiver, simulationTimeSeconds);
+                *emission, passiveReceiver, simulationTimeSeconds, *environment);
             if (!observed)
                 return std::unexpected("M5-E.1 seeker acoustic propagation failed: " + observed.error().message);
             if (observed->has_value())
@@ -1768,9 +1775,16 @@ private:
             Acoustics::AcousticReceiver activeReceiver = passiveReceiver;
             activeReceiver.sensorId = "M5_PLAYER_TORPEDO_ACTIVE_SEEKER";
             activeReceiver.positionMeters = playerTorpedoActivePulse_->originMeters;
+            const float referenceSurfaceYMeters = destroyerAcoustics.emitter.positionMeters.y +
+                destroyerDefinition_.bodyCenterBelowSurfaceMeters;
+            const auto environment = Acoustics::EvaluateAcousticEnvironmentPath(
+                playerTorpedoActivePulse_->originMeters, playerTorpedoActiveReflector_->positionMeters,
+                referenceSurfaceYMeters, 0.0F);
+            if (!environment)
+                return std::unexpected("M5 torpedo active environment path failed: " + environment.error());
             const auto activeEcho = Acoustics::CollectMonostaticActiveEchoObservation(
                 acousticWorld_, *playerTorpedoActivePulse_, *playerTorpedoActiveReflector_, activeReceiver,
-                simulationTimeSeconds, {}, {}, M5CombatTorpedoActiveSonarConfig);
+                simulationTimeSeconds, *environment, *environment, M5CombatTorpedoActiveSonarConfig);
             if (!activeEcho)
                 return std::unexpected("M5 torpedo active echo failed: " + activeEcho.error());
             if (activeEcho->has_value())
@@ -1894,8 +1908,14 @@ private:
                 ++emission;
                 continue;
             }
+            const float referenceSurfaceYMeters =
+                playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+            const auto environment = Acoustics::EvaluateAcousticEnvironmentPath(
+                emission->positionMeters, passiveReceiver.positionMeters, referenceSurfaceYMeters, 0.0F);
+            if (!environment)
+                return std::unexpected("M5 hostile torpedo passive environment path failed: " + environment.error());
             const auto observed = acousticWorld_.CollectPassiveDirectObservation(
-                *emission, passiveReceiver, simulationTimeSeconds);
+                *emission, passiveReceiver, simulationTimeSeconds, *environment);
             if (!observed)
                 return std::unexpected("M5-J4 hostile seeker acoustic propagation failed: " + observed.error().message);
             if (observed->has_value())
@@ -1916,9 +1936,16 @@ private:
             Acoustics::AcousticReceiver activeReceiver = passiveReceiver;
             activeReceiver.sensorId = "M5_DESTROYER_TORPEDO_ACTIVE_SEEKER";
             activeReceiver.positionMeters = destroyerTorpedoActivePulse_->originMeters;
+            const float referenceSurfaceYMeters =
+                playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+            const auto environment = Acoustics::EvaluateAcousticEnvironmentPath(
+                destroyerTorpedoActivePulse_->originMeters, destroyerTorpedoActiveReflector_->positionMeters,
+                referenceSurfaceYMeters, 0.0F);
+            if (!environment)
+                return std::unexpected("M5 hostile torpedo active environment path failed: " + environment.error());
             const auto activeEcho = Acoustics::CollectMonostaticActiveEchoObservation(
                 acousticWorld_, *destroyerTorpedoActivePulse_, *destroyerTorpedoActiveReflector_, activeReceiver,
-                simulationTimeSeconds, {}, {}, M5CombatTorpedoActiveSonarConfig);
+                simulationTimeSeconds, *environment, *environment, M5CombatTorpedoActiveSonarConfig);
             if (!activeEcho)
                 return std::unexpected("M5 hostile torpedo active echo failed: " + activeEcho.error());
             if (activeEcho->has_value())
