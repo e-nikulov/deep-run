@@ -21,21 +21,30 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import textwrap
+
           path = Path('Game/Submarine/ProductionAnteyAsset.cpp')
           text = path.read_text(encoding='utf-8')
-          old = '''        const Json& controlSurfaces = authoring.at("controlSurfaces");
-          Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
-                  "Antey authoring must contain four production depth-plane records");'''
-          new = '''        Json controlSurfaces;
+          start_marker = '        const Json& controlSurfaces = authoring.at("controlSurfaces");'
+          end_marker = '                "Antey authoring must contain four production depth-plane records");'
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('controlSurfaces start marker not found')
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('controlSurfaces end marker not found')
+          end += len(end_marker)
+
+          replacement = textwrap.indent(textwrap.dedent('''\
+          Json controlSurfaces;
           if (authoring.contains("controlSurfaces"))
           {
               controlSurfaces = authoring.at("controlSurfaces");
           }
           else
           {
-              // Current production authoring keeps control-surface identity in the accepted asset metadata
-              // while the GLB owns the drawable nodes. Adapt that source-first contract at this private
-              // loader boundary rather than requiring an M5-only field in Antey.authoring.json.
+              // Current production authoring keeps control-surface identity in accepted asset metadata
+              // while the GLB owns drawable nodes. Adapt it only at this private loader boundary.
               const Json& controlSurfaceAuthoring = metadata.at("controlSurfaceAuthoring");
               const auto appendDepthPlaneGroup = [&controlSurfaces, &controlSurfaceAuthoring](
                   const std::string_view metadataKey,
@@ -63,12 +72,9 @@ jobs:
               appendDepthPlaneGroup("sternPlanes", "stern", "STERN");
           }
           Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
-                  "Antey production metadata must resolve four production depth-plane records");'''
-          if old not in text:
-              raise SystemExit('expected controlSurfaces block not found')
-          if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one controlSurfaces block, found {text.count(old)}')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+                  "Antey production metadata must resolve four production depth-plane records");
+          '''), '        ')
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
       - name: Commit stabilization and remove temporary workflow
         shell: bash
         run: |
