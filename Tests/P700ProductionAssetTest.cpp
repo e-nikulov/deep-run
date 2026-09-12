@@ -99,6 +99,7 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
         return false;
     }
 
+    std::unordered_set<std::size_t> lod0DrawnMeshNodes;
     std::size_t lod0DrawCount = 0U;
     std::size_t lod0TriangleCount = 0U;
     for (const Render::ModelDrawInstance& draw : *draws)
@@ -112,12 +113,18 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
             std::cerr << "P-700 LOD0 draw references invalid primitive\n";
             return false;
         }
+        lod0DrawnMeshNodes.insert(draw.nodeIndex);
         ++lod0DrawCount;
         lod0TriangleCount += model.primitives[draw.primitiveIndex].indices.size() / 3U;
     }
-    if (lod0DrawCount != ExpectedLod0ObjectCount || lod0TriangleCount != ExpectedLod0TriangleCount)
+    // The accepted content contract counts authored mesh objects, not renderer draw calls. An object may
+    // legitimately expand to multiple primitives/material ranges, so gate the eight unique LOD0 mesh nodes
+    // and exact triangle total while requiring at least one draw per object.
+    if (lod0DrawnMeshNodes.size() != ExpectedLod0ObjectCount ||
+        lod0DrawCount < ExpectedLod0ObjectCount || lod0TriangleCount != ExpectedLod0TriangleCount)
     {
-        std::cerr << "P-700 LOD0 draw/triangle accounting mismatch: draws=" << lod0DrawCount
+        std::cerr << "P-700 LOD0 object/draw/triangle accounting mismatch: objects="
+                  << lod0DrawnMeshNodes.size() << " draws=" << lod0DrawCount
                   << " triangles=" << lod0TriangleCount << '\n';
         return false;
     }
