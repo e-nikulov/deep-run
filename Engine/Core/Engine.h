@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine/Core/Time.h"
+#include "Engine/Core/TimeCompression.h"
 
 #include <filesystem>
 #include <expected>
@@ -85,6 +86,16 @@ public:
     [[nodiscard]] const CpuFrameDiagnostics& FrameDiagnostics() const noexcept;
     // Completed fixed-step time; render-only frames and rejected fixed hooks do not advance it.
     [[nodiscard]] double SimulationTimeSeconds() const noexcept;
+
+    // Time compression never changes the authoritative fixed-step duration. It changes only how much
+    // SimulationTime is accumulated per unit of RealTime. Requested rate is player intent; maximum rate is
+    // a gameplay-owned safety clamp for incoming weapons, casualties, collision risk, etc.
+    [[nodiscard]] TimeCompressionRate RequestedTimeCompressionRate() const noexcept;
+    [[nodiscard]] TimeCompressionRate EffectiveTimeCompressionRate() const noexcept;
+    [[nodiscard]] TimeCompressionRate MaximumTimeCompressionRate() const noexcept;
+    [[nodiscard]] bool SetRequestedTimeCompressionRate(TimeCompressionRate rate) noexcept;
+    [[nodiscard]] bool SetMaximumTimeCompressionRate(TimeCompressionRate rate) noexcept;
+
     [[nodiscard]] Scene::Scene& ActiveScene() noexcept;
     [[nodiscard]] Assets::AssetManager& Assets() noexcept;
     [[nodiscard]] Render::D3D12Renderer* Renderer() noexcept;
