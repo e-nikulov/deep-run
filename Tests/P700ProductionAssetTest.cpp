@@ -6,12 +6,15 @@
 #include <cstddef>
 #include <iostream>
 #include <string_view>
+#include <unordered_set>
 
 namespace
 {
 constexpr std::string_view P700ModelPath = "Weapons/P700/P700_Granit.glb";
 constexpr std::size_t ExpectedLod0ObjectCount = 8U;
 constexpr std::size_t ExpectedMovableSurfaceCount = 6U;
+constexpr std::size_t ExpectedProductionLodCount = 4U;
+constexpr std::size_t ExpectedAnimationTargetCount = ExpectedMovableSurfaceCount * ExpectedProductionLodCount;
 constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
 
 [[nodiscard]] bool IsIdentity(const DeepRun::Assets::ModelTransform& transform) noexcept
@@ -57,10 +60,17 @@ constexpr std::size_t ExpectedLod0TriangleCount = 25'172U;
         return false;
     }
     const Assets::ModelAsset& model = **modelHandle;
-    if (model.animations.size() != 1U || model.animations.front().name != "P700_Deploy" ||
-        model.animations.front().targetNodeNames.size() != ExpectedMovableSurfaceCount)
+    if (model.animations.size() != 1U || model.animations.front().name != "P700_Deploy")
     {
         std::cerr << "P-700 bounded animation metadata is invalid\n";
+        return false;
+    }
+    const std::unordered_set<std::string> animationTargets(
+        model.animations.front().targetNodeNames.begin(), model.animations.front().targetNodeNames.end());
+    if (animationTargets.size() != ExpectedAnimationTargetCount ||
+        animationTargets.size() != model.animations.front().targetNodeNames.size())
+    {
+        std::cerr << "P-700 deployment clip must expose 24 unique movable-surface LOD targets\n";
         return false;
     }
 
