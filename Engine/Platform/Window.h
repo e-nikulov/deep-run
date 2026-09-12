@@ -35,6 +35,8 @@ enum class Key
     Down,
     Q,
     E,
+    Minus,
+    Equals,
 };
 
 enum class MouseButton
