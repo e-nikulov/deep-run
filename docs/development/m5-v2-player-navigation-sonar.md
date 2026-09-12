@@ -137,3 +137,9 @@ runtime package and ventral authoring/validation tooling are preserved byte-for-
 M5-V2 adapts runtime/tests to these assets rather than rewriting the model. The historical IG1-C source gate now
 checks the production model draw boundary without depending on the obsolete name of the node-override container;
 the actual prohibition on prototype physics/model paths remains unchanged.
+
+Current `main` no longer duplicates V2-only `controlSurfaces` records in `Antey.authoring.json`. The M5-V2 loader
+therefore consumes accepted `controlSurfaceAuthoring` identity from `Antey.asset.json` when those explicit records
+are absent, resolves the corresponding four production GLB nodes privately, and exposes only semantic bow/stern
+groups plus opaque presentation binding indices to runtime code. This compatibility boundary does not modify the
+accepted model, GLB, physics authority, or simulation ownership of control-surface angle.
