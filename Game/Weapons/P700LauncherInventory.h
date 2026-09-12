@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -30,7 +31,7 @@ struct P700LauncherSlot final
 
 // Game-owned inventory layered directly on the accepted production Antey launch-anchor contract.
 // It owns only load/consume state; geometry stays in ProductionLaunchAnchor and missile flight stays in
-// Simulation::Weapons. No renderer node, hostile entity or target Transform enters this boundary.
+// DeepRun::Weapons. No renderer node, hostile entity or target Transform enters this boundary.
 class P700LauncherInventory final
 {
 public:
