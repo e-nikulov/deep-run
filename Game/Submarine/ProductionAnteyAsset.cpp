@@ -380,9 +380,44 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
 
         // M5-V2-B: exact node references are private source-first authoring metadata. Resolve them once here
         // and expose only semantic group + opaque model binding index to Game/runtime code.
-        const Json& controlSurfaces = authoring.at("controlSurfaces");
+        Json controlSurfaces;
+        if (authoring.contains("controlSurfaces"))
+        {
+            controlSurfaces = authoring.at("controlSurfaces");
+        }
+        else
+        {
+            // Current production authoring keeps control-surface identity in accepted asset metadata
+            // while the GLB owns drawable nodes. Adapt it only at this private loader boundary.
+            const Json& controlSurfaceAuthoring = metadata.at("controlSurfaceAuthoring");
+            const auto appendDepthPlaneGroup = [&controlSurfaces, &controlSurfaceAuthoring](
+                const std::string_view metadataKey,
+                const std::string_view semanticGroup,
+                const std::string_view groupValue)
+            {
+                const Json& names = controlSurfaceAuthoring.at(std::string(metadataKey));
+                Require(names.is_array() && names.size() == 2U,
+                        std::format("Antey controlSurfaceAuthoring.{} must contain exactly two names", metadataKey));
+                for (std::size_t index = 0; index < names.size(); ++index)
+                {
+                    Require(names[index].is_string() && !names[index].get<std::string>().empty(),
+                            std::format("Antey controlSurfaceAuthoring.{} names must be non-empty strings", metadataKey));
+                    const std::string sourceName = names[index].get<std::string>();
+                    controlSurfaces.push_back({
+                        {"semanticId", std::format("depth-plane.{}.{:02}", semanticGroup, index + 1U)},
+                        {"group", std::string(groupValue)},
+                        {"nodeReference", "SM_Antey_LOD0_" + sourceName},
+                        {"articulation", "ROTATION"},
+                        {"hingeAxisSource", "LOCAL_Y"},
+                        {"simulationOwnsAngle", true}});
+                }
+            };
+            appendDepthPlaneGroup("bowPlanes", "bow", "BOW");
+            appendDepthPlaneGroup("sternPlanes", "stern", "STERN");
+        }
         Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
-                "Antey authoring must contain four production depth-plane records");
+                "Antey production metadata must resolve four production depth-plane records");
+
         std::unordered_set<std::size_t> depthPlaneBindingIndices;
         std::size_t bowPlaneCount = 0U;
         std::size_t sternPlaneCount = 0U;
