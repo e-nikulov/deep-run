@@ -1,0 +1,82 @@
+name: M5 V2 Stabilize Main Control Surface Contract
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+    paths:
+      - .github/workflows/m5-v2-stabilize-main-control-surfaces.yml
+
+permissions:
+  contents: write
+
+jobs:
+  stabilize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Adapt V2 loader to current main control-surface metadata
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('Game/Submarine/ProductionAnteyAsset.cpp')
+          text = path.read_text(encoding='utf-8')
+          old = '''        const Json& controlSurfaces = authoring.at("controlSurfaces");
+          Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
+                  "Antey authoring must contain four production depth-plane records");'''
+          new = '''        Json controlSurfaces;
+          if (authoring.contains("controlSurfaces"))
+          {
+              controlSurfaces = authoring.at("controlSurfaces");
+          }
+          else
+          {
+              // Current production authoring keeps control-surface identity in the accepted asset metadata
+              // while the GLB owns the drawable nodes. Adapt that source-first contract at this private
+              // loader boundary rather than requiring an M5-only field in Antey.authoring.json.
+              const Json& controlSurfaceAuthoring = metadata.at("controlSurfaceAuthoring");
+              const auto appendDepthPlaneGroup = [&controlSurfaces, &controlSurfaceAuthoring](
+                  const std::string_view metadataKey,
+                  const std::string_view semanticGroup,
+                  const std::string_view groupValue)
+              {
+                  const Json& names = controlSurfaceAuthoring.at(std::string(metadataKey));
+                  Require(names.is_array() && names.size() == 2U,
+                          std::format("Antey controlSurfaceAuthoring.{} must contain exactly two names", metadataKey));
+                  for (std::size_t index = 0; index < names.size(); ++index)
+                  {
+                      Require(names[index].is_string() && !names[index].get<std::string>().empty(),
+                              std::format("Antey controlSurfaceAuthoring.{} names must be non-empty strings", metadataKey));
+                      const std::string sourceName = names[index].get<std::string>();
+                      controlSurfaces.push_back({
+                          {"semanticId", std::format("depth-plane.{}.{:02}", semanticGroup, index + 1U)},
+                          {"group", std::string(groupValue)},
+                          {"nodeReference", "SM_Antey_LOD0_" + sourceName},
+                          {"articulation", "ROTATION"},
+                          {"hingeAxisSource", "LOCAL_Y"},
+                          {"simulationOwnsAngle", true}});
+                  }
+              };
+              appendDepthPlaneGroup("bowPlanes", "bow", "BOW");
+              appendDepthPlaneGroup("sternPlanes", "stern", "STERN");
+          }
+          Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
+                  "Antey production metadata must resolve four production depth-plane records");'''
+          if old not in text:
+              raise SystemExit('expected controlSurfaces block not found')
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one controlSurfaces block, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+      - name: Commit stabilization and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/m5-v2-stabilize-main-control-surfaces.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Game/Submarine/ProductionAnteyAsset.cpp
+          git commit -m 'fix: adapt V2 depth-plane bindings to current Antey metadata'
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
