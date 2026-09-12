@@ -254,8 +254,24 @@ namespace M5SimpleDestroyerRuntimeDetail
         .damage = 50.0F,
         .simulationTimeSeconds = 5.0};
     if (!ApplySimpleDestroyerDamage(destroyerDefinition, destroyer, finishingDamage) ||
-        !destroyer.integrity.destroyed || destroyer.integrity.remainingIntegrity != 0.0F ||
-        AdvanceSimpleDestroyerCombatRuntime(destroyerDefinition, destroyer, {awarenessTrack}, 5.1))
+        !destroyer.integrity.destroyed || destroyer.integrity.remainingIntegrity != 0.0F)
+    {
+        return false;
+    }
+
+    const auto weaponPhaseAtDestruction = destroyer.weapon.phase;
+    const auto weaponTrackAtDestruction = destroyer.weapon.targetTrackId;
+    const auto destroyedDecision = AdvanceSimpleDestroyerCombatRuntime(
+        destroyerDefinition, destroyer, {awarenessTrack}, 5.1);
+    if (!destroyedDecision || destroyedDecision->action != SimpleDestroyerCombatAction::Hold ||
+        destroyedDecision->perceivedTrackId.has_value() || destroyer.weapon.phase != weaponPhaseAtDestruction ||
+        destroyer.weapon.targetTrackId != weaponTrackAtDestruction ||
+        destroyer.combatController.selectedTrackId.has_value() ||
+        std::abs(destroyer.combatController.lastUpdateTimeSeconds - 5.1) > 1.0e-9)
+    {
+        return false;
+    }
+    if (AdvanceSimpleDestroyerCombatRuntime(destroyerDefinition, destroyer, {awarenessTrack}, 5.05))
     {
         return false;
     }

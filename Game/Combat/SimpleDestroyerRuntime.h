@@ -199,7 +199,20 @@ struct SimpleDestroyerAcousticSnapshot final
     }
     if (runtime.integrity.destroyed)
     {
-        return std::unexpected("destroyed simple destroyer cannot advance combat behavior");
+        // A destroyed surface actor is a valid terminal gameplay state, not a frame error.
+        // Keep the physical/damage authority available for presentation and post-impact acceptance,
+        // but freeze its weapon/controller behavior so it cannot acquire, prepare, or launch again.
+        if (!std::isfinite(simulationTimeSeconds) ||
+            simulationTimeSeconds < runtime.combatController.lastUpdateTimeSeconds ||
+            simulationTimeSeconds < runtime.weapon.lastUpdateTimeSeconds)
+        {
+            return std::unexpected("destroyed simple destroyer combat state is invalid or time-reversing");
+        }
+        runtime.combatController.selectedTrackId.reset();
+        runtime.combatController.lastUpdateTimeSeconds = simulationTimeSeconds;
+        return SimpleDestroyerCombatDecision{
+            .action = SimpleDestroyerCombatAction::Hold,
+            .perceivedTrackId = std::nullopt};
     }
     return AdvanceSimpleDestroyerCombat(
         definition.combat,
