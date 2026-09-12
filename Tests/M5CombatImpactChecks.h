@@ -8,6 +8,7 @@
 #include "Tests/M5CombatPlaygroundRuntimeChecks.h"
 #include "Tests/M5MultiScaleCameraChecks.h"
 #include "Tests/M5NavalMineChecks.h"
+#include "Tests/M5P700Checks.h"
 #include "Tests/M5PlayerCombatCommandChecks.h"
 #include "Tests/M5PlayerCombatInputChecks.h"
 #include "Tests/M5PlayerDefensiveDecoyChecks.h"
@@ -268,6 +269,11 @@ namespace M5CombatImpactDetail
     if (!RunM5NavalMineChecks(physicsWorld))
     {
         return fail("M5-I physical contact mine composition");
+    }
+
+    if (!RunM5P700Checks())
+    {
+        return fail("M5 P-700 perceived-track launch, surface/submerged exit, deployment and physical impact lifecycle");
     }
 
     return true;
