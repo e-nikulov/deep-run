@@ -8,10 +8,12 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace DeepRun::Game::Combat
 {
@@ -196,8 +198,8 @@ public:
 
     [[nodiscard]] std::expected<std::optional<M5P700AcceptanceCheckpoint>, std::string> ObserveRender(
         const CombatPlaygroundPresentationSnapshot& presentation,
-        const Render::Camera& camera,
-        const Render::ModelDrawStatistics& combatDrawStats,
+        const Render::OrthographicCamera& camera,
+        const Render::ModelDrawStats& combatDrawStats,
         const float rendererAspectRatio,
         const bool gpuPresentationHandleValid,
         const bool explosionDrawn)
