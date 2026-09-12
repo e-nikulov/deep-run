@@ -20,6 +20,10 @@ No reliable public Project 949A maximum-astern speed figure was found. Therefore
 
 Both production propeller nodes are hub-centred, local `+X` articulated assets. Their visible angle is derived from signed authoritative shaft RPM, so they spin in the opposite direction under astern command. Presentation never drives thrust.
 
+### Production propeller presentation hierarchy
+
+The canonical runtime GLB exposes `SM_Propeller_Port` and `SM_Propeller_Starboard` as transform-only semantic roots. Their visible hub/blade geometry lives in drawable child nodes. Game code therefore retains only the opaque production root binding; the Assets layer resolves its complete drawable subtree and Render applies the signed shaft rotation in root space to every descendant. Child GLB names are not gameplay API, and the hierarchy must not be flattened into hard-coded blade/hub bindings in `PhysicalPlayground`.
+
 ## 2.5D turn-around
 
 The Jolt body remains a 2.5D XY body: X/Y translation and Z pitch are physical; screen-depth translation/yaw is not promoted to a new simulation DOF. A separate Game-owned `longitudinalSign` tells the rest of gameplay whether the bow points screen-right (`+1`) or screen-left (`-1`).
