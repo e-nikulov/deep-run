@@ -1,6 +1,6 @@
 # M5 V2 — P-700 Granit runtime integration
 
-Status: FULL LAUNCH / FLIGHT / TERMINAL SEQUENCE IMPLEMENTED, CI VALIDATION ACTIVE. Headless lifecycle, canonical production asset staging, 24-slot Antey launcher inventory, Weapon Selector, production launch-anchor materialization, paired production hatch presentation, lifecycle-driven LOD0 presentation and the dedicated >20 km production acceptance scenario are implemented.
+Status: ACCEPTED / M5 COMPLETE. Clean Debug and Release acceptance passed in GitHub Actions run `34712161730` (#488) on technical HEAD `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`. Headless lifecycle, canonical production asset staging, 24-slot Antey launcher inventory, Weapon Selector, production launch-anchor materialization, paired production hatch presentation, lifecycle-driven LOD0 presentation and the dedicated >20 km production acceptance scenario are all gated.
 
 ## Authority and employment
 
@@ -57,5 +57,12 @@ A failed terminal outcome enters `Defeated` and cannot fabricate collision damag
 ## Acceptance
 
 The existing 1.8 km destroyer fixture remains torpedo-scale and is not weakened to fit P-700. A dedicated `--smoke-p700` production scenario starts the Antey at 30 m and places the physical surface target at 20.1 km. Its commander issues only the same semantic commands available to normal input: select P-700, select perceived Track, active range it, prepare and fire. The acceptance path then requires observable lifecycle evidence for hatch opening, underwater booster exit, water exit, hardware separation, aerodynamic deployment, cruise, terminal flight and physical impact. Defensive defeat is disabled only in this dedicated impact-proof scenario; the headless regression separately forces a 100% hard-kill profile and proves `Defeated -> Spent` without a fake hit.
+
+
+Final acceptance evidence: both configurations passed all six CTest targets plus `--smoke-p700`. The dedicated
+20.1 km scenario observed `HATCH_OPENING`, `UNDERWATER_BOOSTER_EXIT`, `WATER_EXIT`, `HARDWARE_SEPARATION`,
+`AERODYNAMIC_DEPLOY`, `CRUISE`, `TERMINAL` and `PHYSICAL_IMPACT damage=100`. Its five-state report records
+`23/24` launchers after launch and a body-bound destroyer impact. A regression also starts from the real lateral
+launcher offset (`z=-6.05 m`) so 3D terminal convergence cannot silently regress back to planar guidance.
 
 The production package retains its legal status: `SHIPPING BLOCKED PENDING LEGAL REVIEW`.

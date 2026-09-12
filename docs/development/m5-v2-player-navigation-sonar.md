@@ -1,6 +1,6 @@
 # M5-V2 — Player Navigation / Dive Controls / Sonar Visualization Closure
 
-Status: IN PROGRESS
+Status: ACCEPTED / COMPLETE — final Debug/Release gate: CI `34712161730` (#488) on `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`.
 
 Base branch: `feature/m5-v2-player-navigation-sonar`
 
@@ -22,13 +22,13 @@ Accepted behavior:
 
 These accepted presentation behaviors must not regress during M5-V2.
 
-M5 itself remains OPEN because manual review exposed player-comprehension/runtime gaps outside camera presentation.
+Those player-comprehension/runtime gaps are now closed for M5: production ownship follow, dive telemetry/control-surface presentation and perceived-world sonar visualization are integrated without moving simulation authority into presentation.
 
 ## Goal
 
-Close the remaining normal-player usability gaps before Milestone 5 can be declared COMPLETE.
+Close the remaining normal-player usability gaps required for the final Milestone 5 acceptance.
 
-M5-V2 is limited to player navigation and presentation of already-existing vessel/acoustic simulation. It must not start P-700 runtime, M6 compartments/flooding, crew simulation, power management, or new combat AI.
+M5-V2 itself remains limited to player navigation and presentation of already-existing vessel/acoustic simulation. P-700 was subsequently integrated as a separate final M5 scope; M6 compartments/flooding, crew simulation, power management and new combat AI remain outside V2.
 
 ## V2-A — Ownship navigation / camera follow
 
@@ -92,7 +92,7 @@ Turning it off affects visuals only. It must not alter:
 
 M5-V2 does not implement:
 
-- P-700 launch/runtime;
+- P-700 launch/runtime inside the V2 slice (it was subsequently closed as separate final M5 integration);
 - final procedural world generation;
 - full ocean streaming;
 - M6 compartment/flooding/system damage;
@@ -112,7 +112,7 @@ M5-V2 requires:
 - manual active sonar ping showing outgoing pulse and reflected echo with real acoustic timing;
 - sonar visualization option demonstrably disables visuals without altering ranging behavior.
 
-Only after human acceptance of these items may M5 be marked COMPLETE. P-700 runtime begins afterward as its own integration scope.
+Closure result: ACCEPTED. The retained camera/presentation baseline remains intact, the navigation/dive/sonar state is covered by the M5 regression suite, `Sonar visualization: On / Off` defaults to `On` and changes presentation only, and the final clean Debug/Release CI gate passed in run `34712161730` (#488). P-700 was then closed as a separate final M5 integration without changing these V2 authority boundaries.
 
 ## Main asset sync / torpedo playground binding
 

@@ -1,6 +1,22 @@
 # Milestone 5 — Combat Playground
 
-Status: IN PROGRESS
+Status: COMPLETE
+
+## Milestone closure
+
+M5 is COMPLETE on `feature/m5-v2-player-navigation-sonar`. Technical acceptance is anchored by clean product
+HEAD `851a922dd4a2f4055dba523d3dc1a7773dad4ed2` and GitHub Actions run `34712161730` (#488). Both `windows-debug` and
+`windows-release` passed Antey contract validation, configure, build, all six registered CTest targets, the
+canonical windowed combat smoke, the dedicated P-700 production launch smoke, and both visual-artifact uploads.
+
+The final P-700 acceptance proves all five state checkpoints, all mandatory lifecycle markers, a real
+`PhysicsWorld::SweepBoxClosest` hit on the destroyer body, `100 HP` direct damage, explosion at the physical hit
+position, and exactly one consumed production launcher (`23/24` remaining). Destroyed surface combat actors now
+remain valid inert physical/damage state and cannot continue combat behavior after lethal impact.
+
+The retained Debug/Release artifacts are `m5-combat-visual-*` and `m5-p700-visual-*`; each P-700 package contains
+its machine-readable report plus launch, water-exit, deploy, cruise/terminal and impact captures. Detailed
+compartment/flooding/system damage remains M6 scope.
 
 ## Current accepted baseline
 
@@ -47,7 +63,7 @@ The accepted automated smoke path never deploys the player decoy, preserving the
 
 ### M5-J5 — explicit player active-sonar ranging and D1 control convergence
 
-Status: CANDIDATE — requires the normal Debug/Release CI gate before promotion to the stable M5 branch.
+Status: ACCEPTED — clean Debug/Release gate passed in CI run `34712161730` on `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`.
 
 Normal play no longer receives an automatic spatial fire-control solution. The destroyer's continuous acoustic
 signature first creates an ordinary bearing-only player Track through `AcousticWorld -> SensorObservation ->
@@ -63,8 +79,7 @@ context uses right-stick Y for continuous controller zoom and right-stick X for 
 
 ## M5-H.1-B — automated windowed visual acceptance
 
-Status: IMPLEMENTED — local Debug/Release verification passed; CI run ID pending the workflow execution for
-the resulting commit.
+Status: ACCEPTED — Debug/Release configure, build, CTest, windowed smoke and retained visual artifacts passed in CI run `34712161730` (#488) on `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`.
 
 The existing Win32 `WindowFrameCapture` path is now also used by a bounded M5 acceptance harness. The
 harness observes authoritative `SimulationTime`, PhysicsWorld body snapshots, the real Jolt-backed torpedo
@@ -94,9 +109,8 @@ Automation does not replace human review of apparent destroyer scale relative to
 motion, decoy visual distinction, whether impact/explosion reads on the destroyer, or scene coherence after
 resize.
 
-CI run ID: pending (this worktree has no CI run for its uncommitted changes).
-Accepted commit SHA: `41ed6422fa79aa56c48b38476af7bedda6c11774` base; update this line with the resulting
-commit SHA and CI run ID when the workflow accepts the change.
+CI run ID: `34712161730` (#488).
+Accepted technical commit SHA: `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`.
 
 Milestone 5 begins from the accepted M4 perceived-world boundary. Combat systems must consume observations/contacts/tracks appropriate to their role and must not gain authoritative hostile entity state merely because Simulation knows it.
 
@@ -183,6 +197,6 @@ Implemented contract under validation:
 
 `DeepRunM5WeaponRuntimeTests` now also executes a real Jolt-backed sweep against physical static bodies, verifies launch-platform filtering, torpedo impact/consumption, explosion production, basic integrity damage/destruction, target mismatch rejection and time-reversal rejection.
 
-## Next slice
+## Milestone handoff
 
-After M5-D acceptance, continue with the remaining Combat Playground dependencies (decoy, simple enemy/destroyer behavior and the minimal combat interaction needed to exercise them) while preserving the perceived-world and physics-authority boundaries. Detailed compartment/flooding/system damage remains M6.
+No additional Combat Playground slice remains open inside M5. Future work starts from this accepted perceived-world, physical-impact, navigation, sonar-presentation and production P-700 baseline. Detailed compartment/flooding/system damage remains M6.
