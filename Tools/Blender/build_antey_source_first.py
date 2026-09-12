@@ -19,6 +19,11 @@ from pathlib import Path
 import bpy
 from mathutils import Matrix, Vector
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from antey_ventral_selection import parse_selection as parse_ventral_selection, resolve_on_mesh as resolve_ventral_selection, strict_surface_faces as ventral_surface_faces, surface_incidence as ventral_surface_incidence
+
+VENTRAL_SELECTION_FIXTURE = Path(__file__).resolve().parents[2] / "Content" / "submarines" / "Antey" / "selected_geometry_ventral.txt"
+
 SOURCE_LENGTH = 9.775832176208496
 SOURCE_BEAM = 1.7063244581222534
 SOURCE_CENTER_X = (-0.8649876117706299 + 0.8413368463516235) * 0.5
@@ -550,63 +555,22 @@ def _manual_rudder_extraction(source_name: str, component_index: int, mesh: bpy.
         selected_negative = _manual_component_faces(mesh, component_faces_in, boundary_edges | opposite_edges, Vector((seed.x, -abs(seed.y), seed.z)))
         selected_indices = sorted(set(selected_positive) | set(selected_negative))
     else:
-        outline = [Vector(path_point) for path in paths for path_point in path["coordinates"][:-1]]
-        selected_indices = []
-        allowed_indices = {index for index, polygon in enumerate(mesh.polygons) if tuple(polygon.vertices) in {tuple(face) for face in component_faces_in}}
-        anchor_vertices = set(resolved.values())
-        candidates_by_anchor: dict[int, list[tuple[float, int]]] = defaultdict(list)
-        for index in sorted(allowed_indices):
-            polygon = mesh.polygons[index]
-            points = [coords[vertex] for vertex in polygon.vertices]
-            centre = sum(points, Vector()) / len(points)
-            # The source carries a second, inset layer around Y=0.  The
-            # manually bounded movable ventral skin is the outer pair; retain
-            # only those source faces while using the measured coordinates for
-            # the closure walls below.
-            if not _inside_xz(centre, outline):
-                continue
-            if abs(centre.y) >= 0.18:
-                selected_indices.append(index)
-            for vertex in polygon.vertices:
-                if vertex in anchor_vertices:
-                    candidates_by_anchor[vertex].append((abs(centre.y), index))
-        # Keep the measured seam vertices even where the source's inset layer
-        # puts their face centroid below the outer-skin threshold.  Prefer the
-        # outermost source face for each anchor, then discard any residual
-        # three-face overlaps from the known legacy casing topology.
-        selected_set = set(selected_indices)
-        for anchor_vertex in anchor_vertices:
-            if not any(anchor_vertex in mesh.polygons[index].vertices for index in selected_set):
-                if candidates_by_anchor.get(anchor_vertex):
-                    selected_set.add(max(candidates_by_anchor[anchor_vertex])[1])
-        protected = set()
-        for anchor_vertex in anchor_vertices:
-            containing = [index for index in selected_set if anchor_vertex in mesh.polygons[index].vertices]
-            if containing:
-                protected.add(max(containing, key=lambda index: abs(mesh.polygons[index].center.y)))
-        # Prefer dropping inset/duplicate faces; never drop the sole protected
-        # face carrying a supplied seam anchor.
-        while True:
-            edge_faces: dict[tuple[int, int], list[int]] = defaultdict(list)
-            for index in selected_set:
-                vertices = list(mesh.polygons[index].vertices)
-                for left, right in zip(vertices, vertices[1:] + vertices[:1]):
-                    edge_faces[tuple(sorted((left, right)))].append(index)
-            overlaps = [faces_for_edge for faces_for_edge in edge_faces.values() if len(faces_for_edge) > 2]
-            if not overlaps:
-                break
-            removed = False
-            for faces_for_edge in overlaps:
-                options = [index for index in faces_for_edge if index not in protected or sum(1 for other in selected_set if other != index and any(vertex in mesh.polygons[other].vertices for vertex in mesh.polygons[index].vertices if vertex in anchor_vertices)) > 0]
-                if not options:
-                    options = [index for index in faces_for_edge if index not in protected]
-                if not options:
-                    continue
-                drop = min(options, key=lambda index: (abs(mesh.polygons[index].center.y), mesh.polygons[index].area))
-                selected_set.remove(drop); protected.discard(drop); removed = True; break
-            if not removed:
-                break
-        selected_indices = sorted(selected_set)
+        # The artist-selected Ventral graph is the ownership contract.  The
+        # previous abs(centroid.y) >= 0.18 heuristic retained only an outer
+        # skin and silently left valid selected topology in the static lower
+        # hull.  Resolve the committed world-space fixture against the complete
+        # production-normalized source mesh and transfer every source face that
+        # makes an explicitly selected vertex/edge part of a real polygon.
+        ventral_selection = parse_ventral_selection(VENTRAL_SELECTION_FIXTURE)
+        ventral_resolved = resolve_ventral_selection(mesh, ventral_selection, require_all_edges=True)
+        ventral_surface = ventral_surface_faces(mesh, ventral_resolved, component_faces_in)
+        selected_indices = list(ventral_surface["faceIndices"])
+        if not ventral_surface["pass"]:
+            raise RuntimeError(
+                "Ventral selected-geometry source ownership is incomplete: "
+                f"vertices={ventral_surface['missingSurfaceVertices']} "
+                f"edges={ventral_surface['missingSurfaceEdges']}"
+            )
     if not selected_indices:
         raise RuntimeError(f"manual {side.lower()} rudder extraction found no source faces")
     source_face_tuples = [tuple(mesh.polygons[index].vertices) for index in selected_indices]
@@ -652,6 +616,12 @@ def _manual_rudder_extraction(source_name: str, component_index: int, mesh: bpy.
         "closureFaceFingerprint": face_fingerprint(closure_faces) if closure_faces else "NO_SOURCE_CAPS_REQUIRED",
         "hinge": {"path": f"{hinge_pair[0]}->{hinge_pair[1]}", "endpoints": [list(hinge_start), list(hinge_end)], "pivot": list((hinge_start + hinge_end) * 0.5), "axisVectorProduction": list(hinge_axis), "axis": "LOCAL_Z_APPROXIMATE_SOURCE_HINGE_VECTOR"},
     }
+    if side == "Ventral":
+        metadata["selectedGeometryFixture"] = str(VENTRAL_SELECTION_FIXTURE)
+        metadata["selectedGeometryVertexCount"] = len(ventral_selection["vertices"])
+        metadata["selectedGeometryEdgeCount"] = len(ventral_selection["edges"])
+        metadata["selectedGeometrySurfaceFaceCount"] = len(selected_indices)
+        metadata["selectedGeometrySurfaceOwnership"] = "ALL_SELECTED_VERTICES_AND_EDGES_POLYGON_INCIDENT"
     key = ("RUDDER", side)
     selected_counter = Counter(tuple(face) for face in source_face_tuples)
     remaining_faces = []
@@ -1525,7 +1495,7 @@ def _resolve_positive_mask(obj: bpy.types.Object, record: dict[str, object]) -> 
     return {"worldVertices": world, "resolvedVertices": resolved, "resolvedEdges": resolved_edges, "selectedVertices": set(resolved.values()), "selectedEdges": {tuple(item["resolvedVertices"]) for item in resolved_edges}, "vertexResolution": resolution_records}
 
 
-def _positive_face_patch(obj: bpy.types.Object, resolved: dict[str, object]) -> dict[str, object]:
+def _positive_face_patch(obj: bpy.types.Object, resolved: dict[str, object], surface_rule: str = "LEGACY") -> dict[str, object]:
     """Build the face patch using only the positive topology graph.
 
     Complete selected-vertex faces are positive faces.  A source face carrying
@@ -1550,6 +1520,8 @@ def _positive_face_patch(obj: bpy.types.Object, resolved: dict[str, object]) -> 
             incident_faces.add(polygon.index)
         if set(polygon.vertices) <= selected_vertices:
             manual_faces.append(polygon.index)
+        elif surface_rule == "VENTRAL_SELECTED_SURFACE" and selected_edge_count >= 1 and selected_vertex_count >= 2:
+            thickness_faces.append(polygon.index)
         elif selected_edge_count >= 2 and selected_vertex_count >= 3:
             thickness_faces.append(polygon.index)
         elif selected_edge_count:
@@ -1607,7 +1579,10 @@ def _mesh_edge_path(obj: bpy.types.Object, start: Vector, end: Vector) -> dict[s
 
 
 def _replace_object_faces_preserve_vertices(obj: bpy.types.Object, remove_indices: set[int]) -> None:
-    points = [obj.matrix_world @ vertex.co for vertex in obj.data.vertices]
+    # Preserve object-local coordinates and the existing transform.
+    # Baking world coordinates into a mesh while leaving matrix_world intact
+    # would apply the transform twice on a non-identity future candidate.
+    points = [vertex.co.copy() for vertex in obj.data.vertices]
     faces = [tuple(polygon.vertices) for polygon in obj.data.polygons if polygon.index not in remove_indices]
     old_data = obj.data
     mesh = bpy.data.meshes.new(f"{obj.name}_ManualMaskStaticMesh")
@@ -1966,21 +1941,34 @@ def correct_rudder_mask_candidate(input_candidate: Path, output: Path, mask_path
         if not isinstance(mask_record, dict):
             raise RuntimeError(f"manual positive mask section missing: {side}")
         resolved = _resolve_positive_mask(hull, mask_record)
-        patch = _positive_face_patch(hull, resolved)
+        transfer_selected_surface = bool(
+            side == "Ventral"
+            and mask_record.get("surfaceOwnership") == "TRANSFER_SELECTED_SOURCE_FACES"
+        )
+        patch = _positive_face_patch(
+            hull,
+            resolved,
+            surface_rule="VENTRAL_SELECTED_SURFACE" if transfer_selected_surface else "LEGACY",
+        )
         prior_closure_count = int(rudder.get("SYNTHETIC_CLOSURE_FACE_COUNT", 0))
         prior_source_face_count = int(rudder.get("SOURCE_FACE_COUNT", max(0, len(rudder.data.polygons) - prior_closure_count)))
-        if source_first_rebuild:
-            # The fresh source-first build already owns every source face in
-            # exactly one static or articulated component.  The accepted
-            # positive mask is retained as topology metadata (loose seam
-            # vertices/edges); transferring the same source patch a second
-            # time would duplicate closure/source faces and violate the new
-            # source exterior accounting contract.
+        if source_first_rebuild and not transfer_selected_surface:
+            # Dorsal and legacy masks remain metadata-only on an already
+            # partitioned source-first candidate.
             transfer_patch = {**patch, "patchFaceIndices": []}
             record = _corrected_rudder_mesh(rudder, hull, side, mask_record, resolved, transfer_patch)
         else:
+            # Ventral artist surface ownership is a real face transfer even on
+            # a source-first candidate: move the selected source-derived faces
+            # from the static lower hull into the articulated rudder so the
+            # neutral union is unchanged and no selected vertex/edge is loose.
             record = _corrected_rudder_mesh(rudder, hull, side, mask_record, resolved, patch)
             _replace_object_faces_preserve_vertices(hull, set(patch["patchFaceIndices"]))
+            if transfer_selected_surface:
+                incidence = ventral_surface_incidence(rudder, parse_ventral_selection(VENTRAL_SELECTION_FIXTURE))
+                if not incidence["pass"]:
+                    raise RuntimeError(f"Ventral surface ownership still contains loose selected topology: {incidence}")
+                record["selectedGeometrySurfaceIncidence"] = incidence
         removed_closure_count = sum(
             1
             for item in record.get("duplicatePolygonOriginsRemoved", [])
@@ -2039,7 +2027,7 @@ def correct_rudder_mask_candidate(input_candidate: Path, output: Path, mask_path
         before_faces = Counter(before_snapshot.get(name, []))
         after_faces = Counter(after_snapshot.get(name, []))
         per_object_face_delta[name] = {"missing": sum((before_faces - after_faces).values()), "extra": sum((after_faces - before_faces).values())}
-    scene["manual_rudder_positive_mask_contract"] = {"maskPath": str(mask_path.resolve()), "expected": {side: {"vertices": int(record["manualVertexCount"]), "edges": int(record["manualEdgeCount"]) } for side, record in rudder_records.items()}, "resolved": {side: {"vertices": int(record["resolvedVertexCount"]), "edges": int(record["resolvedEdgeCount"]) } for side, record in rudder_records.items()}, "sourceFaceAccounting": {"missing": union_missing_faces, "extra": union_extra_faces, "duplicateExteriorDelta": duplicate_movable_after - duplicate_movable_before, "duplicateMovableFacesBefore": duplicate_movable_before, "duplicateMovableFacesAfter": duplicate_movable_after, "perObjectTransferDelta": per_object_face_delta, "sourceFirstStaticHullPreserved": source_first_rebuild, "note": "fresh source-first candidates retain source faces in their original static/articulated owners; positive-mask seam vertices and edges are preserved without a second face transfer"}, "changedObjects": sorted(changed_objects), "unexpectedChanges": unexpected_changes}
+    scene["manual_rudder_positive_mask_contract"] = {"maskPath": str(mask_path.resolve()), "expected": {side: {"vertices": int(record["manualVertexCount"]), "edges": int(record["manualEdgeCount"]) } for side, record in rudder_records.items()}, "resolved": {side: {"vertices": int(record["resolvedVertexCount"]), "edges": int(record["resolvedEdgeCount"]) } for side, record in rudder_records.items()}, "sourceFaceAccounting": {"missing": union_missing_faces, "extra": union_extra_faces, "duplicateExteriorDelta": duplicate_movable_after - duplicate_movable_before, "duplicateMovableFacesBefore": duplicate_movable_before, "duplicateMovableFacesAfter": duplicate_movable_after, "perObjectTransferDelta": per_object_face_delta, "sourceFirstStaticHullPreserved": source_first_rebuild and not any(record.get("selectedGeometrySurfaceIncidence") for record in rudder_records.values()), "note": "legacy source-first masks remain metadata-only; Ventral TRANSFER_SELECTED_SOURCE_FACES moves the exact selected source surface from static lower hull to articulated ownership while preserving the neutral union"}, "changedObjects": sorted(changed_objects), "unexpectedChanges": unexpected_changes}
     scene["manual_rudder_mask_correction"] = {"status": "MANUAL_POSITIVE_TOPOLOGY_CORRECTED", "doNotTouch": ["stern_planes", "p700_covers", "p700_launcher_locations", "p700_missiles", "torpedo_markers", "sail_devices", "propellers", "compartment_authoring", "COM", "COB", "collision_proxy", "buoyancy_volume", "weapon_contracts"], "maskSource": "EXACT_USER_SUPPLIED_VERTEX_EDGE_DATA", "facePatchMethod": "SOURCE_TOPOLOGY_POSITIVE_VERTEX_EDGE_GRAPH", "unexpectedRuntimeObjectChanges": len(unexpected_changes)}
     scene["manual_rudder_contract"] = {side: {"hinge": record["hinge"], "qa_angles_deg": [-20.0, -15.0, 0.0, 15.0, 20.0], "neutral_exact": True, "fixed_stabilizer_rotation": False, "manual_vertex_count": record["manualVertexCount"], "manual_edge_count": record["manualEdgeCount"]} for side, record in rudder_records.items()}
     output.parent.mkdir(parents=True, exist_ok=True)
