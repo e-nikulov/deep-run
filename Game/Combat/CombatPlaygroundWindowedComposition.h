@@ -3,6 +3,8 @@
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Combat/CombatPlaygroundView.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
+#include "Game/Submarine/ProductionAnteyAsset.h"
+#include "Game/Weapons/P700CarrierLaunchContract.h"
 
 #include <cmath>
 #include <expected>
@@ -27,7 +29,25 @@ public:
         {
             return std::unexpected("M5-H.1 windowed combat view creation failed: " + view.error());
         }
-        return CombatPlaygroundWindowedComposition(std::move(*view));
+
+        const auto anteyDefinition = Submarine::LoadProductionAnteyAssetDefinition(assets);
+        if (!anteyDefinition)
+        {
+            return std::unexpected(
+                "M5 P-700 carrier production Antey definition load failed: " + anteyDefinition.error());
+        }
+        if (anteyDefinition->collisionProxies.size() != 1U)
+        {
+            return std::unexpected("M5 P-700 carrier requires exactly one accepted production collision proxy");
+        }
+        auto p700Carrier = Weapons::P700CarrierLaunchContract::Create(
+            anteyDefinition->p700LaunchAnchors,
+            anteyDefinition->collisionProxies.front().localCenter);
+        if (!p700Carrier)
+        {
+            return std::unexpected("M5 P-700 carrier launch contract creation failed: " + p700Carrier.error());
+        }
+        return CombatPlaygroundWindowedComposition(std::move(*view), std::move(*p700Carrier));
     }
 
     // Deterministic H/H.1 smoke path retained unchanged in behavior.
@@ -122,8 +142,11 @@ public:
     }
 
 private:
-    explicit CombatPlaygroundWindowedComposition(CombatPlaygroundView view)
-        : view_(std::move(view))
+    CombatPlaygroundWindowedComposition(
+        CombatPlaygroundView view,
+        Weapons::P700CarrierLaunchContract p700CarrierLaunchContract)
+        : view_(std::move(view)),
+          p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract))
     {
     }
 
@@ -165,6 +188,7 @@ private:
     }
 
     CombatPlaygroundView view_;
+    Weapons::P700CarrierLaunchContract p700CarrierLaunchContract_;
     std::optional<CombatPlaygroundRuntime> runtime_{};
 };
 } // namespace DeepRun::Game::Combat
