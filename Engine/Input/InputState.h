@@ -12,6 +12,8 @@ enum class InputAction
     ToggleDebugUi,
     TurnAround,
     SelectContact,
+    PreviousWeapon,
+    NextWeapon,
     PrepareWeapon,
     FireWeapon,
     ActiveSonarPing,

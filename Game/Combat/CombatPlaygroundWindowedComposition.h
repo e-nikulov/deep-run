@@ -180,6 +180,7 @@ private:
             physicsWorld,
             static_cast<float>(surfaceLevel),
             simulationTimeSeconds,
+            p700CarrierLaunchContract_,
             std::move(*p700Inventory));
         if (!runtime)
         {

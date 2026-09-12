@@ -18,6 +18,8 @@ namespace DeepRun::Tests
     const std::uint16_t combatButtons =
         static_cast<std::uint16_t>(GamepadButton::LeftStick) |
         static_cast<std::uint16_t>(GamepadButton::Y) |
+        static_cast<std::uint16_t>(GamepadButton::DpadLeft) |
+        static_cast<std::uint16_t>(GamepadButton::DpadRight) |
         static_cast<std::uint16_t>(GamepadButton::X) |
         static_cast<std::uint16_t>(GamepadButton::RightShoulder);
     const auto disconnected = SemanticActionsForGamepad(GamepadState{
@@ -25,8 +27,9 @@ namespace DeepRun::Tests
         .leftTrigger = 1.0F,
         .rightTrigger = 1.0F,
         .buttons = combatButtons});
-    if (disconnected.turnAround || disconnected.selectContact || disconnected.prepareWeapon ||
-        disconnected.fireWeapon || disconnected.activeSonarPing || disconnected.deployDecoy)
+    if (disconnected.turnAround || disconnected.selectContact || disconnected.previousWeapon ||
+        disconnected.nextWeapon || disconnected.prepareWeapon || disconnected.fireWeapon ||
+        disconnected.activeSonarPing || disconnected.deployDecoy)
     {
         return false;
     }
@@ -36,8 +39,9 @@ namespace DeepRun::Tests
         .leftTrigger = 0.80F,
         .rightTrigger = 0.90F,
         .buttons = combatButtons});
-    if (!controller.turnAround || !controller.selectContact || !controller.prepareWeapon ||
-        !controller.fireWeapon || !controller.activeSonarPing || !controller.deployDecoy)
+    if (!controller.turnAround || !controller.selectContact || !controller.previousWeapon ||
+        !controller.nextWeapon || !controller.prepareWeapon || !controller.fireWeapon ||
+        !controller.activeSonarPing || !controller.deployDecoy)
     {
         return false;
     }
@@ -61,7 +65,8 @@ namespace DeepRun::Tests
         .buttons = 0U};
     const auto triggerActions = SemanticActionsForGamepad(thresholdProbe);
     const auto triggerAxes = SemanticAxesForGamepad(thresholdProbe);
-    if (triggerActions.turnAround || triggerActions.selectContact || triggerActions.prepareWeapon || !triggerActions.fireWeapon ||
+    if (triggerActions.turnAround || triggerActions.selectContact || triggerActions.previousWeapon ||
+        triggerActions.nextWeapon || triggerActions.prepareWeapon || !triggerActions.fireWeapon ||
         triggerActions.activeSonarPing || triggerActions.deployDecoy ||
         triggerAxes.cameraPanY != 0.0F || triggerAxes.cameraZoom <= 0.0F)
     {
@@ -140,6 +145,34 @@ namespace DeepRun::Tests
     {
         return false;
     }
+
+    input.BeginFrame();
+    const std::array previousWeaponDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::Z}};
+    input.ProcessEvents(previousWeaponDown);
+    if (!input.State().WasPressed(InputAction::PreviousWeapon) ||
+        input.State().PressSequence(InputAction::PreviousWeapon) == 0U ||
+        input.State().IsDown(InputAction::NextWeapon))
+    {
+        return false;
+    }
+    const std::array previousWeaponUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::Z}};
+    input.ProcessEvents(previousWeaponUp);
+
+    input.BeginFrame();
+    const std::array nextWeaponDown{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::C}};
+    input.ProcessEvents(nextWeaponDown);
+    if (!input.State().WasPressed(InputAction::NextWeapon) ||
+        input.State().PressSequence(InputAction::NextWeapon) == 0U ||
+        input.State().IsDown(InputAction::PreviousWeapon))
+    {
+        return false;
+    }
+    const std::array nextWeaponUp{
+        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::C}};
+    input.ProcessEvents(nextWeaponUp);
 
     input.BeginFrame();
     const std::array prepareKeyDown{

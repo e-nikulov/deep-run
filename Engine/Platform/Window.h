@@ -27,6 +27,8 @@ enum class Key
     R,
     F,
     T,
+    Z,
+    C,
     Left,
     Right,
     Up,

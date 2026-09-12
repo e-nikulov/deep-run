@@ -429,6 +429,8 @@ int main(const int argumentCount, char** argumentValues)
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
         std::uint64_t consumedSelectContactSequence = 0;
+        std::uint64_t consumedPreviousWeaponSequence = 0;
+        std::uint64_t consumedNextWeaponSequence = 0;
         std::uint64_t consumedPrepareWeaponSequence = 0;
         std::uint64_t consumedFireWeaponSequence = 0;
         std::uint64_t consumedActiveSonarPingSequence = 0;
@@ -545,7 +547,8 @@ int main(const int argumentCount, char** argumentValues)
             },
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
              &combatAcceptance, &combatUiSnapshot, &currentOwnshipNavigationPositionMeters, &inputState, &engineServices,
-             &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
+             &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
+             &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
@@ -632,7 +635,7 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     currentOwnshipNavigationPositionMeters = playerCollisionProxy->positionMeters;
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 5> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 7> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -652,6 +655,12 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::SelectContact,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::SelectNextTrack,
                                 consumedSelectContactSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::PreviousWeapon,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::PreviousWeapon,
+                                consumedPreviousWeaponSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::NextWeapon,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::NextWeapon,
+                                consumedNextWeaponSequence);
                         consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::PrepareWeapon,
                                 consumedPrepareWeaponSequence);

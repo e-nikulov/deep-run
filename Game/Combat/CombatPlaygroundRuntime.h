@@ -4,13 +4,16 @@
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
+#include "Game/Weapons/P700CarrierLaunchContract.h"
 #include "Game/Weapons/P700LauncherInventory.h"
+#include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Perception/SensorObservation.h"
 #include "Simulation/Perception/TrackManager.h"
 #include "Simulation/Weapons/AcousticDecoy.h"
 #include "Simulation/Weapons/ConventionalTorpedo.h"
 #include "Simulation/Weapons/NavalMine.h"
+#include "Simulation/Weapons/P700Granit.h"
 #include "Simulation/Weapons/TorpedoSeeker.h"
 #include "Simulation/Weapons/WeaponEmploymentEnvelope.h"
 
@@ -58,6 +61,7 @@ struct CombatPlaygroundFrame final
     std::optional<Weapons::ConventionalTorpedoImpact> playerTorpedoImpact{};
     std::optional<Weapons::ConventionalTorpedoImpact> destroyerTorpedoImpact{};
     std::optional<Weapons::NavalMineDetonation> playerMineDetonation{};
+    std::optional<Weapons::P700GranitImpact> playerP700Impact{};
     float playerIntegrityFraction = 1.0F;
     bool playerDestroyed = false;
 };
@@ -203,6 +207,22 @@ public:
             .collisionHalfExtentsMeters = {.x = 2.0F, .y = 0.25F, .z = 0.25F},
             .directImpactDamage = 55.0F,
             .explosionRadiusMeters = 8.0F};
+        const Weapons::P700GranitDefinition playerP700Definition{
+            .weapon = Weapons::WeaponDefinition{
+                .id = "m5.live-player-p700",
+                .preparationSeconds = 1.0,
+                .targeting = Weapons::WeaponTargetingRequirements{
+                    .minimumTrackConfidence = 0.65F,
+                    .maximumBearingUncertaintyRadians = 0.12F,
+                    .maximumPositionUncertaintyMeters = 500.0F,
+                    .requiresEstimatedPosition = true,
+                    .allowCoastingTrack = false}}};
+        if (!Weapons::ValidateP700GranitDefinition(playerP700Definition))
+        {
+            (void)physicsWorld.DestroyBody(destroyer->body);
+            return std::unexpected("M5 P-700 player runtime definition is invalid");
+        }
+
         const Weapons::AcousticDecoyDefinition decoyDefinition{
             .id = "m5.live-acoustic-decoy",
             .continuousSourceLevelDb = {.levelDb = {158.0F, 154.0F, 149.0F, 143.0F}},
@@ -226,6 +246,7 @@ public:
             *destroyer,
             destroyerTorpedoDefinition,
             playerTorpedoDefinition,
+            playerP700Definition,
             std::move(*playerCombat),
             decoyDefinition,
             playerDecoyDefinition,
@@ -239,9 +260,11 @@ public:
         Physics::PhysicsWorld& physicsWorld,
         const float surfaceLevelY,
         const double simulationTimeSeconds,
+        Armament::P700CarrierLaunchContract p700CarrierLaunchContract,
         Armament::P700LauncherInventory p700LauncherInventory)
     {
-        if (p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||
+        if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount ||
+            p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||
             p700LauncherInventory.LoadedCount() != Armament::AnteyP700LauncherSlotCount ||
             p700LauncherInventory.SpentCount() != 0U)
         {
@@ -252,6 +275,7 @@ public:
         {
             return runtime;
         }
+        runtime->p700CarrierLaunchContract_ = std::move(p700CarrierLaunchContract);
         runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);
         return std::move(*runtime);
     }
@@ -408,6 +432,11 @@ public:
     {
         return p700LauncherInventory_;
     }
+    [[nodiscard]] Armament::PlayerWeaponType SelectedPlayerWeapon() const noexcept { return selectedPlayerWeapon_; }
+    [[nodiscard]] const std::optional<Weapons::P700GranitRuntimeState>& PlayerP700() const noexcept
+    {
+        return playerP700_;
+    }
 
 private:
     CombatPlaygroundRuntime(
@@ -422,6 +451,7 @@ private:
         SimpleDestroyerRuntimeState destroyer,
         Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition,
         Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition,
+        Weapons::P700GranitDefinition playerP700Definition,
         PlayerCombatCommandRuntime playerCombat,
         Weapons::AcousticDecoyDefinition decoyDefinition,
         Weapons::AcousticDecoyDefinition playerDecoyDefinition,
@@ -437,6 +467,7 @@ private:
           destroyer_(std::move(destroyer)),
           destroyerTorpedoDefinition_(std::move(destroyerTorpedoDefinition)),
           playerTorpedoDefinition_(std::move(playerTorpedoDefinition)),
+          playerP700Definition_(std::move(playerP700Definition)),
           playerCombat_(std::move(playerCombat)),
           decoyDefinition_(std::move(decoyDefinition)),
           playerDecoyDefinition_(std::move(playerDecoyDefinition)),
@@ -682,6 +713,17 @@ private:
         {
             for (const PlayerCombatCommand command : commands)
             {
+                if (command.type == PlayerCombatCommandType::PreviousWeapon ||
+                    command.type == PlayerCombatCommandType::NextWeapon)
+                {
+                    const auto feedback = ExecutePlayerWeaponSelectionCommand(command, simulationTimeSeconds);
+                    if (!feedback)
+                    {
+                        return std::unexpected("M5 Weapon Selector command failed: " + feedback.error());
+                    }
+                    lastCombatCommand_ = *feedback;
+                    continue;
+                }
                 if (command.type == PlayerCombatCommandType::ActiveSonarPing)
                 {
                     const auto feedback = ExecutePlayerActiveSonarCommand(
@@ -703,13 +745,15 @@ private:
                     lastCombatCommand_ = *feedback;
                     continue;
                 }
-                if (playerTorpedo_.has_value())
+                if (playerTorpedo_.has_value() || playerP700_.has_value())
                 {
-                    continue; // Preserve J2's post-launch weapon-command behavior; J4 decoy remains available.
+                    continue; // Preserve J2 post-launch weapon-command behavior; sonar/decoy remain available.
                 }
                 if (command.type == PlayerCombatCommandType::FireWeapon)
                 {
-                    const auto employment = AssessPlayerUset80Employment(playerSnapshot);
+                    const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
+                        ? AssessPlayerP700Employment(playerSnapshot)
+                        : AssessPlayerUset80Employment(playerSnapshot);
                     if (!employment)
                     {
                         return std::unexpected("M5 weapon employment assessment failed: " + employment.error());
@@ -720,7 +764,8 @@ private:
                             .command = PlayerCombatCommandType::FireWeapon,
                             .accepted = false,
                             .trackId = playerCombat_.SelectedTrackId(),
-                            .message = "USET-80 launch blocked: " + employment->reason};
+                            .message = std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_)) +
+                                       " launch blocked: " + employment->reason};
                         continue;
                     }
                 }
@@ -733,15 +778,17 @@ private:
             }
         }
 
-        if (!playerTorpedo_.has_value() && playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
+        if (!playerTorpedo_.has_value() && !playerP700_.has_value() &&
+            playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
         {
             const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);
             if (!targetTrack)
             {
                 return std::unexpected("M5-J2 launched weapon lost its perceived launch track on the launch tick");
             }
-            const auto launch = MaterializePlayerLaunch(
-                playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);
+            const auto launch = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
+                ? MaterializePlayerP700Launch(playerSnapshot, *targetTrack, simulationTimeSeconds)
+                : MaterializePlayerLaunch(playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds);
             if (!launch)
             {
                 return std::unexpected(launch.error());
@@ -813,6 +860,32 @@ private:
                 if (!damaged)
                 {
                     return std::unexpected("M5-E.1 destroyer damage application failed: " + damaged.error());
+                }
+            }
+        }
+
+        std::optional<Weapons::P700GranitImpact> p700Impact{};
+        if (playerP700_ && playerP700_->phase != Weapons::P700GranitPhase::Stored &&
+            playerP700_->phase != Weapons::P700GranitPhase::Spent)
+        {
+            const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerP700_->guidanceTrackId);
+            const auto advanced = Weapons::AdvanceP700GranitWithCollision(
+                playerP700Definition_, *playerP700_, perceivedTrack, *physicsWorld_, simulationTimeSeconds, playerBody_);
+            if (!advanced)
+            {
+                return std::unexpected("M5 P-700 fixed-step advance failed: " + advanced.error());
+            }
+            if (advanced->has_value())
+            {
+                p700Impact = **advanced;
+                lastExplosion_ = p700Impact->explosion;
+                if (p700Impact->physicsHit.body == destroyer_.body)
+                {
+                    const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, p700Impact->damage);
+                    if (!damaged)
+                    {
+                        return std::unexpected("M5 P-700 destroyer damage application failed: " + damaged.error());
+                    }
                 }
             }
         }
@@ -934,9 +1007,19 @@ private:
         }
         PlayerCombatPresentationSnapshot playerCombatPresentation =
             playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);
+        playerCombatPresentation.selectedWeapon = selectedPlayerWeapon_;
+        playerCombatPresentation.p700LoadedCount = p700LauncherInventory_ ? p700LauncherInventory_->LoadedCount() : 0U;
+        if (selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit &&
+            playerCombatPresentation.p700LoadedCount == 0U)
+        {
+            playerCombatPresentation.canPrepareWeapon = false;
+            playerCombatPresentation.canFireWeapon = false;
+        }
         if (playerCombatPresentation.canFireWeapon)
         {
-            const auto employment = AssessPlayerUset80Employment(playerSnapshot);
+            const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
+                ? AssessPlayerP700Employment(playerSnapshot)
+                : AssessPlayerUset80Employment(playerSnapshot);
             playerCombatPresentation.canFireWeapon = employment.has_value() && employment->allowed;
         }
         ApplyIncomingThreatPresentation(playerCombatPresentation);
@@ -988,8 +1071,132 @@ private:
             .playerTorpedoImpact = impact,
             .destroyerTorpedoImpact = destroyerImpact,
             .playerMineDetonation = mineDetonation,
+            .playerP700Impact = p700Impact,
             .playerIntegrityFraction = playerIntegrityFraction,
             .playerDestroyed = playerDestroyed};
+    }
+
+    [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> ExecutePlayerWeaponSelectionCommand(
+        const PlayerCombatCommand command,
+        const double simulationTimeSeconds)
+    {
+        if (command.type != PlayerCombatCommandType::PreviousWeapon && command.type != PlayerCombatCommandType::NextWeapon)
+        {
+            return std::unexpected("M5 Weapon Selector received a non-selector command");
+        }
+        if (playerCombat_.Weapon().phase != Weapons::WeaponPhase::Stored || playerTorpedo_ || playerP700_)
+        {
+            return PlayerCombatCommandFeedback{
+                .command = command.type,
+                .accepted = false,
+                .trackId = playerCombat_.SelectedTrackId(),
+                .message = "weapon selection is available only while the current weapon is Stored"};
+        }
+        const int direction = command.type == PlayerCombatCommandType::PreviousWeapon ? -1 : 1;
+        const Armament::PlayerWeaponType next = Armament::CyclePlayerWeapon(selectedPlayerWeapon_, direction);
+        if (next == Armament::PlayerWeaponType::P700Granit &&
+            (!p700LauncherInventory_ || p700LauncherInventory_->LoadedCount() == 0U || !p700CarrierLaunchContract_))
+        {
+            return PlayerCombatCommandFeedback{
+                .command = command.type,
+                .accepted = false,
+                .trackId = playerCombat_.SelectedTrackId(),
+                .message = "P-700 GRANIT is unavailable without a loaded production Antey launcher"};
+        }
+        const Weapons::WeaponDefinition definition = next == Armament::PlayerWeaponType::P700Granit
+            ? playerP700Definition_.weapon
+            : playerTorpedoDefinition_.weapon;
+        const auto reconfigured = playerCombat_.ReconfigureStoredWeapon(definition, simulationTimeSeconds);
+        if (!reconfigured)
+        {
+            return std::unexpected("M5 Weapon Selector profile switch failed: " + reconfigured.error());
+        }
+        selectedPlayerWeapon_ = next;
+        return PlayerCombatCommandFeedback{
+            .command = command.type,
+            .accepted = true,
+            .trackId = playerCombat_.SelectedTrackId(),
+            .message = "selected " + std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_))};
+    }
+
+    struct PlayerP700LaunchCandidate final
+    {
+        std::size_t slotIndex = 0U;
+        Weapons::P700CarrierLaunchContext carrier{};
+    };
+
+    [[nodiscard]] std::expected<PlayerP700LaunchCandidate, std::string> BuildPlayerP700LaunchCandidate(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot) const
+    {
+        if (!p700CarrierLaunchContract_ || !p700LauncherInventory_ || !currentPlayerPhysicalProxy_ ||
+            !playerSnapshot.emitter.positionMeters.IsFinite() ||
+            !playerSnapshot.emitter.velocityMetersPerSecond.IsFinite() || !std::isfinite(playerSnapshot.signedDepthMeters))
+        {
+            return std::unexpected("P-700 production carrier state is unavailable");
+        }
+        const auto slotIndex = p700LauncherInventory_->FirstLoadedSlotIndex();
+        if (!slotIndex)
+        {
+            return std::unexpected("P-700 production launcher inventory is exhausted");
+        }
+        const auto worldAnchor = p700CarrierLaunchContract_->BuildWorldAnchor(*slotIndex, *currentPlayerPhysicalProxy_);
+        if (!worldAnchor)
+        {
+            return std::unexpected("P-700 production world anchor failed: " + worldAnchor.error());
+        }
+        const auto& orientation = currentPlayerPhysicalProxy_->orientation;
+        float carrierHeadingRadians = static_cast<float>(std::atan2(
+            2.0 * (static_cast<double>(orientation.w) * orientation.z +
+                   static_cast<double>(orientation.x) * orientation.y),
+            1.0 - 2.0 * (static_cast<double>(orientation.y) * orientation.y +
+                         static_cast<double>(orientation.z) * orientation.z)));
+        if (currentPlayerPhysicalProxy_->gameplayLongitudinalFacingSign < 0.0F)
+        {
+            carrierHeadingRadians = Weapons::WrapEmploymentAngle(carrierHeadingRadians + 3.14159265358979323846F);
+        }
+        const auto& velocity = playerSnapshot.emitter.velocityMetersPerSecond;
+        const float carrierSpeedMetersPerSecond = static_cast<float>(std::sqrt(
+            static_cast<double>(velocity.x) * velocity.x +
+            static_cast<double>(velocity.y) * velocity.y +
+            static_cast<double>(velocity.z) * velocity.z));
+        const float surfaceLevelMeters = playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+        return PlayerP700LaunchCandidate{
+            .slotIndex = *slotIndex,
+            .carrier = Weapons::P700CarrierLaunchContext{
+                .launchPositionMeters = worldAnchor->positionMeters,
+                .launchForwardUnitVector = worldAnchor->forwardUnitVector,
+                .surfaceLevelYMeters = surfaceLevelMeters,
+                .launchDepthMeters = playerSnapshot.signedDepthMeters,
+                .carrierSpeedMetersPerSecond = carrierSpeedMetersPerSecond,
+                .carrierHeadingRadians = carrierHeadingRadians}};
+    }
+
+    [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerP700Employment(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot) const
+    {
+        const auto selected = FindTrack(playerTracks_.Tracks(), playerCombat_.SelectedTrackId());
+        if (!selected || !selected->estimatedPositionMeters)
+        {
+            return Weapons::WeaponEmploymentAssessment{
+                .allowed = false,
+                .reason = "selected perceived track has no spatial estimate"};
+        }
+        const auto launch = BuildPlayerP700LaunchCandidate(playerSnapshot);
+        if (!launch)
+        {
+            return Weapons::WeaponEmploymentAssessment{.allowed = false, .reason = launch.error()};
+        }
+        const float perceivedTargetDepthMeters = (std::max)(
+            0.0F, launch->carrier.surfaceLevelYMeters - selected->estimatedPositionMeters->y);
+        return Weapons::EvaluateWeaponEmployment(
+            Weapons::P700GranitEmploymentEnvelope,
+            Weapons::WeaponEmploymentContext{
+                .launchPositionMeters = launch->carrier.launchPositionMeters,
+                .perceivedTargetPositionMeters = *selected->estimatedPositionMeters,
+                .launchDepthMeters = launch->carrier.launchDepthMeters,
+                .perceivedTargetDepthMeters = perceivedTargetDepthMeters,
+                .carrierSpeedMetersPerSecond = launch->carrier.carrierSpeedMetersPerSecond,
+                .launcherHeadingRadians = launch->carrier.carrierHeadingRadians});
     }
 
     [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerUset80Employment(
@@ -1312,6 +1519,47 @@ private:
             return std::unexpected("M5-H decoy deployment failed: " + decoy.error());
         }
         decoy_ = *decoy;
+        return {};
+    }
+
+    [[nodiscard]] std::expected<void, std::string> MaterializePlayerP700Launch(
+        const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const Perception::Track& targetTrack,
+        const double simulationTimeSeconds)
+    {
+        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit ||
+            playerCombat_.Weapon().phase != Weapons::WeaponPhase::Launched ||
+            playerCombat_.Weapon().targetTrackId != std::optional<std::uint64_t>{targetTrack.trackId} ||
+            !Weapons::ValidateTrackForWeapon(playerP700Definition_.weapon, targetTrack))
+        {
+            return std::unexpected("M5 P-700 materialization requires the accepted perceived launch track");
+        }
+        const auto launch = BuildPlayerP700LaunchCandidate(playerSnapshot);
+        if (!launch)
+        {
+            return std::unexpected(launch.error());
+        }
+        auto missile = Weapons::CreateP700GranitRuntime(playerP700Definition_, simulationTimeSeconds);
+        if (!missile)
+        {
+            return std::unexpected("M5 P-700 runtime creation failed: " + missile.error());
+        }
+        const auto launched = Weapons::LaunchP700Granit(
+            playerP700Definition_, *missile, targetTrack, launch->carrier, simulationTimeSeconds);
+        if (!launched)
+        {
+            return std::unexpected("M5 P-700 production launch failed: " + launched.error());
+        }
+        if (!launched->allowed)
+        {
+            return std::unexpected("M5 P-700 materialization reached a disallowed employment state: " + launched->reason);
+        }
+        const auto consumed = p700LauncherInventory_->Consume(launch->slotIndex);
+        if (!consumed)
+        {
+            return std::unexpected("M5 P-700 launcher consumption failed after accepted launch: " + consumed.error());
+        }
+        playerP700_ = std::move(*missile);
         return {};
     }
 
@@ -1722,9 +1970,11 @@ private:
     std::optional<Physics::PhysicsVector3> destroyerTorpedoLaunchPosition_{};
     float destroyerTorpedoForwardSign_ = -1.0F;
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
-    // Present only in the production/windowed composition until Weapon Selector materializes a P-700 launch.
-    // Inventory is Game authority for 24 Loaded/Spent carrier slots; simulation missile state remains separate.
+    Weapons::P700GranitDefinition playerP700Definition_;
+    Armament::PlayerWeaponType selectedPlayerWeapon_ = Armament::PlayerWeaponType::HeavyweightTorpedo;
+    std::optional<Armament::P700CarrierLaunchContract> p700CarrierLaunchContract_{};
     std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
+    std::optional<Weapons::P700GranitRuntimeState> playerP700_{};
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};

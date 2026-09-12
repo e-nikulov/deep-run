@@ -25,6 +25,14 @@ struct CombatPlaygroundTorpedoPresentation final
     Weapons::MovementDomain movementDomain = Weapons::MovementDomain::Attached;
 };
 
+struct CombatPlaygroundP700Presentation final
+{
+    Physics::PhysicsVector3 positionMeters{};
+    float headingRadians = 0.0F;
+    float deploymentProgress = 0.0F;
+    Weapons::P700GranitPhase phase = Weapons::P700GranitPhase::Stored;
+};
+
 struct CombatPlaygroundDecoyPresentation final
 {
     Physics::PhysicsVector3 positionMeters{};
@@ -51,6 +59,7 @@ struct CombatPlaygroundPresentationSnapshot final
     bool destroyerDestroyed = false;
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
     std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};
+    std::optional<CombatPlaygroundP700Presentation> playerP700{};
     std::optional<CombatPlaygroundDecoyPresentation> decoy{};
     std::optional<CombatPlaygroundDecoyPresentation> playerDecoy{};
     std::optional<CombatPlaygroundMinePresentation> navalMine{};
@@ -133,6 +142,23 @@ BuildCombatPlaygroundPresentationSnapshot(
             .positionMeters = torpedo->positionMeters,
             .headingRadians = torpedo->headingRadians,
             .movementDomain = torpedo->movementDomain};
+    }
+
+    if (const auto& p700 = runtime.PlayerP700();
+        p700.has_value() && p700->phase != Weapons::P700GranitPhase::Stored &&
+        p700->phase != Weapons::P700GranitPhase::Spent)
+    {
+        if (!p700->positionMeters.IsFinite() || !std::isfinite(p700->headingRadians) ||
+            !std::isfinite(p700->deploymentProgress) || p700->deploymentProgress < 0.0F ||
+            p700->deploymentProgress > 1.0F)
+        {
+            return std::unexpected("M5 P-700 presentation state is invalid");
+        }
+        snapshot.playerP700 = CombatPlaygroundP700Presentation{
+            .positionMeters = p700->positionMeters,
+            .headingRadians = p700->headingRadians,
+            .deploymentProgress = p700->deploymentProgress,
+            .phase = p700->phase};
     }
 
     if (const auto& decoy = runtime.Decoy(); decoy.has_value())

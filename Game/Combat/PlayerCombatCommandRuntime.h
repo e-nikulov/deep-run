@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Game/Combat/SonarPresentation.h"
+#include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <optional>
@@ -42,6 +44,8 @@ struct PlayerCombatCommandFeedback final
 // rather than hostile Transform/entity truth and cannot mutate weapon, TrackManager, physics, or simulation.
 struct PlayerCombatPresentationSnapshot final
 {
+    Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
+    std::size_t p700LoadedCount = 0U;
     Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;
     std::optional<std::uint64_t> weaponTargetTrackId{};
     std::optional<std::uint64_t> selectedTrackId{};

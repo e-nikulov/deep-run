@@ -3,6 +3,7 @@
 #include "Engine/Assets/AssetManager.h"
 #include "Engine/Render/D3D12Renderer.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
+#include "Game/Weapons/ProductionP700Asset.h"
 
 #include <algorithm>
 #include <expected>
@@ -66,6 +67,24 @@ public:
             }
         }
 
+        const auto p700Definition = Armament::LoadProductionP700AssetDefinition(assets);
+        if (!p700Definition)
+        {
+            return std::unexpected("M5 production P-700 definition load failed: " + p700Definition.error());
+        }
+        const auto p700 = assets.LoadModel(p700Definition->modelAssetId.Value());
+        if (!p700 || !p700->IsValid() || p700->Get() == nullptr)
+        {
+            return std::unexpected("M5 production P-700 GLB load failed");
+        }
+        const auto p700Uploaded = renderer.UploadModel(**p700);
+        if (!p700Uploaded || !p700Uploaded->handle.IsValid() || !p700Uploaded->stats.uploadCompleted)
+        {
+            return std::unexpected(p700Uploaded
+                ? "M5 production P-700 upload produced an invalid GPU model"
+                : "M5 production P-700 upload failed: " + p700Uploaded.error());
+        }
+
         Assets::AssetHandle<Assets::ModelAsset> kit6576Asset{};
         Render::GpuModelHandle kit6576GpuModel{};
         const auto kit6576 = assets.LoadModel("Weapons/Torpedoes/65-76A/65-76A_Kit_review.glb");
@@ -85,7 +104,10 @@ public:
             std::move(uset80Asset),
             uset80GpuModel,
             std::move(kit6576Asset),
-            kit6576GpuModel);
+            kit6576GpuModel,
+            *p700Definition,
+            *p700,
+            p700Uploaded->handle);
     }
 
     [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(
@@ -207,6 +229,54 @@ public:
         {
             return std::unexpected(hostileDraw.error());
         }
+
+        if (snapshot->playerP700)
+        {
+            if (!p700Asset_.IsValid() || p700Asset_.Get() == nullptr || !p700GpuModel_.IsValid() ||
+                !renderer.IsGpuModelValid(p700GpuModel_))
+            {
+                return std::unexpected("M5 production P-700 presentation model is unavailable");
+            }
+            const auto modelToWorld = CombatPlaygroundPresentationDetail::BodyPoseTransform(
+                snapshot->playerP700->positionMeters,
+                Weapons::P700HeadingQuaternion(snapshot->playerP700->headingRadians));
+            if (!modelToWorld)
+            {
+                return std::unexpected("M5 production P-700 pose failed: " + modelToWorld.error());
+            }
+            const auto overrides = Armament::BuildProductionP700DeploymentOverrides(
+                p700Definition_, snapshot->playerP700->deploymentProgress);
+            if (!overrides)
+            {
+                return std::unexpected("M5 production P-700 deployment override failed: " + overrides.error());
+            }
+            const auto prepared = Render::PrepareModelDraws(*p700Asset_, *modelToWorld, {}, *overrides);
+            if (!prepared)
+            {
+                return std::unexpected("M5 production P-700 draw preparation failed: " + prepared.error());
+            }
+            std::vector<Render::ModelDrawInstance> p700Draws;
+            for (const auto& draw : *prepared)
+            {
+                if (Armament::IsProductionP700Lod0MeshNode(p700Definition_, draw.nodeIndex))
+                {
+                    p700Draws.push_back(draw);
+                }
+            }
+            if (p700Draws.empty())
+            {
+                return std::unexpected("M5 production P-700 LOD0 produced no presentation draws");
+            }
+            const auto p700Stats = renderer.DrawModel(
+                p700GpuModel_, std::span<const Render::ModelDrawInstance>(p700Draws.data(), p700Draws.size()), camera);
+            if (!p700Stats || p700Stats->drawCalls != p700Draws.size() || p700Stats->submittedIndices == 0U)
+            {
+                return std::unexpected(p700Stats
+                    ? "M5 production P-700 draw statistics are invalid"
+                    : "M5 production P-700 draw failed: " + p700Stats.error());
+            }
+            accumulate(*p700Stats);
+        }
         if (totalStats.drawCalls < proxyDraws.size() ||
             totalStats.submittedPrimitives != totalStats.drawCalls || totalStats.submittedIndices < 72U)
         {
@@ -246,7 +316,9 @@ public:
     {
         // Review torpedo candidates are intentionally optional. The canonical combat proxy model is the only
         // presentation resource required for M5 startup and smoke stability.
-        return proxyGpuModel_.IsValid() && renderer.IsGpuModelValid(proxyGpuModel_);
+        return proxyGpuModel_.IsValid() && renderer.IsGpuModelValid(proxyGpuModel_) &&
+               p700Asset_.IsValid() && p700Asset_.Get() != nullptr && p700GpuModel_.IsValid() &&
+               renderer.IsGpuModelValid(p700GpuModel_);
     }
 
 private:
@@ -255,12 +327,18 @@ private:
         Assets::AssetHandle<Assets::ModelAsset> uset80Asset,
         const Render::GpuModelHandle uset80Model,
         Assets::AssetHandle<Assets::ModelAsset> kit6576Asset,
-        const Render::GpuModelHandle kit6576Model) noexcept
+        const Render::GpuModelHandle kit6576Model,
+        Armament::ProductionP700AssetDefinition p700Definition,
+        Assets::AssetHandle<Assets::ModelAsset> p700Asset,
+        const Render::GpuModelHandle p700Model) noexcept
         : proxyGpuModel_(proxyModel),
           uset80Asset_(std::move(uset80Asset)),
           uset80GpuModel_(uset80Model),
           kit6576Asset_(std::move(kit6576Asset)),
-          kit6576GpuModel_(kit6576Model)
+          kit6576GpuModel_(kit6576Model),
+          p700Definition_(std::move(p700Definition)),
+          p700Asset_(std::move(p700Asset)),
+          p700GpuModel_(p700Model)
     {
     }
 
@@ -269,5 +347,8 @@ private:
     Render::GpuModelHandle uset80GpuModel_{};
     Assets::AssetHandle<Assets::ModelAsset> kit6576Asset_{};
     Render::GpuModelHandle kit6576GpuModel_{};
+    Armament::ProductionP700AssetDefinition p700Definition_{};
+    Assets::AssetHandle<Assets::ModelAsset> p700Asset_{};
+    Render::GpuModelHandle p700GpuModel_{};
 };
 } // namespace DeepRun::Game::Combat

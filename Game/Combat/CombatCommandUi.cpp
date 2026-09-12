@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <optional>
+#include <string_view>
 
 namespace DeepRun::Game::Combat
 {
@@ -83,6 +84,8 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
     switch (command)
     {
     case PlayerCombatCommandType::SelectNextTrack: return "SELECT CONTACT";
+    case PlayerCombatCommandType::PreviousWeapon: return "PREVIOUS WEAPON";
+    case PlayerCombatCommandType::NextWeapon: return "NEXT WEAPON";
     case PlayerCombatCommandType::PrepareWeapon: return "PREPARE WEAPON";
     case PlayerCombatCommandType::FireWeapon: return "FIRE WEAPON";
     case PlayerCombatCommandType::ActiveSonarPing: return "ACTIVE SONAR";
@@ -117,7 +120,9 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
         return;
     }
 
-    ImGui::Text("Weapon: %s", WeaponPhaseName(snapshot.weaponPhase));
+    const std::string_view weaponName = Armament::PlayerWeaponName(snapshot.selectedWeapon);
+    ImGui::Text("Weapon: %.*s / %s", static_cast<int>(weaponName.size()), weaponName.data(), WeaponPhaseName(snapshot.weaponPhase));
+    ImGui::Text("P-700 loaded: %zu / %zu", snapshot.p700LoadedCount, Armament::AnteyP700LauncherSlotCount);
     if (snapshot.weaponTargetTrackId)
     {
         ImGui::Text("Weapon track: #%llu", static_cast<unsigned long long>(*snapshot.weaponTargetTrackId));
@@ -212,6 +217,7 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
 
     ImGui::Separator();
     ImGui::TextUnformatted("Y / Tab          Select contact");
+    ImGui::TextUnformatted("D-pad L/R / Z/C  Select weapon");
     ImGui::TextUnformatted("LT / R / RMB     Prepare weapon");
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
     ImGui::TextUnformatted("RB / Space       Active sonar ping");

@@ -1,5 +1,6 @@
 #include "Game/Weapons/P700LaunchGeometry.h"
 #include "Game/Weapons/P700LauncherInventory.h"
+#include "Game/Weapons/PlayerWeaponSelection.h"
 
 #include <array>
 #include <cmath>
@@ -117,6 +118,21 @@ BuildAnchors()
     return true;
 }
 
+[[nodiscard]] bool RunWeaponSelectorChecks()
+{
+    using namespace DeepRun::Game::Armament;
+    if (PlayerWeaponName(PlayerWeaponType::HeavyweightTorpedo) != "USET-80" ||
+        PlayerWeaponName(PlayerWeaponType::P700Granit) != "P-700 GRANIT" ||
+        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, 1) != PlayerWeaponType::P700Granit ||
+        CyclePlayerWeapon(PlayerWeaponType::P700Granit, 1) != PlayerWeaponType::HeavyweightTorpedo ||
+        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, -1) != PlayerWeaponType::P700Granit)
+    {
+        std::cerr << "M5 two-item Weapon Selector cycle is invalid\n";
+        return false;
+    }
+    return true;
+}
+
 [[nodiscard]] bool RunWorldGeometryChecks()
 {
     using namespace DeepRun;
@@ -177,7 +193,7 @@ BuildAnchors()
 
 int main()
 {
-    if (!RunInventoryChecks() || !RunWorldGeometryChecks())
+    if (!RunInventoryChecks() || !RunWeaponSelectorChecks() || !RunWorldGeometryChecks())
     {
         return EXIT_FAILURE;
     }

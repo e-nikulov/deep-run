@@ -90,6 +90,8 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
     return ControllerSemanticActions{
         .turnAround = HasGamepadButton(gamepad, GamepadButton::LeftStick),
         .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
+        .previousWeapon = HasGamepadButton(gamepad, GamepadButton::DpadLeft),
+        .nextWeapon = HasGamepadButton(gamepad, GamepadButton::DpadRight),
         .prepareWeapon = leftTrigger >= TriggerActionThreshold,
         .fireWeapon = rightTrigger >= TriggerActionThreshold,
         .activeSonarPing = HasGamepadButton(gamepad, GamepadButton::RightShoulder),
@@ -157,6 +159,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::Tab)
             {
                 selectContactKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Z)
+            {
+                previousWeaponKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::C)
+            {
+                nextWeaponKeyDown_ = true;
             }
             else if (event.key == Platform::Key::R)
             {
@@ -232,6 +242,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::Tab)
             {
                 selectContactKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Z)
+            {
+                previousWeaponKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::C)
+            {
+                nextWeaponKeyDown_ = false;
             }
             else if (event.key == Platform::Key::R)
             {
@@ -369,6 +387,8 @@ void InputSystem::RefreshSemanticActions() noexcept
     const ControllerSemanticActions controller = SemanticActionsForGamepad(state_.Gamepad());
     state_.SetActionDown(InputAction::TurnAround, turnAroundKeyDown_ || controller.turnAround);
     state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);
+    state_.SetActionDown(InputAction::PreviousWeapon, previousWeaponKeyDown_ || controller.previousWeapon);
+    state_.SetActionDown(InputAction::NextWeapon, nextWeaponKeyDown_ || controller.nextWeapon);
     state_.SetActionDown(
         InputAction::PrepareWeapon,
         prepareWeaponKeyDown_ ||
