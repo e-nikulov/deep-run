@@ -24,6 +24,8 @@ The accepted Antey production definition supplies exactly 24 opaque `p700LaunchA
 
 Normal play now retains the immutable production carrier launch contract alongside the mutable 24-slot inventory. An accepted P-700 launch materializes from the first loaded production slot, builds the exact world launch anchor from current ownship physics state, launches the Simulation P-700 runtime from that anchor, and only then marks that launcher slot Spent. Failed or disallowed employment cannot consume a launcher.
 
+The integration build links `PhysicsRenderSync.cpp` into both launcher-focused test targets so production carrier geometry and headless runtime regression use the same body-local point/vector transform implementation. The combat UI also consumes the launcher inventory contract directly for the canonical 24-slot count, while the view stores its validated production P-700 definition as a constructor-initialized object rather than attempting to default-construct `AssetId`.
+
 ## Weapon Selector
 
 The normal-play selector contains exactly the two currently implemented player weapons: `USET-80` and `P-700 GRANIT`. Controller parity is D-pad Left/Right; keyboard parity is `Z/C`. The existing `LT/R` Prepare and `RT/Enter` Fire commands apply to whichever profile is selected. Selection is legal only while the current weapon readiness state is `Stored`, so target/readiness state cannot bleed between weapon profiles. P-700 is unavailable when the production carrier/inventory is absent or exhausted.
