@@ -1,11 +1,14 @@
 #pragma once
 
+#include "Engine/Core/TimeCompression.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Combat/CombatPlaygroundView.h"
+#include "Game/Combat/CombatTimeCompressionPolicy.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Weapons/P700CarrierLaunchContract.h"
 
+#include <algorithm>
 #include <cmath>
 #include <expected>
 #include <optional>
@@ -104,6 +107,36 @@ public:
         {
             return std::unexpected("M5-J2 windowed player-controlled combat advance failed: " + frame.error());
         }
+
+        // Safety policy consumes only gameplay state already owned by the combat composition. Publishing is
+        // intentionally best-effort so direct/headless runtime tests remain independent from Engine ownership;
+        // during the real Engine fixed-update hook the Core safety scope is bound and this cap becomes effective.
+        CombatTimeCompressionSignals timeSignals{};
+        timeSignals.incomingThreatDetected = frame->playerCombat.incomingThreatDetected;
+        timeSignals.playerDestroyed = frame->playerDestroyed;
+        timeSignals.importantImpactEvent = frame->playerTorpedoImpact.has_value() ||
+                                           frame->destroyerTorpedoImpact.has_value() ||
+                                           frame->playerMineDetonation.has_value() ||
+                                           frame->playerP700Impact.has_value();
+        timeSignals.hasPerceivedContact = std::any_of(
+            frame->playerTracks.begin(),
+            frame->playerTracks.end(),
+            [](const Perception::Track& track) {
+                return track.lifecycle != Perception::TrackLifecycleState::Lost;
+            });
+        timeSignals.selectedTrackWeaponQualified = frame->playerCombat.selectedTrackWeaponQualified;
+        if (runtime_->PlayerTorpedo().has_value())
+        {
+            timeSignals.conventionalTorpedoInFlight =
+                runtime_->PlayerTorpedo()->movementDomain != Weapons::MovementDomain::Spent;
+        }
+        if (runtime_->PlayerP700().has_value())
+        {
+            timeSignals.p700Phase = runtime_->PlayerP700()->phase;
+        }
+        static_cast<void>(Core::PublishTimeCompressionSafetyCap(
+            ResolveCombatTimeCompressionMaximum(timeSignals)));
+
         return *frame;
     }
 
