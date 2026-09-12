@@ -1,0 +1,38 @@
+name: Bounded glTF animation patch
+
+on:
+  push:
+    paths:
+      - '.github/workflows/bounded-gltf-animation-patch.yml'
+      - 'Tools/patch_bounded_gltf_animation.py'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Apply bounded animation importer patch
+        run: python Tools/patch_bounded_gltf_animation.py
+      - name: Validate bounded contract
+        shell: bash
+        run: |
+          grep -q 'only LINEAR interpolation is supported' Engine/Assets/GltfModelLoader.cpp
+          grep -q 'only rotation channels are supported' Engine/Assets/GltfModelLoader.cpp
+          grep -q 'skins remain outside' Engine/Assets/GltfModelLoader.cpp
+          grep -q 'ImportAnimations' Engine/Assets/GltfModelLoader.cpp
+      - name: Commit importer patch and remove temporary files
+        shell: bash
+        run: |
+          rm .github/workflows/bounded-gltf-animation-patch.yml
+          rm Tools/patch_bounded_gltf_animation.py
+          git config user.name 'Evgeniy N.'
+          git config user.email 'gnikulov@gmail.com'
+          git add -A
+          git commit -m 'feat: allow bounded rotation-only glTF clips'
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
