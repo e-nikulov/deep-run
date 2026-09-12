@@ -78,6 +78,38 @@ namespace M5SimpleDestroyerRuntimeDetail
         return false;
     }
 
+    auto stationaryDefinition = MakeDestroyerDefinition();
+    stationaryDefinition.id = "m5.stationary-destroyer-proxy";
+    stationaryDefinition.weapon.id = "m5.stationary-destroyer-weapon";
+    stationaryDefinition.cruiseVelocityXMetersPerSecond = 0.0F;
+    auto stationaryResult = CreateSimpleDestroyerRuntime(
+        stationaryDefinition,
+        physicsWorld,
+        0.0F,
+        -60.0F,
+        0.0F,
+        0.0);
+    if (!stationaryResult)
+    {
+        return false;
+    }
+    const auto stationaryInitial = physicsWorld.GetBodyState(stationaryResult->body);
+    if (!stationaryInitial || std::abs(stationaryInitial->position.x + 60.0F) > 0.001F ||
+        std::abs(stationaryInitial->linearVelocity.x) > 0.001F)
+    {
+        return false;
+    }
+    for (int step = 0; step < 60; ++step)
+    {
+        physicsWorld.Step(1.0F / 60.0F);
+    }
+    const auto stationaryLater = physicsWorld.GetBodyState(stationaryResult->body);
+    if (!stationaryLater || std::abs(stationaryLater->position.x + 60.0F) > 0.001F ||
+        std::abs(stationaryLater->linearVelocity.x) > 0.001F || !physicsWorld.DestroyBody(stationaryResult->body))
+    {
+        return false;
+    }
+
     const auto destroyerDefinition = MakeDestroyerDefinition();
     auto destroyerResult = CreateSimpleDestroyerRuntime(
         destroyerDefinition,

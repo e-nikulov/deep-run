@@ -96,7 +96,9 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
 }
 }
 
-void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
+void DrawCombatCommandUi(
+    const PlayerCombatPresentationSnapshot& snapshot,
+    CombatUiPresentationSettings* presentationSettings)
 {
     // M5-V1: the Engine diagnostics overlay owns the upper-left corner. Combat presentation is anchored to
     // the upper-right work area on every frame so resize/capture cannot reintroduce the old overlap.
@@ -205,6 +207,10 @@ void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot)
     ImGui::Text("Fire available: %s", snapshot.canFireWeapon ? "YES" : "NO");
     ImGui::Text("Active sonar: %s",
                 snapshot.activeSonarPulsePending ? "PING OUT" : (snapshot.canActiveSonarPing ? "READY" : "UNAVAILABLE"));
+    if (presentationSettings != nullptr)
+    {
+        ImGui::Checkbox("Sonar visualization", &presentationSettings->sonarVisualizationEnabled);
+    }
     ImGui::Text("Decoy available: %s", snapshot.canDeployDecoy ? "YES" : "NO");
     ImGui::Text("Player decoy active: %s", snapshot.playerDecoyActive ? "YES" : "NO");
     if (snapshot.lastCommand)

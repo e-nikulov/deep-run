@@ -51,6 +51,7 @@ enum class M5P700AcceptanceCheckpoint
     case Weapons::P700GranitPhase::AirborneDeploying: return "AirborneDeploying";
     case Weapons::P700GranitPhase::Cruise: return "Cruise";
     case Weapons::P700GranitPhase::Terminal: return "Terminal";
+    case Weapons::P700GranitPhase::Defeated: return "Defeated";
     case Weapons::P700GranitPhase::Impact: return "Impact";
     case Weapons::P700GranitPhase::Spent: return "Spent";
     }

@@ -63,7 +63,7 @@ struct SimpleDestroyerAcousticSnapshot final
         definition.collisionHalfExtentsMeters.x <= 0.0F || definition.collisionHalfExtentsMeters.y <= 0.0F ||
         definition.collisionHalfExtentsMeters.z <= 0.0F || !std::isfinite(definition.massKilograms) ||
         definition.massKilograms <= 0.0F || !std::isfinite(definition.cruiseVelocityXMetersPerSecond) ||
-        definition.cruiseVelocityXMetersPerSecond == 0.0F || !std::isfinite(definition.bodyCenterBelowSurfaceMeters) ||
+        !std::isfinite(definition.bodyCenterBelowSurfaceMeters) ||
         definition.bodyCenterBelowSurfaceMeters < 0.0F || !std::isfinite(definition.maximumIntegrity) ||
         definition.maximumIntegrity <= 0.0F || !definition.continuousSourceLevelDb.IsFinite() ||
         definition.passiveSensorId.empty() || !definition.ambientNoiseLevelDb.IsFinite() ||

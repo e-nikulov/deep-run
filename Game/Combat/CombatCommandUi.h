@@ -12,7 +12,14 @@ namespace DeepRun::Game::Combat
 {
 // J2-B shipping-playground presentation only. The UI receives a read-only perceived-world/weapon projection;
 // it cannot mutate TrackManager, weapon state, PhysicsWorld, or issue commands directly.
-void DrawCombatCommandUi(const PlayerCombatPresentationSnapshot& snapshot);
+struct CombatUiPresentationSettings final
+{
+    bool sonarVisualizationEnabled = true;
+};
+
+void DrawCombatCommandUi(
+    const PlayerCombatPresentationSnapshot& snapshot,
+    CombatUiPresentationSettings* presentationSettings = nullptr);
 void DrawSonarScope(const SonarPresentationSnapshot& snapshot);
 
 struct CameraScaleHudSnapshot final

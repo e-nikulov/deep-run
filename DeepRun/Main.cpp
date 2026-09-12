@@ -475,6 +475,7 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::Combat::M5P700VisualAcceptance> p700Acceptance;
         std::array<bool, 8> p700LifecycleLogged{};
         std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;
+        DeepRun::Game::Combat::CombatUiPresentationSettings combatUiPresentationSettings{};
         std::optional<DeepRun::Physics::PhysicsVector3> initialOwnshipNavigationPositionMeters;
         std::optional<DeepRun::Physics::PhysicsVector3> currentOwnshipNavigationPositionMeters;
         DeepRun::Game::Combat::CombatPlaygroundCameraDirector smokeCombatCameraDirector;
@@ -890,7 +891,8 @@ int main(const int argumentCount, char** argumentValues)
                 }
                 return true;
             },
-            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot, &smokeCombatCameraDirector,
+            [&playground, &combatPlayground, &combatAcceptance, &p700Acceptance, &combatUiSnapshot,
+             &combatUiPresentationSettings, &smokeCombatCameraDirector,
              &calmLaunchCameraAssist, &multiScaleCamera,
              &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
              &inputState, &frameCapture, &captureEnabled, &options,
@@ -1042,8 +1044,12 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     if (!options.smokeTest && !options.p700SmokeTest && combatUiSnapshot.has_value())
                     {
-                        DeepRun::Game::Combat::DrawCombatCommandUi(*combatUiSnapshot);
-                        DeepRun::Game::Combat::DrawSonarScope(combatUiSnapshot->sonar);
+                        DeepRun::Game::Combat::DrawCombatCommandUi(
+                            *combatUiSnapshot, &combatUiPresentationSettings);
+                        if (combatUiPresentationSettings.sonarVisualizationEnabled)
+                        {
+                            DeepRun::Game::Combat::DrawSonarScope(combatUiSnapshot->sonar);
+                        }
                         const auto ownshipLengthMeters = playground.ProductionSubmarinePresentationLengthMeters();
                         const auto framing = multiScaleCamera.Framing();
                         const std::uint32_t viewportWidthPixels = renderer.MemoryDiagnostics().width;
