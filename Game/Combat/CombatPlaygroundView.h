@@ -347,7 +347,7 @@ private:
     Render::GpuModelHandle uset80GpuModel_{};
     Assets::AssetHandle<Assets::ModelAsset> kit6576Asset_{};
     Render::GpuModelHandle kit6576GpuModel_{};
-    Armament::ProductionP700AssetDefinition p700Definition_{};
+    Armament::ProductionP700AssetDefinition p700Definition_;
     Assets::AssetHandle<Assets::ModelAsset> p700Asset_{};
     Render::GpuModelHandle p700GpuModel_{};
 };
