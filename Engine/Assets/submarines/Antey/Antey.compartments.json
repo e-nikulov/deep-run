@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
+  "referenceBasis": {
+    "platform": "Project 949A Antey",
+    "source": "user-supplied longitudinal section and general-arrangement drawings",
+    "geometryStatus": "REFERENCE_DERIVED_APPROXIMATE",
+    "longitudinalToleranceMeters": 1.0,
+    "notes": [
+      "Compartment numbering and primary functions follow the supplied Project 949A longitudinal-section legend.",
+      "Longitudinal pressure-bulkhead positions are scaled from an undimensioned public-style drawing and are therefore approximate rather than shipyard dimensions.",
+      "P-700 launch containers, VVD bottles, sail equipment, bow sonar allocation, shafting and steering gear are not reclassified as pressure-hull compartments."
+    ]
+  },
+  "compartments": [
+    {
+      "semanticId": "compartment.01",
+      "displayNameRu": "Первый (носовой, торпедный) отсек",
+      "functionalRole": "TORPEDO",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [59.75, 0.0, -0.15],
+      "halfExtents": [13.25, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [46.5, 73.0],
+      "systemTags": ["TORPEDO_ROCKET_WEAPONS", "WEAPON_RACKS_AND_HANDLING", "BATTERY_GROUP"]
+    },
+    {
+      "semanticId": "compartment.02",
+      "displayNameRu": "Второй (центральный) отсек",
+      "functionalRole": "CENTRAL",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [40.5, 0.0, -0.15],
+      "halfExtents": [6.0, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [34.5, 46.5],
+      "systemTags": ["CENTRAL_POST_SUPPORT", "BATTERY_GROUP", "SAIL_ACCESS_SUPPORT"]
+    },
+    {
+      "semanticId": "compartment.03",
+      "displayNameRu": "Третий отсек",
+      "functionalRole": "THIRD_UNSPECIFIED",
+      "functionalRoleStatus": "REFERENCE_UNSPECIFIED",
+      "center": [29.0, 0.0, -0.15],
+      "halfExtents": [5.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [23.5, 34.5],
+      "systemTags": []
+    },
+    {
+      "semanticId": "compartment.04",
+      "displayNameRu": "Четвёртый (жилой) отсек",
+      "functionalRole": "HABITABILITY",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [15.0, 0.0, -0.15],
+      "halfExtents": [8.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [6.5, 23.5],
+      "systemTags": ["HABITABILITY"]
+    },
+    {
+      "semanticId": "compartment.05",
+      "displayNameRu": "Пятый отсек (вспомогательные механизмы)",
+      "functionalRole": "AUXILIARY_MACHINERY_1",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [3.0, 0.0, -0.15],
+      "halfExtents": [3.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-0.5, 6.5],
+      "systemTags": ["AUXILIARY_MACHINERY"]
+    },
+    {
+      "semanticId": "compartment.06",
+      "displayNameRu": "Шестой отсек (вспомогательные механизмы)",
+      "functionalRole": "AUXILIARY_MACHINERY_2",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-4.0, 0.0, -0.15],
+      "halfExtents": [3.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-7.5, -0.5],
+      "systemTags": ["AUXILIARY_MACHINERY"]
+    },
+    {
+      "semanticId": "compartment.07",
+      "displayNameRu": "Седьмой (реакторный) отсек",
+      "functionalRole": "REACTOR",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-13.0, 0.0, -0.15],
+      "halfExtents": [5.5, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-18.5, -7.5],
+      "systemTags": ["REACTOR_PLANT", "TWO_REACTOR_UNITS"]
+    },
+    {
+      "semanticId": "compartment.08",
+      "displayNameRu": "Восьмой (турбинный) отсек",
+      "functionalRole": "TURBINE_FORWARD",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-25.5, 0.0, -0.15],
+      "halfExtents": [7.0, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-32.5, -18.5],
+      "systemTags": ["FORWARD_TURBINE_PLANT", "FORWARD_MAIN_SWITCHBOARD"]
+    },
+    {
+      "semanticId": "compartment.09",
+      "displayNameRu": "Девятый (турбинный) отсек",
+      "functionalRole": "TURBINE_AFT",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-39.25, 0.0, -0.15],
+      "halfExtents": [6.75, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-46.0, -32.5],
+      "systemTags": ["AFT_TURBINE_PLANT", "AFT_MAIN_SWITCHBOARD"]
+    },
+    {
+      "semanticId": "compartment.10",
+      "displayNameRu": "Десятый отсек (ГЭД)",
+      "functionalRole": "PROPULSION_ELECTRIC",
+      "functionalRoleStatus": "REFERENCE_EXPLICIT",
+      "center": [-51.0, 0.0, -0.15],
+      "halfExtents": [5.0, 4.4, 3.0],
+      "orientationQuaternionWXYZ": [1.0, 0.0, 0.0, 0.0],
+      "xRangeMeters": [-56.0, -46.0],
+      "systemTags": ["PROPULSION_ELECTRIC_MOTOR"]
+    }
+  ],
+  "nonCompartmentRegions": [
+    {
+      "semanticId": "external.bow_sonar",
+      "role": "MGK540_BOW_ARRAY",
+      "status": "EXISTING_SEMANTIC_REGION"
+    },
+    {
+      "semanticId": "external.p700_banks",
+      "role": "P700_LAUNCH_CONTAINERS",
+      "status": "OUTSIDE_PRESSURE_COMPARTMENT_CONTRACT"
+    },
+    {
+      "semanticId": "external.aft_shaft_steering",
+      "role": "SHAFTING_AND_STEERING_GEAR",
+      "xRangeMeters": [-77.0, -56.0],
+      "status": "OUTSIDE_PRESSURE_COMPARTMENT_CONTRACT"
+    }
+  ],
+  "runtimeBoundary": "Spatial and functional compartment authoring only; Simulation owns damage, flooding, fire, crew, atmosphere, access boundaries and equipment state."
+}
