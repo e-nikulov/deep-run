@@ -171,51 +171,90 @@ namespace M5P700Detail
         return fail("submerged launch must begin with the selected launcher hatch opening");
     }
 
+    double lifecycleTimeSeconds = 0.50;
     const auto hatchOpening = AdvanceP700GranitWithCollision(
-        definition, runtime, targetTrack, physicsWorld, 0.50, carrierBody);
+        definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
     if (!hatchOpening || *hatchOpening || runtime.phase != P700GranitPhase::HatchOpening ||
         runtime.hatchOpenProgress <= 0.0F || runtime.hatchOpenProgress >= 1.0F || runtime.positionMeters.y != -30.0F)
     {
         return fail("launcher hatch must animate before missile motion/booster ignition");
     }
 
+    lifecycleTimeSeconds = 1.00;
     const auto underwater = AdvanceP700GranitWithCollision(
-        definition, runtime, targetTrack, physicsWorld, 1.00, carrierBody);
+        definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
     if (!underwater || *underwater || runtime.phase != P700GranitPhase::UnderwaterLaunch ||
         runtime.hatchOpenProgress != 1.0F || !runtime.launchBoosterActive ||
-        runtime.deploymentProgress != 0.0F || runtime.positionMeters.y >= 0.0F)
+        runtime.deploymentProgress != 0.0F || runtime.positionMeters.y >= runtime.surfaceLevelYMeters)
     {
         return fail("underwater exit must use the attached launch booster and stay folded");
     }
 
-    const auto waterExit = AdvanceP700GranitWithCollision(
-        definition, runtime, targetTrack, physicsWorld, 1.60, carrierBody);
-    if (!waterExit || *waterExit || runtime.phase != P700GranitPhase::WaterExit ||
-        runtime.deploymentProgress != 0.0F || runtime.positionMeters.y <= 0.0F || !runtime.launchBoosterAttached)
+    const auto advanceUntilPhase = [&](const P700GranitPhase expectedPhase, const double deadlineSeconds)
+    {
+        while (runtime.phase != expectedPhase && lifecycleTimeSeconds + 1.0e-9 < deadlineSeconds)
+        {
+            lifecycleTimeSeconds = (std::min)(deadlineSeconds, lifecycleTimeSeconds + 0.05);
+            const auto advanced = AdvanceP700GranitWithCollision(
+                definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
+            if (!advanced || *advanced)
+            {
+                return false;
+            }
+        }
+        return runtime.phase == expectedPhase;
+    };
+
+    if (!advanceUntilPhase(P700GranitPhase::WaterExit, 3.0) ||
+        runtime.deploymentProgress != 0.0F ||
+        runtime.positionMeters.y < runtime.surfaceLevelYMeters - 0.001F ||
+        !runtime.launchBoosterActive || !runtime.launchBoosterAttached || !runtime.noseProtectionCapAttached)
     {
         return fail("water-exit phase must begin only after physical surface crossing and retain launch hardware");
     }
 
-    const auto separating = AdvanceP700GranitWithCollision(
-        definition, runtime, targetTrack, physicsWorld, 2.10, carrierBody);
-    if (!separating || *separating || runtime.phase != P700GranitPhase::PostExitTransition ||
-        runtime.postExitTransitionProgress <= 0.0F || runtime.deploymentProgress != 0.0F)
+    const double waterExitObservedSeconds = lifecycleTimeSeconds;
+    if (!advanceUntilPhase(
+            P700GranitPhase::PostExitTransition,
+            waterExitObservedSeconds + definition.waterExitTransitionSeconds + 0.20) ||
+        runtime.deploymentProgress != 0.0F || !runtime.launchBoosterAttached || !runtime.noseProtectionCapAttached)
     {
-        return fail("post-exit launch-hardware separation must precede P700_Deploy");
+        return fail("bounded water-exit climb must precede launch-hardware separation");
     }
 
+    lifecycleTimeSeconds += 0.20;
+    const auto separating = AdvanceP700GranitWithCollision(
+        definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
+    if (!separating || *separating || runtime.phase != P700GranitPhase::PostExitTransition ||
+        runtime.postExitTransitionProgress <= 0.0F || runtime.postExitTransitionProgress >= 1.0F ||
+        runtime.deploymentProgress != 0.0F || runtime.noseProtectionCapAttached ||
+        !runtime.launchBoosterAttached || !runtime.launchBoosterActive || runtime.mainEngineActive)
+    {
+        return fail("nose cap must clear before booster separation and before P700_Deploy");
+    }
+
+    const double separationObservedSeconds = lifecycleTimeSeconds;
+    if (!advanceUntilPhase(
+            P700GranitPhase::AirborneDeploying,
+            separationObservedSeconds + definition.postExitTransitionSeconds + 0.50) ||
+        runtime.launchBoosterAttached || runtime.noseProtectionCapAttached || !runtime.mainEngineActive)
+    {
+        return fail("booster must separate and main engine ignite before aerodynamic deployment");
+    }
+
+    lifecycleTimeSeconds += 0.05;
     const auto deploying = AdvanceP700GranitWithCollision(
-        definition, runtime, targetTrack, physicsWorld, 2.70, carrierBody);
+        definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
     if (!deploying || *deploying || runtime.phase != P700GranitPhase::AirborneDeploying ||
-        runtime.launchBoosterAttached || runtime.noseProtectionCapAttached || !runtime.mainEngineActive ||
         runtime.deploymentProgress <= 0.0F || runtime.deploymentProgress >= 1.0F)
     {
-        return fail("nose cap/booster must separate and main engine ignite before aerodynamic deployment");
+        return fail("P700_Deploy must visibly advance only after main-engine transition");
     }
 
-    const auto cruise = AdvanceP700GranitWithCollision(
-        definition, runtime, targetTrack, physicsWorld, 4.10, carrierBody);
-    if (!cruise || *cruise || runtime.phase != P700GranitPhase::Cruise ||
+    const double deploymentObservedSeconds = lifecycleTimeSeconds;
+    if (!advanceUntilPhase(
+            P700GranitPhase::Cruise,
+            deploymentObservedSeconds + definition.deploymentSeconds + 0.50) ||
         std::abs(runtime.deploymentProgress - 1.0F) > 1.0e-6F)
     {
         return fail("deployment must complete before Cruise");
@@ -223,8 +262,9 @@ namespace M5P700Detail
 
     Perception::Track wrongTrack = targetTrack;
     wrongTrack.trackId = targetTrack.trackId + 1U;
+    lifecycleTimeSeconds += 0.10;
     if (AdvanceP700GranitWithCollision(
-            definition, runtime, wrongTrack, physicsWorld, 3.20, carrierBody))
+            definition, runtime, wrongTrack, physicsWorld, lifecycleTimeSeconds, carrierBody))
     {
         return fail("in-flight P-700 must reject retargeting to a different perceived Track identity");
     }
@@ -232,8 +272,9 @@ namespace M5P700Detail
     // A weak same-ID update cannot erase the last accepted perceived aim point.
     auto weakSameTrack = targetTrack;
     weakSameTrack.confidence = 0.1F;
+    lifecycleTimeSeconds += 0.10;
     const auto weakAdvance = AdvanceP700GranitWithCollision(
-        definition, runtime, weakSameTrack, physicsWorld, 4.5, carrierBody);
+        definition, runtime, weakSameTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
     if (!weakAdvance || *weakAdvance || !runtime.perceivedAimPointMeters)
     {
         return fail("weak same-ID evidence must preserve the last qualified aim point");
@@ -241,7 +282,7 @@ namespace M5P700Detail
 
     bool sawTerminal = false;
     std::optional<P700GranitImpact> impact{};
-    double timeSeconds = 4.5;
+    double timeSeconds = lifecycleTimeSeconds;
     for (int step = 0; step < 80 && !impact; ++step)
     {
         timeSeconds += 1.0;

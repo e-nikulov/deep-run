@@ -522,7 +522,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             Require(port || starboard, "P700 hatch group semantic ID must identify port or starboard bank");
             const std::string ordinal = hatchGroup.substr(hatchGroup.size() - 2U);
             const std::string privateNodeReference = std::format(
-                "SM_P700_Hatch_{}_{}", port ? "Port" : "Starboard", ordinal);
+                "SM_Antey_P700_Cover_{}_{}", port ? "Port" : "Starboard", ordinal);
             const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
             Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value() &&
                     !(**model).nodeBindings.at(bindingIndex).drawableMeshNodeIndices.empty(),

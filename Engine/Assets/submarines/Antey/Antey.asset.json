@@ -4,9 +4,9 @@
   "name": "Antey",
   "identity": "neutral Project 949A-inspired production asset",
   "blend": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Antey_GameReady.blend",
-  "blendSha256": "B35EAFA2A17ED4BCF7B4BA01B14B0CDFBAF256A3E6A460ABB9C309B7E4BB924F",
+  "blendSha256": "616A051088B1DA8352A0E5390BA5E2A23BBD3B4F48A6951C5B2D22E14666EFBE",
   "glb": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Antey.glb",
-  "glbSha256": "74B5E90145D3447C8A185CA6C2BAEE549347DD4AC2E6F0ED329BA15A63F07C80",
+  "glbSha256": "3B9D20D6CEA2DFE0873E0AA0D88892C158E63006DDBA7EE630BD966F7530D371",
   "source": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Source\\Antey_Source.blend",
   "sourceSha256": "BCC3F34A23825F5DD3887ABF0C226BA8CCB0A1DF57DAC2B566407B46A68BAB3F",
   "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
@@ -21,24 +21,24 @@
   },
   "lods": {
     "LOD0": {
-      "objects": 66,
-      "vertices": 65551,
-      "triangles": 120374
+      "objects": 102,
+      "vertices": 69769,
+      "triangles": 126864
     },
     "LOD1": {
-      "objects": 66,
-      "vertices": 37943,
-      "triangles": 66265
+      "objects": 54,
+      "vertices": 35659,
+      "triangles": 62579
     },
     "LOD2": {
-      "objects": 66,
-      "vertices": 22636,
-      "triangles": 36200
+      "objects": 54,
+      "vertices": 21284,
+      "triangles": 34191
     },
     "LOD3": {
-      "objects": 66,
-      "vertices": 11517,
-      "triangles": 14739
+      "objects": 54,
+      "vertices": 10935,
+      "triangles": 13944
     }
   },
   "materials": [
@@ -53,7 +53,7 @@
     "sourceVisibleExteriorFaces": 64153,
     "sourceIntentionalDegenerateFaces": 256,
     "staticRuntimeFaces": 54184,
-    "articulatedRuntimeFaces": 10225,
+    "articulatedRuntimeFaces": 20317,
     "supersededSourcePolygons": 0,
     "realMissingVisibleSourceFaces": 0,
     "unexplainedSourceFaces": 0,

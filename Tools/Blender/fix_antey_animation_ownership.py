@@ -29,8 +29,12 @@ def main() -> None:
     changed_objects = 0
     covers = [obj for obj in bpy.context.scene.objects if obj.name.startswith("SM_Antey_P700_Cover_")]
     for obj in covers:
-        obj["AUTHORING_ONLY"] = True
-        obj["RUNTIME_EXPORT"] = False
+        # Cover geometry is canonical runtime presentation content.  The QA NLA/action below remains
+        # authoring-only, while gameplay supplies the actual opening progress at runtime.
+        obj["AUTHORING_ONLY"] = False
+        obj["RUNTIME_EXPORT"] = True
+        obj["runtime_export"] = True
+        obj["lod"] = 0
         obj["P700_DEPLOYMENT_OPERATION"] = QA_ANIMATION
         changed_objects += 1
         if not obj.animation_data:
