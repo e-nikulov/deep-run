@@ -121,6 +121,26 @@ struct MultiScaleCameraInput final
     return worldWidthMeters / horizontalSpanMeters * static_cast<float>(viewportWidthPixels);
 }
 
+// M5-V2-A: normal navigation follows the authoritative ownship position without moving simulation state.
+// multiScaleRelativeOffsetMeters remains the player's presentation pan around ownship.
+[[nodiscard]] inline std::expected<float, std::string> ComposeOwnshipFollowOffsetMeters(
+    const float initialOwnshipXMeters,
+    const float currentOwnshipXMeters,
+    const float multiScaleRelativeOffsetMeters)
+{
+    if (!std::isfinite(initialOwnshipXMeters) || !std::isfinite(currentOwnshipXMeters) ||
+        !std::isfinite(multiScaleRelativeOffsetMeters))
+    {
+        return std::unexpected("ownship-follow camera composition received non-finite input");
+    }
+    const float composed = currentOwnshipXMeters - initialOwnshipXMeters + multiScaleRelativeOffsetMeters;
+    if (!std::isfinite(composed))
+    {
+        return std::unexpected("ownship-follow camera composition overflowed");
+    }
+    return composed;
+}
+
 class MultiScaleTacticalCamera final
 {
 public:

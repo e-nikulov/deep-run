@@ -421,6 +421,8 @@ int main(const int argumentCount, char** argumentValues)
         std::optional<DeepRun::Game::Combat::CombatPlaygroundWindowedComposition> combatPlayground;
         std::optional<DeepRun::Game::Combat::M5CombatVisualAcceptance> combatAcceptance;
         std::optional<DeepRun::Game::Combat::PlayerCombatPresentationSnapshot> combatUiSnapshot;
+        std::optional<DeepRun::Physics::PhysicsVector3> initialOwnshipNavigationPositionMeters;
+        std::optional<DeepRun::Physics::PhysicsVector3> currentOwnshipNavigationPositionMeters;
         DeepRun::Game::Combat::CombatPlaygroundCameraDirector smokeCombatCameraDirector;
         DeepRun::Game::Combat::CalmLaunchCameraAssist calmLaunchCameraAssist;
         DeepRun::Game::Camera::MultiScaleTacticalCamera multiScaleCamera;
@@ -450,6 +452,7 @@ int main(const int argumentCount, char** argumentValues)
         DeepRun::Core::Application application(
             options,
             [&options, &playground, &acousticPlaygroundRuntime, &combatPlayground, &multiScaleCamera,
+             &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
              &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
                 engineServices = &engine;
@@ -482,6 +485,18 @@ int main(const int argumentCount, char** argumentValues)
                 {
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
                     return false;
+                }
+                if (!options.benchmarkM3)
+                {
+                    const auto initialOwnship = playground.BuildPhysicalCollisionProxySnapshot();
+                    if (!initialOwnship)
+                    {
+                        std::cerr << "[Game][ERROR] M5-V2 initial ownship navigation snapshot failed: "
+                                  << initialOwnship.error() << '\n';
+                        return false;
+                    }
+                    initialOwnshipNavigationPositionMeters = initialOwnship->positionMeters;
+                    currentOwnshipNavigationPositionMeters = initialOwnship->positionMeters;
                 }
 
                 const auto acousticRuntime = DeepRun::Game::AcousticPlaygroundRuntime::Create();
@@ -529,7 +544,7 @@ int main(const int argumentCount, char** argumentValues)
                 return playground.SubmarineModel().IsValid();
             },
             [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
-             &combatAcceptance, &combatUiSnapshot, &inputState, &engineServices,
+             &combatAcceptance, &combatUiSnapshot, &currentOwnshipNavigationPositionMeters, &inputState, &engineServices,
              &consumedSelectContactSequence, &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
@@ -615,6 +630,7 @@ int main(const int argumentCount, char** argumentValues)
                                   << playerCollisionProxy.error() << '\n';
                         return false;
                     }
+                    currentOwnshipNavigationPositionMeters = playerCollisionProxy->positionMeters;
 
                     std::array<DeepRun::Game::Combat::PlayerCombatCommand, 5> playerCommands{};
                     std::size_t playerCommandCount = 0;
@@ -730,7 +746,9 @@ int main(const int argumentCount, char** argumentValues)
                 return true;
             },
             [&playground, &combatPlayground, &combatAcceptance, &combatUiSnapshot, &smokeCombatCameraDirector,
-             &calmLaunchCameraAssist, &multiScaleCamera, &inputState, &frameCapture, &captureEnabled, &options,
+             &calmLaunchCameraAssist, &multiScaleCamera,
+             &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
+             &inputState, &frameCapture, &captureEnabled, &options,
              &renderFrames, &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
@@ -795,8 +813,24 @@ int main(const int argumentCount, char** argumentValues)
                                       << cameraFraming.error() << '\n';
                             return false;
                         }
+                        if (!initialOwnshipNavigationPositionMeters.has_value() ||
+                            !currentOwnshipNavigationPositionMeters.has_value())
+                        {
+                            std::cerr << "[Game][ERROR] M5-V2 ownship navigation state is unavailable\n";
+                            return false;
+                        }
+                        const auto ownshipFollowOffset = DeepRun::Game::Camera::ComposeOwnshipFollowOffsetMeters(
+                            initialOwnshipNavigationPositionMeters->x,
+                            currentOwnshipNavigationPositionMeters->x,
+                            cameraFraming->targetOffsetXMeters);
+                        if (!ownshipFollowOffset)
+                        {
+                            std::cerr << "[Game][ERROR] M5-V2 ownship camera follow failed: "
+                                      << ownshipFollowOffset.error() << '\n';
+                            return false;
+                        }
                         const auto appliedFraming = playground.SetPresentationCameraFraming(
-                            cameraFraming->targetOffsetXMeters,
+                            *ownshipFollowOffset,
                             cameraFraming->targetOffsetYMeters,
                             cameraFraming->horizontalSpanMeters, renderer.AspectRatio());
                         if (!appliedFraming)

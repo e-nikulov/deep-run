@@ -27,6 +27,14 @@ namespace DeepRun::Tests
         return false;
     }
 
+    const auto followForward = ComposeOwnshipFollowOffsetMeters(100.0F, 750.0F, 25.0F);
+    const auto followAstern = ComposeOwnshipFollowOffsetMeters(100.0F, -50.0F, -20.0F);
+    if (!followForward || !followAstern || std::abs(*followForward - 675.0F) > 0.001F ||
+        std::abs(*followAstern + 170.0F) > 0.001F)
+    {
+        return false;
+    }
+
     MultiScaleTacticalCamera camera;
     if (!camera.SetMaximumHorizontalSpanMeters(*maxAt1280) ||
         camera.SetRequestedHorizontalSpanMeters(*maxAt1280 + 1.0F) ||
