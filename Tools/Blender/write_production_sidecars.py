@@ -358,6 +358,47 @@ def physics_proxy_metadata(obj: bpy.types.Object, semantic_id: str, role: str, c
     return record
 
 
+def production_depth_plane_authoring(objects: dict[str, bpy.types.Object]) -> list[dict]:
+    """Publish private source-first depth-plane node references for runtime binding resolution.
+
+    This is authoring metadata only. Gameplay/runtime public definitions consume opaque binding indices and
+    never depend on raw Blender/GLB object names.
+    """
+    candidates = sorted(
+        (
+            obj
+            for obj in objects.values()
+            if obj.type == "MESH"
+            and bool(obj.get("runtime_export", False))
+            and int(obj.get("lod", -1)) == 0
+            and obj.get("CONTROL_SURFACE_ROLE") in ("BOW_DEPTH_PLANE", "STERN_DEPTH_PLANE")
+        ),
+        key=lambda obj: obj.name,
+    )
+    if len(candidates) != 4:
+        raise RuntimeError(f"Production Antey requires exactly four source-first depth planes, found {len(candidates)}")
+
+    records = []
+    group_counts = {"BOW": 0, "STERN": 0}
+    for obj in candidates:
+        role = obj.get("CONTROL_SURFACE_ROLE")
+        if obj.get("ARTICULATION") != "ROTATION" or obj.get("HINGE_AXIS") != "LOCAL_Y" or not bool(obj.get("SIMULATION_OWNS_ANGLE", False)):
+            raise RuntimeError(f"Depth plane has invalid articulation contract: {obj.name}")
+        group = "BOW" if role == "BOW_DEPTH_PLANE" else "STERN"
+        group_counts[group] += 1
+        records.append({
+            "semanticId": f"depth-plane.{group.lower()}.{group_counts[group]:02d}",
+            "group": group,
+            "nodeReference": obj.name,
+            "articulation": "ROTATION",
+            "hingeAxisSource": "LOCAL_Y",
+            "simulationOwnsAngle": True,
+        })
+    if group_counts != {"BOW": 2, "STERN": 2}:
+        raise RuntimeError(f"Production Antey depth-plane group counts are invalid: {group_counts}")
+    return records
+
+
 def production_physics_proxies(objects: dict[str, bpy.types.Object]) -> tuple[list[dict], dict]:
     collision_objects = sorted(
         (obj for obj in objects.values() if obj.get("physics_proxy_role") == "COLLISION"),
@@ -476,6 +517,7 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         props.append(propeller_metadata(obj, semantic_id))
     validate_semantic_spatial_metadata(props, compartments, hull_min, hull_max)
     collision_proxies, buoyancy_proxy = production_physics_proxies(objects)
+    depth_plane_authoring = production_depth_plane_authoring(objects)
     rows = {}
     for side in ("PORT", "STARBOARD"):
         rows[side] = {}
@@ -546,6 +588,7 @@ def antey_data(antey_production_blend: Path, antey_source_blend: Path, antey_run
         "propellers": props,
         "compartments": compartments,
         "retractableSailDevices": sail_devices,
+        "controlSurfaces": depth_plane_authoring,
         "collision": collision_proxies,
         "buoyancyProxy": buoyancy_proxy,
         "semanticRegions": [main_bow_sonar_region()],

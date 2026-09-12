@@ -378,35 +378,43 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 .presentationNodeBindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference)});
         }
 
-        // M5-V2-B consumes production control-surface authoring only as a private node-resolution source.
-        // The public runtime definition retains semantic group + opaque node binding, never raw GLB names.
-        const Json& controlSurfaceAuthoring = metadata.at("controlSurfaceAuthoring");
-        Require(controlSurfaceAuthoring.is_object(), "Antey controlSurfaceAuthoring must be an object");
+        // M5-V2-B: exact node references are private source-first authoring metadata. Resolve them once here
+        // and expose only semantic group + opaque model binding index to Game/runtime code.
+        const Json& controlSurfaces = authoring.at("controlSurfaces");
+        Require(controlSurfaces.is_array() && controlSurfaces.size() == 4U,
+                "Antey authoring must contain four production depth-plane records");
         std::unordered_set<std::size_t> depthPlaneBindingIndices;
-        const auto appendDepthPlanes = [&](const std::string_view key,
-                                           const ProductionDepthPlaneGroup group,
-                                           const std::string_view semanticPrefix)
+        std::size_t bowPlaneCount = 0U;
+        std::size_t sternPlaneCount = 0U;
+        for (const Json& record : controlSurfaces)
         {
-            const Json& records = controlSurfaceAuthoring.at(std::string(key));
-            Require(records.is_array() && records.size() == 2U,
-                    std::format("Antey {} must contain two depth planes", key));
-            for (std::size_t index = 0; index < records.size(); ++index)
-            {
-                const std::string privateNodeReference = records[index].get<std::string>();
-                const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
-                Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value(),
-                        "Antey depth-plane binding must resolve to a drawable mesh node");
-                Require(depthPlaneBindingIndices.insert(bindingIndex).second,
-                        "Antey depth-plane bindings must be unique");
-                definition.depthPlanes.push_back({
-                    .semanticId = std::format("depth-plane.{}.{:02}", semanticPrefix, index + 1U),
-                    .group = group,
-                    .presentationNodeBindingIndex = bindingIndex});
-            }
-        };
-        appendDepthPlanes("bowPlanes", ProductionDepthPlaneGroup::Bow, "bow");
-        appendDepthPlanes("sternPlanes", ProductionDepthPlaneGroup::Stern, "stern");
-        Require(definition.depthPlanes.size() == 4U, "Antey must expose four production depth-plane bindings");
+            Require(record.is_object(), "Antey depth-plane authoring record must be an object");
+            const std::string semanticId = record.at("semanticId").get<std::string>();
+            const std::string groupValue = record.at("group").get<std::string>();
+            const std::string privateNodeReference = record.at("nodeReference").get<std::string>();
+            Require(record.at("articulation").get<std::string>() == "ROTATION" &&
+                    record.at("hingeAxisSource").get<std::string>() == "LOCAL_Y" &&
+                    record.at("simulationOwnsAngle").get<bool>(),
+                    "Antey depth-plane articulation authoring contract is invalid");
+            const ProductionDepthPlaneGroup group = groupValue == "BOW"
+                ? ProductionDepthPlaneGroup::Bow
+                : groupValue == "STERN"
+                    ? ProductionDepthPlaneGroup::Stern
+                    : throw std::runtime_error("Antey depth-plane group must be BOW or STERN");
+            if (group == ProductionDepthPlaneGroup::Bow) ++bowPlaneCount;
+            else ++sternPlaneCount;
+            const std::size_t bindingIndex = ResolvePresentationNodeBindingIndex(**model, privateNodeReference);
+            Require((**model).nodeBindings.at(bindingIndex).meshNodeIndex.has_value(),
+                    "Antey depth-plane binding must resolve to a drawable mesh node");
+            Require(depthPlaneBindingIndices.insert(bindingIndex).second,
+                    "Antey depth-plane bindings must be unique");
+            definition.depthPlanes.push_back({
+                .semanticId = semanticId,
+                .group = group,
+                .presentationNodeBindingIndex = bindingIndex});
+        }
+        Require(bowPlaneCount == 2U && sternPlaneCount == 2U,
+                "Antey must expose two bow and two stern production depth planes");
 
         const Json& retractableSailDevices = authoring.at("retractableSailDevices");
         Require(retractableSailDevices.is_array() && !retractableSailDevices.empty(),
