@@ -1,0 +1,29 @@
+name: P700 acceptance patch
+
+on:
+  push:
+    paths:
+      - '.github/workflows/p700-acceptance-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Apply patch
+        run: python Tools/patch_p700_acceptance.py
+      - name: Commit patch and remove temporary files
+        shell: bash
+        run: |
+          rm -f Tools/patch_p700_acceptance.py .github/workflows/p700-acceptance-patch.yml
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add -A
+          git commit -m "test: add full P-700 production acceptance scenario"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
