@@ -1,0 +1,40 @@
+name: M5 Employment Fixture Repair
+
+on:
+  push:
+    branches:
+      - feature/m5-v2-player-navigation-sonar
+    paths:
+      - Tools/patch_m5_player_employment_fixture.py
+      - .github/workflows/m5-employment-fixture-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply scoped fixture repair
+        run: python Tools/patch_m5_player_employment_fixture.py
+
+      - name: Validate patch shape
+        run: |
+          git diff --check
+          grep -q 'boundPlayer = runtime.BindPlayerPhysicalProxy' Tests/M5PlayerControlledCombatChecks.h
+          grep -q 'destroyedPlayer' Tests/M5PlayerControlledCombatChecks.h
+
+      - name: Commit fixture repair and remove temporary files
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Tests/M5PlayerControlledCombatChecks.h
+          git rm Tools/patch_m5_player_employment_fixture.py .github/workflows/m5-employment-fixture-repair.yml
+          git commit -m "test: bind ownship for employment gate"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
