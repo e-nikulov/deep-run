@@ -34,6 +34,7 @@ namespace DeepRun::Game::Combat
 // These are gameplay values, not claimed real-world Project 949A or torpedo performance data.
 inline constexpr float M5CombatCameraTargetOffsetXMeters = 0.0F;
 inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;
+inline constexpr float M5CombatDestroyerCruiseVelocityXMetersPerSecond = -2.0F;
 inline constexpr float M5CombatTorpedoLaunchClearanceMeters = 85.0F;
 inline constexpr float M5CombatDestroyerTorpedoLaunchClearanceMeters = 32.0F;
 inline constexpr float M5CombatDestroyerTorpedoLaunchDepthOffsetMeters = 6.0F;
@@ -84,10 +85,12 @@ public:
         const float surfaceLevelY,
         const double simulationTimeSeconds,
         const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,
-        const bool p700AcceptanceMode = false)
+        const bool p700AcceptanceMode = false,
+        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)
     {
         if (!physicsWorld.IsInitialized() || !std::isfinite(surfaceLevelY) ||
             !std::isfinite(destroyerInitialXMeters) || destroyerInitialXMeters <= 0.0F ||
+            !std::isfinite(destroyerCruiseVelocityXMetersPerSecond) ||
             !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
         {
             return std::unexpected("M5-H combat playground creation input is invalid");
@@ -151,7 +154,7 @@ public:
             .id = "m5.live-destroyer-proxy",
             .collisionHalfExtentsMeters = {.x = 25.0F, .y = 3.0F, .z = 3.0F},
             .massKilograms = 2'500'000.0F,
-            .cruiseVelocityXMetersPerSecond = -2.0F,
+            .cruiseVelocityXMetersPerSecond = destroyerCruiseVelocityXMetersPerSecond,
             .bodyCenterBelowSurfaceMeters = 2.0F,
             .maximumIntegrity = 100.0F,
             .continuousSourceLevelDb = {.levelDb = {145.0F, 141.0F, 136.0F, 130.0F}},
@@ -274,7 +277,8 @@ public:
         Armament::P700CarrierLaunchContract p700CarrierLaunchContract,
         Armament::P700LauncherInventory p700LauncherInventory,
         const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,
-        const bool p700AcceptanceMode = false)
+        const bool p700AcceptanceMode = false,
+        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)
     {
         if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount ||
             p700LauncherInventory.Slots().size() != Armament::AnteyP700LauncherSlotCount ||
@@ -283,7 +287,9 @@ public:
         {
             return std::unexpected("M5 P-700 production runtime requires a fresh 24-slot launcher inventory");
         }
-        auto runtime = Create(physicsWorld, surfaceLevelY, simulationTimeSeconds, destroyerInitialXMeters, p700AcceptanceMode);
+        auto runtime = Create(
+            physicsWorld, surfaceLevelY, simulationTimeSeconds, destroyerInitialXMeters,
+            p700AcceptanceMode, destroyerCruiseVelocityXMetersPerSecond);
         if (!runtime)
         {
             return runtime;

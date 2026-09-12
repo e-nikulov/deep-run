@@ -24,7 +24,8 @@ public:
         Render::D3D12Renderer& renderer,
         Assets::AssetManager& assets,
         const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,
-        const bool p700AcceptanceMode = false)
+        const bool p700AcceptanceMode = false,
+        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)
     {
         auto view = CombatPlaygroundView::Create(renderer, assets);
         if (!view)
@@ -50,7 +51,8 @@ public:
             return std::unexpected("M5 P-700 carrier launch contract creation failed: " + p700Carrier.error());
         }
         return CombatPlaygroundWindowedComposition(
-            std::move(*view), std::move(*p700Carrier), destroyerInitialXMeters, p700AcceptanceMode);
+            std::move(*view), std::move(*p700Carrier), destroyerInitialXMeters, p700AcceptanceMode,
+            destroyerCruiseVelocityXMetersPerSecond);
     }
 
     // Deterministic H/H.1 smoke path retained unchanged in behavior.
@@ -164,11 +166,13 @@ private:
         CombatPlaygroundView view,
         Armament::P700CarrierLaunchContract p700CarrierLaunchContract,
         const float destroyerInitialXMeters,
-        const bool p700AcceptanceMode)
+        const bool p700AcceptanceMode,
+        const float destroyerCruiseVelocityXMetersPerSecond)
         : view_(std::move(view)),
           p700CarrierLaunchContract_(std::move(p700CarrierLaunchContract)),
           destroyerInitialXMeters_(destroyerInitialXMeters),
-          p700AcceptanceMode_(p700AcceptanceMode)
+          p700AcceptanceMode_(p700AcceptanceMode),
+          destroyerCruiseVelocityXMetersPerSecond_(destroyerCruiseVelocityXMetersPerSecond)
     {
     }
 
@@ -205,7 +209,8 @@ private:
             p700CarrierLaunchContract_,
             std::move(*p700Inventory),
             destroyerInitialXMeters_,
-            p700AcceptanceMode_);
+            p700AcceptanceMode_,
+            destroyerCruiseVelocityXMetersPerSecond_);
         if (!runtime)
         {
             return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());
@@ -224,6 +229,7 @@ private:
     Armament::P700CarrierLaunchContract p700CarrierLaunchContract_;
     float destroyerInitialXMeters_ = M5CombatDestroyerInitialXMeters;
     bool p700AcceptanceMode_ = false;
+    float destroyerCruiseVelocityXMetersPerSecond_ = M5CombatDestroyerCruiseVelocityXMetersPerSecond;
     std::optional<CombatPlaygroundRuntime> runtime_{};
 };
 } // namespace DeepRun::Game::Combat

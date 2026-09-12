@@ -595,7 +595,10 @@ int main(const int argumentCount, char** argumentValues)
                         *renderer,
                         engine.Assets(),
                         options.p700SmokeTest ? 20'100.0F : DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters,
-                        options.p700SmokeTest);
+                        options.p700SmokeTest,
+                        options.p700SmokeTest
+                            ? 0.0F
+                            : DeepRun::Game::Combat::M5CombatDestroyerCruiseVelocityXMetersPerSecond);
                     if (!combat)
                     {
                         std::cerr << "[Game][ERROR] " << combat.error() << '\n';
