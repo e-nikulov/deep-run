@@ -1,0 +1,105 @@
+name: P700 Offplane Guidance Fix
+
+on:
+  push:
+    paths:
+      - '.github/workflows/p700-offplane-guidance-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m5-v2-player-navigation-sonar
+          fetch-depth: 0
+      - name: Patch P-700 guidance and regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def rep(path, old, new, label):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected one match, got {n}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+
+          runtime = 'Simulation/Weapons/P700Granit.h'
+          old = (
+              '        const double dx = static_cast<double>(state.perceivedAimPointMeters->x) - state.positionMeters.x;\n'
+              '        const double dy = static_cast<double>(state.perceivedAimPointMeters->y) - state.positionMeters.y;\n'
+              '        const float desiredHeading = static_cast<float>(std::atan2(dy, dx));\n'
+              '        const float headingDelta = WrapP700Heading(desiredHeading - state.headingRadians);\n'
+              '        const float maximumTurn = definition.maximumAirborneTurnRateRadiansPerSecond * static_cast<float>(stepSeconds);\n'
+              '        state.headingRadians = WrapP700Heading(\n'
+              '            state.headingRadians + std::clamp(headingDelta, -maximumTurn, maximumTurn));\n'
+              '        const Physics::PhysicsVector3 direction{\n'
+              '            .x = static_cast<float>(std::cos(static_cast<double>(state.headingRadians))),\n'
+              '            .y = static_cast<float>(std::sin(static_cast<double>(state.headingRadians))),\n'
+              '            .z = 0.0F};\n'
+              '        const float speed = state.phase == P700GranitPhase::Terminal\n'
+              '            ? definition.terminalSpeedMetersPerSecond\n'
+              '            : definition.cruiseSpeedMetersPerSecond;\n'
+              '        const auto impact = moveSegment(direction, speed, stepSeconds);\n'
+          )
+          new = (
+              '        const double dx = static_cast<double>(state.perceivedAimPointMeters->x) - state.positionMeters.x;\n'
+              '        const double dy = static_cast<double>(state.perceivedAimPointMeters->y) - state.positionMeters.y;\n'
+              '        const double dz = static_cast<double>(state.perceivedAimPointMeters->z) - state.positionMeters.z;\n'
+              '        const float desiredHeading = static_cast<float>(std::atan2(dy, dx));\n'
+              '        const float headingDelta = WrapP700Heading(desiredHeading - state.headingRadians);\n'
+              '        const float maximumTurn = definition.maximumAirborneTurnRateRadiansPerSecond * static_cast<float>(stepSeconds);\n'
+              '        state.headingRadians = WrapP700Heading(\n'
+              '            state.headingRadians + std::clamp(headingDelta, -maximumTurn, maximumTurn));\n'
+              '\n'
+              '        // Production Antey launchers are physically offset to port/starboard from the 2.5D gameplay plane.\n'
+              '        // Preserve that real launch anchor, then converge the airborne weapon toward the perceived Track Z\n'
+              '        // instead of silently freezing the launcher-side offset for the entire flight. X/Y heading still obeys\n'
+              '        // the accepted bounded turn-rate policy; this lateral slope only closes the Track-derived cross-plane error.\n'
+              '        const double planarTargetDistance = std::hypot(dx, dy);\n'
+              '        const float crossPlaneSlope = planarTargetDistance > 1.0e-6\n'
+              '            ? static_cast<float>(dz / planarTargetDistance)\n'
+              '            : (std::abs(dz) > 1.0e-6 ? static_cast<float>(std::copysign(1.0, dz)) : 0.0F);\n'
+              '        const auto direction = NormalizeP700Vector(Physics::PhysicsVector3{\n'
+              '            .x = static_cast<float>(std::cos(static_cast<double>(state.headingRadians))),\n'
+              '            .y = static_cast<float>(std::sin(static_cast<double>(state.headingRadians))),\n'
+              '            .z = crossPlaneSlope});\n'
+              '        if (!direction)\n'
+              '        {\n'
+              '            return std::unexpected("P-700 airborne guidance produced an invalid 3D direction");\n'
+              '        }\n'
+              '        const float speed = state.phase == P700GranitPhase::Terminal\n'
+              '            ? definition.terminalSpeedMetersPerSecond\n'
+              '            : definition.cruiseSpeedMetersPerSecond;\n'
+              '        const auto impact = moveSegment(*direction, speed, stepSeconds);\n'
+          )
+          rep(runtime, old, new, 'airborne 3D Track convergence')
+
+          checks = 'Tests/M5P700Checks.h'
+          rep(
+              checks,
+              '        .launchPositionMeters = {.x = 0.0F, .y = -30.0F, .z = 0.0F},\n',
+              '        .launchPositionMeters = {.x = 0.0F, .y = -30.0F, .z = -6.05F},\n',
+              'off-plane production launcher fixture')
+          rep(
+              checks,
+              '            .halfExtents = {.x = 50.0F, .y = 10.0F, .z = 10.0F},\n            .position = {.x = 25\'000.0F, .y = -2.0F, .z = 0.0F}});\n',
+              '            .halfExtents = {.x = 50.0F, .y = 10.0F, .z = 3.0F},\n            .position = {.x = 25\'000.0F, .y = -2.0F, .z = 0.0F}});\n',
+              'narrow target regression fixture')
+          PY
+          git diff --check
+      - name: Commit product fix
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Simulation/Weapons/P700Granit.h Tests/M5P700Checks.h
+          git diff --cached --check
+          git commit -m "fix: converge P-700 guidance from launcher offset"
+          git push origin HEAD:feature/m5-v2-player-navigation-sonar
