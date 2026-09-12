@@ -533,7 +533,7 @@ int main(const int argumentCount, char** argumentValues)
                         }
                     }
 
-                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer);
+                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(*renderer, engine.Assets());
                     if (!combat)
                     {
                         std::cerr << "[Game][ERROR] " << combat.error() << '\n';
@@ -870,9 +870,9 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
                         return false;
                     }
-                    if (combatRendered->stats.drawCalls < 2U || combatRendered->stats.drawCalls > 8U ||
+                    if (combatRendered->stats.drawCalls < 2U || combatRendered->stats.drawCalls > 20U ||
                         combatRendered->stats.submittedPrimitives != combatRendered->stats.drawCalls ||
-                        combatRendered->stats.submittedIndices != combatRendered->stats.drawCalls * 36U)
+                        combatRendered->stats.submittedIndices < 72U)
                     {
                         std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
                         return false;

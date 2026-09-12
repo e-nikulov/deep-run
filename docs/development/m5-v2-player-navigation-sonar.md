@@ -113,3 +113,15 @@ M5-V2 requires:
 - sonar visualization option demonstrably disables visuals without altering ranging behavior.
 
 Only after human acceptance of these items may M5 be marked COMPLETE. P-700 runtime begins afterward as its own integration scope.
+
+## Main asset sync / torpedo playground binding
+
+The V2 branch is merged with current `main` Antey content before further navigation/sonar work. The current
+Project 949A compartment contract and staged production Antey GLB are authoritative on this branch.
+
+Windowed combat playground presentation also loads the current-main V2 torpedo review GLBs directly from
+`Content/Weapons/Torpedoes`: USET-80-inspired for the player torpedo and 65-76A-inspired for the hostile test
+torpedo. This pairing exists only to exercise both visual candidates in the playground. It does not change
+weapon simulation, tube/loadout truth, collision, guidance, seeker, damage, acoustic authority, or production
+promotion status. Both GLBs render at authored metre scale; the old 24 x 5 x 5 proxy-cube torpedo visual is not
+used when a live underwater torpedo is rendered.

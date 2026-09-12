@@ -249,6 +249,16 @@ add_custom_command(TARGET DeepRun POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${DEEPRUN_ANTEY_RUNTIME_DIR}"
         "$<TARGET_FILE_DIR:DeepRun>/Content/submarines/Antey"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/Torpedoes/USET80"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Content/Weapons/Torpedoes/USET80/USET80_review.glb"
+        "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/Torpedoes/USET80/USET80_review.glb"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/Torpedoes/65-76A"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Content/Weapons/Torpedoes/65-76A/65-76A_Kit_review.glb"
+        "$<TARGET_FILE_DIR:DeepRun>/Content/Weapons/Torpedoes/65-76A/65-76A_Kit_review.glb"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DeepRun>/Shaders"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${DEEPRUN_MODEL_VERTEX_SHADER}"

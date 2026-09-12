@@ -418,7 +418,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const auto transform = PoseScaleTransform(
             snapshot.playerTorpedo->positionMeters,
             Weapons::WeaponHeadingQuaternion(snapshot.playerTorpedo->headingRadians),
-            {.x = 24.0F, .y = 5.0F, .z = 5.0F});
+            {.x = 1.0F, .y = 1.0F, .z = 1.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());
@@ -439,7 +439,7 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         const auto transform = PoseScaleTransform(
             snapshot.destroyerTorpedo->positionMeters,
             Weapons::WeaponHeadingQuaternion(snapshot.destroyerTorpedo->headingRadians),
-            {.x = 24.0F, .y = 5.0F, .z = 5.0F});
+            {.x = 1.0F, .y = 1.0F, .z = 1.0F});
         if (!transform)
         {
             return std::unexpected(transform.error());

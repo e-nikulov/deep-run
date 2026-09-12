@@ -19,9 +19,10 @@ class CombatPlaygroundWindowedComposition final
 {
 public:
     [[nodiscard]] static std::expected<CombatPlaygroundWindowedComposition, std::string> Create(
-        Render::D3D12Renderer& renderer)
+        Render::D3D12Renderer& renderer,
+        Assets::AssetManager& assets)
     {
-        auto view = CombatPlaygroundView::Create(renderer);
+        auto view = CombatPlaygroundView::Create(renderer, assets);
         if (!view)
         {
             return std::unexpected("M5-H.1 windowed combat view creation failed: " + view.error());
@@ -117,7 +118,7 @@ public:
     // the renderer's validity result and cannot inspect or replace the GPU handle.
     [[nodiscard]] bool PresentationModelValid(const Render::D3D12Renderer& renderer) const noexcept
     {
-        return view_.Model().IsValid() && renderer.IsGpuModelValid(view_.Model());
+        return view_.ModelsValid(renderer);
     }
 
 private:

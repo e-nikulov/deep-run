@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/Assets/AssetManager.h"
 #include "Engine/Render/D3D12Renderer.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
 
@@ -26,27 +27,60 @@ class CombatPlaygroundView final
 {
 public:
     [[nodiscard]] static std::expected<CombatPlaygroundView, std::string> Create(
-        Render::D3D12Renderer& renderer)
+        Render::D3D12Renderer& renderer,
+        Assets::AssetManager& assets)
     {
         if (!renderer.IsInitialized() || !renderer.IsModelPipelineReady())
         {
             return std::unexpected("M5-H.1 combat view requires an initialized model renderer");
         }
 
-        const auto model = BuildCombatPlaygroundPresentationModel();
-        if (!model)
+        const auto proxyModel = BuildCombatPlaygroundPresentationModel();
+        if (!proxyModel)
         {
-            return std::unexpected("M5-H.1 combat view model creation failed: " + model.error());
+            return std::unexpected("M5-H.1 combat view model creation failed: " + proxyModel.error());
         }
-        const auto uploaded = renderer.UploadModel(*model);
-        if (!uploaded || !uploaded->handle.IsValid() || !uploaded->stats.uploadCompleted ||
-            uploaded->stats.primitiveCount != 1U || uploaded->stats.indexCount != 36U)
+        const auto proxyUploaded = renderer.UploadModel(*proxyModel);
+        if (!proxyUploaded || !proxyUploaded->handle.IsValid() || !proxyUploaded->stats.uploadCompleted ||
+            proxyUploaded->stats.primitiveCount != 1U || proxyUploaded->stats.indexCount != 36U)
         {
-            return std::unexpected(uploaded
+            return std::unexpected(proxyUploaded
                 ? "M5-H.1 combat view upload produced an invalid GPU model contract"
-                : "M5-H.1 combat view upload failed: " + uploaded.error());
+                : "M5-H.1 combat view upload failed: " + proxyUploaded.error());
         }
-        return CombatPlaygroundView(uploaded->handle);
+
+        // M5-V2 playground visual binding only. These are the current-main V2 review GLBs; simulation,
+        // collision, seeker, damage and launch authority remain the existing ConventionalTorpedo runtime.
+        const auto uset80 = assets.LoadModel("Weapons/Torpedoes/USET80/USET80_review.glb");
+        if (!uset80 || !uset80->IsValid() || uset80->Get() == nullptr || (*uset80)->primitives.empty())
+        {
+            return std::unexpected(uset80
+                ? "M5-V2 USET-80 playground model is invalid"
+                : "M5-V2 USET-80 playground model load failed: " + uset80.error().message);
+        }
+        const auto kit6576 = assets.LoadModel("Weapons/Torpedoes/65-76A/65-76A_Kit_review.glb");
+        if (!kit6576 || !kit6576->IsValid() || kit6576->Get() == nullptr || (*kit6576)->primitives.empty())
+        {
+            return std::unexpected(kit6576
+                ? "M5-V2 65-76A playground model is invalid"
+                : "M5-V2 65-76A playground model load failed: " + kit6576.error().message);
+        }
+        const auto uset80Uploaded = renderer.UploadModel(**uset80);
+        const auto kit6576Uploaded = renderer.UploadModel(**kit6576);
+        if (!uset80Uploaded || !uset80Uploaded->handle.IsValid() || !uset80Uploaded->stats.uploadCompleted ||
+            uset80Uploaded->stats.primitiveCount == 0U || !kit6576Uploaded ||
+            !kit6576Uploaded->handle.IsValid() || !kit6576Uploaded->stats.uploadCompleted ||
+            kit6576Uploaded->stats.primitiveCount == 0U)
+        {
+            return std::unexpected("M5-V2 production torpedo playground GPU upload failed");
+        }
+
+        return CombatPlaygroundView(
+            proxyUploaded->handle,
+            *uset80,
+            uset80Uploaded->handle,
+            *kit6576,
+            kit6576Uploaded->handle);
     }
 
     [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(
@@ -56,7 +90,7 @@ public:
         const Render::OrthographicCamera& camera,
         const double simulationTimeSeconds) const
     {
-        if (!gpuModel_.IsValid() || !renderer.IsGpuModelValid(gpuModel_))
+        if (!ModelsValid(renderer))
         {
             return std::unexpected("M5-H.1 combat view GPU model is unavailable");
         }
@@ -73,27 +107,98 @@ public:
             return std::unexpected("M5-H.1 combat view draw composition failed: " + presentationDraws.error());
         }
 
-        std::vector<Render::ModelDrawInstance> draws;
-        draws.reserve(presentationDraws->size());
+        std::vector<Render::ModelDrawInstance> proxyDraws;
+        proxyDraws.reserve(presentationDraws->size());
+        std::optional<Assets::ModelTransform> playerTorpedoTransform{};
+        std::optional<Assets::ModelTransform> destroyerTorpedoTransform{};
         for (const auto& presentationDraw : *presentationDraws)
         {
-            draws.push_back(presentationDraw.draw);
+            if (presentationDraw.element == CombatPlaygroundPresentationElement::PlayerTorpedo)
+            {
+                playerTorpedoTransform = presentationDraw.draw.modelToWorld;
+            }
+            else if (presentationDraw.element == CombatPlaygroundPresentationElement::DestroyerTorpedo)
+            {
+                destroyerTorpedoTransform = presentationDraw.draw.modelToWorld;
+            }
+            else
+            {
+                proxyDraws.push_back(presentationDraw.draw);
+            }
         }
-        if (draws.empty())
+        if (proxyDraws.empty())
         {
             return std::unexpected("M5-H.1 combat view must contain at least the destroyer presentation");
         }
 
-        const auto stats = renderer.DrawModel(
-            gpuModel_, std::span<const Render::ModelDrawInstance>(draws.data(), draws.size()), camera);
-        if (!stats)
+        Render::ModelDrawStats totalStats{};
+        const auto accumulate = [&totalStats](const Render::ModelDrawStats& stats)
         {
-            return std::unexpected("M5-H.1 combat view draw failed: " + stats.error());
+            totalStats.drawCalls += stats.drawCalls;
+            totalStats.submittedPrimitives += stats.submittedPrimitives;
+            totalStats.submittedIndices += stats.submittedIndices;
+        };
+
+        const auto proxyStats = renderer.DrawModel(
+            proxyGpuModel_, std::span<const Render::ModelDrawInstance>(proxyDraws.data(), proxyDraws.size()), camera);
+        if (!proxyStats)
+        {
+            return std::unexpected("M5-H.1 combat proxy view draw failed: " + proxyStats.error());
         }
-        if (stats->drawCalls != draws.size() || stats->submittedPrimitives != draws.size() ||
-            stats->submittedIndices != draws.size() * 36U)
+        accumulate(*proxyStats);
+
+        const auto drawTorpedoModel = [&](const std::optional<Assets::ModelTransform>& transform,
+                                          const Assets::AssetHandle<Assets::ModelAsset>& asset,
+                                          const Render::GpuModelHandle gpuModel,
+                                          const std::string_view label) -> std::expected<void, std::string>
         {
-            return std::unexpected("M5-H.1 combat view renderer statistics violated the one-cube-per-element contract");
+            if (!transform)
+            {
+                return {};
+            }
+            const Assets::ModelAsset* model = asset.Get();
+            if (model == nullptr || !gpuModel.IsValid() || !renderer.IsGpuModelValid(gpuModel))
+            {
+                return std::unexpected(std::string(label) + " playground model is unavailable");
+            }
+            const auto draws = Render::PrepareModelDraws(*model, *transform);
+            if (!draws || draws->empty())
+            {
+                return std::unexpected(draws
+                    ? std::string(label) + " produced no presentation draws"
+                    : std::string(label) + " draw preparation failed: " + draws.error());
+            }
+            const auto stats = renderer.DrawModel(
+                gpuModel, std::span<const Render::ModelDrawInstance>(draws->data(), draws->size()), camera);
+            if (!stats)
+            {
+                return std::unexpected(std::string(label) + " draw failed: " + stats.error());
+            }
+            if (stats->drawCalls != draws->size() || stats->submittedPrimitives != draws->size() ||
+                stats->submittedIndices == 0U)
+            {
+                return std::unexpected(std::string(label) + " draw statistics are invalid");
+            }
+            accumulate(*stats);
+            return {};
+        };
+
+        // Deliberate playground review pairing: the player visual exercises the 533 mm USET-80 candidate and
+        // the hostile visual exercises the 650 mm 65-76A candidate. This is not a destroyer-loadout assertion.
+        if (const auto playerDraw = drawTorpedoModel(
+                playerTorpedoTransform, uset80Asset_, uset80GpuModel_, "M5-V2 USET-80"); !playerDraw)
+        {
+            return std::unexpected(playerDraw.error());
+        }
+        if (const auto hostileDraw = drawTorpedoModel(
+                destroyerTorpedoTransform, kit6576Asset_, kit6576GpuModel_, "M5-V2 65-76A"); !hostileDraw)
+        {
+            return std::unexpected(hostileDraw.error());
+        }
+        if (totalStats.drawCalls < proxyDraws.size() ||
+            totalStats.submittedPrimitives != totalStats.drawCalls || totalStats.submittedIndices < 72U)
+        {
+            return std::unexpected("M5-V2 combat view aggregate draw statistics are invalid");
         }
         const bool explosionDrawn = std::ranges::any_of(
             *presentationDraws, [](const CombatPlaygroundPresentationDraw& draw) {
@@ -101,7 +206,7 @@ public:
             });
         return CombatPlaygroundRenderFrame{
             .presentation = *snapshot,
-            .stats = *stats,
+            .stats = totalStats,
             .explosionDrawn = explosionDrawn};
     }
 
@@ -122,15 +227,35 @@ public:
 
     [[nodiscard]] Render::GpuModelHandle Model() const noexcept
     {
-        return gpuModel_;
+        return proxyGpuModel_;
+    }
+
+    [[nodiscard]] bool ModelsValid(const Render::D3D12Renderer& renderer) const noexcept
+    {
+        return proxyGpuModel_.IsValid() && renderer.IsGpuModelValid(proxyGpuModel_) &&
+               uset80Asset_.IsValid() && uset80GpuModel_.IsValid() && renderer.IsGpuModelValid(uset80GpuModel_) &&
+               kit6576Asset_.IsValid() && kit6576GpuModel_.IsValid() && renderer.IsGpuModelValid(kit6576GpuModel_);
     }
 
 private:
-    explicit CombatPlaygroundView(const Render::GpuModelHandle model) noexcept
-        : gpuModel_(model)
+    CombatPlaygroundView(
+        const Render::GpuModelHandle proxyModel,
+        Assets::AssetHandle<Assets::ModelAsset> uset80Asset,
+        const Render::GpuModelHandle uset80Model,
+        Assets::AssetHandle<Assets::ModelAsset> kit6576Asset,
+        const Render::GpuModelHandle kit6576Model) noexcept
+        : proxyGpuModel_(proxyModel),
+          uset80Asset_(std::move(uset80Asset)),
+          uset80GpuModel_(uset80Model),
+          kit6576Asset_(std::move(kit6576Asset)),
+          kit6576GpuModel_(kit6576Model)
     {
     }
 
-    Render::GpuModelHandle gpuModel_{};
+    Render::GpuModelHandle proxyGpuModel_{};
+    Assets::AssetHandle<Assets::ModelAsset> uset80Asset_{};
+    Render::GpuModelHandle uset80GpuModel_{};
+    Assets::AssetHandle<Assets::ModelAsset> kit6576Asset_{};
+    Render::GpuModelHandle kit6576GpuModel_{};
 };
 } // namespace DeepRun::Game::Combat
