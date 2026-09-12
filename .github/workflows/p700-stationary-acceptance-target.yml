@@ -22,13 +22,13 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def rep(path, old, new, label):
+          def rep(path, old, new, label, expected=1):
               p = Path(path)
               s = p.read_text(encoding='utf-8')
               n = s.count(old)
-              if n != 1:
-                  raise SystemExit(f'{label}: expected one match, got {n}')
-              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+              if n != expected:
+                  raise SystemExit(f'{label}: expected {expected} match(es), got {n}')
+              p.write_text(s.replace(old, new, expected), encoding='utf-8')
 
           runtime = 'Game/Combat/CombatPlaygroundRuntime.h'
           rep(runtime,
@@ -42,7 +42,7 @@ jobs:
               "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
               "        const bool p700AcceptanceMode = false,\n"
               "        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)\n",
-              'base create signature')
+              'runtime create signatures', expected=2)
           rep(runtime,
               "            !std::isfinite(destroyerInitialXMeters) || destroyerInitialXMeters <= 0.0F ||\n"
               "            !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)\n",
@@ -54,17 +54,6 @@ jobs:
               "            .cruiseVelocityXMetersPerSecond = -2.0F,\n",
               "            .cruiseVelocityXMetersPerSecond = destroyerCruiseVelocityXMetersPerSecond,\n",
               'destroyer scenario velocity')
-          rep(runtime,
-              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
-              "        const bool p700AcceptanceMode = false)\n"
-              "    {\n"
-              "        if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount",
-              "        const float destroyerInitialXMeters = M5CombatDestroyerInitialXMeters,\n"
-              "        const bool p700AcceptanceMode = false,\n"
-              "        const float destroyerCruiseVelocityXMetersPerSecond = M5CombatDestroyerCruiseVelocityXMetersPerSecond)\n"
-              "    {\n"
-              "        if (p700CarrierLaunchContract.Anchors().size() != Armament::AnteyP700LauncherSlotCount",
-              'production create signature')
           rep(runtime,
               "        auto runtime = Create(physicsWorld, surfaceLevelY, simulationTimeSeconds, destroyerInitialXMeters, p700AcceptanceMode);\n",
               "        auto runtime = Create(\n"
