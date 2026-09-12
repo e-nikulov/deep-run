@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Simulation/Acoustics/AcousticWorld.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Perception/TrackManager.h"
 
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <expected>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -53,6 +55,7 @@ struct SonarPresentationSnapshot final
     std::optional<SonarActivePulsePresentation> activePulse{};
     std::optional<SonarEchoPresentation> recentEcho{};
     float displayRangeMeters = M5SonarScopeMinimumRangeMeters;
+    float effectiveSoundSpeedMetersPerSecond = Acoustics::AcousticWorldConfig{}.effectiveSoundSpeedMetersPerSecond;
     float ownshipHeadingRadians = 0.0F;
     double simulationTimeSeconds = 0.0;
 };
@@ -69,8 +72,33 @@ struct SonarPresentationSnapshot final
     return wrapped - pi;
 }
 
+// Presentation-only outgoing pulse distance. This deliberately uses the sound speed carried by the presentation
+// snapshot instead of owning a second hard-coded acoustic constant in the HUD.
+[[nodiscard]] inline float SonarOutgoingWaveRangeMeters(const SonarPresentationSnapshot& snapshot) noexcept
+{
+    if (!snapshot.activePulse || !std::isfinite(snapshot.effectiveSoundSpeedMetersPerSecond) ||
+        snapshot.effectiveSoundSpeedMetersPerSecond <= 0.0F || !std::isfinite(snapshot.simulationTimeSeconds))
+    {
+        return 0.0F;
+    }
+
+    const double elapsedSeconds = std::max(
+        0.0,
+        snapshot.simulationTimeSeconds - snapshot.activePulse->emissionTimeSeconds);
+    const double rangeMeters = elapsedSeconds * static_cast<double>(snapshot.effectiveSoundSpeedMetersPerSecond);
+    if (!std::isfinite(rangeMeters) || rangeMeters <= 0.0)
+    {
+        return 0.0F;
+    }
+    return static_cast<float>(std::min(
+        rangeMeters,
+        static_cast<double>(std::numeric_limits<float>::max())));
+}
+
 // Presentation-only projection. Inputs are ownship state, perceived Tracks, the player's own transmitted pulse,
-// and measured echo evidence. No hostile transform/body/entity identity is accepted by this boundary.
+// and measured echo evidence. No hostile transform/body/entity identity is accepted by this boundary. The sound
+// speed defaults to the same AcousticWorldConfig used by the current M5 runtime; a future non-default world config
+// must pass its effective value explicitly so presentation cannot drift from simulation.
 [[nodiscard]] inline std::expected<SonarPresentationSnapshot, std::string> BuildSonarPresentation(
     const std::span<const Perception::Track> tracks,
     const std::optional<std::uint64_t> selectedTrackId,
@@ -78,15 +106,19 @@ struct SonarPresentationSnapshot final
     const float ownshipHeadingRadians,
     const std::optional<Acoustics::ActiveAcousticPulse>& activePulse,
     const std::optional<Acoustics::AcousticObservation>& recentActiveEcho,
-    const double simulationTimeSeconds)
+    const double simulationTimeSeconds,
+    const float effectiveSoundSpeedMetersPerSecond =
+        Acoustics::AcousticWorldConfig{}.effectiveSoundSpeedMetersPerSecond)
 {
     if (!ownshipPositionMeters.IsFinite() || !std::isfinite(ownshipHeadingRadians) ||
-        !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0)
+        !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0 ||
+        !std::isfinite(effectiveSoundSpeedMetersPerSecond) || effectiveSoundSpeedMetersPerSecond <= 0.0F)
     {
-        return std::unexpected("M5 sonar presentation ownship/time input is invalid");
+        return std::unexpected("M5 sonar presentation ownship/time/acoustic input is invalid");
     }
 
     SonarPresentationSnapshot result{
+        .effectiveSoundSpeedMetersPerSecond = effectiveSoundSpeedMetersPerSecond,
         .ownshipHeadingRadians = ownshipHeadingRadians,
         .simulationTimeSeconds = simulationTimeSeconds};
     result.tracks.reserve(tracks.size());
