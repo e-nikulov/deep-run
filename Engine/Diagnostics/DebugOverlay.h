@@ -25,6 +25,10 @@ struct DebugStatus
     double framesPerSecond = 0.0;
     double frameMilliseconds = 0.0;
     double elapsedSeconds = 0.0;
+    double simulationTimeSeconds = 0.0;
+    double requestedTimeCompression = 1.0;
+    double effectiveTimeCompression = 1.0;
+    double maximumTimeCompression = 8.0;
     std::uint64_t frameIndex = 0;
     std::size_t entityCount = 0;
     std::size_t resourceCount = 0;
