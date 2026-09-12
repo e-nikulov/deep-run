@@ -81,6 +81,16 @@ struct ModelNodeBindingData final
     std::vector<std::size_t> drawableMeshNodeIndices;
 };
 
+// C0.1 bounded animation metadata. The importer still does not evaluate arbitrary glTF animation.
+// It accepts only validated LINEAR rotation-only clips with no skins and exposes just enough immutable
+// metadata for Game to bind a semantic production animation contract such as P700_Deploy.
+struct ModelAnimationClipData final
+{
+    std::string name;
+    float durationSeconds = 0.0F;
+    std::vector<std::string> targetNodeNames;
+};
+
 struct ModelAsset final
 {
     AssetId id;
@@ -88,6 +98,7 @@ struct ModelAsset final
     std::vector<MeshPrimitiveData> primitives;
     std::vector<MeshNodeData> nodes;
     std::vector<ModelNodeBindingData> nodeBindings;
+    std::vector<ModelAnimationClipData> animations;
     ModelBounds bounds{};
 };
 }
