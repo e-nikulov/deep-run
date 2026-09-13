@@ -39,6 +39,13 @@ enum class P700TerminalEngagementOutcome
     ManeuverMiss,
 };
 
+enum class P700LifecycleTerminalReason
+{
+    None,
+    Impact,
+    RangeExpired,
+};
+
 // Explicit GAME POLICY for terminal effectiveness. These probabilities model independent terminal failure
 // opportunities after a legal Track-based launch; they are not claims about classified P-700 seeker/EW/PВО data.
 struct P700TerminalDefenseProfile final
@@ -67,6 +74,9 @@ struct P700GranitDefinition final
     double postExitTransitionSeconds = 0.60;
     double deploymentSeconds = 1.50;
     float terminalRangeMeters = 5'000.0F;
+    // Production default intentionally matches the canonical P-700 employment maximum. Tests may author a
+    // smaller budget to exercise expiry, but normal gameplay must not silently fly beyond 550 km after launch.
+    float maximumTravelDistanceMeters = P700GranitEmploymentEnvelope.maximumTargetRangeMeters;
     Physics::PhysicsVector3 collisionHalfExtentsMeters{5.0F, 0.70F, 0.70F};
     float directImpactDamage = 100.0F;
     float explosionRadiusMeters = 30.0F;
@@ -91,6 +101,7 @@ struct P700GranitRuntimeState final
     float surfaceLevelYMeters = 0.0F;
     float headingRadians = 0.0F;
     float speedMetersPerSecond = 0.0F;
+    float travelledDistanceMeters = 0.0F;
     float hatchOpenProgress = 0.0F;
     float postExitTransitionProgress = 0.0F;
     float deploymentProgress = 0.0F;
@@ -99,6 +110,7 @@ struct P700GranitRuntimeState final
     bool noseProtectionCapAttached = true;
     bool mainEngineActive = false;
     P700TerminalEngagementOutcome terminalOutcome = P700TerminalEngagementOutcome::Unresolved;
+    P700LifecycleTerminalReason terminalReason = P700LifecycleTerminalReason::None;
     std::uint64_t terminalRandomSeed = 0U;
     double phaseStartTimeSeconds = 0.0;
     double lastUpdateTimeSeconds = 0.0;
@@ -228,6 +240,7 @@ struct P700GranitImpact final
         !std::isfinite(definition.deploymentSeconds) || definition.deploymentSeconds <= 0.0 ||
         !std::isfinite(definition.terminalRangeMeters) || definition.terminalRangeMeters <= 0.0F ||
         definition.terminalRangeMeters >= P700GranitEmploymentEnvelope.maximumTargetRangeMeters ||
+        !std::isfinite(definition.maximumTravelDistanceMeters) || definition.maximumTravelDistanceMeters <= 0.0F ||
         !definition.collisionHalfExtentsMeters.IsFinite() || definition.collisionHalfExtentsMeters.x <= 0.0F ||
         definition.collisionHalfExtentsMeters.y <= 0.0F || definition.collisionHalfExtentsMeters.z <= 0.0F ||
         !std::isfinite(definition.directImpactDamage) || definition.directImpactDamage <= 0.0F ||
@@ -322,6 +335,7 @@ struct P700GranitImpact final
     state.headingRadians = static_cast<float>(std::atan2(
         static_cast<double>(launchForward->y), static_cast<double>(launchForward->x)));
     state.speedMetersPerSecond = 0.0F;
+    state.travelledDistanceMeters = 0.0F;
     state.hatchOpenProgress = 0.0F;
     state.postExitTransitionProgress = 0.0F;
     state.deploymentProgress = 0.0F;
@@ -330,6 +344,7 @@ struct P700GranitImpact final
     state.noseProtectionCapAttached = true;
     state.mainEngineActive = false;
     state.terminalOutcome = P700TerminalEngagementOutcome::Unresolved;
+    state.terminalReason = P700LifecycleTerminalReason::None;
     state.terminalRandomSeed = P700SplitMix64(targetTrack.trackId ^ 0x503730304752414EULL);
     state.phaseStartTimeSeconds = simulationTimeSeconds;
     state.lastUpdateTimeSeconds = simulationTimeSeconds;
@@ -383,6 +398,8 @@ struct P700GranitImpact final
         state.phase == P700GranitPhase::Spent || !state.positionMeters.IsFinite() ||
         !state.launchForwardUnitVector.IsFinite() || !std::isfinite(state.surfaceLevelYMeters) ||
         !std::isfinite(state.headingRadians) || !std::isfinite(state.speedMetersPerSecond) ||
+        !std::isfinite(state.travelledDistanceMeters) || state.travelledDistanceMeters < 0.0F ||
+        state.travelledDistanceMeters > definition.maximumTravelDistanceMeters + 1.0e-3F ||
         !std::isfinite(state.hatchOpenProgress) || state.hatchOpenProgress < 0.0F || state.hatchOpenProgress > 1.0F ||
         !std::isfinite(state.postExitTransitionProgress) || state.postExitTransitionProgress < 0.0F ||
         state.postExitTransitionProgress > 1.0F || !std::isfinite(state.deploymentProgress) ||
@@ -409,6 +426,18 @@ struct P700GranitImpact final
     double remainingSeconds = simulationTimeSeconds - cursorTime;
     std::size_t guard = 0U;
 
+    const auto markRangeExpired = [&](const double terminalTimeSeconds)
+    {
+        state.travelledDistanceMeters = definition.maximumTravelDistanceMeters;
+        state.speedMetersPerSecond = 0.0F;
+        state.launchBoosterActive = false;
+        state.mainEngineActive = false;
+        state.phase = P700GranitPhase::Spent;
+        state.terminalReason = P700LifecycleTerminalReason::RangeExpired;
+        state.phaseStartTimeSeconds = terminalTimeSeconds;
+        state.lastUpdateTimeSeconds = terminalTimeSeconds;
+    };
+
     const auto moveSegment = [&](const Physics::PhysicsVector3& directionUnit,
                                  const float speedMetersPerSecond,
                                  const double deltaSeconds)
@@ -419,7 +448,22 @@ struct P700GranitImpact final
             return std::optional<P700GranitImpact>{};
         }
         const Physics::PhysicsVector3 start = state.positionMeters;
-        const float distance = speedMetersPerSecond * static_cast<float>(deltaSeconds);
+        const float requestedDistanceMeters = speedMetersPerSecond * static_cast<float>(deltaSeconds);
+        if (!std::isfinite(requestedDistanceMeters) || requestedDistanceMeters < 0.0F)
+        {
+            return std::unexpected("P-700 requested travel distance is invalid");
+        }
+        const float remainingTravelMeters =
+            std::max(0.0F, definition.maximumTravelDistanceMeters - state.travelledDistanceMeters);
+        if (remainingTravelMeters <= 1.0e-3F)
+        {
+            markRangeExpired(cursorTime);
+            return std::optional<P700GranitImpact>{};
+        }
+        const float distance = std::min(requestedDistanceMeters, remainingTravelMeters);
+        const double actualDeltaSeconds = speedMetersPerSecond > 0.0F
+            ? static_cast<double>(distance) / speedMetersPerSecond
+            : 0.0;
         const Physics::PhysicsVector3 displacement{
             .x = directionUnit.x * distance,
             .y = directionUnit.y * distance,
@@ -427,6 +471,10 @@ struct P700GranitImpact final
         if (std::abs(displacement.x) <= 1.0e-9F && std::abs(displacement.y) <= 1.0e-9F &&
             std::abs(displacement.z) <= 1.0e-9F)
         {
+            if (remainingTravelMeters <= requestedDistanceMeters + 1.0e-3F)
+            {
+                markRangeExpired(cursorTime + actualDeltaSeconds);
+            }
             return std::optional<P700GranitImpact>{};
         }
         const float heading = static_cast<float>(std::atan2(
@@ -446,17 +494,24 @@ struct P700GranitImpact final
             state.positionMeters.x += displacement.x;
             state.positionMeters.y += displacement.y;
             state.positionMeters.z += displacement.z;
+            state.travelledDistanceMeters += distance;
             state.headingRadians = heading;
             state.speedMetersPerSecond = speedMetersPerSecond;
+            if (state.travelledDistanceMeters + 1.0e-3F >= definition.maximumTravelDistanceMeters)
+            {
+                markRangeExpired(cursorTime + actualDeltaSeconds);
+            }
             return std::optional<P700GranitImpact>{};
         }
 
         const Physics::PhysicsSweepHit hit = **sweep;
-        const double impactTimeSeconds = cursorTime + deltaSeconds * static_cast<double>(hit.fraction);
+        const double impactTimeSeconds = cursorTime + actualDeltaSeconds * static_cast<double>(hit.fraction);
         state.positionMeters = hit.positionMeters;
+        state.travelledDistanceMeters += distance * hit.fraction;
         state.headingRadians = heading;
         state.speedMetersPerSecond = 0.0F;
         state.phase = P700GranitPhase::Impact;
+        state.terminalReason = P700LifecycleTerminalReason::Impact;
         state.phaseStartTimeSeconds = impactTimeSeconds;
         state.lastUpdateTimeSeconds = impactTimeSeconds;
         state.impactedBody = hit.body;
@@ -534,6 +589,7 @@ struct P700GranitImpact final
                     state.launchForwardUnitVector, definition.underwaterExitSpeedMetersPerSecond, stepSeconds);
                 if (!impact) return std::unexpected(impact.error());
                 if (*impact) return *impact;
+                if (state.phase == P700GranitPhase::Spent) return std::optional<P700GranitImpact>{};
                 cursorTime += stepSeconds;
                 remainingSeconds -= stepSeconds;
                 state.lastUpdateTimeSeconds = cursorTime;
@@ -566,6 +622,7 @@ struct P700GranitImpact final
                     state.launchForwardUnitVector, definition.waterExitSpeedMetersPerSecond, stepSeconds);
                 if (!impact) return std::unexpected(impact.error());
                 if (*impact) return *impact;
+                if (state.phase == P700GranitPhase::Spent) return std::optional<P700GranitImpact>{};
                 cursorTime += stepSeconds;
                 remainingSeconds -= stepSeconds;
                 state.lastUpdateTimeSeconds = cursorTime;
@@ -596,6 +653,7 @@ struct P700GranitImpact final
                     state.launchForwardUnitVector, definition.deploymentFlightSpeedMetersPerSecond, stepSeconds);
                 if (!impact) return std::unexpected(impact.error());
                 if (*impact) return *impact;
+                if (state.phase == P700GranitPhase::Spent) return std::optional<P700GranitImpact>{};
                 cursorTime += stepSeconds;
                 remainingSeconds -= stepSeconds;
                 state.lastUpdateTimeSeconds = cursorTime;
@@ -644,6 +702,7 @@ struct P700GranitImpact final
                     state.launchForwardUnitVector, definition.deploymentFlightSpeedMetersPerSecond, stepSeconds);
                 if (!impact) return std::unexpected(impact.error());
                 if (*impact) return *impact;
+                if (state.phase == P700GranitPhase::Spent) return std::optional<P700GranitImpact>{};
                 cursorTime += stepSeconds;
                 remainingSeconds -= stepSeconds;
                 state.lastUpdateTimeSeconds = cursorTime;

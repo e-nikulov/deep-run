@@ -87,9 +87,16 @@ namespace M5P700Detail
     };
 
     const P700GranitDefinition definition = MakeDefinition();
-    if (!ValidateP700GranitDefinition(definition))
+    if (!ValidateP700GranitDefinition(definition) ||
+        definition.maximumTravelDistanceMeters != P700GranitEmploymentEnvelope.maximumTargetRangeMeters)
     {
-        return fail("definition validation");
+        return fail("definition validation / canonical 550 km runtime budget");
+    }
+    auto invalidRangeDefinition = definition;
+    invalidRangeDefinition.maximumTravelDistanceMeters = 0.0F;
+    if (ValidateP700GranitDefinition(invalidRangeDefinition))
+    {
+        return fail("zero P-700 travel budget validation");
     }
 
     constexpr float acceptanceRangeMeters = 20'100.0F;
@@ -108,6 +115,21 @@ namespace M5P700Detail
 
     const Perception::Track targetTrack = MakeTrack(7001U, 25'000.0F);
     const Perception::Track tooCloseTrack = MakeTrack(7002U, 19'000.0F);
+    const Perception::Track tooFarTrack = MakeTrack(7003U, 551'000.0F);
+
+    auto tooFarRuntime = CreateP700GranitRuntime(definition, 0.0);
+    if (!tooFarRuntime)
+    {
+        return fail("too-far fixture runtime creation");
+    }
+    const auto tooFarLaunch = LaunchP700Granit(
+        definition, *tooFarRuntime, tooFarTrack, SubmergedCarrier(), 0.0);
+    if (!tooFarLaunch || tooFarLaunch->allowed ||
+        tooFarLaunch->reason.find("maximum range") == std::string::npos ||
+        tooFarRuntime->phase != P700GranitPhase::Stored)
+    {
+        return fail("550 km maximum-range employment gate");
+    }
 
     auto tooCloseRuntime = CreateP700GranitRuntime(definition, 0.0);
     if (!tooCloseRuntime)
@@ -169,6 +191,30 @@ namespace M5P700Detail
     if (!carrierBody.IsValid() || !targetBody.IsValid())
     {
         return fail("P-700 carrier/target fixture creation");
+    }
+
+    auto shortRangeDefinition = definition;
+    shortRangeDefinition.maximumTravelDistanceMeters = 500.0F;
+    auto shortRangeRuntime = CreateP700GranitRuntime(shortRangeDefinition, 0.0);
+    if (!shortRangeRuntime)
+    {
+        return fail("short-range P-700 fixture creation");
+    }
+    const auto shortRangeLaunch = LaunchP700Granit(
+        shortRangeDefinition, *shortRangeRuntime, targetTrack, SubmergedCarrier(), 0.0);
+    if (!shortRangeLaunch || !shortRangeLaunch->allowed)
+    {
+        return fail("short-range P-700 legal launch");
+    }
+    const auto shortRangeAdvance = AdvanceP700GranitWithCollision(
+        shortRangeDefinition, *shortRangeRuntime, targetTrack, physicsWorld, 10.0, carrierBody);
+    if (!shortRangeAdvance || shortRangeAdvance->has_value() ||
+        shortRangeRuntime->phase != P700GranitPhase::Spent ||
+        shortRangeRuntime->terminalReason != P700LifecycleTerminalReason::RangeExpired ||
+        std::abs(shortRangeRuntime->travelledDistanceMeters - 500.0F) > 0.01F ||
+        shortRangeRuntime->impactedBody.has_value())
+    {
+        return fail("P-700 runtime travel budget expiry");
     }
 
     auto runtimeResult = CreateP700GranitRuntime(definition, 0.0);

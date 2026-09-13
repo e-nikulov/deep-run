@@ -1,6 +1,7 @@
 #include "Game/Weapons/P700LaunchGeometry.h"
 #include "Game/Weapons/P700LauncherInventory.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
+#include "Game/Weapons/PlayerTorpedoProfiles.h"
 
 #include <array>
 #include <cmath>
@@ -136,13 +137,29 @@ BuildAnchors()
 [[nodiscard]] bool RunWeaponSelectorChecks()
 {
     using namespace DeepRun::Game::Armament;
+    using namespace DeepRun::Weapons;
+    const auto uset = MakePlayerTorpedoProfile(PlayerWeaponType::HeavyweightTorpedo);
+    const auto fast = MakePlayerTorpedoProfile(PlayerWeaponType::Type6576AFast);
+    const auto economy = MakePlayerTorpedoProfile(PlayerWeaponType::Type6576AEconomy);
     if (PlayerWeaponName(PlayerWeaponType::HeavyweightTorpedo) != "USET-80" ||
+        PlayerWeaponName(PlayerWeaponType::Type6576AFast) != "65-76A FAST" ||
+        PlayerWeaponName(PlayerWeaponType::Type6576AEconomy) != "65-76A ECONOMY" ||
         PlayerWeaponName(PlayerWeaponType::P700Granit) != "P-700 GRANIT" ||
-        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, 1) != PlayerWeaponType::P700Granit ||
+        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, 1) != PlayerWeaponType::Type6576AFast ||
+        CyclePlayerWeapon(PlayerWeaponType::Type6576AFast, 1) != PlayerWeaponType::Type6576AEconomy ||
+        CyclePlayerWeapon(PlayerWeaponType::Type6576AEconomy, 1) != PlayerWeaponType::P700Granit ||
         CyclePlayerWeapon(PlayerWeaponType::P700Granit, 1) != PlayerWeaponType::HeavyweightTorpedo ||
-        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, -1) != PlayerWeaponType::P700Granit)
+        CyclePlayerWeapon(PlayerWeaponType::HeavyweightTorpedo, -1) != PlayerWeaponType::P700Granit ||
+        !uset || !fast || !economy || MakePlayerTorpedoProfile(PlayerWeaponType::P700Granit) ||
+        uset->employmentEnvelope != &Uset80EmploymentEnvelope ||
+        fast->employmentEnvelope != &Type6576AFastEmploymentEnvelope ||
+        economy->employmentEnvelope != &Type6576AEconomyEmploymentEnvelope ||
+        uset->definition.maximumTravelDistanceMeters != 18'000.0F ||
+        fast->definition.maximumTravelDistanceMeters != 50'000.0F ||
+        economy->definition.maximumTravelDistanceMeters != 100'000.0F)
     {
-        std::cerr << "M5 two-item Weapon Selector cycle is invalid\n";
+        std::cerr << "M5 four-item Weapon Selector/profile range contract is invalid
+";
         return false;
     }
     return true;

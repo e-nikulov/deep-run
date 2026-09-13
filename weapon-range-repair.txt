@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "D:\a\deep-run\deep-run\Tools\apply_weapon_range_fix.py", line 486, in <module>
-    replace_count(
-  File "D:\a\deep-run\deep-run\Tools\apply_weapon_range_fix.py", line 31, in replace_count
-    raise RuntimeError(f"{path}: expected {expected} matches, found {count}: {old[:120]!r}")
-RuntimeError: Game/Combat/CombatPlaygroundRuntime.h: expected 3 matches, found 4: 'AssessPlayerUset80Employment'

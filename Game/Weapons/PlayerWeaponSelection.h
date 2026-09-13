@@ -9,18 +9,31 @@ namespace DeepRun::Game::Armament
 enum class PlayerWeaponType
 {
     HeavyweightTorpedo,
+    Type6576AFast,
+    Type6576AEconomy,
     P700Granit,
 };
 
-inline constexpr std::array<PlayerWeaponType, 2> PlayerWeaponCycle{
+inline constexpr std::array<PlayerWeaponType, 4> PlayerWeaponCycle{
     PlayerWeaponType::HeavyweightTorpedo,
+    PlayerWeaponType::Type6576AFast,
+    PlayerWeaponType::Type6576AEconomy,
     PlayerWeaponType::P700Granit};
+
+[[nodiscard]] constexpr bool IsPlayerTorpedo(const PlayerWeaponType weapon) noexcept
+{
+    return weapon == PlayerWeaponType::HeavyweightTorpedo ||
+           weapon == PlayerWeaponType::Type6576AFast ||
+           weapon == PlayerWeaponType::Type6576AEconomy;
+}
 
 [[nodiscard]] constexpr std::string_view PlayerWeaponName(const PlayerWeaponType weapon) noexcept
 {
     switch (weapon)
     {
     case PlayerWeaponType::HeavyweightTorpedo: return "USET-80";
+    case PlayerWeaponType::Type6576AFast: return "65-76A FAST";
+    case PlayerWeaponType::Type6576AEconomy: return "65-76A ECONOMY";
     case PlayerWeaponType::P700Granit: return "P-700 GRANIT";
     }
     return "UNKNOWN";
