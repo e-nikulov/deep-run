@@ -99,18 +99,26 @@ constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 // IG1-C Game policy: sample the production buoyancy BOX at four deterministic normalized longitudinal
 // positions. The fractions preserve the accepted M2 spacing while removing prototype/world-space metres.
 constexpr std::array<float, 4> M2BuoyancyLongitudinalFractions = {0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
-// Production COB is spatial authority. This explicit Game-owned offset preserves the accepted M2 pitch
-// stability behaviour; it is not a fabricated historical metacentric height.
-constexpr float M2GameBuoyancyStabilityOffsetMeters = 2.0F;
-constexpr float M2BuoyancySubmersionHalfHeightMeters = 6.0F;
-// Public Project 949A references give roughly 32% reserve buoyancy. In this Game-owned point model that makes
-// the untrimmed surface equilibrium about 1/1.32 = 75.8% submerged while submerged trim cancels the reserve.
+// Surface-waterplane calibration is explicit Game policy. The buoyancy samples sit on the production COB
+// vertical level instead of the old +2 m prototype offset: that old offset shifted the natural waterline down
+// through the deployed bow planes even though it did not contribute useful pitch torque for vertical forces.
+constexpr float M2GameBuoyancyStabilityOffsetMeters = 0.0F;
+constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;
+// Public Project 949A references give roughly 32% reserve buoyancy. In this bounded point model the untrimmed
+// equilibrium submerged fraction is 1/1.32 = 75.8% of potential displacement. With the calibrated waterplane
+// half-height this places the upright body origin about 2.24 m below mean sea level: roughly 3/4 of the main
+// hull remains immersed while the inspected deployed bow-plane lower edge (~+2.35 m local Y) stays above it.
 constexpr float M5AnteyReserveBuoyancyFraction = 0.32F;
 constexpr float M5MaximumReserveBuoyancyReleaseFractionOfWeight = 0.04F;
-// Surface mode is armed only after a deliberate surfacing command reaches the near-surface band. This lets
-// periscope-depth trim remain neutral around 10 m, while a continued surface command releases hydrostatic trim
-// and lets reserve buoyancy find the natural ~3/4-submerged equilibrium.
-constexpr float M5SurfaceHydrostaticModeArmDepthMeters = 7.0F;
+constexpr float M5SurfaceEquilibriumSubmergedFraction = 1.0F / (1.0F + M5AnteyReserveBuoyancyFraction);
+constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
+    M2GameBuoyancyStabilityOffsetMeters +
+    M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
+static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.15F &&
+              M5SurfaceEquilibriumBodyCenterDepthMeters < 2.30F);
+// Surface mode arms only very near the natural flotation band. Periscope-depth operation therefore keeps
+// submerged trim, while the final part of a deliberate surfacing manoeuvre hands authority to hydrostatics.
+constexpr float M5SurfaceHydrostaticModeArmDepthMeters = 2.8F;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
 constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
@@ -1365,9 +1373,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
              bodyWaterSample->signedDepthMeters <= M5SurfaceHydrostaticModeArmDepthMeters)
         nextSurfacedHydrostaticMode = true;
 
+    // Once surfaced hydrostatics are latched, continuing to hold Surface must not add an artificial upward
+    // ballast force on top of reserve buoyancy. Feed a neutral command so the controller may only damp residual
+    // vertical rate; a Dive command unlatches the mode above and regains normal ballast authority immediately.
+    const float ballastDepthCommandFraction =
+        nextSurfacedHydrostaticMode && command.depthCommandFraction <= 0.0F
+            ? 0.0F
+            : command.depthCommandFraction;
     const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
         M5LowSpeedBallastDepthControl,
-        command.depthCommandFraction,
+        ballastDepthCommandFraction,
         controlResults[M2SternPlaneIndex].bodyForwardSpeedMetersPerSecond,
         state->linearVelocity.y,
         vesselWeightNewtons);
