@@ -40,8 +40,9 @@ struct PlayerCombatCommandFeedback final
     std::string message{};
 };
 
-// Read-only state intended for a later controller-first combat UI. It deliberately exposes perceived quality
-// rather than hostile Transform/entity truth and cannot mutate weapon, TrackManager, physics, or simulation.
+// Read-only state intended for controller-first combat UI. It deliberately exposes perceived quality and
+// perceived visual classification rather than hostile Transform/entity truth. A weapon-quality acoustic track
+// may remain visually unconfirmed; that is an intentional civilian-identification risk, not a missing field.
 struct PlayerCombatPresentationSnapshot final
 {
     Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
@@ -56,7 +57,11 @@ struct PlayerCombatPresentationSnapshot final
     std::optional<float> selectedPositionUncertaintyMeters{};
     bool selectedTrackHasEstimatedPosition = false;
     std::optional<Physics::PhysicsVector3> selectedTrackEstimatedPositionMeters{};
+    Perception::ContactClassification selectedTrackClassification = Perception::ContactClassification::Unknown;
+    bool selectedTrackVisuallyIdentified = false;
+    bool selectedTrackCivilianRisk = false;
     bool selectedTrackWeaponQualified = false;
+    bool selectedTrackRulesOfEngagementQualified = false;
     bool canPrepareWeapon = false;
     bool canFireWeapon = false;
     bool canActiveSonarPing = false;
@@ -178,9 +183,14 @@ public:
         snapshot.selectedPositionUncertaintyMeters = selected->positionUncertaintyMeters;
         snapshot.selectedTrackHasEstimatedPosition = selected->estimatedPositionMeters.has_value();
         snapshot.selectedTrackEstimatedPositionMeters = selected->estimatedPositionMeters;
+        snapshot.selectedTrackClassification = selected->classification;
+        snapshot.selectedTrackVisuallyIdentified = selected->visuallyIdentified;
         snapshot.selectedTrackWeaponQualified = Weapons::ValidateTrackForWeapon(definition_, *selected).has_value();
+        snapshot.selectedTrackCivilianRisk = snapshot.selectedTrackWeaponQualified && !selected->visuallyIdentified;
+        snapshot.selectedTrackRulesOfEngagementQualified =
+            snapshot.selectedTrackWeaponQualified && !IsVisuallyConfirmedCivilian(*selected);
         snapshot.canFireWeapon = weapon_.phase == Weapons::WeaponPhase::Ready &&
-                                 snapshot.selectedTrackWeaponQualified;
+                                 snapshot.selectedTrackRulesOfEngagementQualified;
         return snapshot;
     }
 
@@ -202,6 +212,12 @@ private:
         // Commander inspection is intentionally broader than weapon qualification: a bearing-only, tentative or
         // coasting contact may be worth inspecting even though FireWeapon must reject it later.
         return track.trackId != 0U && track.lifecycle != Perception::TrackLifecycleState::Lost;
+    }
+
+    [[nodiscard]] static bool IsVisuallyConfirmedCivilian(const Perception::Track& track) noexcept
+    {
+        return track.visuallyIdentified &&
+               track.classification == Perception::ContactClassification::CivilianSurfaceVessel;
     }
 
     [[nodiscard]] static const Perception::Track* FindTrack(
@@ -287,9 +303,15 @@ private:
             return RecordRejected(PlayerCombatCommandType::FireWeapon, selectedTrackId_,
                                   "selected perceived track is no longer present");
         }
+        if (IsVisuallyConfirmedCivilian(*selected))
+        {
+            return RecordRejected(PlayerCombatCommandType::FireWeapon, selectedTrackId_,
+                                  "visual identification confirms CIVILIAN vessel; fire inhibited by rules of engagement");
+        }
 
-        // Revalidate the exact current Track on the fire tick. A stale target ID or formerly-good estimate can
-        // never authorize launch. Use a candidate copy so rejected assignment/launch cannot partially mutate state.
+        // Deliberately do NOT require visual identification here. A sufficiently strong acoustic/ranging Track
+        // remains employable, but firing it while classification is Unknown carries the gameplay risk that the
+        // contact is actually civilian. Visual confirmation removes that uncertainty; it is not omniscient truth.
         Weapons::WeaponRuntimeState candidate = weapon_;
         const auto assigned = Weapons::AssignWeaponTarget(
             definition_, candidate, *selected, simulationTimeSeconds);
@@ -304,7 +326,12 @@ private:
         }
 
         weapon_ = std::move(candidate);
-        return RecordAccepted(PlayerCombatCommandType::FireWeapon, selectedTrackId_, "weapon launch ordered");
+        return RecordAccepted(
+            PlayerCombatCommandType::FireWeapon,
+            selectedTrackId_,
+            selected->visuallyIdentified
+                ? "weapon launch ordered against visually identified combatant"
+                : "weapon launch ordered WITHOUT visual identification; civilian-risk accepted");
     }
 
     [[nodiscard]] PlayerCombatCommandFeedback RecordAccepted(
