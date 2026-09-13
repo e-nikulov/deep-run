@@ -1,3 +1,0 @@
-Antey propeller multi-revolution visual acceptance rerun trigger.
-
-Purpose: trigger the branch push workflow from an external repository write after the previous HEAD was created by a GitHub Actions token, which does not recursively trigger workflows.
