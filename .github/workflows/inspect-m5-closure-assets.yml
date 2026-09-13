@@ -1,0 +1,21 @@
+name: Inspect M5 closure assets
+
+on:
+  push:
+    branches:
+      - fix/m5-final-closure-gaps
+    paths:
+      - Tools/inspect_m5_closure_assets.py
+      - .github/workflows/inspect-m5-closure-assets.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect production Antey sail devices
+        run: python Tools/inspect_m5_closure_assets.py
