@@ -232,11 +232,13 @@ struct EnvironmentPresentationTile final
     const float cameraHorizontalSpanMeters,
     const bool wideAreaBathymetryKnown = false) noexcept
 {
-    // Bathymetry is regional world data, not a camera fallback. Generic M5 owns only the bounded local M3
-    // section, so zooming out must produce intentional deep water rather than inventing this profile. The
-    // temporary profile remains available only to an explicitly authored scenario that knows its bathymetry.
+    // Bathymetry is regional world data, not a generic camera fallback. The caller enables this profile only
+    // after the one authored local M3 section can no longer cover the current frustum. In an explicitly known
+    // combat region that can happen either because of zoom or because a still-local camera pans beyond the
+    // bounded section, so local-scale spans must remain eligible instead of dropping to the abyss presentation.
+    // Unknown regions still opt out and therefore never gain invented bathymetry.
     return wideAreaBathymetryKnown && std::isfinite(cameraHorizontalSpanMeters) &&
-           cameraHorizontalSpanMeters > M5DetailedEnvironmentMaximumHorizontalSpanMeters &&
+           cameraHorizontalSpanMeters > 0.0F &&
            cameraHorizontalSpanMeters <= M5StrategicSeabedMaximumHorizontalSpanMeters;
 }
 
