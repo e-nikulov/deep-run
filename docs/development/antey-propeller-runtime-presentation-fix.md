@@ -24,3 +24,5 @@ Acceptance requires Debug and Release build/CTest plus the existing windowed com
 ## Shaft-center correction
 
 The seven source-derived meshes under each production propeller root are equal 819-triangle components. The mesh named `*_Hub` is only the first component; it is not a standalone mechanical hub. The previous sidecar writer therefore derived a false shaft from that component's bounds. The production shaft center is now reconstructed using the exact source-first authoring rule: the centroid of all vertices across all seven LOD0 source components, with `PROP_ASSEMBLY`, `SHAFT_PIVOT_SHARED`, `ROTATION_AXIS=LOCAL_X`, and `SOURCE_BLADE_COUNT=7` enforced. The canonical GLB geometry is unchanged.
+
+The persisted regression now validates the complete seven-node drawable subtree against the analytic model-space `R_x(theta)` result at 0, 45, 90, 180, and 270 degrees for every submitted propeller vertex; radius preservation alone is no longer accepted as proof of the shaft axis.

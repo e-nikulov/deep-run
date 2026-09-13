@@ -329,11 +329,6 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
     {
         return false;
     }
-    DeepRun::Assets::ModelTransform quarterTurn{};
-    quarterTurn.values[5] = 0.0F;
-    quarterTurn.values[6] = 1.0F;
-    quarterTurn.values[9] = -1.0F;
-    quarterTurn.values[10] = 0.0F;
     const auto transformPoint = [](const DeepRun::Assets::ModelTransform& transform,
                                    const DeepRun::Assets::ModelVector3& point)
     {
@@ -345,14 +340,8 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
             .z = transform.values[2] * point.x + transform.values[6] * point.y +
                  transform.values[10] * point.z + transform.values[14]};
     };
-    const auto distanceSquared = [](const DeepRun::Assets::ModelVector3& left,
-                                    const DeepRun::Assets::ModelVector3& right)
-    {
-        const float dx = left.x - right.x;
-        const float dy = left.y - right.y;
-        const float dz = left.z - right.z;
-        return dx * dx + dy * dy + dz * dz;
-    };
+    constexpr float Pi = 3.14159265358979323846F;
+    constexpr std::array<float, 5> TestAngles{0.0F, Pi * 0.25F, Pi * 0.5F, Pi, Pi * 1.5F};
     for (const auto& propeller : definition->propellers)
     {
         if (propeller.presentationNodeBindingIndex >= model->Get()->nodeBindings.size())
@@ -360,56 +349,72 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
             return false;
         }
         const auto& binding = model->Get()->nodeBindings[propeller.presentationNodeBindingIndex];
-        if (binding.drawableMeshNodeIndices.empty() ||
+        if (binding.drawableMeshNodeIndices.size() != 7U ||
             std::any_of(
                 binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
                 [&model](const std::size_t index) { return index >= model->Get()->nodes.size(); }))
         {
             return false;
         }
-        const std::array<DeepRun::Render::ModelBindingTransformOverride, 1> overrides{{
-            {.bindingIndex = propeller.presentationNodeBindingIndex,
-             .bindingLocalPostTransform = quarterTurn,
-             .modelSpacePivot = propeller.localOrigin}}};
-        const auto rotatedDraws = DeepRun::Render::PrepareModelDraws(*model->Get(), {}, {}, overrides);
-        if (!rotatedDraws)
-        {
-            return false;
-        }
         bool checkedGeometry = false;
-        for (const auto& baselineDraw : *baselineDraws)
+        for (const float angle : TestAngles)
         {
-            if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
-                          baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())
-            {
-                continue;
-            }
-            if (baselineDraw.material.name != "MAT_Antey_Propellers" || !baselineDraw.material.doubleSided)
+            const float sine = std::sin(angle);
+            const float cosine = std::cos(angle);
+            DeepRun::Assets::ModelTransform xRotation{};
+            xRotation.values[5] = cosine;
+            xRotation.values[6] = sine;
+            xRotation.values[9] = -sine;
+            xRotation.values[10] = cosine;
+            const std::array<DeepRun::Render::ModelBindingTransformOverride, 1> overrides{{
+                {.bindingIndex = propeller.presentationNodeBindingIndex,
+                 .bindingLocalPostTransform = xRotation,
+                 .modelSpacePivot = propeller.localOrigin}}};
+            const auto rotatedDraws = DeepRun::Render::PrepareModelDraws(*model->Get(), {}, {}, overrides);
+            if (!rotatedDraws)
             {
                 return false;
             }
-            const auto rotatedDraw = std::find_if(rotatedDraws->begin(), rotatedDraws->end(), [&](const auto& candidate) {
-                return candidate.nodeIndex == baselineDraw.nodeIndex &&
-                       candidate.primitiveIndex == baselineDraw.primitiveIndex;
-            });
-            if (rotatedDraw == rotatedDraws->end() || baselineDraw.primitiveIndex >= model->Get()->primitives.size())
+            for (const auto& baselineDraw : *baselineDraws)
             {
-                return false;
-            }
-            const auto& primitive = model->Get()->primitives[baselineDraw.primitiveIndex];
-            for (const auto& vertex : primitive.vertices)
-            {
-                const auto before = transformPoint(baselineDraw.modelToWorld, vertex.position);
-                const auto after = transformPoint(rotatedDraw->modelToWorld, vertex.position);
-                const float beforeRadiusSquared = distanceSquared(before, propeller.localOrigin);
-                const float afterRadiusSquared = distanceSquared(after, propeller.localOrigin);
-                const float tolerance = 2.0e-3F * std::max(1.0F, beforeRadiusSquared);
-                if (!std::isfinite(beforeRadiusSquared) || !std::isfinite(afterRadiusSquared) ||
-                    std::abs(beforeRadiusSquared - afterRadiusSquared) > tolerance)
+                if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
+                              baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())
+                {
+                    continue;
+                }
+                if (baselineDraw.material.name != "MAT_Antey_Propellers" || !baselineDraw.material.doubleSided)
                 {
                     return false;
                 }
-                checkedGeometry = true;
+                const auto rotatedDraw = std::find_if(rotatedDraws->begin(), rotatedDraws->end(), [&](const auto& candidate) {
+                    return candidate.nodeIndex == baselineDraw.nodeIndex &&
+                           candidate.primitiveIndex == baselineDraw.primitiveIndex;
+                });
+                if (rotatedDraw == rotatedDraws->end() || baselineDraw.primitiveIndex >= model->Get()->primitives.size())
+                {
+                    return false;
+                }
+                const auto& primitive = model->Get()->primitives[baselineDraw.primitiveIndex];
+                for (const auto& vertex : primitive.vertices)
+                {
+                    const auto before = transformPoint(baselineDraw.modelToWorld, vertex.position);
+                    const auto after = transformPoint(rotatedDraw->modelToWorld, vertex.position);
+                    const float relativeY = before.y - propeller.localOrigin.y;
+                    const float relativeZ = before.z - propeller.localOrigin.z;
+                    const DeepRun::Assets::ModelVector3 expected{
+                        .x = before.x,
+                        .y = propeller.localOrigin.y + cosine * relativeY - sine * relativeZ,
+                        .z = propeller.localOrigin.z + sine * relativeY + cosine * relativeZ};
+                    constexpr float PositionToleranceMeters = 2.0e-3F;
+                    if (!std::isfinite(after.x) || !std::isfinite(after.y) || !std::isfinite(after.z) ||
+                        std::abs(after.x - expected.x) > PositionToleranceMeters ||
+                        std::abs(after.y - expected.y) > PositionToleranceMeters ||
+                        std::abs(after.z - expected.z) > PositionToleranceMeters)
+                    {
+                        return false;
+                    }
+                    checkedGeometry = true;
+                }
             }
         }
         if (!checkedGeometry)
