@@ -2,6 +2,7 @@
 
 #include "Game/Combat/SonarPresentation.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
+#include "Simulation/Weapons/P700Salvo.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
 #include <cstddef>
@@ -27,6 +28,7 @@ enum class PlayerCombatCommandType
     DeployDecoy,
     TogglePeriscope,
     VisualIdentify,
+    ToggleP700SalvoMode,
 };
 
 struct PlayerCombatCommand final
@@ -49,6 +51,7 @@ struct PlayerCombatPresentationSnapshot final
 {
     Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
     std::size_t p700LoadedCount = 0U;
+    Weapons::P700SalvoMode p700SalvoMode = Weapons::P700SalvoMode::Single;
     Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;
     std::optional<std::uint64_t> weaponTargetTrackId{};
     std::optional<std::uint64_t> selectedTrackId{};
@@ -171,6 +174,8 @@ public:
         case PlayerCombatCommandType::TogglePeriscope:
         case PlayerCombatCommandType::VisualIdentify:
             return std::unexpected("periscope commands are owned by CombatPlaygroundRuntime, not weapon runtime");
+        case PlayerCombatCommandType::ToggleP700SalvoMode:
+            return ToggleP700SalvoMode();
         }
         return std::unexpected("M5-J1 received an unknown player combat command");
     }
@@ -179,6 +184,7 @@ public:
         const std::span<const Perception::Track> tracks) const
     {
         PlayerCombatPresentationSnapshot snapshot{
+            .p700SalvoMode = p700SalvoMode_,
             .weaponPhase = weapon_.phase,
             .weaponTargetTrackId = weapon_.targetTrackId,
             .selectedTrackId = selectedTrackId_,
@@ -214,6 +220,7 @@ public:
     [[nodiscard]] const Weapons::WeaponRuntimeState& Weapon() const noexcept { return weapon_; }
     [[nodiscard]] const std::optional<std::uint64_t>& SelectedTrackId() const noexcept { return selectedTrackId_; }
     [[nodiscard]] const std::optional<PlayerCombatCommandFeedback>& LastCommand() const noexcept { return lastCommand_; }
+    [[nodiscard]] Weapons::P700SalvoMode P700SalvoMode() const noexcept { return p700SalvoMode_; }
 
 private:
     PlayerCombatCommandRuntime(
@@ -350,6 +357,26 @@ private:
                 : "weapon launch ordered WITHOUT visual identification; civilian-risk accepted");
     }
 
+    [[nodiscard]] PlayerCombatCommandFeedback ToggleP700SalvoMode()
+    {
+        if (weapon_.phase == Weapons::WeaponPhase::Launched)
+        {
+            return RecordRejected(
+                PlayerCombatCommandType::ToggleP700SalvoMode,
+                selectedTrackId_,
+                "P-700 salvo mode cannot change after launch");
+        }
+        p700SalvoMode_ = p700SalvoMode_ == Weapons::P700SalvoMode::Single
+            ? Weapons::P700SalvoMode::Pair
+            : Weapons::P700SalvoMode::Single;
+        return RecordAccepted(
+            PlayerCombatCommandType::ToggleP700SalvoMode,
+            selectedTrackId_,
+            p700SalvoMode_ == Weapons::P700SalvoMode::Pair
+                ? "P-700 salvo mode: PAIR (2 missiles, cooperative guidance)"
+                : "P-700 salvo mode: SINGLE (1 missile, lower expenditure)");
+    }
+
     [[nodiscard]] PlayerCombatCommandFeedback RecordAccepted(
         const PlayerCombatCommandType command,
         const std::optional<std::uint64_t> trackId,
@@ -379,6 +406,7 @@ private:
     Weapons::WeaponDefinition definition_{};
     Weapons::WeaponRuntimeState weapon_{};
     std::optional<std::uint64_t> selectedTrackId_{};
+    Weapons::P700SalvoMode p700SalvoMode_ = Weapons::P700SalvoMode::Single;
     std::optional<PlayerCombatCommandFeedback> lastCommand_{};
 };
 } // namespace DeepRun::Game::Combat
