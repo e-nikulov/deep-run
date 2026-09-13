@@ -3,6 +3,7 @@
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <string_view>
@@ -439,11 +440,12 @@ void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot)
         ImGui::End();
         return;
     }
+    const float currentDepthMeters = std::max(0.0F, snapshot.signedDepthMeters);
     ImGui::TextUnformatted("NAV");
-    ImGui::Text("Depth: %.1f m", snapshot.signedDepthMeters);
-    ImGui::Text("V/S: %+0.2f m/s (UP+)", snapshot.verticalSpeedMetersPerSecond);
+    ImGui::Text("Current depth: %.1f m", currentDepthMeters);
+    ImGui::Text("Vertical speed: %+0.2f m/s (UP+)", snapshot.verticalSpeedMetersPerSecond);
     ImGui::Text("Throttle: %+0.0f%%", snapshot.throttleFraction * 100.0F);
-    ImGui::Text("Planes B/S: %+0.0f%% / %+0.0f%%",
+    ImGui::Text("Bow/Stern planes: %+0.0f%% / %+0.0f%%",
                 snapshot.bowPlaneDeflectionFraction * 100.0F,
                 snapshot.sternPlaneDeflectionFraction * 100.0F);
     ImGui::End();
