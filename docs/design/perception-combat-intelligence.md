@@ -1,6 +1,6 @@
 # DeepRun Perception, Fog of War & Combat Intelligence
 
-Status: IMPLEMENTED IN `design/perception-fog-salvo-awareness` / acceptance pending CI
+Status: IMPLEMENTED ON FEATURE BRANCH / ACCEPTANCE PENDING CI
 
 Specification: D2 — Perception, Fog of War & Combat Intelligence
 
