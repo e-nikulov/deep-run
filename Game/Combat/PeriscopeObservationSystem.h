@@ -21,7 +21,7 @@ struct PeriscopeObservationConfig final
     // Public marine-navigation horizon geometry, meteorological visibility definitions and historical submarine
     // optics support staged perception: distant silhouette/contact, nearer type/class, closest flag/markings.
     float opticalHeadHeightAboveSurfaceMeters = 1.0F;
-    float meteorologicalVisibilityMeters = 20'000.0F;
+    float clearDayMeteorologicalVisibilityMeters = 20'000.0F;
     float maximumDetectionRangeMeters = 24'000.0F;
     float maximumTypeRecognitionRangeMeters = 10'000.0F;
     float maximumFlagRecognitionRangeMeters = 4'000.0F;
@@ -30,6 +30,17 @@ struct PeriscopeObservationConfig final
     float bearingUncertaintyRadians = 0.25F * PeriscopePi / 180.0F;
     float minimumDetectionConfidence = 0.52F;
     float minimumTypeRecognitionConfidence = 0.72F;
+};
+
+// Environment-owned inputs to the optical sensor model. These are normalized gameplay abstractions rather than
+// claims about a named real periscope. A later weather/time-of-day system can publish the same values without
+// changing TrackManager, weapons or UI authority boundaries.
+struct PeriscopeOpticalConditions final
+{
+    float meteorologicalVisibilityMeters = 20'000.0F;
+    float ambientLightFraction = 1.0F;          // 0 = dark, 1 = clear daylight.
+    float glareFraction = 0.0F;                 // 0 = none, 1 = severe glare in the viewing direction.
+    float seaStateObscurationFraction = 0.0F;   // 0 = clear line of sight, 1 = severe spray/wave obscuration.
 };
 
 struct PeriscopeState final
@@ -82,6 +93,34 @@ struct PeriscopePresentationSnapshot final
     return 3'920.0F * (std::sqrt(opticalHeadHeightMeters) + std::sqrt(targetVisibleHeightMeters));
 }
 
+[[nodiscard]] inline bool ValidPeriscopeOpticalConditions(const PeriscopeOpticalConditions& conditions) noexcept
+{
+    return std::isfinite(conditions.meteorologicalVisibilityMeters) &&
+           conditions.meteorologicalVisibilityMeters > 0.0F &&
+           std::isfinite(conditions.ambientLightFraction) &&
+           conditions.ambientLightFraction >= 0.0F && conditions.ambientLightFraction <= 1.0F &&
+           std::isfinite(conditions.glareFraction) &&
+           conditions.glareFraction >= 0.0F && conditions.glareFraction <= 1.0F &&
+           std::isfinite(conditions.seaStateObscurationFraction) &&
+           conditions.seaStateObscurationFraction >= 0.0F && conditions.seaStateObscurationFraction <= 1.0F;
+}
+
+[[nodiscard]] inline float PeriscopeDetectionQuality(const PeriscopeOpticalConditions& conditions) noexcept
+{
+    const float light = 0.45F + 0.55F * conditions.ambientLightFraction;
+    const float glare = 1.0F - 0.35F * conditions.glareFraction;
+    const float sea = 1.0F - 0.20F * conditions.seaStateObscurationFraction;
+    return std::clamp(light * glare * sea, 0.20F, 1.0F);
+}
+
+[[nodiscard]] inline float PeriscopeDetailQuality(const PeriscopeOpticalConditions& conditions) noexcept
+{
+    const float light = 0.15F + 0.85F * conditions.ambientLightFraction;
+    const float glare = 1.0F - 0.55F * conditions.glareFraction;
+    const float sea = 1.0F - 0.35F * conditions.seaStateObscurationFraction;
+    return std::clamp(light * glare * sea, 0.10F, 1.0F);
+}
+
 [[nodiscard]] inline std::expected<std::optional<Perception::SensorObservation>, std::string>
 ObserveThroughPeriscope(
     const PeriscopeObservationConfig& config,
@@ -90,11 +129,12 @@ ObserveThroughPeriscope(
     const float signedDepthMeters,
     const float surfaceLevelYMeters,
     const PeriscopeTargetTruth& target,
-    const double simulationTimeSeconds)
+    const double simulationTimeSeconds,
+    const PeriscopeOpticalConditions& conditions = {})
 {
     if (!std::isfinite(config.maximumOperatingDepthMeters) || config.maximumOperatingDepthMeters <= 0.0F ||
         !std::isfinite(config.opticalHeadHeightAboveSurfaceMeters) || config.opticalHeadHeightAboveSurfaceMeters < 0.0F ||
-        !std::isfinite(config.meteorologicalVisibilityMeters) || config.meteorologicalVisibilityMeters <= 0.0F ||
+        !std::isfinite(config.clearDayMeteorologicalVisibilityMeters) || config.clearDayMeteorologicalVisibilityMeters <= 0.0F ||
         !std::isfinite(config.maximumDetectionRangeMeters) || config.maximumDetectionRangeMeters <= 0.0F ||
         !std::isfinite(config.maximumTypeRecognitionRangeMeters) || config.maximumTypeRecognitionRangeMeters <= 0.0F ||
         config.maximumTypeRecognitionRangeMeters > config.maximumDetectionRangeMeters ||
@@ -105,7 +145,7 @@ ObserveThroughPeriscope(
         config.bearingUncertaintyRadians < 0.0F || !std::isfinite(config.minimumDetectionConfidence) ||
         config.minimumDetectionConfidence < 0.0F || config.minimumDetectionConfidence > 1.0F ||
         !std::isfinite(config.minimumTypeRecognitionConfidence) || config.minimumTypeRecognitionConfidence < 0.0F ||
-        config.minimumTypeRecognitionConfidence > 1.0F ||
+        config.minimumTypeRecognitionConfidence > 1.0F || !ValidPeriscopeOpticalConditions(conditions) ||
         !std::isfinite(state.viewBearingRadians) || !ownshipPositionMeters.IsFinite() ||
         !std::isfinite(signedDepthMeters) || signedDepthMeters < 0.0F ||
         !std::isfinite(surfaceLevelYMeters) || !target.positionMeters.IsFinite() ||
@@ -135,11 +175,14 @@ ObserveThroughPeriscope(
         return std::unexpected("periscope target distance is non-finite");
     }
 
+    const float detectionQuality = PeriscopeDetectionQuality(conditions);
+    const float detailQuality = PeriscopeDetailQuality(conditions);
     const float geographicRangeMeters = PeriscopeGeographicRangeMeters(
         config.opticalHeadHeightAboveSurfaceMeters, target.visibleHeightAboveSurfaceMeters);
     const float effectiveDetectionRangeMeters = std::min({
-        config.maximumDetectionRangeMeters,
-        config.meteorologicalVisibilityMeters,
+        config.maximumDetectionRangeMeters * detectionQuality,
+        config.clearDayMeteorologicalVisibilityMeters,
+        conditions.meteorologicalVisibilityMeters,
         geographicRangeMeters});
     if (distanceMeters > effectiveDetectionRangeMeters)
     {
@@ -152,12 +195,17 @@ ObserveThroughPeriscope(
         return std::optional<Perception::SensorObservation>{};
     }
 
+    const float typeRecognitionRangeMeters = std::min(
+        effectiveDetectionRangeMeters, config.maximumTypeRecognitionRangeMeters * detailQuality);
+    const float flagRecognitionRangeMeters = std::min(
+        typeRecognitionRangeMeters, config.maximumFlagRecognitionRangeMeters * detailQuality);
+
     Perception::OpticalIdentificationLevel detail = Perception::OpticalIdentificationLevel::Detected;
     std::optional<Perception::ContactClassification> classification{};
     std::optional<float> estimatedRange{};
     std::optional<float> rangeUncertainty{};
 
-    if (distanceMeters <= config.maximumTypeRecognitionRangeMeters)
+    if (distanceMeters <= typeRecognitionRangeMeters)
     {
         detail = Perception::OpticalIdentificationLevel::TypeResolved;
         classification = target.visualClassification;
@@ -166,14 +214,17 @@ ObserveThroughPeriscope(
         estimatedRange = distanceMeters;
         rangeUncertainty = std::max(25.0F, distanceMeters * 0.03F);
     }
-    if (distanceMeters <= config.maximumFlagRecognitionRangeMeters)
+    if (distanceMeters <= flagRecognitionRangeMeters)
     {
         detail = Perception::OpticalIdentificationLevel::FlagOrMarkingsResolved;
         rangeUncertainty = std::max(15.0F, distanceMeters * 0.02F);
     }
 
     const float rangeFraction = std::clamp(distanceMeters / effectiveDetectionRangeMeters, 0.0F, 1.0F);
-    float confidence = std::clamp(1.0F - 0.45F * rangeFraction, config.minimumDetectionConfidence, 1.0F);
+    float confidence = std::clamp(
+        (1.0F - 0.45F * rangeFraction) * (0.75F + 0.25F * detectionQuality),
+        config.minimumDetectionConfidence,
+        1.0F);
     if (static_cast<int>(detail) >= static_cast<int>(Perception::OpticalIdentificationLevel::TypeResolved))
     {
         confidence = std::max(confidence, config.minimumTypeRecognitionConfidence);
