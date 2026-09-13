@@ -1698,7 +1698,7 @@
     {
       "name": "Antey_Compartment_01",
       "semanticId": "compartment.01",
-      "displayNameRu": "Первый (носовой, торпедный) отсек",
+      "displayNameRu": "\u041f\u0435\u0440\u0432\u044b\u0439 (\u043d\u043e\u0441\u043e\u0432\u043e\u0439, \u0442\u043e\u0440\u043f\u0435\u0434\u043d\u044b\u0439) \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "TORPEDO",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -1756,7 +1756,7 @@
     {
       "name": "Antey_Compartment_02",
       "semanticId": "compartment.02",
-      "displayNameRu": "Второй (центральный) отсек",
+      "displayNameRu": "\u0412\u0442\u043e\u0440\u043e\u0439 (\u0446\u0435\u043d\u0442\u0440\u0430\u043b\u044c\u043d\u044b\u0439) \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "CENTRAL",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -1814,7 +1814,7 @@
     {
       "name": "Antey_Compartment_03",
       "semanticId": "compartment.03",
-      "displayNameRu": "Третий отсек",
+      "displayNameRu": "\u0422\u0440\u0435\u0442\u0438\u0439 \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "THIRD_UNSPECIFIED",
       "functionalRoleStatus": "REFERENCE_UNSPECIFIED",
       "systemTags": [],
@@ -1868,7 +1868,7 @@
     {
       "name": "Antey_Compartment_04",
       "semanticId": "compartment.04",
-      "displayNameRu": "Четвёртый (жилой) отсек",
+      "displayNameRu": "\u0427\u0435\u0442\u0432\u0451\u0440\u0442\u044b\u0439 (\u0436\u0438\u043b\u043e\u0439) \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "HABITABILITY",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -1924,7 +1924,7 @@
     {
       "name": "Antey_Compartment_05",
       "semanticId": "compartment.05",
-      "displayNameRu": "Пятый отсек (вспомогательные механизмы)",
+      "displayNameRu": "\u041f\u044f\u0442\u044b\u0439 \u043e\u0442\u0441\u0435\u043a (\u0432\u0441\u043f\u043e\u043c\u043e\u0433\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0435 \u043c\u0435\u0445\u0430\u043d\u0438\u0437\u043c\u044b)",
       "functionalRole": "AUXILIARY_MACHINERY_1",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -1980,7 +1980,7 @@
     {
       "name": "Antey_Compartment_06",
       "semanticId": "compartment.06",
-      "displayNameRu": "Шестой отсек (вспомогательные механизмы)",
+      "displayNameRu": "\u0428\u0435\u0441\u0442\u043e\u0439 \u043e\u0442\u0441\u0435\u043a (\u0432\u0441\u043f\u043e\u043c\u043e\u0433\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0435 \u043c\u0435\u0445\u0430\u043d\u0438\u0437\u043c\u044b)",
       "functionalRole": "AUXILIARY_MACHINERY_2",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -2036,7 +2036,7 @@
     {
       "name": "Antey_Compartment_07",
       "semanticId": "compartment.07",
-      "displayNameRu": "Седьмой (реакторный) отсек",
+      "displayNameRu": "\u0421\u0435\u0434\u044c\u043c\u043e\u0439 (\u0440\u0435\u0430\u043a\u0442\u043e\u0440\u043d\u044b\u0439) \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "REACTOR",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -2093,7 +2093,7 @@
     {
       "name": "Antey_Compartment_08",
       "semanticId": "compartment.08",
-      "displayNameRu": "Восьмой (турбинный) отсек",
+      "displayNameRu": "\u0412\u043e\u0441\u044c\u043c\u043e\u0439 (\u0442\u0443\u0440\u0431\u0438\u043d\u043d\u044b\u0439) \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "TURBINE_FORWARD",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -2150,7 +2150,7 @@
     {
       "name": "Antey_Compartment_09",
       "semanticId": "compartment.09",
-      "displayNameRu": "Девятый (турбинный) отсек",
+      "displayNameRu": "\u0414\u0435\u0432\u044f\u0442\u044b\u0439 (\u0442\u0443\u0440\u0431\u0438\u043d\u043d\u044b\u0439) \u043e\u0442\u0441\u0435\u043a",
       "functionalRole": "TURBINE_AFT",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
@@ -2207,7 +2207,7 @@
     {
       "name": "Antey_Compartment_10",
       "semanticId": "compartment.10",
-      "displayNameRu": "Десятый отсек (ГЭД)",
+      "displayNameRu": "\u0414\u0435\u0441\u044f\u0442\u044b\u0439 \u043e\u0442\u0441\u0435\u043a (\u0413\u042d\u0414)",
       "functionalRole": "PROPULSION_ELECTRIC",
       "functionalRoleStatus": "REFERENCE_EXPLICIT",
       "systemTags": [
