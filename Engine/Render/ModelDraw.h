@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -53,6 +54,10 @@ struct ModelBindingTransformOverride final
 {
     std::size_t bindingIndex = 0;
     Assets::ModelTransform bindingLocalPostTransform{};
+    // Optional model-space articulation pivot. When present, the binding-local linear transform is
+    // re-based around this point instead of the imported semantic root origin. This is presentation-only
+    // and is used by source-authored assemblies whose logical root is not exactly at the mechanical hub.
+    std::optional<Assets::ModelVector3> modelSpacePivot{};
 };
 
 [[nodiscard]] Assets::ModelMaterialData DefaultModelMaterial();

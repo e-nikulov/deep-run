@@ -451,8 +451,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground requires two production bow and two stern depth-plane nodes");
     }
 
-    std::vector<std::size_t> propellerNodeBindingIndices;
-    propellerNodeBindingIndices.reserve(productionDefinition->propellers.size());
+    std::vector<std::pair<std::size_t, Assets::ModelVector3>> propellerPresentationBindings;
+    propellerPresentationBindings.reserve(productionDefinition->propellers.size());
     for (const Submarine::ProductionPropellerAnchor& propeller : productionDefinition->propellers)
     {
         if (propeller.rotationAxis != "+X" ||
@@ -466,9 +466,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         {
             return std::unexpected("physical playground production propeller binding has no drawable subtree");
         }
-        propellerNodeBindingIndices.push_back(propeller.presentationNodeBindingIndex);
+        if (!std::isfinite(propeller.localOrigin.x) || !std::isfinite(propeller.localOrigin.y) ||
+            !std::isfinite(propeller.localOrigin.z))
+        {
+            return std::unexpected("physical playground production propeller hub pivot is non-finite");
+        }
+        propellerPresentationBindings.emplace_back(propeller.presentationNodeBindingIndex, propeller.localOrigin);
     }
-    if (propellerNodeBindingIndices.size() != 2U)
+    if (propellerPresentationBindings.size() != 2U)
     {
         return std::unexpected("physical playground requires two production Antey propeller bindings");
     }
@@ -1100,7 +1105,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     committedControlSurfaceDeflections_ = {};
     committedThrottleFraction_ = 0.0F;
     depthPlaneMeshNodeIndices_ = std::move(depthPlaneMeshNodeIndices);
-    propellerNodeBindingIndices_ = std::move(propellerNodeBindingIndices);
+    propellerPresentationBindings_ = std::move(propellerPresentationBindings);
     p700HatchBindings_ = std::move(p700HatchBindings);
     activeP700HatchGroup_.reset();
     activeP700HatchOpenProgress_ = 0.0F;
@@ -1645,11 +1650,13 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     const Assets::ModelTransform propellerPostTransform =
         PropellerPostTransform(propellerPresentationAngleRadians_);
     std::vector<Render::ModelBindingTransformOverride> submarineBindingOverrides;
-    submarineBindingOverrides.reserve(propellerNodeBindingIndices_.size() + 1U);
-    for (const std::size_t bindingIndex : propellerNodeBindingIndices_)
+    submarineBindingOverrides.reserve(propellerPresentationBindings_.size() + 1U);
+    for (const auto& [bindingIndex, hubPivotModelSpace] : propellerPresentationBindings_)
     {
-        submarineBindingOverrides.push_back(
-            {.bindingIndex = bindingIndex, .bindingLocalPostTransform = propellerPostTransform});
+        submarineBindingOverrides.push_back({
+            .bindingIndex = bindingIndex,
+            .bindingLocalPostTransform = propellerPostTransform,
+            .modelSpacePivot = hubPivotModelSpace});
     }
     if (activeP700HatchGroup_.has_value() && activeP700HatchOpenProgress_ > 0.0F)
     {
@@ -1704,7 +1711,8 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         target,
         renderer.AspectRatio(),
         M2GameplayCameraHorizontalSpanMeters,
-        cameraDepthBounds);
+        cameraDepthBounds,
+        M5ProductionCameraDepthCantRadians);
     if (!camera)
     {
         return std::unexpected(camera.error());

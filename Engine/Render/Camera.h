@@ -46,7 +46,8 @@ struct OrthographicCamera final
     const Assets::ModelVector3& target,
     float aspectRatio,
     float horizontalSpan,
-    const Assets::ModelBounds& depthBounds);
+    const Assets::ModelBounds& depthBounds,
+    float sideYawRadians = 0.0F);
 [[nodiscard]] bool BoundsFitInCamera(
     const Assets::ModelBounds& bounds,
     const OrthographicCamera& camera,

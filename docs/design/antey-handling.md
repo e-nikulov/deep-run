@@ -22,7 +22,9 @@ Both production propeller nodes are hub-centred, local `+X` articulated assets. 
 
 ### Production propeller presentation hierarchy
 
-The canonical runtime GLB exposes `SM_Propeller_Port` and `SM_Propeller_Starboard` as transform-only semantic roots. Their visible hub/blade geometry lives in drawable child nodes. Game code therefore retains only the opaque production root binding; the Assets layer resolves its complete drawable subtree and Render applies the signed shaft rotation in root space to every descendant. Child GLB names are not gameplay API, and the hierarchy must not be flattened into hard-coded blade/hub bindings in `PhysicalPlayground`.
+The canonical runtime GLB exposes `SM_Propeller_Port` and `SM_Propeller_Starboard` as transform-only semantic roots. Their visible hub/blade geometry lives in drawable child nodes. Game code therefore retains only the opaque production root binding; the Assets layer resolves its complete drawable subtree and Render applies the signed shaft rotation to every descendant. Child GLB names are not gameplay API, and the hierarchy must not be flattened into hard-coded blade/hub bindings in `PhysicalPlayground`.
+
+Propeller articulation is explicitly re-based around the geometry-derived production `localOrigin` (hub centre) from the Antey sidecar, not around the imported transform-only root origin. Rotation therefore cannot translate/orbit or visually enlarge the assembly. The normal production camera uses an 8-degree presentation-only side yaw: world Y remains the screen vertical axis, while the small depth cant makes both real twin propellers volumetrically readable without changing simulation, collision, shaft orientation, or the canonical `Antey.glb`.
 
 Acceptance explicitly covers both headless resolution of each semantic root to a non-empty drawable subtree and the normal windowed production render path; source-architecture guards must not depend on call-site whitespace or line wrapping.
 

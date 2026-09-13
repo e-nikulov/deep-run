@@ -315,6 +315,35 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
     {
         return false;
     }
+    const auto baselineDraws = DeepRun::Render::PrepareModelDraws(*model->Get());
+    if (!baselineDraws)
+    {
+        return false;
+    }
+    DeepRun::Assets::ModelTransform quarterTurn{};
+    quarterTurn.values[5] = 0.0F;
+    quarterTurn.values[6] = 1.0F;
+    quarterTurn.values[9] = -1.0F;
+    quarterTurn.values[10] = 0.0F;
+    const auto transformPoint = [](const DeepRun::Assets::ModelTransform& transform,
+                                   const DeepRun::Assets::ModelVector3& point)
+    {
+        return DeepRun::Assets::ModelVector3{
+            .x = transform.values[0] * point.x + transform.values[4] * point.y +
+                 transform.values[8] * point.z + transform.values[12],
+            .y = transform.values[1] * point.x + transform.values[5] * point.y +
+                 transform.values[9] * point.z + transform.values[13],
+            .z = transform.values[2] * point.x + transform.values[6] * point.y +
+                 transform.values[10] * point.z + transform.values[14]};
+    };
+    const auto distanceSquared = [](const DeepRun::Assets::ModelVector3& left,
+                                    const DeepRun::Assets::ModelVector3& right)
+    {
+        const float dx = left.x - right.x;
+        const float dy = left.y - right.y;
+        const float dz = left.z - right.z;
+        return dx * dx + dy * dy + dz * dz;
+    };
     for (const auto& propeller : definition->propellers)
     {
         if (propeller.presentationNodeBindingIndex >= model->Get()->nodeBindings.size())
@@ -329,6 +358,59 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
         {
             return false;
         }
+        const std::array<DeepRun::Render::ModelBindingTransformOverride, 1> overrides{{
+            {.bindingIndex = propeller.presentationNodeBindingIndex,
+             .bindingLocalPostTransform = quarterTurn,
+             .modelSpacePivot = propeller.localOrigin}}};
+        const auto rotatedDraws = DeepRun::Render::PrepareModelDraws(*model->Get(), {}, {}, overrides);
+        if (!rotatedDraws)
+        {
+            return false;
+        }
+        bool checkedGeometry = false;
+        for (const auto& baselineDraw : *baselineDraws)
+        {
+            if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
+                          baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())
+            {
+                continue;
+            }
+            const auto rotatedDraw = std::find_if(rotatedDraws->begin(), rotatedDraws->end(), [&](const auto& candidate) {
+                return candidate.nodeIndex == baselineDraw.nodeIndex &&
+                       candidate.primitiveIndex == baselineDraw.primitiveIndex;
+            });
+            if (rotatedDraw == rotatedDraws->end() || baselineDraw.primitiveIndex >= model->Get()->primitives.size())
+            {
+                return false;
+            }
+            const auto& primitive = model->Get()->primitives[baselineDraw.primitiveIndex];
+            for (const auto& vertex : primitive.vertices)
+            {
+                const auto before = transformPoint(baselineDraw.modelToWorld, vertex.position);
+                const auto after = transformPoint(rotatedDraw->modelToWorld, vertex.position);
+                const float beforeRadiusSquared = distanceSquared(before, propeller.localOrigin);
+                const float afterRadiusSquared = distanceSquared(after, propeller.localOrigin);
+                const float tolerance = 2.0e-3F * std::max(1.0F, beforeRadiusSquared);
+                if (!std::isfinite(beforeRadiusSquared) || !std::isfinite(afterRadiusSquared) ||
+                    std::abs(beforeRadiusSquared - afterRadiusSquared) > tolerance)
+                {
+                    return false;
+                }
+                checkedGeometry = true;
+            }
+        }
+        if (!checkedGeometry)
+        {
+            return false;
+        }
+    }
+
+    const auto cantedCamera = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        {}, 16.0F / 9.0F, 600.0F, model->Get()->bounds, 0.139626340F);
+    if (!cantedCamera || std::abs(cantedCamera->viewDirection.x) < 0.10F ||
+        std::abs(cantedCamera->viewDirection.y) > 1.0e-6F || cantedCamera->viewDirection.z > -0.98F)
+    {
+        return false;
     }
 
     // Detailed geometry and source-first semantic checks live in the focused

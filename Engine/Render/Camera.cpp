@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace DeepRun::Render
 {
@@ -31,30 +32,63 @@ std::expected<OrthographicCamera, std::string> BuildOrthographicSideViewCamera(
     const float width,
     const float height,
     const Assets::ModelBounds& depthBounds,
-    const float cameraDistance)
+    const float cameraDistance,
+    const float sideYawRadians)
 {
     if (!IsFinite(target) || !IsFinite(depthBounds.minimum) || !IsFinite(depthBounds.maximum) ||
         !std::isfinite(width) || !std::isfinite(height) || width <= 0.0F || height <= 0.0F ||
         depthBounds.maximum.z < depthBounds.minimum.z || !std::isfinite(cameraDistance) ||
-        cameraDistance <= 0.0F)
+        cameraDistance <= 0.0F || !std::isfinite(sideYawRadians) || std::abs(sideYawRadians) > 0.5F)
     {
-        return std::unexpected("side-view camera requires finite target, spans, and depth bounds");
+        return std::unexpected("side-view camera requires finite target, spans, depth bounds, and bounded yaw");
     }
+
+    const float sine = std::sin(sideYawRadians);
+    const float cosine = std::cos(sideYawRadians);
+    const Assets::ModelVector3 right{cosine, 0.0F, -sine};
+    const Assets::ModelVector3 backward{sine, 0.0F, cosine};
 
     OrthographicCamera camera;
     camera.target = target;
     camera.width = width;
     camera.height = height;
+    camera.viewDirection = {-sine, 0.0F, -cosine};
+    camera.position = {
+        target.x + backward.x * cameraDistance,
+        target.y,
+        target.z + backward.z * cameraDistance};
 
-    camera.position = {target.x, target.y, target.z + cameraDistance};
-    const float nearestGeometry = camera.position.z - depthBounds.maximum.z;
-    const float farthestGeometry = camera.position.z - depthBounds.minimum.z;
+    float nearestGeometry = std::numeric_limits<float>::infinity();
+    float farthestGeometry = 0.0F;
+    for (const float x : {depthBounds.minimum.x, depthBounds.maximum.x})
+    {
+        for (const float y : {depthBounds.minimum.y, depthBounds.maximum.y})
+        {
+            for (const float z : {depthBounds.minimum.z, depthBounds.maximum.z})
+            {
+                const float distance =
+                    (x - camera.position.x) * camera.viewDirection.x +
+                    (y - camera.position.y) * camera.viewDirection.y +
+                    (z - camera.position.z) * camera.viewDirection.z;
+                nearestGeometry = std::min(nearestGeometry, distance);
+                farthestGeometry = std::max(farthestGeometry, distance);
+            }
+        }
+    }
+    if (!std::isfinite(nearestGeometry) || !std::isfinite(farthestGeometry) || nearestGeometry <= 0.0F)
+    {
+        return std::unexpected("side-view camera depth bounds are not fully in front of the camera");
+    }
     camera.nearPlane = std::max(0.1F, nearestGeometry * 0.5F);
     camera.farPlane = farthestGeometry + nearestGeometry * 0.5F;
 
-    SetElement(camera.view, 0, 3, -camera.position.x);
+    SetElement(camera.view, 0, 0, right.x);
+    SetElement(camera.view, 0, 2, right.z);
+    SetElement(camera.view, 0, 3, -(right.x * camera.position.x + right.z * camera.position.z));
     SetElement(camera.view, 1, 3, -camera.position.y);
-    SetElement(camera.view, 2, 3, -camera.position.z);
+    SetElement(camera.view, 2, 0, backward.x);
+    SetElement(camera.view, 2, 2, backward.z);
+    SetElement(camera.view, 2, 3, -(backward.x * camera.position.x + backward.z * camera.position.z));
 
     camera.projection.values.fill(0.0F);
     SetElement(camera.projection, 0, 0, 2.0F / camera.width);
@@ -144,30 +178,45 @@ std::expected<OrthographicCamera, std::string> BuildAutoFitSideViewCamera(
     const float depth = std::max(bounds.maximum.z - bounds.minimum.z, 1.0F);
     const float cameraDistance =
         (bounds.maximum.z - target.z) + std::max(contentWidth, contentHeight) * 0.75F + depth;
-    return BuildOrthographicSideViewCamera(target, width, height, bounds, cameraDistance);
+    return BuildOrthographicSideViewCamera(target, width, height, bounds, cameraDistance, 0.0F);
 }
 
 std::expected<OrthographicCamera, std::string> BuildFixedWorldSideViewCamera(
     const Assets::ModelVector3& target,
     const float aspectRatio,
     const float horizontalSpan,
-    const Assets::ModelBounds& depthBounds)
+    const Assets::ModelBounds& depthBounds,
+    const float sideYawRadians)
 {
     if (!std::isfinite(aspectRatio) || !std::isfinite(horizontalSpan) || aspectRatio <= 0.0F ||
-        horizontalSpan <= 0.0F)
+        horizontalSpan <= 0.0F || !std::isfinite(sideYawRadians) || std::abs(sideYawRadians) > 0.5F)
     {
-        return std::unexpected("fixed-world side-view camera requires positive finite aspect and span");
+        return std::unexpected("fixed-world side-view camera requires positive finite aspect/span and bounded yaw");
     }
 
     const float verticalSpan = horizontalSpan / aspectRatio;
-    const float depth = std::max(depthBounds.maximum.z - depthBounds.minimum.z, 1.0F);
-    const float frontOffset = std::max(depthBounds.maximum.z - target.z, 0.0F);
+    const float sine = std::sin(sideYawRadians);
+    const float cosine = std::cos(sideYawRadians);
+    float minimumProjectedDepth = std::numeric_limits<float>::infinity();
+    float maximumProjectedDepth = -std::numeric_limits<float>::infinity();
+    for (const float x : {depthBounds.minimum.x, depthBounds.maximum.x})
+    {
+        for (const float z : {depthBounds.minimum.z, depthBounds.maximum.z})
+        {
+            const float projected = sine * (x - target.x) + cosine * (z - target.z);
+            minimumProjectedDepth = std::min(minimumProjectedDepth, projected);
+            maximumProjectedDepth = std::max(maximumProjectedDepth, projected);
+        }
+    }
+    const float projectedDepth = std::max(maximumProjectedDepth - minimumProjectedDepth, 1.0F);
+    const float frontOffset = std::max(maximumProjectedDepth, 0.0F);
     return BuildOrthographicSideViewCamera(
         target,
         horizontalSpan,
         verticalSpan,
         depthBounds,
-        frontOffset + depth * 2.0F);
+        frontOffset + projectedDepth * 2.0F,
+        sideYawRadians);
 }
 
 bool BoundsFitInCamera(
