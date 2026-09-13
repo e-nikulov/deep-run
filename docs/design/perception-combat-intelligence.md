@@ -1,334 +1,238 @@
 # DeepRun Perception, Fog of War & Combat Intelligence
 
-Status: Accepted design direction
+Status: IMPLEMENTED IN `design/perception-fog-salvo-awareness` / acceptance pending CI
 
 Specification: D2 — Perception, Fog of War & Combat Intelligence
 
-This document defines the player-facing knowledge model used by sonar, optics,
-weapons and hostile AI. It specializes the existing M4/M5 perceived-world
-architecture; it does not reopen completed milestone acceptance by itself.
+D2 defines how Deep Run represents incomplete knowledge of other participants and how that uncertainty affects commander decisions, weapon employment and enemy reactions.
 
-The central rule is:
-
-> No gameplay consumer may know a moving target merely because the simulation
-> knows that target exists.
-
-Ground truth belongs to physics/scenario simulation. Player UI, hostile AI and
-weapons consume only observations and Tracks available to that observer.
-
-## 1. One world, separate knowledge
-
-Every sensor-owning side has its own perceived world.
+The authoritative rule is:
 
 ```text
-scenario / physics ground truth
-        |
-        +--> player sensors --> SensorObservation --> player TrackManager
-        |
-        `--> hostile sensors -> SensorObservation --> hostile TrackManager
+world truth
+    -> sensor simulation
+    -> SensorObservation
+    -> Contact / Track
+    -> commander / AI / weapon guidance / presentation
 ```
 
-A Track is an estimate, not an entity handle. It may contain bearing,
-confidence, classification, estimated position and uncertainty, but it must not
-carry hidden hostile identity or authoritative Transform data.
+Normal gameplay must never skip directly from world truth to a target label, exact marker, fire-control solution, enemy decision or missile aim point.
 
-The player must never be given the hostile TrackManager that represents what
-the enemy knows about the player.
+## 1. Player fog of war
 
-## 2. Fog of war is contact knowledge, not black terrain
+An undiscovered participant exists physically in the simulation but does not exist in the normal commander UI.
 
-Deep Run should not copy the literal unexplored-black-map convention of an RTS.
-Charts, coastline and known bathymetry may be available according to mission
-content. Moving contacts are hidden until evidence exists.
-
-Normal tactical presentation uses these states:
-
-1. **Unseen** — no Track and no tactical contact marker.
-2. **Bearing-only / tentative** — a fuzzy bearing sector or arc; no exact world
-   position and no target model/name.
-3. **Spatial estimate** — a ghost marker centered on the perceived position plus
-   an uncertainty ellipse/radius derived from Track uncertainty.
-4. **Classified** — the perceived class/type may change the icon/silhouette, but
-   does not reveal an exact entity identity.
-5. **Positive optical identification** — stronger visual identity evidence may be
-   shown only after the optical sensor has actually resolved it.
-6. **Coasting** — the last estimate remains visible but uncertainty grows and the
-   presentation visibly degrades.
-7. **Lost** — the tactical marker disappears.
-
-Normal rendering must not place an exact destroyer/civilian/weapon marker at a
-ground-truth coordinate merely because that entity exists in PhysicsWorld.
-Developer/debug views may show truth only behind an explicit debug boundary.
-
-## 3. Detection probability and confidence
-
-M4 already owns deterministic propagation, SNR, uncertainty and Track ageing.
-A future bounded refinement may turn the detection threshold into a
-**deterministic-seeded probability band** rather than a hard binary edge.
-
-Recommended GAME-POLICY shape:
-
-- well below threshold -> effectively no detection;
-- near threshold -> uncertain/intermittent detection;
-- well above threshold -> highly reliable detection;
-- repeated consistent observations raise Track confidence;
-- a single marginal observation remains tentative;
-- confidence decays and uncertainty grows without fresh evidence.
-
-The stochastic sample must be seeded from stable simulation inputs so identical
-replays/tests remain deterministic. Exact probability curves are gameplay
-tuning and are not claims about real MGK-540 or foreign sensor performance.
-
-The player may be shown qualitative solution quality and uncertainty. The game
-must not expose a magical exact probability that the commander could not know.
-
-## 4. Passive sonar, active sonar and optics
-
-### Passive sonar
-
-Passive sonar is the stealth-first information source.
-
-It may provide:
-
-- bearing;
-- bearing uncertainty;
-- confidence;
-- acoustic/contact evidence;
-- later motion-analysis evidence where implemented.
-
-It does not automatically provide exact range, entity identity, or
-military/civilian visual classification.
-
-### Active sonar
-
-Active ranging improves the spatial solution but is a deliberate exposure
-choice. The outgoing pulse is an ordinary acoustic emission and can be detected
-by another passive receiver before the player receives the echo.
-
-This creates the intended trade:
+A contact becomes visible through evidence, not scenario membership. Presentation progresses through knowledge states:
 
 ```text
-better range / lower uncertainty
-        versus
-stronger evidence of our bearing/presence to the enemy
+BearingOnly
+    -> AreaEstimate
+    -> Classified
+    -> PositiveIdentification
+
+and any stale track may become:
+
+Coasting -> Lost
 ```
 
-### Periscope
+`BearingOnly` is a direction/sector, not a point target. `AreaEstimate` may show an estimated point plus an uncertainty region. The region is explicitly a hypothesis and must grow or degrade as the underlying Track ages.
 
-The accepted M5 optical ladder remains canonical:
+A physical military or civilian surface vessel is not drawn from ground truth in the normal player path merely because its Jolt body exists. Direct vessel presentation becomes legal only after the player's own perceived evidence resolves the corresponding visual classification. Automated historical M5 acceptance paths retain their existing ground-truth presentation so this design change does not invalidate previously accepted visual-regression evidence.
 
-- silhouette/contact;
-- type/class resolved;
-- flag/markings resolved.
+## 2. Existing M4/M5 foundation
 
-Optical evidence fuses into the same Track. A periscope is not a ground-truth
-shortcut. Raising the mast also creates ordinary hostile visual evidence and can
-strengthen the enemy's Track of the submarine.
+D2 extends rather than replaces the accepted perception architecture:
 
-## 5. Weapon employment under uncertainty
+- passive sonar may create bearing-only observations without range or identity;
+- active sonar can add range evidence while the outgoing transmission is itself detectable;
+- `TrackManager` owns confirmation, confidence, uncertainty, ageing, coasting and loss;
+- optical/periscope evidence may add staged visual detail and classification;
+- weapon authority consumes perceived Tracks, never hostile body handles or authoritative hostile transforms;
+- a weapon-quality unknown Track may remain a civilian-identification risk;
+- confirmed civilian classification inhibits normal fire under the current ROE.
 
-Weapons consume the shooter's perceived Track only.
+## 3. Player-facing contact presentation
 
-A weapon-quality Track may still be wrong, stale, misclassified or associated
-with a civilian contact. Firing on an unconfirmed contact is therefore a real
-commander decision rather than a UI error state.
-
-### Torpedo
-
-A torpedo is the comparatively discreet attack option in the game loop.
-
-- launch produces a bounded acoustic transient rather than an omniscient
-  revelation of the submarine;
-- the weapon may later be detected as a separate incoming contact;
-- detecting the weapon does not automatically reveal the exact launch point;
-- onboard passive/active seeker observations may refine or reacquire the target;
-- a lower-quality initial solution may therefore remain tactically useful, at
-  the cost of time, seeker risk and possible wrong-target acquisition.
-
-Exact launch-source levels and real weapon-specific detection ranges are not
-claimed here; they are GAME POLICY tuning.
-
-### P-700
-
-P-700 remains a long-range high-exposure weapon. It requires a qualified spatial
-Track and never receives the target's authoritative physics identity.
-
-A launch creates much stronger observable evidence than the discreet torpedo
-case. Enemy sensors may create or strengthen a Track of the launch area/bearing,
-but must still do so through normal observations with uncertainty — never by
-being handed the player's Transform.
-
-A P-700 attack therefore exchanges concealment for standoff lethality.
-
-## 6. Hidden hostile awareness
-
-Hostile AI uses its own TrackManager exactly as the player does.
-
-Player actions that can feed hostile observations include:
-
-- ordinary machinery/propulsion noise and cavitation;
-- active-sonar transmissions;
-- an exposed periscope mast;
-- weapon launch transients;
-- detected torpedoes/missiles and the inferred direction from which they came;
-- later mission-specific aircraft, buoy, radar or visual sensors.
-
-Enemy Track confidence decays and position uncertainty grows when contact is
-lost. The enemy must therefore search, range, reacquire and sometimes fire on a
-stale or inaccurate solution.
-
-The player does **not** receive an `ENEMY KNOWS YOU: 73%` meter. Counter-detection
-is communicated indirectly through observable behavior and crew interpretation,
-for example:
-
-- enemy active sonar appears on our sensors;
-- a ship changes into a search/attack pattern;
-- ASW aircraft/buoys begin appearing near our estimated area;
-- an incoming weapon is detected;
-- crew may report qualitative cues such as `possible counter-detection` or
-  `enemy action suggests contact` when evidence supports it.
-
-These cues are deductions from player-observable events, never reads of hidden
-hostile Track state.
-
-## 7. Cooperative P-700 salvo — GAME POLICY
-
-Public sources support the high-level claim that salvo-fired SS-N-19/P-700
-missiles could communicate in flight and coordinate target selection. Open
-sources do not establish a trustworthy complete algorithm. Deep Run therefore
-uses the public high-level concept only and implements its own bounded gameplay
-policy.
-
-### Salvo group
-
-P-700 missiles launched against the same perceived Track within a bounded
-launch window may join a `SalvoGroup`.
-
-Each member retains:
-
-- the launch Track ID;
-- its own perceived aim point and uncertainty;
-- its own seeker/defense outcome;
-- no hostile body/entity identity.
-
-The group may share **perceived missile observations** once airborne. Shared
-information is fused into a `SalvoTrack`, never into ground truth.
-
-### Accuracy benefit
-
-One missile receives no cooperative bonus.
-
-Two or more missiles can reduce the effect of initial Track uncertainty when
-independent, mutually consistent observations are available. The intended
-player-facing result is:
+Normal sonar/tactical presentation uses short knowledge labels:
 
 ```text
-1 missile  -> cheaper, more uncertainty-sensitive
-2 missiles -> expensive, materially better solution resilience
-3+         -> diminishing returns rather than guaranteed hits
+BRG   = bearing-only evidence
+AREA  = estimated position with uncertainty
+CLASS = type/class resolved by optical evidence
+ID    = positive visual identification
+COAST = stale prediction/no fresh evidence
 ```
 
-The implementation should use bounded sensor fusion (for example inverse-
-variance style fusion or an equivalent deterministic GAME-POLICY contraction)
-with a hard sensor floor. It must not simply multiply hit probability by missile
-count.
+The player may know that a contact exists while not knowing what it is or exactly where it is. A high-confidence acoustic solution does not magically become visual classification.
 
-The benefit applies to **solution uncertainty/seeker continuity** only. Soft
-kill, hard kill, maneuver defeat, physical collision and damage remain separate
-outcomes. A salvo can still fail.
+## 4. Hidden hostile awareness
 
-### Correlated bad information
+Every hostile observer owns its own perceived Tracks. There is no shared omniscient `playerDetected` bit.
 
-Cooperation must not make bad initial intelligence magically correct.
-
-- two missiles sharing the same wrong Track may reinforce a wrong search area;
-- contradictory observations should block or reduce the fusion bonus;
-- decoys and false contacts can contaminate the shared solution;
-- positive optical identification before launch remains valuable.
-
-This preserves the gameplay choice between firing now on uncertain intelligence
-and first spending time/exposure to improve the Track.
-
-### Future multi-target groups
-
-When the game eventually has real surface formations with multiple Tracks, a
-salvo may use perceived target distribution to avoid needless overkill and
-spread missiles across qualified contacts. That remains future gameplay and
-must never depend on hidden formation truth.
-
-## 8. Player loop
-
-A typical engagement should read as:
+For AI/gameplay reasoning a hidden awareness state may be derived from hostile Tracks:
 
 ```text
-noise / weak contact
-  -> bearing-only Track
-  -> repeated passive evidence
-  -> uncertain spatial hypothesis
-  -> optional active range (better solution, more exposure)
-  -> optional periscope ID (much better classification, mast exposure)
-  -> choose weapon
-       torpedo: quieter / closer / seeker can refine
-       P-700: standoff / high exposure / stronger Track gate
-  -> choose salvo size
-       one: economical, uncertainty-sensitive
-       two+: more expensive, cooperative resilience
-  -> launch
-  -> our Track and enemy Track continue evolving independently
+Unaware
+Suspected
+Localized
+FireControlQuality
 ```
 
-The combat decision is therefore not simply `enemy visible -> click target`.
-It is an information-management problem under uncertainty.
+These states are not shown numerically to the player. The player infers hostile awareness through observable behaviour such as active sonar searching toward the boat, course changes, pursuit, weapons, countermeasures and future aircraft/helo response.
 
-## 9. Existing implementation that already satisfies D2
+The UI must not expose the hostile confidence percentage or exact hostile estimate of player position.
 
-The current mainline already provides important pieces of this contract:
+## 5. Exposure is evidence, not an omniscient reveal
 
-- M4 passive/active acoustic propagation and outgoing active-pulse detection;
-- `SensorObservation -> Contact -> TrackManager`;
-- confidence, bearing/position uncertainty, confirmation, coasting and loss;
-- separate `playerTracks` and `destroyerTracks` in the combat runtime;
-- Track-based weapon authorization without hostile identity leakage;
-- P-700 uncertainty-sensitive terminal effectiveness;
-- periscope staged visual identification and civilian-risk engagement;
-- hostile bearing-only visual observation of an exposed periscope mast.
+Actions that can reveal the player create ordinary perceived evidence for hostile sensors. They never set the player's true position directly into hostile AI.
 
-These pieces should be extended rather than replaced.
+D2 GAME POLICY ranks current exposure sources approximately as:
 
-## 10. Required bounded implementation slices
+```text
+P-700 launch / active sonar transmission  -> strong long-range exposure
+raised periscope mast                      -> optical exposure inside visual envelope
+torpedo launch                             -> weaker/local acoustic exposure
+quiet passive listening                    -> no active transmission exposure
+```
 
-A later implementation task should be split so accepted M4/M5 behavior remains
-regression-testable:
+The concrete ranges/probabilities used by the current bounded implementation are gameplay tuning, not claims about real sensor performance or classified weapon signatures. A detected launch observation is bearing/confidence evidence only; the observer must still build and maintain a Track through its normal perception path.
 
-1. **Track/Fog presentation** — tactical contact proxies, uncertainty geometry,
-   coasting/lost presentation, and removal of remaining normal-play truth leaks.
-2. **Probabilistic acquisition policy** — deterministic-seeded near-threshold
-   detection while retaining current SNR/propagation authority.
-3. **Launch-signature perception** — torpedo/P-700 launch observations routed
-   through hostile sensors/Tracks with deliberately different exposure cost.
-4. **Hidden hostile-awareness behavior** — AI search/reacquire decisions driven
-   only by hostile Tracks; no player-visible hidden-confidence meter.
-5. **P-700 SalvoGroup** — perceived-observation sharing, bounded fusion,
-   diminishing returns and correlated-error tests.
+## 6. Periscope information/exposure trade-off
 
-Each slice must have headless deterministic tests and at least one normal-play
-visual/behavior acceptance path.
+The accepted M5 periscope remains an optical sensor rather than a truth shortcut. Current staged detail remains:
 
-## 11. Public-source boundary for P-700 cooperation
+```text
+Detected
+TypeResolved
+FlagOrMarkingsResolved
+```
 
-The gameplay concept is informed by public material, especially:
+At useful optical range/conditions this can resolve military-vs-civilian type and eventually positive identifying detail. A raised mast is simultaneously an exposed object that hostile visual watch may detect and feed into the hostile `TrackManager`.
 
-- Norman Friedman, `World Naval Developments`, *U.S. Naval Institute
-  Proceedings*, January 1997: reports a Granit representative stating that
-  salvo-fired SS-N-19 missiles communicate in flight to determine targets.
-  https://www.usni.org/magazines/proceedings/1997/january/world-naval-developments
-- Federation of American Scientists, SS-N-19/P-700 public overview: general
-  guidance and employment background.
-  https://nuke.fas.org/guide/russia/theater/ss-n-19.htm
-- GlobalSecurity, SS-N-19/P-700 overview: public guidance/OTH discussion and
-  explicit uncertainty around some reported details.
-  https://www.globalsecurity.org/military/world/russia/ss-n-19.htm
+Thus the commander chooses between remaining deep and uncertain or approaching periscope depth, improving identification and accepting exposure risk.
 
-Deep Run does not claim that its salvo-fusion mathematics, leader behavior,
-probabilities, flight logic or target-allocation policy reproduce the real
-classified/undocumented P-700 system.
+## 7. Weapon employment under uncertainty
+
+A weapon launch is legal only if the selected perceived Track satisfies that weapon's targeting and employment requirements. The Track may still be wrong.
+
+The design deliberately allows a commander to fire on an unconfirmed but weapon-qualified contact when current ROE permits it. The UI must communicate the risk rather than silently replacing uncertainty with truth.
+
+A stale, poorly ranged or highly uncertain contact reduces weapon effectiveness through weapon-specific perceived-data logic rather than a hidden global hit-chance modifier.
+
+## 8. Torpedo concealment
+
+A torpedo is the comparatively covert attack option. Its launch may create bounded passive-acoustic exposure, and the running weapon may later be detected as an incoming threat, but neither event automatically returns the submarine's exact location.
+
+Enemy observers infer the source through their own Track state and subsequent evidence. Launching a torpedo is therefore not consequence-free, but is materially less revealing than a P-700 launch under current GAME POLICY.
+
+## 9. P-700 launch exposure
+
+Launching a P-700 is intentionally a major tactical commitment. Current GAME POLICY treats the launch event as strong long-range evidence. A hostile observer that detects it receives a noisy bearing/confidence observation, not the player's body identity or authoritative coordinates.
+
+The intended trade-off is:
+
+```text
+long-range / high-damage strike
+    <->
+large weapon expenditure + major exposure risk
+```
+
+This lets a successful missile attack still have strategic consequences: surviving escorts may gain a substantially better idea of where the launching submarine was.
+
+## 10. P-700 cooperative salvo
+
+### Public-source boundary
+
+Open publications have described the P-700 complex at a high level as supporting information exchange and target allocation among missiles in a salvo. D2 uses only that broad concept as inspiration.
+
+The game does not claim or reproduce a classified real-world coordination algorithm, seeker logic, leader-election protocol, datalink format, ECCM technique or exact sensor performance. Every concrete fusion rule below is explicit GAME POLICY.
+
+### Runtime model
+
+A salvo owns multiple real `P700GranitRuntimeState` instances. It is not a hidden `+accuracy` multiplier on one missile.
+
+Normal player modes are:
+
+```text
+SINGLE x1
+PAIR x2
+```
+
+`PAIR` consumes two loaded production launchers belonging to the same authored paired hatch group. Inventory consumption is transactional: either every member materializes and all selected launchers become `Spent`, or none are consumed.
+
+Each missile has its own production launch anchor, full launch lifecycle, physical collision sweep and bounded noisy seeker observation. It may be defeated or impact independently.
+
+The physical target truth is used only inside the bounded seeker-simulation boundary. Its output contains no target body/entity identity.
+
+### Cooperative perceived-data fusion
+
+Missile observations may be fused only when they refer to the same launch `trackId`.
+
+Compatible observations are combined into a `SalvoTrack` using uncertainty/confidence weighting. Incompatible observations are not averaged into a fictitiously precise solution. A correlated-error floor prevents larger salvoes from driving uncertainty toward zero.
+
+Current GAME POLICY applies diminishing returns. Two missiles can materially reduce uncertainty when their independent evidence agrees, but do not guarantee a hit. Terminal seeker failure, deception, hard-kill interception, maneuver defeat and physical collision still resolve independently through the existing weapon runtime.
+
+Therefore:
+
+```text
+SINGLE
+    -> one missile spent
+    -> lower attack cost
+    -> one airborne seeker view
+    -> more dependence on launch Track / one seeker solution
+
+PAIR
+    -> two missiles spent
+    -> greater launch/exposure commitment
+    -> two independent seeker observations
+    -> cooperative fusion when observations agree
+    -> higher resilience to uncertainty, not guaranteed success
+```
+
+## 11. Repeated missile use
+
+The 24-slot production inventory is persistent within the current runtime session. Once every missile of a launched salvo reaches a resolved terminal state and becomes `Spent`, the commander weapon profile returns from `Launched` to `Stored` while the launcher inventory remains consumed.
+
+This makes the production inventory real gameplay state rather than a one-launch-per-session facade.
+
+## 12. Normal controls
+
+Current bounded controls add:
+
+```text
+G / D-pad Down -> toggle P-700 SINGLE / PAIR
+```
+
+Existing weapon select, prepare and fire controls are unchanged.
+
+## 13. Authority invariants
+
+The following are forbidden:
+
+- rendering a normal-play target marker from scenario truth;
+- exposing hostile body/entity identity through normal Track/UI APIs;
+- passing the true target transform into fire-control merely because a target exists;
+- showing the player the enemy's exact awareness/confidence state;
+- making Pair mode an invisible probability bonus without simulating both missiles;
+- allowing cooperative missile fusion to switch to a different Track identity;
+- using acceptance/debug ground truth as shipping player knowledge.
+
+## 14. Acceptance requirements
+
+D2 is accepted only when Debug and Release CI preserve all prior M4/M5 gates and additionally prove:
+
+1. bearing-only Track projects to `BRG` without a fabricated position;
+2. ranged perceived evidence produces `AREA` plus uncertainty;
+3. visual classification produces `CLASS/ID` without acoustic truth leakage;
+4. hostile awareness is derived from hostile Tracks and remains hidden from player UI;
+5. P-700 launch exposure is stronger than torpedo-launch exposure under deterministic GAME POLICY sampling;
+6. exposure observations contain no free exact range or classification;
+7. Pair mode selects one real authored two-missile hatch group;
+8. invalid pair inventory operations are transactional;
+9. two P-700 runtime members launch from distinct production anchors;
+10. mutually consistent independent seeker observations improve the shared perceived solution;
+11. conflicting observations do not fabricate precision;
+12. different Track identities cannot be fused;
+13. every salvo member remains independently collidable/defeatable;
+14. normal player presentation does not draw undiscovered surface vessels from ground truth;
+15. all historical M5 acceptance/smoke paths remain green.
