@@ -24,23 +24,26 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          python Tools/apply_weapon_range_fix.py 2>&1 | Tee-Object -FilePath weapon-range-repair.log
+          python Tools/apply_weapon_range_fix.py 2>&1 | Tee-Object -FilePath weapon-range-repair.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Preserve repair diagnostics
         if: steps.repair.outcome == 'failure'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add weapon-range-repair.log
+          git add -f weapon-range-repair.txt
           git commit -m "chore: capture weapon range repair failure"
+          if ($LASTEXITCODE -ne 0) { throw "diagnostic commit failed" }
           git push origin HEAD:fix/weapon-runtime-range-budgets
+          if ($LASTEXITCODE -ne 0) { throw "diagnostic push failed" }
 
       - name: Fail after diagnostics
         if: steps.repair.outcome == 'failure'
         shell: pwsh
-        run: throw "weapon runtime range repair failed; diagnostic log committed"
+        run: throw "weapon runtime range repair failed; diagnostic text committed"
 
       - name: Validate patch
         if: steps.repair.outcome == 'success'
@@ -51,13 +54,18 @@ jobs:
         if: steps.repair.outcome == 'success'
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           Remove-Item Tools/apply_weapon_range_fix.py
           Remove-Item .github/workflows/apply-weapon-range-fix.yml
+          if (Test-Path weapon-range-repair.txt) { Remove-Item weapon-range-repair.txt }
           if (Test-Path weapon-range-repair.log) { Remove-Item weapon-range-repair.log }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if (-not (git diff --cached --quiet)) {
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
             git commit -m "fix: enforce weapon runtime range budgets"
+            if ($LASTEXITCODE -ne 0) { throw "repair commit failed" }
             git push origin HEAD:fix/weapon-runtime-range-budgets
+            if ($LASTEXITCODE -ne 0) { throw "repair push failed" }
           }
