@@ -1,0 +1,160 @@
+name: Finalize M5 production periscope role
+
+on:
+  push:
+    branches:
+      - fix/m5-final-closure-gaps
+    paths:
+      - .github/workflows/finalize-m5-periscope-role.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/m5-final-closure-gaps
+      - name: Add production periscope semantic roles
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+
+          def replace_once(rel, old, new):
+              p = Path(rel)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise RuntimeError(f'{rel}: expected one occurrence, found {n}: {old[:350]!r}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          # Source-first sidecar writer owns private node -> semantic role mapping.
+          replace_once('Tools/Blender/write_production_sidecars.py', '''MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
+          ''', '''MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
+          # Reviewed production-device identity from the accepted GLB + public 949A retractable-device layout.
+          # These node names remain private to authoring; runtime consumes only the semantic functional role.
+          ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES = {
+              "SM_Antey_LOD0_SailDevice_08": "PERISCOPE_PRIMARY",
+              "SM_Antey_LOD0_SailDevice_17": "PERISCOPE_SECONDARY",
+          }
+          ''')
+          replace_once('Tools/Blender/write_production_sidecars.py', '''                "nodeReference": obj.name,
+                          "classification": "RETRACTABLE",
+          ''', '''                "nodeReference": obj.name,
+                          "classification": "RETRACTABLE",
+                          "functionalRole": ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES.get(obj.name, "OTHER_RETRACTABLE"),
+          ''')
+          replace_once('Tools/Blender/write_production_sidecars.py', '''    if not retractable:
+                  raise RuntimeError("No explicitly retractable LOD0 sail devices were found")
+              return retractable
+          ''', '''    if not retractable:
+                  raise RuntimeError("No explicitly retractable LOD0 sail devices were found")
+              roles = [item["functionalRole"] for item in retractable]
+              if roles.count("PERISCOPE_PRIMARY") != 1 or roles.count("PERISCOPE_SECONDARY") != 1:
+                  raise RuntimeError("Antey production sidecar must expose exactly one primary and one secondary periscope")
+              return retractable
+          ''')
+
+          # Persist the role in both staged authoring mirrors without touching geometry/transforms.
+          for rel in ('Content/submarines/Antey/Antey.authoring.json', 'Engine/Assets/submarines/Antey/Antey.authoring.json'):
+              p = Path(rel)
+              data = json.loads(p.read_text(encoding='utf-8'))
+              records = data['retractableSailDevices']
+              for record in records:
+                  node = record['nodeReference']
+                  record['functionalRole'] = {
+                      'SM_Antey_LOD0_SailDevice_08': 'PERISCOPE_PRIMARY',
+                      'SM_Antey_LOD0_SailDevice_17': 'PERISCOPE_SECONDARY',
+                  }.get(node, 'OTHER_RETRACTABLE')
+              roles = [r['functionalRole'] for r in records]
+              if roles.count('PERISCOPE_PRIMARY') != 1 or roles.count('PERISCOPE_SECONDARY') != 1:
+                  raise RuntimeError(f'{rel}: invalid periscope role cardinality')
+              p.write_text(json.dumps(data, indent=2, ensure_ascii=True) + '\n', encoding='utf-8', newline='\n')
+
+          replace_once('Game/Submarine/ProductionAnteyAsset.h', '''struct ProductionRetractableSailDevice final
+          {
+              std::string semanticId;
+              // Opaque Assets-layer binding index; never a GLB node name contract.
+          ''', '''struct ProductionRetractableSailDevice final
+          {
+              std::string semanticId;
+              // Semantic equipment role crosses the authoring/runtime boundary; raw source node identity does not.
+              std::string functionalRole;
+              // Opaque Assets-layer binding index; never a GLB node name contract.
+          ''')
+
+          replace_once('Game/Submarine/ProductionAnteyAsset.cpp', '''        std::unordered_set<std::string> sailDeviceSemanticIds;
+              std::unordered_set<std::size_t> sailDeviceBindingIndices;
+              for (const Json& device : retractableSailDevices)
+          ''', '''        std::unordered_set<std::string> sailDeviceSemanticIds;
+              std::unordered_set<std::size_t> sailDeviceBindingIndices;
+              std::size_t primaryPeriscopeCount = 0U;
+              std::size_t secondaryPeriscopeCount = 0U;
+              for (const Json& device : retractableSailDevices)
+          ''')
+          replace_once('Game/Submarine/ProductionAnteyAsset.cpp', '''            const std::string semanticId = device.at("semanticId").get<std::string>();
+                  Require(sailDeviceSemanticIds.insert(semanticId).second,
+          ''', '''            const std::string semanticId = device.at("semanticId").get<std::string>();
+                  const std::string functionalRole = device.at("functionalRole").get<std::string>();
+                  Require(functionalRole == "OTHER_RETRACTABLE" || functionalRole == "PERISCOPE_PRIMARY" ||
+                              functionalRole == "PERISCOPE_SECONDARY",
+                          "Antey retractable sail-device functional role is unexpected");
+                  primaryPeriscopeCount += functionalRole == "PERISCOPE_PRIMARY" ? 1U : 0U;
+                  secondaryPeriscopeCount += functionalRole == "PERISCOPE_SECONDARY" ? 1U : 0U;
+                  Require(sailDeviceSemanticIds.insert(semanticId).second,
+          ''')
+          replace_once('Game/Submarine/ProductionAnteyAsset.cpp', '''            definition.retractableSailDevices.push_back({
+                      .semanticId = std::move(semanticId),
+                      .presentationNodeBindingIndex = bindingIndex,
+          ''', '''            definition.retractableSailDevices.push_back({
+                      .semanticId = std::move(semanticId),
+                      .functionalRole = functionalRole,
+                      .presentationNodeBindingIndex = bindingIndex,
+          ''')
+          replace_once('Game/Submarine/ProductionAnteyAsset.cpp', '''                .stowedSailEnvelopeMaximumY = ConvertAnteyAuthoringVector(sourceEnvelopeTop).y});
+              }
+
+              const Json& torpedoes''', '''                .stowedSailEnvelopeMaximumY = ConvertAnteyAuthoringVector(sourceEnvelopeTop).y});
+              }
+              Require(primaryPeriscopeCount == 1U && secondaryPeriscopeCount == 1U,
+                      "Antey must expose exactly one primary and one secondary production periscope role");
+
+              const Json& torpedoes''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''// Production GLB inspection + public 949A retractable-device layout: SailDevice_08 is the tall/slender primary
+          // periscope candidate used by gameplay; SailDevice_17 remains the secondary periscope and stays stowed here.
+          constexpr std::string_view M5PrimaryPeriscopeSemanticId = "sail.retractable.03";
+          constexpr float M5PrimaryPeriscopeDeploymentSeconds = 2.5F; // explicit GAME POLICY, not hardware timing data
+          ''', '''// Gameplay resolves the production primary periscope by semantic equipment role published by the asset boundary.
+          // Raw GLB/source node names and ordinal sail.retractable IDs never enter this composition layer.
+          constexpr std::string_view M5PrimaryPeriscopeFunctionalRole = "PERISCOPE_PRIMARY";
+          constexpr float M5PrimaryPeriscopeDeploymentSeconds = 2.5F; // explicit GAME POLICY, not hardware timing data
+          ''')
+          replace_once('Game/PhysicalPlayground.cpp', '''        if (device.semanticId == M5PrimaryPeriscopeSemanticId)
+          ''', '''        if (device.functionalRole == M5PrimaryPeriscopeFunctionalRole)
+          ''')
+
+          # Document role provenance without pretending a disputed exact historical optics designation is proven.
+          replace_once('docs/development/periscope-ballast-gameplay.md', '''## Optical identification
+          ''', '''## Production periscope binding
+
+          Direct inspection of the accepted production GLB plus the public Project 949A retractable-device layout identifies the tall/slender `SailDevice_08` geometry as the gameplay primary periscope and `SailDevice_17` as the secondary periscope. The private node names stop at the authoring boundary: generated sidecars publish `PERISCOPE_PRIMARY` / `PERISCOPE_SECONDARY`, the production loader validates exactly one of each, and normal gameplay selects by `PERISCOPE_PRIMARY`. No disputed exact historical optics-model designation is asserted.
+
+          ## Optical identification
+          ''')
+
+          # Guard the intended boundary.
+          cpp = Path('Game/PhysicalPlayground.cpp').read_text(encoding='utf-8')
+          if 'M5PrimaryPeriscopeSemanticId' in cpp or 'sail.retractable.03' in cpp or 'SailDevice_08' in cpp:
+              raise RuntimeError('PhysicalPlayground still depends on private periscope identity')
+      - name: Commit periscope role contract
+        shell: bash
+        run: |
+          git config user.name "DeepRun CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add Tools/Blender/write_production_sidecars.py Content/submarines/Antey/Antey.authoring.json Engine/Assets/submarines/Antey/Antey.authoring.json Game/Submarine/ProductionAnteyAsset.h Game/Submarine/ProductionAnteyAsset.cpp Game/PhysicalPlayground.cpp docs/development/periscope-ballast-gameplay.md
+          git commit -m "fix: bind production periscope by semantic role"
+          git push origin HEAD:fix/m5-final-closure-gaps
