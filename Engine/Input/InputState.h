@@ -18,6 +18,8 @@ enum class InputAction
     FireWeapon,
     ActiveSonarPing,
     DeployDecoy,
+    TogglePeriscope,
+    VisualIdentify,
     Count,
 };
 
