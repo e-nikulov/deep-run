@@ -2323,7 +2323,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.02",
@@ -2386,7 +2387,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.03",
@@ -2449,7 +2451,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "PERISCOPE_PRIMARY"
     },
     {
       "semanticId": "sail.retractable.04",
@@ -2512,7 +2515,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.05",
@@ -2575,7 +2579,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.06",
@@ -2638,7 +2643,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.07",
@@ -2701,7 +2707,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.08",
@@ -2764,7 +2771,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.09",
@@ -2827,7 +2835,8 @@
         44.17551040649414,
         2.060953378677368,
         8.29789779663086
-      ]
+      ],
+      "functionalRole": "PERISCOPE_SECONDARY"
     }
   ],
   "controlSurfaces": [

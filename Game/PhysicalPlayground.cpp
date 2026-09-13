@@ -41,9 +41,9 @@ constexpr float IG1BProductionLengthMinimumMeters = 150.0F;
 constexpr float IG1BProductionLengthMaximumMeters = 158.0F;
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
-// Production GLB inspection + public 949A retractable-device layout: SailDevice_08 is the tall/slender primary
-// periscope candidate used by gameplay; SailDevice_17 remains the secondary periscope and stays stowed here.
-constexpr std::string_view M5PrimaryPeriscopeSemanticId = "sail.retractable.03";
+// Gameplay resolves the primary periscope by semantic equipment role published by the production asset boundary.
+// Raw GLB/source node names and ordinal sail.retractable IDs never enter this composition layer.
+constexpr std::string_view M5PrimaryPeriscopeFunctionalRole = "PERISCOPE_PRIMARY";
 constexpr float M5PrimaryPeriscopeDeploymentSeconds = 2.5F; // explicit GAME POLICY, not hardware timing data
 
 // Fully-submerged Project 949A gameplay mass. The public-source basis and displacement-definition caveat live
@@ -461,7 +461,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         }
         submergedSailDeviceOverrides.push_back(
             {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
-        if (device.semanticId == M5PrimaryPeriscopeSemanticId)
+        if (device.functionalRole == M5PrimaryPeriscopeFunctionalRole)
         {
             if (primaryPeriscopeNodeIndex.has_value())
                 return std::unexpected("physical playground has duplicate primary periscope semantic binding");

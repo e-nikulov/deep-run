@@ -18,6 +18,12 @@ from artifact_provenance import require_path_suffix
 
 
 MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
+# Reviewed production-device identity from the accepted GLB + public 949A retractable-device layout.
+# Private node names stop here; runtime consumes only semantic functional roles.
+ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES = {
+    "SM_Antey_LOD0_SailDevice_08": "PERISCOPE_PRIMARY",
+    "SM_Antey_LOD0_SailDevice_17": "PERISCOPE_SECONDARY",
+}
 
 
 def args() -> argparse.Namespace:
@@ -121,6 +127,7 @@ def retractable_sail_devices(
                 "semanticId": f"sail.retractable.{len(retractable) + 1:02d}",
                 "nodeReference": obj.name,
                 "classification": "RETRACTABLE",
+                "functionalRole": ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES.get(obj.name, "OTHER_RETRACTABLE"),
                 "defaultState": "STOWED",
                 "deployedLocalPostTransform": identity_matrix_values(),
                 "stowedLocalPostTransform": source_translation_matrix(stowed_top - device_maximum.z),
@@ -133,6 +140,9 @@ def retractable_sail_devices(
         )
     if not retractable:
         raise RuntimeError("No explicitly retractable LOD0 sail devices were found")
+    roles = [item["functionalRole"] for item in retractable]
+    if roles.count("PERISCOPE_PRIMARY") != 1 or roles.count("PERISCOPE_SECONDARY") != 1:
+        raise RuntimeError("Antey production sidecar must expose exactly one primary and one secondary periscope")
     return retractable
 
 
