@@ -1,0 +1,78 @@
+name: Depth Control Polarity Correction
+
+on:
+  push:
+    branches:
+      - fix/depth-control-polarity
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/depth-control-polarity
+          fetch-depth: 0
+
+      - name: Apply scoped polarity correction
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{label}: expected exactly one match, found {count}')
+              path.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          physical = Path('Game/PhysicalPlayground.cpp')
+          replace_once(
+              physical,
+              '''    // Blender LOCAL_Y hinge maps to runtime -Z under the accepted Antey basis conversion.\n    const float radians = -normalized * M5DepthPlaneVisualMaximumRadians;\n''',
+              '''    // Simulation deflection is a lift-force sign, not an authoring-axis rotation sign. For the\n    // production +X plane chord, positive bow deflection must visibly rise toward runtime +Y; therefore\n    // surface / nose-up presentation uses positive runtime Z rotation here.\n    const float radians = normalized * M5DepthPlaneVisualMaximumRadians;\n''',
+              'depth-plane presentation polarity')
+
+          replace_once(
+              physical,
+              '''    const std::array<float, 2> controlDeflections{\n        -M2MaximumPlaneDeflection * command.depthCommandFraction,\n        M2MaximumPlaneDeflection * command.depthCommandFraction};\n''',
+              '''    // Polarity contract: Depth -1 (surface) gives bow + / stern -. With ahead flow this produces\n    // +Y lift at +X and -Y lift at -X, i.e. a +Z nose-up pitch moment. Depth +1 is the exact inverse.\n    const std::array<float, 2> controlDeflections{\n        -M2MaximumPlaneDeflection * command.depthCommandFraction,\n        M2MaximumPlaneDeflection * command.depthCommandFraction};\n''',
+              'simulation polarity contract comment')
+
+          tests = Path('Tests/M5PlayerCombatInputChecks.h')
+          replace_once(
+              tests,
+              '''    using namespace Input;\n\n    const std::uint16_t combatButtons =\n''',
+              '''    using namespace Input;\n\n    // D1/I1 vertical-control polarity is player-facing contract, not a tunable presentation detail:\n    // physical stick up / W means surface (Depth -1), while stick down / S means dive (Depth +1).\n    const auto surfaceStick = MapControllerLeftStick(0.0F, 1.0F);\n    const auto diveStick = MapControllerLeftStick(0.0F, -1.0F);\n    if (std::abs(surfaceStick.depth + 1.0F) > 1.0e-6F ||\n        std::abs(diveStick.depth - 1.0F) > 1.0e-6F ||\n        std::abs(surfaceStick.throttle) > 1.0e-6F ||\n        std::abs(diveStick.throttle) > 1.0e-6F ||\n        ResolveSemanticAxis(true, false, 0.0F) != -1.0F ||\n        ResolveSemanticAxis(false, true, 0.0F) != 1.0F)\n    {\n        return false;\n    }\n\n    const std::uint16_t combatButtons =\n''',
+              'input polarity regression')
+
+          controls = Path('docs/design/controls.md')
+          replace_once(
+              controls,
+              '''Left Stick up / W = Depth -1 (surface)\nLeft Stick down / S = Depth +1 (dive)\n```\n\nActual vessel motion is determined by:\n''',
+              '''Left Stick up / W = Depth -1 (surface)\nLeft Stick down / S = Depth +1 (dive)\n```\n\nProduction depth-plane presentation follows the same player-readable polarity: a surface / nose-up command\nmust visibly raise the bow-plane +X chord toward world +Y, while a dive / nose-down command does the inverse.\nThe HUD `Depth` value follows `WaterBody` signed depth (positive below the surface), so moving upward reduces the\ndisplayed depth; `V/S` uses world +Y and therefore reports upward motion as positive.\n\nActual vessel motion is determined by:\n''',
+              'document vertical polarity')
+          PY
+
+      - name: Validate patch
+        shell: bash
+        run: |
+          git diff --check
+          grep -F "const float radians = normalized * M5DepthPlaneVisualMaximumRadians;" Game/PhysicalPlayground.cpp
+          grep -F "surfaceStick.depth + 1.0F" Tests/M5PlayerCombatInputChecks.h
+
+      - name: Commit correction and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-depth-control-polarity.yml
+          git add Game/PhysicalPlayground.cpp Tests/M5PlayerCombatInputChecks.h docs/design/controls.md
+          git commit -m "fix: align depth-control visual polarity"
+          git push origin HEAD:fix/depth-control-polarity
