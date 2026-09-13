@@ -311,6 +311,65 @@ void DrawCombatCommandUi(
     ImGui::TextUnformatted("RB / Space       Active sonar ping");
     ImGui::TextUnformatted("X / F            Deploy decoy");
     ImGui::End();
+
+    if (snapshot.periscopeRaised)
+    {
+        const ImGuiViewport* scopeViewport = ImGui::GetMainViewport();
+        if (scopeViewport != nullptr)
+        {
+            ImGui::SetNextWindowPos(
+                ImVec2(scopeViewport->WorkPos.x + scopeViewport->WorkSize.x * 0.5F,
+                       scopeViewport->WorkPos.y + 16.0F),
+                ImGuiCond_Always,
+                ImVec2(0.5F, 0.0F));
+        }
+        ImGui::SetNextWindowSize(ImVec2(460.0F, 300.0F), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.92F);
+        constexpr ImGuiWindowFlags scopeFlags = ImGuiWindowFlags_NoCollapse |
+                                                ImGuiWindowFlags_NoSavedSettings |
+                                                ImGuiWindowFlags_NoNavInputs |
+                                                ImGuiWindowFlags_NoInputs;
+        if (ImGui::Begin("PERISCOPE VIEW", nullptr, scopeFlags))
+        {
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            const ImVec2 origin = ImGui::GetCursorScreenPos();
+            const ImVec2 size = ImGui::GetContentRegionAvail();
+            const ImVec2 center(origin.x + size.x * 0.5F, origin.y + size.y * 0.5F - 10.0F);
+            const float radius = (std::min)(size.x, size.y - 28.0F) * 0.42F;
+            const ImU32 reticle = IM_COL32(205, 225, 205, 220);
+            const ImU32 dim = IM_COL32(110, 135, 120, 180);
+            draw->AddCircle(center, radius, reticle, 96, 1.5F);
+            draw->AddLine(ImVec2(center.x - radius, center.y), ImVec2(center.x + radius, center.y), dim, 1.0F);
+            draw->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y + radius), dim, 1.0F);
+            draw->AddLine(ImVec2(center.x - 14.0F, center.y), ImVec2(center.x + 14.0F, center.y), reticle, 2.0F);
+            draw->AddLine(ImVec2(center.x, center.y - 10.0F), ImVec2(center.x, center.y + 10.0F), reticle, 2.0F);
+
+            if (snapshot.selectedTrackPresent &&
+                snapshot.selectedTrackOpticalIdentificationLevel != Perception::OpticalIdentificationLevel::None)
+            {
+                const float hullWidth = radius * 0.60F;
+                const float hullY = center.y + radius * 0.20F;
+                draw->AddLine(ImVec2(center.x - hullWidth * 0.5F, hullY),
+                              ImVec2(center.x + hullWidth * 0.5F, hullY), reticle, 3.0F);
+                draw->AddTriangleFilled(
+                    ImVec2(center.x + hullWidth * 0.5F, hullY),
+                    ImVec2(center.x + hullWidth * 0.34F, hullY - 7.0F),
+                    ImVec2(center.x + hullWidth * 0.34F, hullY + 3.0F), reticle);
+                draw->AddRectFilled(
+                    ImVec2(center.x - hullWidth * 0.12F, hullY - 13.0F),
+                    ImVec2(center.x + hullWidth * 0.10F, hullY), reticle);
+            }
+
+            ImGui::SetCursorScreenPos(ImVec2(origin.x + 8.0F, origin.y + size.y - 24.0F));
+            ImGui::Text("BRG %.1f deg | %s | %s",
+                        snapshot.periscopeViewBearingRadians.value_or(0.0F) * 57.2957795F,
+                        OpticalDetailName(snapshot.selectedTrackOpticalIdentificationLevel),
+                        snapshot.selectedTrackVisuallyIdentified
+                            ? ClassificationName(snapshot.selectedTrackClassification)
+                            : "UNCONFIRMED");
+        }
+        ImGui::End();
+    }
 }
 
 void DrawSonarScope(const SonarPresentationSnapshot& snapshot)

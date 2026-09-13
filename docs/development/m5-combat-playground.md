@@ -39,6 +39,10 @@ perception, so active homing is not acoustically invisible. The warning path use
 `AcousticEnvironment` thermocline attenuation as the rest of M5 acoustics. See
 `docs/development/m5-torpedo-active-passive-seeker.md` for the full authority and failure-mode contract.
 
+### Final corrective navigation / surface / periscope / environment closure
+
+The post-M5 corrective pass removes the remaining human-play gaps without changing the accepted perceived-world or weapon authority boundaries. Bow planes are deployment-only throughout authoring/sidecars/runtime/HUD and only stern horizontal planes retain hydrodynamic pitch deflection. The Game-owned hydrostatic model now carries an explicit 32% reserve-buoyancy policy with submerged trim compensation, giving a natural surfaced equilibrium near three-quarters submerged instead of forcing the boat back under water. The primary production periscope (`sail.retractable.03`, production `SailDevice_08`) animates between its authored stowed/deployed transforms; an exposed mast creates ordinary bearing-only optical evidence for hostile visual watch. The player also receives a perceived-data-only periscope reticle/view. Gerstner surface presentation follows the travelling camera while preserving absolute-world phase, and known M5 regional seabed presentation no longer deepens/disappears merely because ownship moves away from the original 800 m M3 section.
+
 ## Current accepted baseline
 
 The stable M5 branch now includes the A-D weapon/perception/impact foundation; live decoy seeker integration;

@@ -51,7 +51,7 @@ Existing simulation already accepts semantic `Depth` input and evaluates bow/ste
 
 Required presentation closure:
 
-- production bow/stern plane visuals reflect committed simulation control-surface deflection;
+- production bow planes are deployment-only and never visually rotate; stern-plane visuals reflect committed hydrodynamic deflection;
 - visuals must read committed state, not raw keyboard/controller input;
 - expose player-readable depth information in HUD: signed depth, vertical speed, throttle and control-plane state;
 - preserve authoritative Jolt pitch/position as the vessel pose source;

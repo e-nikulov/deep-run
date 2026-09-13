@@ -1,6 +1,6 @@
 # Low-speed depth control and periscope identification gameplay
 
-Status: IMPLEMENTED — FINAL CI / HUMAN ACCEPTANCE PENDING
+Status: CORRECTIVE CLOSURE CANDIDATE — FINAL CI / HUMAN ACCEPTANCE PENDING
 
 This slice joins two related normal-gameplay mechanics without weakening the accepted perceived-world or physics boundaries:
 
@@ -20,7 +20,7 @@ Canonical input remains unchanged:
 - `Depth -1` = surface / nose-up intent;
 - `Depth +1` = dive / nose-down intent.
 
-At ordinary forward speed, bow/stern diving planes remain the primary pitch/depth-control mechanism and their force continues to emerge from local water flow.
+At ordinary forward speed, only the stern horizontal planes provide hydrodynamic pitch authority. The production bow planes are deployment-only: they are either housed or extended and never rotate with Depth input or generate control-surface force in Deep Run.
 
 At low forward speed a separate Game-owned variable-ballast/trim controller supplies bounded net vertical force at the vessel centre of mass:
 
@@ -71,11 +71,13 @@ The periscope is an optical sensor, not a ground-truth shortcut.
 
 The current normal gameplay contract defines `0–20 m` as the surface/periscope zone. A raised periscope may produce optical observations only while the ownship is inside the configured periscope operating-depth envelope.
 
-A raised mast is exposed state. It can feed the existing signature/detection architecture as an optical-mast/periscope exposure channel when hostile visual sensing is implemented. The player therefore trades information quality for detectability.
+A raised mast is exposed state. The destroyer's visual watch now produces an ordinary bearing-only Optical `SensorObservation` for an exposed mast inside its bounded visual envelope. The observation carries no player body/entity identity, no free range and no classification; it enters the destroyer's normal TrackManager and can therefore provoke active ranging/engagement. The player trades information quality for detectability.
 
 Normal-play bindings:
 
-- `P / D-pad Up` — raise or stow periscope;
+- `P / D-pad Up` — raise or stow the production primary periscope;
+
+Production mapping for this gameplay slice is `sail.retractable.03` / `SM_Antey_LOD0_SailDevice_08`. It was selected from direct production-GLB geometry inspection and the public Project 949A retractable-device arrangement as the primary gameplay periscope. `sail.retractable.09` / `SailDevice_17` is retained as the secondary periscope. These semantic mappings do not claim undocumented internal hardware characteristics. The primary mast uses the already-authored stowed/deployed transforms and a 2.5 s GAME-POLICY animation.
 - `V / A` — attempt visual identification of the selected perceived Track.
 
 ### Staged optical observation

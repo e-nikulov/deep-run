@@ -716,6 +716,28 @@ private:
             return std::unexpected("M5-H destroyer TrackManager failed to advance");
         }
 
+        // Raising the production periscope is now a real information/exposure trade-off. Hostile visual watch
+        // sees only a small mast through an ordinary optical SensorObservation; it gets bearing/confidence but
+        // no authoritative player body/entity identity, no range shortcut and no magical classification.
+        if (periscopeState_.raised)
+        {
+            const float surfaceLevelYMeters =
+                playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+            const auto mastObserved = ObserveExposedPeriscopeMast(
+                ExposedPeriscopeMastDetectionConfig{},
+                periscopeState_,
+                playerSnapshot.emitter.positionMeters,
+                playerSnapshot.signedDepthMeters,
+                surfaceLevelYMeters,
+                destroyerAcoustics->passiveReceiver.positionMeters,
+                simulationTimeSeconds,
+                periscopeOpticalConditions_);
+            if (!mastObserved)
+                return std::unexpected("destroyer visual-watch periscope detection failed: " + mastObserved.error());
+            if (mastObserved->has_value() && !destroyerTracks_.IntegrateObservation(**mastObserved))
+                return std::unexpected("destroyer visual-watch evidence failed perception integration");
+        }
+
         if (!destroyerActivePulse_ && simulationTimeSeconds >= nextDestroyerActivePulseTimeSeconds_)
         {
             const auto awarenessTrack = SelectBestSimpleDestroyerTrack(
