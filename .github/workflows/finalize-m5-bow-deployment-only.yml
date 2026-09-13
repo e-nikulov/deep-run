@@ -1,0 +1,193 @@
+name: Finalize M5 bow deployment-only contract
+
+on:
+  push:
+    branches:
+      - fix/m5-final-closure-gaps
+    paths:
+      - .github/workflows/finalize-m5-bow-deployment-only.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/m5-final-closure-gaps
+      - name: Remove bow planes from hydrodynamic simulation contract
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(rel, old, new):
+              p = Path(rel)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise RuntimeError(f'{rel}: expected one occurrence, found {n}: {old[:300]!r}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='\n')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''// Corrective M5 closure: production bow planes are deployment-only in Deep Run. They may be housed or
+          // extended, but never rotate with Depth input and never contribute hydrodynamic control force. The stern
+          // horizontal planes are the sole plane-based pitch authority; low/zero-speed vertical control remains ballast.
+          constexpr std::size_t M2BowPlaneIndex = 0;
+          constexpr std::size_t M2SternPlaneIndex = 1;
+          constexpr std::array<Marine::ControlSurfaceComponent, 2> M2ControlSurfaces{{
+              {.bodyLocalPositionMeters = {32.0F, 0.0F, 0.0F},
+               .maxEffectiveLiftAreaSquareMeters = 40.0F}, // retained only as production spatial/deployment context
+              {.bodyLocalPositionMeters = {-32.0F, 0.0F, 0.0F},
+               .maxEffectiveLiftAreaSquareMeters = 40.0F}}};
+          ''', '''// Corrective M5 closure: bow planes are production deployment/presentation hardware only. These two indices
+          // are presentation-group slots, not simulation surfaces. Hydrodynamic pitch authority contains one and only
+          // one ControlSurfaceComponent: the stern horizontal-plane group.
+          constexpr std::size_t M2BowPlaneIndex = 0;
+          constexpr std::size_t M2SternPlaneIndex = 1;
+          constexpr Marine::ControlSurfaceComponent M2SternControlSurface{
+              .bodyLocalPositionMeters = {-32.0F, 0.0F, 0.0F},
+              .maxEffectiveLiftAreaSquareMeters = 40.0F};
+          ''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''constexpr float M5DepthPlaneVisualMaximumRadians = 0.436332313F; // 25 degrees
+          constexpr std::array<std::string_view, 2> M2ControlSurfaceNames{"bow", "stern"};
+          ''', '''constexpr float M5DepthPlaneVisualMaximumRadians = 0.436332313F; // 25 degrees
+          ''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''    std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces = M2ControlSurfaces;
+              for (auto& control : controlSurfaces)
+              {
+                  control.bodyLocalPositionMeters = ShiftProductionPointToBodyLocal(
+                      control.bodyLocalPositionMeters, collisionCenter);
+              }
+          ''', '''    Marine::ControlSurfaceComponent sternControlSurface = M2SternControlSurface;
+              sternControlSurface.bodyLocalPositionMeters = ShiftProductionPointToBodyLocal(
+                  sternControlSurface.bodyLocalPositionMeters, collisionCenter);
+          ''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''    // H2 content/configuration gate: validate exactly two independent Game-owned groups against the initial
+              // pose with benign zero deflection. At rest their published application points must be finite and their
+              // forces exactly zero. No mesh node or asset bound supplies either physics position.
+              const Marine::ControlSurfaceKinematics initialControlKinematics{
+                  .bodyWorldPositionMeters = initialState->position,
+                  .worldOrientation = initialState->orientation,
+                  .worldLinearVelocityMetersPerSecond = initialState->linearVelocity};
+              for (std::size_t index = 0; index < controlSurfaces.size(); ++index)
+              {
+                  const auto control = Marine::ControlSurfaceSystem::Calculate(
+                      *water, controlSurfaces[index], initialControlKinematics, 0.0F);
+                  if (!control || !control->worldPositionMeters.IsFinite() ||
+                      control->forceNewtons != Physics::PhysicsVector3{})
+                  {
+                      (void)physics.DestroyBody(body, &physicsError);
+                      return std::unexpected(
+                          "physical playground " + std::string(M2ControlSurfaceNames[index]) +
+                          " control-surface initialization validation failed" +
+                          (control ? std::string{} : ": " + control.error().message));
+                  }
+              }
+          ''', '''    // Hydrodynamic initialization validates the stern control surface only. Bow planes have no Marine
+              // ControlSurfaceComponent at all; their deployment roots are validated solely by production presentation.
+              const Marine::ControlSurfaceKinematics initialControlKinematics{
+                  .bodyWorldPositionMeters = initialState->position,
+                  .worldOrientation = initialState->orientation,
+                  .worldLinearVelocityMetersPerSecond = initialState->linearVelocity};
+              const auto initialSternControl = Marine::ControlSurfaceSystem::Calculate(
+                  *water, sternControlSurface, initialControlKinematics, 0.0F);
+              if (!initialSternControl || !initialSternControl->worldPositionMeters.IsFinite() ||
+                  initialSternControl->forceNewtons != Physics::PhysicsVector3{})
+              {
+                  (void)physics.DestroyBody(body, &physicsError);
+                  return std::unexpected(
+                      "physical playground stern control-surface initialization validation failed" +
+                      (initialSternControl ? std::string{} : ": " + initialSternControl.error().message));
+              }
+          ''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''    controlSurfaces_ = std::move(controlSurfaces);
+              committedControlSurfaceDeflections_ = {};
+          ''', '''    sternControlSurface_ = sternControlSurface;
+              committedSternPlaneDeflection_ = 0.0F;
+          ''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''    const std::array<float, 2> controlDeflections{
+                  0.0F,
+                  M2MaximumPlaneDeflection * command.depthCommandFraction};
+              std::array<Marine::ControlSurfaceResult, 2> controlResults{};
+              const auto sternControl = Marine::ControlSurfaceSystem::Calculate(
+                  *water_,
+                  controlSurfaces_[M2SternPlaneIndex],
+                  controlKinematics,
+                  controlDeflections[M2SternPlaneIndex]);
+          ''', '''    const float sternControlDeflection = M2MaximumPlaneDeflection * command.depthCommandFraction;
+              const auto sternControl = Marine::ControlSurfaceSystem::Calculate(
+                  *water_, sternControlSurface_, controlKinematics, sternControlDeflection);
+          ''')
+
+          replace_once('Game/PhysicalPlayground.cpp', '''    controlResults[M2SternPlaneIndex] = *sternControl;
+
+              const float vesselWeightNewtons''', '''    const float vesselWeightNewtons''')
+          replace_once('Game/PhysicalPlayground.cpp', 'controlResults[M2SternPlaneIndex].bodyForwardSpeedMetersPerSecond', 'sternControl->bodyForwardSpeedMetersPerSecond')
+          replace_once('Game/PhysicalPlayground.cpp', '''            controlResults[M2SternPlaneIndex].forceNewtons,
+                      controlResults[M2SternPlaneIndex].worldPositionMeters,
+          ''', '''            sternControl->forceNewtons,
+                      sternControl->worldPositionMeters,
+          ''')
+          replace_once('Game/PhysicalPlayground.cpp', '''    committedControlSurfaceDeflections_ = controlDeflections;
+          ''', '''    committedSternPlaneDeflection_ = sternControlDeflection;
+          ''')
+          replace_once('Game/PhysicalPlayground.cpp', '''                std::to_string(controlDeflections[M2SternPlaneIndex]) +
+                          ", stern force " + FormatVector(controlResults[M2SternPlaneIndex].forceNewtons) +
+                          ", stern point " + FormatVector(controlResults[M2SternPlaneIndex].worldPositionMeters) +
+          ''', '''                std::to_string(sternControlDeflection) +
+                          ", stern force " + FormatVector(sternControl->forceNewtons) +
+                          ", stern point " + FormatVector(sternControl->worldPositionMeters) +
+          ''')
+          replace_once('Game/PhysicalPlayground.cpp', '.sternPlaneDeflectionFraction = committedControlSurfaceDeflections_[M2SternPlaneIndex]', '.sternPlaneDeflectionFraction = committedSternPlaneDeflection_')
+          replace_once('Game/PhysicalPlayground.cpp', 'SternPlanePostTransform(committedControlSurfaceDeflections_[M2SternPlaneIndex])', 'SternPlanePostTransform(committedSternPlaneDeflection_)')
+
+          replace_once('Game/PhysicalPlayground.h', '''// tuning and generic PhysicsWorld force/torque operations during the fixed phase. G2 adds one authoritative
+          // shaft state; propeller angle is presentation-only and can never feed the simulation. H2 composes two
+          // Game-owned control surfaces through their pure Marine calculation and the existing world-point force API. I1
+          ''', '''// tuning and generic PhysicsWorld force/torque operations during the fixed phase. G2 adds one authoritative
+          // shaft state; propeller angle is presentation-only and can never feed the simulation. H2 now composes only
+          // the stern hydrodynamic control surface; production bow planes are deployment-only presentation hardware. I1
+          ''')
+          replace_once('Game/PhysicalPlayground.h', '''    std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
+              // M5-V2-B committed simulation-control state. Presentation reads only these values after the full fixed
+              // transaction succeeds; raw keyboard/controller state never drives model articulation directly.
+              std::array<float, 2> committedControlSurfaceDeflections_{};
+          ''', '''    Marine::ControlSurfaceComponent sternControlSurface_{};
+              // M5-V2-B committed stern-control state. Bow-plane deployment never enters this simulation value.
+              float committedSternPlaneDeflection_ = 0.0F;
+          ''')
+
+          replace_once('docs/development/m5-v2-player-navigation-sonar.md', '''Existing simulation already accepts semantic `Depth` input and evaluates bow/stern control-surface forces.
+          ''', '''Semantic `Depth` input drives the stern horizontal-plane hydrodynamic surface plus low-speed ballast/trim. Production bow planes are deployment-only hardware: they have no hydrodynamic `ControlSurfaceComponent`, no commanded angle and no control force.
+          ''')
+          replace_once('docs/development/m5-v2-player-navigation-sonar.md', '''- manual dive/surface test with visible production-plane deflection and depth HUD feedback;
+          ''', '''- manual dive/surface test with visible stern-plane deflection, fixed-angle deployed bow planes and depth HUD feedback;
+          ''')
+          replace_once('docs/development/m5-v2-player-navigation-sonar.md', '''groups plus opaque presentation binding indices to runtime code. This compatibility boundary does not modify the
+          accepted model, GLB, physics authority, or simulation ownership of control-surface angle.
+          ''', '''groups plus opaque presentation binding indices to runtime code. This compatibility boundary does not modify the
+          accepted model, GLB or physics authority: only the stern group has simulation-owned angle; the bow group is deployment-only.
+          ''')
+
+          cpp = Path('Game/PhysicalPlayground.cpp').read_text(encoding='utf-8')
+          hdr = Path('Game/PhysicalPlayground.h').read_text(encoding='utf-8')
+          banned = ['M2ControlSurfaces', 'M2ControlSurfaceNames', 'controlSurfaces_', 'committedControlSurfaceDeflections_', 'controlResults[M2BowPlaneIndex]']
+          for token in banned:
+              if token in cpp or token in hdr:
+                  raise RuntimeError(f'stale bow/control-surface simulation token remains: {token}')
+          if cpp.count('ControlSurfaceSystem::Calculate(') != 2:
+              raise RuntimeError('expected exactly one initialization and one fixed-tick stern ControlSurface calculation')
+      - name: Commit final bow contract
+        shell: bash
+        run: |
+          git config user.name "DeepRun CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add Game/PhysicalPlayground.cpp Game/PhysicalPlayground.h docs/development/m5-v2-player-navigation-sonar.md
+          git commit -m "fix: remove bow planes from hydrodynamic simulation"
+          git push origin HEAD:fix/m5-final-closure-gaps
