@@ -50,6 +50,10 @@ class PhysicsWorld;
 
 namespace DeepRun::Game
 {
+// Presentation-only side yaw keeps the canonical 2.5D framing while revealing enough depth for
+// twin shafts/propellers to read as volumetric production geometry. Vertical composition is unchanged.
+inline constexpr float M5ProductionCameraDepthCantRadians = 0.139626340F; // 8 degrees
+
 struct VesselPresentationTelemetry final
 {
     float signedDepthMeters = 0.0F;
@@ -350,7 +354,8 @@ public:
         const Assets::ModelVector3 target{
             initialBodyWorldCenter_.x, initialBodyWorldCenter_.y, initialBodyWorldCenter_.z};
         return Render::BuildFixedWorldSideViewCamera(
-            target, renderer.AspectRatio(), M2GameplayCameraHorizontalSpanMeters, cameraDepthBounds);
+            target, renderer.AspectRatio(), M2GameplayCameraHorizontalSpanMeters, cameraDepthBounds,
+            M5ProductionCameraDepthCantRadians);
     }
 
     // Reads one body state copy and feeds it to all node draws. Must be called after the engine's
@@ -424,7 +429,7 @@ private:
     std::array<float, 2> committedControlSurfaceDeflections_{};
     float committedThrottleFraction_ = 0.0F;
     std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
-    std::vector<std::size_t> propellerNodeBindingIndices_{};
+    std::vector<std::pair<std::size_t, Assets::ModelVector3>> propellerPresentationBindings_{};
     std::vector<std::pair<std::string, std::size_t>> p700HatchBindings_{};
     std::optional<std::string> activeP700HatchGroup_{};
     float activeP700HatchOpenProgress_ = 0.0F;

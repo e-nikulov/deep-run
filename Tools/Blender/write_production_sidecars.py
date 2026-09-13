@@ -189,13 +189,31 @@ def propeller_metadata(root: bpy.types.Object | None, semantic_id: str) -> dict:
     handedness = root.get("handedness_status") if root is not None else None
     if handedness is None:
         handedness = next((mesh.get("handedness_status") for mesh in meshes if mesh.get("handedness_status")), "UNKNOWN")
-    hubs = [mesh for mesh in meshes if "_Hub" in mesh.name]
-    if not hubs:
-        raise RuntimeError(f"Propeller assembly has no source-first hub geometry: {name}")
-    hub_minimum, hub_maximum = bounds(hubs)
-    pivot = (hub_minimum + hub_maximum) * 0.5
+    # The source-first Antey propeller is seven equal source-derived components.
+    # The child named *_Hub is only the first component and is NOT a standalone
+    # mechanical hub, so its bounds cannot define the shaft. Reconstruct the same
+    # shared shaft center used by build_antey_source_first.py: the centroid of every
+    # vertex in the complete seven-component assembly.
+    if root is not None and root.type == "EMPTY":
+        if not bool(root.get("PROP_ASSEMBLY", False)):
+            raise RuntimeError(f"Propeller EMPTY root is not a production assembly: {name}")
+        if root.get("ROTATION_AXIS") != "LOCAL_X" or not bool(root.get("SHAFT_PIVOT_SHARED", False)):
+            raise RuntimeError(f"Propeller assembly lacks the shared LOCAL_X shaft contract: {name}")
+        if int(root.get("SOURCE_BLADE_COUNT", 0)) != 7 or len(meshes) != 7:
+            raise RuntimeError(f"Propeller assembly must contain exactly seven source components: {name}")
+        if any(not bool(mesh.get("SHAFT_PIVOT_SHARED", False)) for mesh in meshes):
+            raise RuntimeError(f"Propeller child geometry does not share the shaft contract: {name}")
+        world_points = [mesh.matrix_world @ vertex.co for mesh in meshes for vertex in mesh.data.vertices]
+        if not world_points:
+            raise RuntimeError(f"Propeller assembly has no source geometry: {name}")
+        pivot = sum(world_points, Vector()) / len(world_points)
+    else:
+        # Legacy single-mesh fallback only. Current production Antey must use the
+        # seven-component EMPTY assembly path above.
+        minimum, maximum = bounds(meshes)
+        pivot = (minimum + maximum) * 0.5
     if not all(math.isfinite(value) for value in pivot):
-        raise RuntimeError(f"Propeller hub pivot is non-finite: {name}")
+        raise RuntimeError(f"Propeller shaft pivot is non-finite: {name}")
     return {
         "semanticId": semantic_id,
         "nodeReference": name,

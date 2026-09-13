@@ -46,6 +46,8 @@ struct ModelMaterialData final
     std::array<float, 4> baseColorFactor{1.0F, 1.0F, 1.0F, 1.0F};
     float metallicFactor = 1.0F;
     float roughnessFactor = 1.0F;
+    // glTF material.doubleSided. When true the renderer must not discard back-facing triangles.
+    bool doubleSided = false;
 };
 
 struct MeshPrimitiveData final

@@ -228,8 +228,28 @@ std::expected<std::vector<ModelDrawInstance>, std::string> PrepareModelDraws(
         {
             return std::unexpected("model binding transform override root is singular or non-finite");
         }
-        const Assets::ModelTransform modelSpacePresentation = Multiply(
+        Assets::ModelTransform modelSpacePresentation = Multiply(
             Multiply(binding.localToModel, overrideValue.bindingLocalPostTransform), *inverseRoot);
+        if (overrideValue.modelSpacePivot.has_value())
+        {
+            const Assets::ModelVector3& pivot = *overrideValue.modelSpacePivot;
+            if (!std::isfinite(pivot.x) || !std::isfinite(pivot.y) || !std::isfinite(pivot.z))
+            {
+                return std::unexpected("model binding transform override pivot must be finite");
+            }
+            const std::array<float, 3> pivotValues{pivot.x, pivot.y, pivot.z};
+            // Keep the binding-local linear transform, but move its fixed point to the explicit production
+            // articulation pivot. For Q = linear(modelSpacePresentation), translation is P - Q*P.
+            for (std::size_t row = 0; row < 3U; ++row)
+            {
+                float transformedPivot = 0.0F;
+                for (std::size_t column = 0; column < 3U; ++column)
+                {
+                    transformedPivot += Element(modelSpacePresentation, row, column) * pivotValues[column];
+                }
+                SetElement(modelSpacePresentation, row, 3U, pivotValues[row] - transformedPivot);
+            }
+        }
         for (const std::size_t meshNodeIndex : binding.drawableMeshNodeIndices)
         {
             if (meshNodeIndex >= model.nodes.size())

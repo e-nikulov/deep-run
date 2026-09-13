@@ -315,6 +315,33 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
     {
         return false;
     }
+    const auto propellerMaterial = std::find_if(
+        model->Get()->materials.begin(), model->Get()->materials.end(),
+        [](const auto& material) { return material.name == "MAT_Antey_Propellers"; });
+    if (propellerMaterial == model->Get()->materials.end() || !propellerMaterial->doubleSided)
+    {
+        std::cerr << "[IG1-A] production propeller material must preserve glTF doubleSided=true\n";
+        return false;
+    }
+
+    const auto baselineDraws = DeepRun::Render::PrepareModelDraws(*model->Get());
+    if (!baselineDraws)
+    {
+        return false;
+    }
+    const auto transformPoint = [](const DeepRun::Assets::ModelTransform& transform,
+                                   const DeepRun::Assets::ModelVector3& point)
+    {
+        return DeepRun::Assets::ModelVector3{
+            .x = transform.values[0] * point.x + transform.values[4] * point.y +
+                 transform.values[8] * point.z + transform.values[12],
+            .y = transform.values[1] * point.x + transform.values[5] * point.y +
+                 transform.values[9] * point.z + transform.values[13],
+            .z = transform.values[2] * point.x + transform.values[6] * point.y +
+                 transform.values[10] * point.z + transform.values[14]};
+    };
+    constexpr float Pi = 3.14159265358979323846F;
+    constexpr std::array<float, 5> TestAngles{0.0F, Pi * 0.25F, Pi * 0.5F, Pi, Pi * 1.5F};
     for (const auto& propeller : definition->propellers)
     {
         if (propeller.presentationNodeBindingIndex >= model->Get()->nodeBindings.size())
@@ -322,13 +349,86 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
             return false;
         }
         const auto& binding = model->Get()->nodeBindings[propeller.presentationNodeBindingIndex];
-        if (binding.drawableMeshNodeIndices.empty() ||
+        if (binding.drawableMeshNodeIndices.size() != 7U ||
             std::any_of(
                 binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
                 [&model](const std::size_t index) { return index >= model->Get()->nodes.size(); }))
         {
             return false;
         }
+        bool checkedGeometry = false;
+        for (const float angle : TestAngles)
+        {
+            const float sine = std::sin(angle);
+            const float cosine = std::cos(angle);
+            DeepRun::Assets::ModelTransform xRotation{};
+            xRotation.values[5] = cosine;
+            xRotation.values[6] = sine;
+            xRotation.values[9] = -sine;
+            xRotation.values[10] = cosine;
+            const std::array<DeepRun::Render::ModelBindingTransformOverride, 1> overrides{{
+                {.bindingIndex = propeller.presentationNodeBindingIndex,
+                 .bindingLocalPostTransform = xRotation,
+                 .modelSpacePivot = propeller.localOrigin}}};
+            const auto rotatedDraws = DeepRun::Render::PrepareModelDraws(*model->Get(), {}, {}, overrides);
+            if (!rotatedDraws)
+            {
+                return false;
+            }
+            for (const auto& baselineDraw : *baselineDraws)
+            {
+                if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
+                              baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())
+                {
+                    continue;
+                }
+                if (baselineDraw.material.name != "MAT_Antey_Propellers" || !baselineDraw.material.doubleSided)
+                {
+                    return false;
+                }
+                const auto rotatedDraw = std::find_if(rotatedDraws->begin(), rotatedDraws->end(), [&](const auto& candidate) {
+                    return candidate.nodeIndex == baselineDraw.nodeIndex &&
+                           candidate.primitiveIndex == baselineDraw.primitiveIndex;
+                });
+                if (rotatedDraw == rotatedDraws->end() || baselineDraw.primitiveIndex >= model->Get()->primitives.size())
+                {
+                    return false;
+                }
+                const auto& primitive = model->Get()->primitives[baselineDraw.primitiveIndex];
+                for (const auto& vertex : primitive.vertices)
+                {
+                    const auto before = transformPoint(baselineDraw.modelToWorld, vertex.position);
+                    const auto after = transformPoint(rotatedDraw->modelToWorld, vertex.position);
+                    const float relativeY = before.y - propeller.localOrigin.y;
+                    const float relativeZ = before.z - propeller.localOrigin.z;
+                    const DeepRun::Assets::ModelVector3 expected{
+                        .x = before.x,
+                        .y = propeller.localOrigin.y + cosine * relativeY - sine * relativeZ,
+                        .z = propeller.localOrigin.z + sine * relativeY + cosine * relativeZ};
+                    constexpr float PositionToleranceMeters = 2.0e-3F;
+                    if (!std::isfinite(after.x) || !std::isfinite(after.y) || !std::isfinite(after.z) ||
+                        std::abs(after.x - expected.x) > PositionToleranceMeters ||
+                        std::abs(after.y - expected.y) > PositionToleranceMeters ||
+                        std::abs(after.z - expected.z) > PositionToleranceMeters)
+                    {
+                        return false;
+                    }
+                    checkedGeometry = true;
+                }
+            }
+        }
+        if (!checkedGeometry)
+        {
+            return false;
+        }
+    }
+
+    const auto cantedCamera = DeepRun::Render::BuildFixedWorldSideViewCamera(
+        {}, 16.0F / 9.0F, 600.0F, model->Get()->bounds, 0.139626340F);
+    if (!cantedCamera || std::abs(cantedCamera->viewDirection.x) < 0.10F ||
+        std::abs(cantedCamera->viewDirection.y) > 1.0e-6F || cantedCamera->viewDirection.z > -0.98F)
+    {
+        return false;
     }
 
     // Detailed geometry and source-first semantic checks live in the focused

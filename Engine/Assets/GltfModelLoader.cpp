@@ -553,6 +553,7 @@ private:
                 static_cast<float>(pbr.baseColorFactor.w())};
             material.metallicFactor = static_cast<float>(pbr.metallicFactor);
             material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);
+            material.doubleSided = sourceMaterial.doubleSided;
             if (!IsFinite(material))
             {
                 return std::unexpected(MakeError(
