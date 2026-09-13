@@ -22,15 +22,15 @@ A milestone states what must be implemented and verifiable at a development
 stage. It owns scope, Definition of Done, and acceptance criteria. The
 canonical roadmap is [roadmap/milestones.md](roadmap/milestones.md).
 
-A milestone may reference any number of A, D, and C specifications. For
-example, M2 may use A0 and A1, implement part of D1, and require an applicable
-C package. Such references do not couple the numbers of the four axes.
+A milestone may reference any number of A, D, and C specifications. For example,
+M2 may use A0 and A1, implement part of D1, and require an applicable C package.
+Such references do not couple the numbers of the four axes.
 
 ## A — Architecture specifications
 
 `A0`, `A1`, `A2`, ... identify technical contracts and invariants. They do not
-define implementation order and may be written before the milestone that
-fully realizes them.
+define implementation order and may be written before the milestone that fully
+realizes them.
 
 One specification ID may have one primary document and one or more specialized
 contracts. A specialization refines part of the same specification; it does not
@@ -52,10 +52,10 @@ A0 preserves this dependency direction:
 Game -> Simulation -> Engine -> Platform
 ```
 
-Dependencies point downward. Engine must not know DeepRun domain concepts
-such as submarines, sonar, acoustics, torpedoes, crew, compartments, or the
-campaign. New A-IDs are created only for independent architectural questions,
-not to fill the numbering.
+Dependencies point downward. Engine must not know DeepRun domain concepts such
+as submarines, sonar, acoustics, torpedoes, crew, compartments, or the campaign.
+New A-IDs are created only for independent architectural questions, not to fill
+the numbering.
 
 ## D — Design specifications
 
@@ -72,7 +72,7 @@ Current registry:
 |---|---|---|---|
 | D0 | Core Game Design / Game Loop | [design/game-loop.md](design/game-loop.md) | [design/submarine-command.md](design/submarine-command.md); [design/vertical-ocean-gameplay.md](design/vertical-ocean-gameplay.md) |
 | D1 | Controls & Handling | [design/controls.md](design/controls.md) | None |
-| D2 | Perception, Fog of War & Combat Intelligence | [design/perception-combat-intelligence.md](design/perception-combat-intelligence.md) | None |
+| D2 | Perception, Fog of War & Combat Intelligence | [design/perception-combat-intelligence.md](design/perception-combat-intelligence.md) | Runtime slice implemented on `design/perception-fog-salvo-awareness`; acceptance gated by Debug/Release CI |
 
 D1 preserves this boundary:
 
@@ -84,10 +84,6 @@ Physical Input
 ```
 
 `Throttle`, `Depth`, and other gameplay commands are not raw Engine Input.
-D2 preserves a parallel knowledge boundary: scenario/physics truth may feed
-sensor simulation, but player UI, hostile AI, and weapons consume only their
-own observations and perceived Tracks.
-
 New D-IDs are added only when a distinct design contract is ready to be
 specified; possible future subjects include crew/damage and progression.
 
@@ -148,13 +144,12 @@ links merely to add an ID.
 ## Legal and provenance records
 
 Repository-level copyright and dependency-notice policy is recorded in
-[`../COPYRIGHT.md`](../COPYRIGHT.md) and
-[`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Content provenance,
-shipping gates, and the canonical metadata fields for external assets are
-defined in [content/asset-provenance.md](content/asset-provenance.md). These
-records document status; they do not grant rights or replace legal review.
+[`../COPYRIGHT.md`](../COPYRIGHT.md) and [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+Content provenance, shipping gates, and the canonical metadata fields for
+external assets are defined in [content/asset-provenance.md](content/asset-provenance.md).
+These records document status; they do not grant rights or replace legal review.
 
 ## Development workflow
 
-The canonical configure/build, CTest, asset-root, direct-invocation, smoke,
-and D3D12-validation procedure is [development/testing.md](development/testing.md).
+The canonical configure/build, CTest, asset-root, direct-invocation, smoke, and
+D3D12-validation procedure is [development/testing.md](development/testing.md).
