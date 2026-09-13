@@ -25,6 +25,7 @@ def canonical_cpp(source: str) -> str:
     while i < len(source):
         c = source[i]
         nxt = source[i + 1] if i + 1 < len(source) else ""
+        prev = source[i - 1] if i > 0 else ""
         if state == "normal":
             if c == "/" and nxt == "/":
                 state = "line_comment"
@@ -33,6 +34,11 @@ def canonical_cpp(source: str) -> str:
             if c == "/" and nxt == "*":
                 state = "block_comment"
                 i += 2
+                continue
+            # C++ numeric digit separators are apostrophes inside a number, not character literals.
+            if c == "'" and prev.isdigit() and nxt.isdigit():
+                out.append(c)
+                i += 1
                 continue
             if c in ('"', "'"):
                 quote = c
