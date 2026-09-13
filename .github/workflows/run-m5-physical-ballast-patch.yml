@@ -1,0 +1,29 @@
+name: Run M5 physical ballast patch
+
+on:
+  push:
+    branches:
+      - fix/m5-final-closure-gaps
+    paths:
+      - .github/workflows/run-m5-physical-ballast-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/m5-final-closure-gaps
+      - name: Apply patch
+        run: python .github/apply_m5_physics.py
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "DeepRun CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add Engine/Physics/PhysicsWorld.h Engine/Physics/PhysicsWorld.cpp Game/PhysicalPlayground.cpp Game/PhysicalPlayground.h Tests/PeriscopeBallastGameplayChecks.h docs/development/periscope-ballast-gameplay.md
+          git commit -m "fix: model Antey ballast as physical mass"
+          git push origin HEAD:fix/m5-final-closure-gaps
