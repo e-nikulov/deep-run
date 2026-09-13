@@ -17,7 +17,7 @@ The player must also make a tactically meaningful choice between remaining subme
 
 Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source gameplay canonical is 14,700 t surfaced and 19,400 t submerged; the 4,700 t difference is main-ballast water (~31.97% reserve buoyancy relative to surfaced displacement). Jolt rigid-body mass and inertia change with ballast fill. With main ballast empty, the calibrated waterplane settles the body reference at ~2.242 m below mean sea level in flat water; with main ballast full, 19,400 t is neutrally buoyant when fully submerged. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force.
 
-Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX.
+Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX. The current model independently produces ~7.07 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory.
 
 ## Scope A — low/zero-speed depth control
 
@@ -28,26 +28,28 @@ Canonical input remains unchanged:
 
 At ordinary forward speed, only the stern horizontal planes provide hydrodynamic pitch authority. The production bow planes are deployment-only: they are either housed or extended and never rotate with Depth input or generate control-surface force in Deep Run.
 
-At low forward speed a separate Game-owned variable-ballast/trim controller supplies bounded net vertical force at the vessel centre of mass:
+At low forward speed a Game-owned trim controller requests a bounded **equivalent water-mass change** rather than applying a vertical force. At higher speed that trim authority fades and the stern horizontal planes carry the manoeuvre. Main-ballast fill is physical mass state: empty corresponds to the public surfaced displacement and full corresponds to the public submerged displacement.
 
-- surface intent -> positive buoyancy tendency / upward vertical rate;
-- dive intent -> negative buoyancy tendency / downward vertical rate;
-- neutral depth input -> target vertical speed returns to zero, allowing trim authority to arrest residual ascent/descent;
-- low-speed ballast authority fades continuously as forward speed rises;
-- once the configured hydrodynamic-speed threshold is reached, this extra authority reaches zero and the diving planes carry the manoeuvre.
+- surface intent -> reduce ballast/trim water and create positive buoyancy;
+- dive intent -> increase ballast/trim water and create negative buoyancy until neutral/submerged mass is reached;
+- neutral depth input -> trim target returns toward neutral and residual vertical motion is arrested by physical drag plus bounded trim-mass correction;
+- low-speed trim authority fades continuously as forward speed rises;
+- at hydrodynamic speed the stern planes and the hull's static pitch stability determine the vertical trajectory.
 
-This is a gameplay model of variable ballast / trim compensation. It is intentionally **not** a classified simulation of Project 949A tank volumes, pump rates, valve sequencing or emergency-blow hardware.
+This is a gameplay-level physical ballast model. It intentionally **does not** claim Project 949A tank volumes, valve sequencing, pump/blow rates or emergency-blow timing that are not established by public data.
 
 ### Required invariants
 
 - no teleporting or direct modification of world Y;
-- no fake force added to `ControlSurfaceSystem` at zero forward speed;
-- Jolt remains the motion authority;
-- WaterBody remains depth authority;
-- ballast output is a real bounded force applied through PhysicsWorld;
-- releasing depth input does not instantly stop the boat; trim authority damps vertical rate through force over time;
-- deep and periscope-depth operation retains submerged trim compensation, but a deliberate continued surface command arms surfaced hydrostatic mode only in the final near-surface band (~2.8 m body-centre depth); in that mode reserve compensation is released and the boat settles by displaced volume around 2.24 m body-centre depth, keeping roughly three quarters of the main hull immersed and the mean waterline below the deployed bow planes;
-- a dive command leaves surfaced mode immediately and restores submerged trim authority as displacement rises;
+- no fake lift from a control surface at zero water flow;
+- no direct ballast/reserve-compensation vertical force;
+- Jolt remains motion, mass and inertia authority;
+- WaterBody remains depth and displaced-water authority;
+- main-ballast/trim commands change physical rigid-body mass;
+- buoyancy is produced only by displaced water through `BuoyancySystem`;
+- with full main ballast the fully immersed 19,400 t state is neutrally buoyant;
+- with empty main ballast the 14,700 t state settles naturally at ~2.242 m body-reference depth in flat water;
+- stern-plane moment is opposed by speed-squared static pitch stability, so held input converges to a trajectory instead of allowing endless pitch rotation;
 - no presentation-only state may change depth.
 
 ### Navigation HUD contract

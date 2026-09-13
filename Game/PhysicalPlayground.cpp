@@ -120,6 +120,12 @@ constexpr float M5MaximumTrimMassFractionOfSubmergedMass = 0.015F;
 // Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
 constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
 constexpr float M5SurfacedLongitudinalEffectiveAreaSquareMeters = 109.77216F;
+// No reliable public 949A-specific maximum vertical rate was found. GAME POLICY therefore chooses a 25 degree
+// full-command steady trajectory. At the public 32 kn maximum submerged speed this is 6.96 m/s vertical,
+// consistent with the generic 6-9 m/s open-literature envelope for nuclear submarines without claiming it as TTX.
+constexpr float M5MaximumHydrodynamicTrajectoryAngleRadians = 0.436332313F; // 25 degrees
+constexpr float M5PitchStaticStabilityEffectiveMomentMeters3 =
+    40.0F * 0.5F * 32.0F / M5MaximumHydrodynamicTrajectoryAngleRadians;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
 constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
@@ -154,8 +160,8 @@ constexpr Marine::ControlSurfaceComponent M2SternControlSurface{
     .maxEffectiveLiftAreaSquareMeters = 40.0F};
 
 constexpr float M2MaximumPlaneDeflection = 0.5F;
-// Low/zero-speed vertical authority is intentionally separate from hydrodynamic plane lift. This bounded
-// Game-owned controller approximates variable ballast / trim effects without modelling classified tank hardware.
+// Low/zero-speed depth authority is separate from hydrodynamic plane lift. This bounded controller computes
+// a trim request which Game converts to equivalent ballast-water mass; its force value is never applied to Jolt.
 constexpr Submarine::VariableBallastDepthControlConfig M5LowSpeedBallastDepthControl{};
 // Presentation-only articulation envelope. This is not a claim about classified/production hardware limits;
 // it maps the accepted normalized H2 simulation deflection visibly onto the authored production plane pivots.
@@ -1354,6 +1360,17 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         return std::unexpected(
             "physical playground stern control-surface calculation failed: " + sternControl.error().message);
     }
+    constexpr float TwoPi = 6.28318530717958647692F;
+    const float pitchRadians = std::remainder(
+        2.0F * std::atan2(state->orientation.z, state->orientation.w), TwoPi);
+    const float forwardSpeedSquared =
+        sternControl->bodyForwardSpeedMetersPerSecond * sternControl->bodyForwardSpeedMetersPerSecond;
+    const float pitchRestoringTorqueNewtonMeters =
+        -0.5F * water_->Config().densityKgPerCubicMeter * M5PitchStaticStabilityEffectiveMomentMeters3 *
+        forwardSpeedSquared * pitchRadians;
+    if (!std::isfinite(pitchRestoringTorqueNewtonMeters))
+        return std::unexpected("physical playground pitch restoring torque is non-finite");
+
     const float mainBallastRate = command.depthCommandFraction >= 0.0F
         ? M5MainBallastFillRateFractionPerSecond
         : M5MainBallastBlowRateFractionPerSecond;
@@ -1453,6 +1470,14 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     {
         return std::unexpected("physical playground hydrodynamic drag torque application failed: " +
                                dragTorqueError.message);
+    }
+
+    Physics::PhysicsError pitchStabilityError;
+    if (!physics_->AddTorque(
+            physicsBody_, {0.0F, 0.0F, pitchRestoringTorqueNewtonMeters}, &pitchStabilityError))
+    {
+        return std::unexpected(
+            "physical playground pitch stability torque application failed: " + pitchStabilityError.message);
     }
 
     Physics::PhysicsError propulsionForceError;
@@ -1592,7 +1617,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 std::to_string(sternControlDeflection) +
                 ", stern force " + FormatVector(sternControl->forceNewtons) +
                 ", stern point " + FormatVector(sternControl->worldPositionMeters) +
-                ", gravity magnitude " +
+                ", pitch restoring torque " + std::to_string(pitchRestoringTorqueNewtonMeters) +
+                " Nm, gravity magnitude " +
                 std::to_string(*gravityMagnitude) + " m/s^2, weight " +
                 std::to_string(weightMagnitude) + " N, point fraction range [" +
                 std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');
