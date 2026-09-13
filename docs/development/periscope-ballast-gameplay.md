@@ -1,6 +1,8 @@
 # Low-speed depth control and periscope identification gameplay
 
-Status: CORRECTIVE CLOSURE CANDIDATE — FINAL CI / HUMAN ACCEPTANCE PENDING
+Status: ACCEPTED / M5 COMPLETE
+
+Final corrective acceptance is anchored by PR #11 head `0efd5ff2eaa6fa504c2f60a02a381cec93331626` and GitHub Actions run `34775791243` (#770). Both Windows Debug and Release passed production Antey contract validation, configure, build, all registered CTest targets, windowed acoustic smoke, P-700 production launch smoke, and M5/P-700 acceptance-artifact retention. The accepted tree was merged to `main` as `678201074d093fb71806101cf21be375d0e271fc`.
 
 This slice joins two related normal-gameplay mechanics without weakening the accepted perceived-world or physics boundaries:
 

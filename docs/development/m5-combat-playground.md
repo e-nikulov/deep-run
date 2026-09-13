@@ -4,6 +4,8 @@ Status: COMPLETE
 
 ## Milestone closure
 
+Final corrective M5 closure is anchored by PR #11 head `0efd5ff2eaa6fa504c2f60a02a381cec93331626`, GitHub Actions run `34775791243` (#770), and merge commit `678201074d093fb71806101cf21be375d0e271fc`. Debug and Release both passed production Antey contract validation, configure, build, the complete registered CTest set, windowed acoustic smoke, P-700 production launch smoke, and M5/P-700 acceptance-artifact retention. This supersedes the earlier technical closure anchor below while preserving it as milestone history.
+
 M5 is COMPLETE on `feature/m5-v2-player-navigation-sonar`. Technical acceptance is anchored by clean product
 HEAD `851a922dd4a2f4055dba523d3dc1a7773dad4ed2` and GitHub Actions run `34712161730` (#488). Both `windows-debug` and
 `windows-release` passed Antey contract validation, configure, build, all six registered CTest targets, the
