@@ -504,6 +504,17 @@ public:
     {
         return lastExplosion_;
     }
+    [[nodiscard]] bool PlayerFogOfWarActive() const noexcept { return playerFogOfWarActive_; }
+    [[nodiscard]] bool PlayerHasVisualClassification(
+        const Perception::ContactClassification classification) const
+    {
+        return std::ranges::any_of(playerTracks_.Tracks(), [classification](const Perception::Track& track) {
+            return track.lifecycle != Perception::TrackLifecycleState::Lost && track.visuallyIdentified &&
+                   track.classification == classification &&
+                   static_cast<int>(track.opticalIdentificationLevel) >=
+                       static_cast<int>(Perception::OpticalIdentificationLevel::TypeResolved);
+        });
+    }
     [[nodiscard]] const std::optional<Armament::P700LauncherInventory>& P700Launchers() const noexcept
     {
         return p700LauncherInventory_;
@@ -667,7 +678,8 @@ private:
             return std::unexpected("M5-H live frame input is invalid or time-reversing");
         }
 
-        if (!automatedPlayer && !p700AcceptanceMode_)
+        playerFogOfWarActive_ = !automatedPlayer && !p700AcceptanceMode_;
+        if (playerFogOfWarActive_)
         {
             const auto civilianReady = EnsureCivilianGameplay(playerSnapshot, simulationTimeSeconds);
             if (!civilianReady)
@@ -2629,6 +2641,7 @@ private:
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
     bool p700AcceptanceMode_ = false;
+    bool playerFogOfWarActive_ = false;
     bool civilianGameplayEnabled_ = false;
 };
 } // namespace DeepRun::Game::Combat

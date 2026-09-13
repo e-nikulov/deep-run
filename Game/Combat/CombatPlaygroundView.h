@@ -134,7 +134,13 @@ public:
         {
             return std::unexpected("M5-H.1 combat view draw composition failed: " + presentationDraws.error());
         }
-        const auto civilianDraws = BuildCivilianVesselPresentationDraws(runtime, physicsWorld);
+        std::expected<std::vector<Render::ModelDrawInstance>, std::string> civilianDraws =
+            std::vector<Render::ModelDrawInstance>{};
+        if (!runtime.PlayerFogOfWarActive() ||
+            runtime.PlayerHasVisualClassification(Perception::ContactClassification::CivilianSurfaceVessel))
+        {
+            civilianDraws = BuildCivilianVesselPresentationDraws(runtime, physicsWorld);
+        }
         if (!civilianDraws)
         {
             return std::unexpected("civilian surface-vessel presentation failed: " + civilianDraws.error());
@@ -167,7 +173,7 @@ public:
             }
         }
         proxyDraws.insert(proxyDraws.end(), civilianDraws->begin(), civilianDraws->end());
-        if (proxyDraws.empty())
+        if (proxyDraws.empty() && !runtime.PlayerFogOfWarActive())
         {
             return std::unexpected("M5-H.1 combat view must contain at least the destroyer presentation");
         }
@@ -180,13 +186,16 @@ public:
             totalStats.submittedIndices += stats.submittedIndices;
         };
 
-        const auto proxyStats = renderer.DrawModel(
-            proxyGpuModel_, std::span<const Render::ModelDrawInstance>(proxyDraws.data(), proxyDraws.size()), camera);
-        if (!proxyStats)
+        if (!proxyDraws.empty())
         {
-            return std::unexpected("M5-H.1 combat proxy view draw failed: " + proxyStats.error());
+            const auto proxyStats = renderer.DrawModel(
+                proxyGpuModel_, std::span<const Render::ModelDrawInstance>(proxyDraws.data(), proxyDraws.size()), camera);
+            if (!proxyStats)
+            {
+                return std::unexpected("M5-H.1 combat proxy view draw failed: " + proxyStats.error());
+            }
+            accumulate(*proxyStats);
         }
-        accumulate(*proxyStats);
 
         const auto drawTorpedoModel = [&](const std::optional<Assets::ModelTransform>& transform,
                                           const Assets::AssetHandle<Assets::ModelAsset>& asset,
@@ -284,8 +293,10 @@ public:
             if (auto r = drawP700(*snapshot->playerP700); !r) return std::unexpected(r.error());
         for (const auto& wingman : snapshot->playerP700Wingmen)
             if (auto r = drawP700(wingman); !r) return std::unexpected(r.error());
+        const bool historicalPresentationGate = !runtime.PlayerFogOfWarActive();
         if (totalStats.drawCalls < proxyDraws.size() ||
-            totalStats.submittedPrimitives != totalStats.drawCalls || totalStats.submittedIndices < 72U)
+            totalStats.submittedPrimitives != totalStats.drawCalls ||
+            (historicalPresentationGate && totalStats.submittedIndices < 72U))
         {
             return std::unexpected("M5-V2 combat view aggregate draw statistics are invalid");
         }

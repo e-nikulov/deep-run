@@ -64,6 +64,7 @@ struct CombatPlaygroundPresentationSnapshot final
     Physics::PhysicsBodyState destroyerBody{};
     float destroyerIntegrityFraction = 1.0F;
     bool destroyerDestroyed = false;
+    bool destroyerVisible = true;
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
     std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};
     std::optional<CombatPlaygroundP700Presentation> playerP700{};
@@ -130,7 +131,9 @@ BuildCombatPlaygroundPresentationSnapshot(
         .destroyerBody = *destroyerBody,
         .destroyerIntegrityFraction = std::clamp(
             destroyer.integrity.remainingIntegrity / destroyer.integrity.maximumIntegrity, 0.0F, 1.0F),
-        .destroyerDestroyed = destroyer.integrity.destroyed};
+        .destroyerDestroyed = destroyer.integrity.destroyed,
+        .destroyerVisible = !runtime.PlayerFogOfWarActive() ||
+            runtime.PlayerHasVisualClassification(Perception::ContactClassification::MilitarySurfaceCombatant)};
 
     if (const auto& torpedo = runtime.PlayerTorpedo(); torpedo.has_value())
     {
@@ -474,8 +477,11 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     {
         return std::unexpected("M5-H.1 destroyer presentation draw failed");
     }
-    draws.push_back(std::move(*hull));
-    draws.push_back(std::move(*superstructure));
+    if (snapshot.destroyerVisible)
+    {
+        draws.push_back(std::move(*hull));
+        draws.push_back(std::move(*superstructure));
+    }
 
     if (snapshot.playerTorpedo && snapshot.playerTorpedo->movementDomain == Weapons::MovementDomain::Underwater)
     {
