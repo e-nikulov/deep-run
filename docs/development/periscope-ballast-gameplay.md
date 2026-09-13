@@ -13,6 +13,12 @@ The player must be able to approach periscope depth quietly without having to ru
 
 The player must also make a tactically meaningful choice between remaining submerged and uncertain, or exposing a periscope to obtain stronger visual identification. Acoustic certainty about bearing/range is not the same thing as knowing whether a surface contact is military or civilian.
 
+## Physical ballast / hydrostatic authority
+
+Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source gameplay canonical is 14,700 t surfaced and 19,400 t submerged; the 4,700 t difference is main-ballast water (~31.97% reserve buoyancy relative to surfaced displacement). Jolt rigid-body mass and inertia change with ballast fill. With main ballast empty, the calibrated waterplane settles the body reference at ~2.242 m below mean sea level in flat water; with main ballast full, 19,400 t is neutrally buoyant when fully submerged. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force.
+
+Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX.
+
 ## Scope A — low/zero-speed depth control
 
 Canonical input remains unchanged:

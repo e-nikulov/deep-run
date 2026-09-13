@@ -468,7 +468,8 @@ private:
     Assets::ModelTransform primaryPeriscopeDeployedTransform_{};
     bool primaryPeriscopeRequestedRaised_ = false;
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
-    bool surfacedHydrostaticMode_ = false;
+    float mainBallastFillFraction_ = 1.0F;
+    float committedDynamicMassKg_ = 0.0F;
 
     // Bounded H2 diagnostics:
     std::uint64_t fixedTickCount_ = 0;

@@ -12,6 +12,8 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/MotionProperties.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
@@ -395,6 +397,37 @@ public:
         slot->active = false;
         ++slot->generation; // safety invariant: stale handles must never validate against this slot again
         logger.Info(Diagnostics::LogCategory::Physics, "Physics body destroyed (slot " + std::to_string(handle.Slot()) + ")");
+        return true;
+    }
+
+    bool SetDynamicBodyMass(PhysicsBodyHandle handle, const float massKg, PhysicsError* error)
+    {
+        const auto fail = [this, error](const PhysicsErrorCode code, const std::string& message) -> bool {
+            if (error != nullptr)
+                *error = PhysicsError{code, message};
+            logger.Warning(Diagnostics::LogCategory::Physics, "Dynamic body mass change rejected: " + message);
+            return false;
+        };
+        if (!initialized)
+            return fail(PhysicsErrorCode::NotInitialized, "physics world is not initialized");
+        if (!std::isfinite(massKg) || massKg <= 0.0F)
+            return fail(PhysicsErrorCode::InvalidInput, "dynamic body mass must be finite and positive");
+        BodySlot* slot = Resolve(handle);
+        if (slot == nullptr)
+            return fail(PhysicsErrorCode::InvalidHandle, "handle is invalid, foreign, or stale");
+        if (slot->kind != BodyKind::Dynamic)
+            return fail(PhysicsErrorCode::InvalidInput, "mass can only be changed on a dynamic body");
+
+        {
+            JPH::BodyLockWrite lock(physicsSystem->GetBodyLockInterface(), slot->bodyId);
+            if (!lock.Succeeded())
+                return fail(PhysicsErrorCode::InvalidHandle, "Jolt body lock failed");
+            JPH::MotionProperties* motion = lock.GetBody().GetMotionProperties();
+            if (motion == nullptr)
+                return fail(PhysicsErrorCode::InvalidInput, "dynamic body has no motion properties");
+            motion->ScaleToMass(massKg);
+        }
+        physicsSystem->GetBodyInterface().ActivateBody(slot->bodyId);
         return true;
     }
 
@@ -833,6 +866,12 @@ bool PhysicsWorld::DestroyBody(PhysicsBodyHandle handle, PhysicsError* error)
 {
     assert(impl_ != nullptr);
     return impl_->DestroyBody(handle, error);
+}
+
+bool PhysicsWorld::SetDynamicBodyMass(PhysicsBodyHandle handle, const float massKg, PhysicsError* error)
+{
+    assert(impl_ != nullptr);
+    return impl_->SetDynamicBodyMass(handle, massKg, error);
 }
 
 std::optional<PhysicsBodyState> PhysicsWorld::GetBodyState(PhysicsBodyHandle handle) const

@@ -57,6 +57,11 @@ public:
     // generation so a stale handle can never alias a future body in the same slot if recycling is introduced later.
     bool DestroyBody(PhysicsBodyHandle handle, PhysicsError* error = nullptr);
 
+    // Changes the physical mass of an existing dynamic body and scales its inertia consistently.
+    // This is a generic physics operation; callers own the domain reason (fuel, ballast, cargo, etc.).
+    // Position and velocity are not teleported or rewritten. Static bodies are rejected.
+    bool SetDynamicBodyMass(PhysicsBodyHandle handle, float massKg, PhysicsError* error = nullptr);
+
     // Returns a copy of the body state. Invalid/foreign/stale handles are recoverable errors, never UB.
     [[nodiscard]] std::optional<PhysicsBodyState> GetBodyState(PhysicsBodyHandle handle) const;
 

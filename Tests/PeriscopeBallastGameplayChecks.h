@@ -3,6 +3,7 @@
 #include "Game/Combat/PeriscopeCombatRuntime.h"
 #include "Game/Combat/PeriscopeObservationSystem.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
+#include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Simulation/Perception/TrackManager.h"
 
@@ -18,6 +19,19 @@ namespace DeepRun::Tests
     using namespace Game::Submarine;
 
     constexpr float WeightNewtons = 100'000'000.0F;
+    constexpr float SeaWaterDensity = 1025.0F;
+    constexpr float SurfaceWaterplaneHalfHeight = 4.35F;
+    const float reserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
+    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyPublicSubmergedDisplacementMassKg;
+    const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);
+    const float submergedTerminal = std::sqrt(
+        2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 24.11986F));
+    const float surfacedTerminal = std::sqrt(
+        2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 109.77216F));
+    if (std::abs(reserve - 0.32F) > 0.001F || std::abs(surfaceCenterDepth - 2.242268F) > 0.01F ||
+        std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||
+        std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F)
+        return false;
     const VariableBallastDepthControlConfig ballast{};
     const auto surface = CalculateVariableBallastDepthControl(ballast, -1.0F, 0.0F, 0.0F, WeightNewtons);
     const auto dive = CalculateVariableBallastDepthControl(ballast, 1.0F, 0.0F, 0.0F, WeightNewtons);

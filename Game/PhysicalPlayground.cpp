@@ -99,26 +99,27 @@ constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 // IG1-C Game policy: sample the production buoyancy BOX at four deterministic normalized longitudinal
 // positions. The fractions preserve the accepted M2 spacing while removing prototype/world-space metres.
 constexpr std::array<float, 4> M2BuoyancyLongitudinalFractions = {0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
-// Surface-waterplane calibration is explicit Game policy. The buoyancy samples sit on the production COB
-// vertical level instead of the old +2 m prototype offset: that old offset shifted the natural waterline down
-// through the deployed bow planes even though it did not contribute useful pitch torque for vertical forces.
+// One physical displacement model serves both surfaced and submerged states. Fully immersed displacement
+// supports 19,400 t; empty main ballast leaves the public 14,700 t surfaced mass. With the calibrated
+// waterplane half-height the resulting flat-water equilibrium is 2.242 m body-centre depth.
 constexpr float M2GameBuoyancyStabilityOffsetMeters = 0.0F;
 constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;
-// Public Project 949A references give roughly 32% reserve buoyancy. In this bounded point model the untrimmed
-// equilibrium submerged fraction is 1/1.32 = 75.8% of potential displacement. With the calibrated waterplane
-// half-height this places the upright body origin about 2.24 m below mean sea level: roughly 3/4 of the main
-// hull remains immersed while the inspected deployed bow-plane lower edge (~+2.35 m local Y) stays above it.
-constexpr float M5AnteyReserveBuoyancyFraction = 0.32F;
-constexpr float M5MaximumReserveBuoyancyReleaseFractionOfWeight = 0.04F;
-constexpr float M5SurfaceEquilibriumSubmergedFraction = 1.0F / (1.0F + M5AnteyReserveBuoyancyFraction);
+constexpr float M5AnteySurfaceMassKg = Submarine::AnteyPublicSurfaceDisplacementMassKg;
+constexpr float M5AnteySubmergedMassKg = Submarine::AnteyPublicSubmergedDisplacementMassKg;
+constexpr float M5AnteyMainBallastCapacityKg = Submarine::AnteyMainBallastWaterCapacityKg;
+constexpr float M5SurfaceEquilibriumSubmergedFraction = M5AnteySurfaceMassKg / M5AnteySubmergedMassKg;
 constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
     M2GameBuoyancyStabilityOffsetMeters +
     M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
-static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.15F &&
-              M5SurfaceEquilibriumBodyCenterDepthMeters < 2.30F);
-// Surface mode arms only very near the natural flotation band. Periscope-depth operation therefore keeps
-// submerged trim, while the final part of a deliberate surfacing manoeuvre hands authority to hydrostatics.
-constexpr float M5SurfaceHydrostaticModeArmDepthMeters = 2.8F;
+static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.23F &&
+              M5SurfaceEquilibriumBodyCenterDepthMeters < 2.25F);
+// Exact 949A flood/blow timing is not asserted from public data. Full empty<->full is a 40 s GAME POLICY.
+constexpr float M5MainBallastFillRateFractionPerSecond = 0.025F;
+constexpr float M5MainBallastBlowRateFractionPerSecond = 0.025F;
+constexpr float M5MaximumTrimMassFractionOfSubmergedMass = 0.015F;
+// Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
+constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
+constexpr float M5SurfacedLongitudinalEffectiveAreaSquareMeters = 109.77216F;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
 constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
@@ -127,7 +128,8 @@ constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
 // hydrostatics and not values derived from the render mesh, collision box, or displaced-water model.
 // Longitudinal X is intentionally much lower than vertical/lateral Y/Z. The current 2.5D body locks RX/RY,
 // so only Z pitch damping needs a non-zero angular coefficient in this playground.
-constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{150.0F, 1800.0F, 2200.0F};
+constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{
+    M5SubmergedLongitudinalEffectiveAreaSquareMeters, 1800.0F, 2200.0F};
 constexpr Physics::PhysicsVector3 M2AngularEffectiveMomentMeters5{0.0F, 0.0F, 50'000'000.0F};
 
 // Aggregate synchronized twin-propeller gameplay drive. Ahead/astern asymmetry is explicit GAME POLICY; the
@@ -338,8 +340,8 @@ Marine::BuoyancyComponent BuildM2Buoyancy(
     const Submarine::ProductionBuoyancyDefinition& productionBuoyancy,
     const Submarine::ProductionCollisionDefinition& collision)
 {
-    const float neutralDisplacedVolume = M2GameAnteyMassTuningKg / water.Config().densityKgPerCubicMeter;
-    const float totalDisplacedVolume = neutralDisplacedVolume * (1.0F + M5AnteyReserveBuoyancyFraction);
+    const float totalDisplacedVolume =
+        M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter;
     const float pointVolume = totalDisplacedVolume / static_cast<float>(M2BuoyancyLongitudinalFractions.size());
 
     Marine::BuoyancyComponent component;
@@ -836,7 +838,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
     Physics::DynamicBoxBodyCreateInfo bodyInfo;
     bodyInfo.halfExtents = collisionHalfExtents;
-    bodyInfo.mass = M2GameAnteyMassTuningKg; // temporary Game-owned neutral-mass tuning
+    bodyInfo.mass = M5AnteySubmergedMassKg; // fully flooded main ballast: neutral submerged condition
     bodyInfo.position = initialBodyWorldCenter;
     bodyInfo.orientation = {}; // canonical production BOX orientation is identity
     bodyInfo.gravityEnabled = true;
@@ -861,12 +863,11 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground initial body state is unavailable");
     }
 
-    // IG1-C: production buoyancy proxy supplies spatial extent/COB only. Effective neutral displacement
-    // remains the accepted Game-owned mass / density policy and is split across four bounded points.
+    // Production buoyancy proxy supplies spatial extent/COB only. Potential displaced volume is the public
+    // 19,400 t submerged displacement divided by seawater density; ballast changes physical mass, not volume.
     Marine::BuoyancyComponent buoyancy = BuildM2Buoyancy(*water, buoyancyProxy, collisionProxy);
-    const double neutralVolume = static_cast<double>(M2GameAnteyMassTuningKg) /
-                                 static_cast<double>(water->Config().densityKgPerCubicMeter);
-    const double expectedVolume = neutralVolume * (1.0 + static_cast<double>(M5AnteyReserveBuoyancyFraction));
+    const double expectedVolume = static_cast<double>(M5AnteySubmergedMassKg) /
+                                  static_cast<double>(water->Config().densityKgPerCubicMeter);
     double configuredPotentialVolume = 0.0;
     const Physics::PhysicsVector3 proxyCenter = ToPhysicsVector(buoyancyProxy.localCenter);
     const Physics::PhysicsVector3 proxyHalfExtents = ToPhysicsVector(buoyancyProxy.halfExtents);
@@ -917,9 +918,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                                initialBuoyancy.error().message);
     }
 
-    const double expectedWeight = static_cast<double>(M2GameAnteyMassTuningKg) * *gravityMagnitude;
-    const double expectedFullySubmergedBuoyancy =
-        expectedWeight * (1.0 + static_cast<double>(M5AnteyReserveBuoyancyFraction));
+    const double expectedWeight = static_cast<double>(M5AnteySubmergedMassKg) * *gravityMagnitude;
+    const double expectedFullySubmergedBuoyancy = expectedWeight;
     const Physics::PhysicsVector3& initialForce = initialBuoyancy->totalForceNewtons;
     const bool allFullySubmerged = std::ranges::all_of(initialBuoyancy->points, [](const auto& point) {
         return std::abs(point.submergedFraction - 1.0F) <= M2InitialBalanceRelativeTolerance;
@@ -1158,7 +1158,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     primaryPeriscopeDeployedTransform_ = primaryPeriscopeDeployedTransform;
     primaryPeriscopeRequestedRaised_ = false;
     primaryPeriscopeDeploymentProgress_ = 0.0F;
-    surfacedHydrostaticMode_ = false;
+    mainBallastFillFraction_ = 1.0F;
+    committedDynamicMassKg_ = M5AnteySubmergedMassKg;
 
     if (verifyDistinctUploads)
     {
@@ -1303,11 +1304,21 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                surfaceFloatCalculated.error().message);
     }
 
-    // F2 consumes the SAME beginning-of-tick body snapshot as buoyancy. Both force producers finish before
-    // any output is applied, so neither observes state affected by the other in this fixed tick.
+    // Longitudinal resistance rises continuously as the hull emerges. There is no hidden speed clamp.
+    float meanSubmergedFraction = 0.0F;
+    for (const Marine::BuoyancyPointResult& point : buoyancyResult->points)
+        meanSubmergedFraction += point.submergedFraction;
+    meanSubmergedFraction /= static_cast<float>(buoyancyResult->points.size());
+    const float surfacedExposureFraction = std::clamp(
+        (1.0F - meanSubmergedFraction) / (1.0F - M5SurfaceEquilibriumSubmergedFraction), 0.0F, 1.0F);
+    Marine::HydroDragComponent liveHydroDrag = hydroDrag_;
+    liveHydroDrag.linearEffectiveAreaSquareMeters.x =
+        M5SubmergedLongitudinalEffectiveAreaSquareMeters +
+        (M5SurfacedLongitudinalEffectiveAreaSquareMeters - M5SubmergedLongitudinalEffectiveAreaSquareMeters) *
+            surfacedExposureFraction;
     const auto dragResult = Marine::HydroDragSystem::Calculate(
         *water_,
-        hydroDrag_,
+        liveHydroDrag,
         Marine::HydroDragState{
             .worldOrientation = state->orientation,
             .worldLinearVelocityMetersPerSecond = state->linearVelocity,
@@ -1343,34 +1354,26 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         return std::unexpected(
             "physical playground stern control-surface calculation failed: " + sternControl.error().message);
     }
-    const float vesselWeightNewtons = M2GameAnteyMassTuningKg * *gravityMagnitude;
-    const auto bodyWaterSample = water_->Sample(state->position);
-    if (!bodyWaterSample || !std::isfinite(bodyWaterSample->signedDepthMeters))
-        return std::unexpected("physical playground body depth is unavailable for hydrostatic mode");
-    bool nextSurfacedHydrostaticMode = surfacedHydrostaticMode_;
-    if (command.depthCommandFraction > 0.05F)
-        nextSurfacedHydrostaticMode = false;
-    else if (command.depthCommandFraction < -0.05F &&
-             bodyWaterSample->signedDepthMeters <= M5SurfaceHydrostaticModeArmDepthMeters)
-        nextSurfacedHydrostaticMode = true;
-
-    // Once surfaced hydrostatics are latched, continuing to hold Surface must not add an artificial upward
-    // ballast force on top of reserve buoyancy. Feed a neutral command so the controller may only damp residual
-    // vertical rate; a Dive command unlatches the mode above and regains normal ballast authority immediately.
-    const float ballastDepthCommandFraction =
-        nextSurfacedHydrostaticMode && command.depthCommandFraction <= 0.0F
-            ? 0.0F
-            : command.depthCommandFraction;
+    const float mainBallastRate = command.depthCommandFraction >= 0.0F
+        ? M5MainBallastFillRateFractionPerSecond
+        : M5MainBallastBlowRateFractionPerSecond;
+    const float nextMainBallastFillFraction = std::clamp(
+        mainBallastFillFraction_ + command.depthCommandFraction * mainBallastRate * fixedDeltaSeconds,
+        0.0F, 1.0F);
+    const float baseMassKg = M5AnteySurfaceMassKg + M5AnteyMainBallastCapacityKg * nextMainBallastFillFraction;
+    const float baseWeightNewtons = baseMassKg * *gravityMagnitude;
     const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
-        M5LowSpeedBallastDepthControl,
-        ballastDepthCommandFraction,
-        sternControl->bodyForwardSpeedMetersPerSecond,
-        state->linearVelocity.y,
-        vesselWeightNewtons);
+        M5LowSpeedBallastDepthControl, command.depthCommandFraction,
+        sternControl->bodyForwardSpeedMetersPerSecond, state->linearVelocity.y, baseWeightNewtons);
     if (!variableBallast)
-    {
         return std::unexpected("physical playground variable-ballast evaluation failed: " + variableBallast.error());
-    }
+    // The low-speed controller requests trim by changing equivalent water mass, never by injecting vertical force.
+    const float requestedTrimMassDeltaKg = -variableBallast->forceNewtons.y / *gravityMagnitude;
+    const float maximumTrimMassKg = M5AnteySubmergedMassKg * M5MaximumTrimMassFractionOfSubmergedMass;
+    const float trimMassDeltaKg = std::clamp(requestedTrimMassDeltaKg, -maximumTrimMassKg, maximumTrimMassKg);
+    const float nextDynamicMassKg = std::clamp(
+        baseMassKg + trimMassDeltaKg, M5AnteySurfaceMassKg, M5AnteySubmergedMassKg + maximumTrimMassKg);
+    const float vesselWeightNewtons = nextDynamicMassKg * *gravityMagnitude;
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
     // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
     const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(
@@ -1415,29 +1418,12 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         }
     }
 
-    // Submerged mode cancels reserve buoyancy above vessel weight, preserving neutral deep/periscope-depth
-    // trim. A deliberate surface command first releases a bounded part of that compensation so the boat rises.
-    // Once the near-surface threshold is crossed, surfaced mode latches and removes reserve compensation entirely;
-    // the point-buoyancy model then loses displaced volume until natural hydrostatic equilibrium is reached.
-    const float reserveExcessBuoyancyNewtons =
-        (std::max)(0.0F, buoyancyResult->totalForceNewtons.y - vesselWeightNewtons);
-    const float reserveTrimCompensationNewtons = nextSurfacedHydrostaticMode
-        ? 0.0F
-        : reserveExcessBuoyancyNewtons;
-    const float reserveReleaseNewtons = nextSurfacedHydrostaticMode
-        ? 0.0F
-        : (std::max)(0.0F, -command.depthCommandFraction) *
-              (std::min)(reserveExcessBuoyancyNewtons,
-                         vesselWeightNewtons * M5MaximumReserveBuoyancyReleaseFractionOfWeight);
-    Physics::PhysicsVector3 combinedBallastTrimForce = variableBallast->forceNewtons;
-    combinedBallastTrimForce.y += -reserveTrimCompensationNewtons + reserveReleaseNewtons;
-
-    Physics::PhysicsError ballastForceError;
-    if (!physics_->AddForceAtWorldPosition(
-            physicsBody_, combinedBallastTrimForce, state->position, &ballastForceError))
+    // Ballast changes the Jolt rigid body's real mass/inertia. Buoyancy remains purely Archimedean.
+    if (std::abs(nextDynamicMassKg - committedDynamicMassKg_) > 0.5F)
     {
-        return std::unexpected(
-            "physical playground variable-ballast force application failed: " + ballastForceError.message);
+        Physics::PhysicsError massError;
+        if (!physics_->SetDynamicBodyMass(physicsBody_, nextDynamicMassKg, &massError))
+            return std::unexpected("physical playground ballast mass update failed: " + massError.message);
     }
 
     for (std::size_t index = 0; index < surfaceFloatBuoyancyResult_.points.size(); ++index)
@@ -1501,7 +1487,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
-    surfacedHydrostaticMode_ = nextSurfacedHydrostaticMode;
+    mainBallastFillFraction_ = nextMainBallastFillFraction;
+    committedDynamicMassKg_ = nextDynamicMassKg;
     consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
     committedThrottleFraction_ = command.throttleFraction;
     committedSternPlaneDeflection_ = sternControlDeflection;
@@ -1568,7 +1555,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
             minimumFraction = (std::min)(minimumFraction, point.submergedFraction);
             maximumFraction = (std::max)(maximumFraction, point.submergedFraction);
         }
-        const double weightMagnitude = static_cast<double>(M2GameAnteyMassTuningKg) * *gravityMagnitude;
+        const double weightMagnitude = static_cast<double>(nextDynamicMassKg) * *gravityMagnitude;
         const float pitchDegrees = 2.0F * std::atan2(state->orientation.z, state->orientation.w) *
                                    (180.0F / 3.14159265358979323846F);
         const bool first = !loggedFirstFixedSample_;
@@ -1587,11 +1574,10 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 FormatVector(buoyancyResult->totalForceNewtons) + ", variable ballast authority " +
                 std::to_string(variableBallast->lowSpeedAuthorityFraction) + ", ballast target V/S " +
                 std::to_string(variableBallast->targetVerticalSpeedMetersPerSecond) +
-                " m/s, ballast/trim force " + FormatVector(combinedBallastTrimForce) +
-                ", reserve buoyancy excess " + std::to_string(reserveExcessBuoyancyNewtons) +
-                " N, reserve trim " + std::to_string(reserveTrimCompensationNewtons) +
-                " N, released reserve " + std::to_string(reserveReleaseNewtons) +
-                " N, hydrostatic mode " + std::string(nextSurfacedHydrostaticMode ? "SURFACED" : "SUBMERGED_TRIM") +
+                " m/s, main ballast fill " + std::to_string(nextMainBallastFillFraction) +
+                ", trim mass delta " + std::to_string(trimMassDeltaKg) +
+                " kg, dynamic mass " + std::to_string(nextDynamicMassKg) +
+                " kg, surface exposure " + std::to_string(surfacedExposureFraction) +
                 ", drag force " +
                 FormatVector(dragResult->forceNewtons) + ", drag torque " +
                 FormatVector(dragResult->torqueNewtonMeters) + ", requested drive " +
