@@ -123,12 +123,13 @@ namespace DeepRun::Tests
     const auto* nearRight = findPoint(1'000.0F);
     const auto* regionalRight = findPoint(6'000.0F);
     const auto* deepRight = findPoint(20'000.0F);
-    if (tacticalProfile.size() < 120U || tacticalProfile.front().xMeters > -299'000.0F ||
-        tacticalProfile.back().xMeters < 299'000.0F || !leftLocal || !centerLocal || !rightLocal || !nearRight ||
+    if (tacticalProfile.size() < 2'000U || tacticalProfile.front().xMeters > -999'000.0F ||
+        tacticalProfile.back().xMeters < 999'000.0F || !leftLocal || !centerLocal || !rightLocal || !nearRight ||
         !regionalRight || !deepRight || leftLocal->yMeters != -160.0F || centerLocal->yMeters != -220.0F ||
-        rightLocal->yMeters != -165.0F || nearRight->yMeters > -150.0F || nearRight->yMeters < -350.0F ||
-        regionalRight->yMeters >= nearRight->yMeters || deepRight->yMeters >= -700.0F ||
-        std::abs(SampleM5TacticalBathymetryYMeters(6'000.0F) - SampleM5TacticalBathymetryYMeters(8'000.0F)) < 5.0F)
+        rightLocal->yMeters != -165.0F || nearRight->yMeters > -150.0F || nearRight->yMeters < -280.0F ||
+        regionalRight->yMeters > -150.0F || regionalRight->yMeters < -280.0F ||
+        deepRight->yMeters > -150.0F || deepRight->yMeters < -280.0F ||
+        std::abs(SampleM5TacticalBathymetryYMeters(6'000.0F) - SampleM5TacticalBathymetryYMeters(8'000.0F)) < 2.0F)
         return false;
 
     const auto strategic = BuildStrategicSeabedPresentationModel();

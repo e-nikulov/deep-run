@@ -79,11 +79,13 @@ const char* BuoyancyTrimStateName(const VesselNavigationHudSnapshot& snapshot) n
 {
     constexpr float commandThreshold = 0.01F;
     constexpr float settlingVerticalSpeedThreshold = 0.05F;
-    if (snapshot.bowPlaneDeflectionFraction > commandThreshold)
+    // Bow planes are deployment-only; stern deflection is the only hydrodynamic depth/pitch command cue.
+    // Canonical Depth -1 (surface) produces negative stern deflection, +1 (dive) positive deflection.
+    if (snapshot.sternPlaneDeflectionFraction < -commandThreshold)
     {
         return "INCREASING BUOYANCY";
     }
-    if (snapshot.bowPlaneDeflectionFraction < -commandThreshold)
+    if (snapshot.sternPlaneDeflectionFraction > commandThreshold)
     {
         return "DECREASING BUOYANCY";
     }

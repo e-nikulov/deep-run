@@ -437,17 +437,20 @@ def production_depth_plane_authoring(objects: dict[str, bpy.types.Object]) -> li
     group_counts = {"BOW": 0, "STERN": 0}
     for obj in candidates:
         role = obj.get("CONTROL_SURFACE_ROLE")
-        if obj.get("ARTICULATION") != "ROTATION" or obj.get("HINGE_AXIS") != "LOCAL_Y" or not bool(obj.get("SIMULATION_OWNS_ANGLE", False)):
-            raise RuntimeError(f"Depth plane has invalid articulation contract: {obj.name}")
         group = "BOW" if role == "BOW_DEPTH_PLANE" else "STERN"
+        if group == "BOW":
+            if obj.get("ARTICULATION") != "DEPLOYMENT_ONLY" or obj.get("HINGE_AXIS") != "NONE" or bool(obj.get("SIMULATION_OWNS_ANGLE", True)):
+                raise RuntimeError(f"Bow plane must be deployment-only: {obj.name}")
+        elif obj.get("ARTICULATION") != "ROTATION" or obj.get("HINGE_AXIS") != "LOCAL_Y" or not bool(obj.get("SIMULATION_OWNS_ANGLE", False)):
+            raise RuntimeError(f"Stern plane has invalid articulation contract: {obj.name}")
         group_counts[group] += 1
         records.append({
             "semanticId": f"depth-plane.{group.lower()}.{group_counts[group]:02d}",
             "group": group,
             "nodeReference": obj.name,
-            "articulation": "ROTATION",
-            "hingeAxisSource": "LOCAL_Y",
-            "simulationOwnsAngle": True,
+            "articulation": "DEPLOYMENT_ONLY" if group == "BOW" else "ROTATION",
+            "hingeAxisSource": "NONE" if group == "BOW" else "LOCAL_Y",
+            "simulationOwnsAngle": group == "STERN",
         })
     if group_counts != {"BOW": 2, "STERN": 2}:
         raise RuntimeError(f"Production Antey depth-plane group counts are invalid: {group_counts}")

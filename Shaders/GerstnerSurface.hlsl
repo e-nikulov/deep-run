@@ -32,16 +32,19 @@ float2 EvaluateComponent(const float baseX, const float timeSeconds, const float
 VSOutput VSMain(const VSInput input)
 {
     const float timeSeconds = ReferenceLevelAndTime.y;
+    const float cameraCenterX = ReferenceLevelAndTime.z;
+    const float horizontalScale = ReferenceLevelAndTime.w;
+    const float baseWorldX = cameraCenterX + input.basePosition.x * horizontalScale;
     float2 displacement = float2(0.0F, 0.0F);
     if (input.surfaceWeight > 0.5F)
     {
-        displacement += EvaluateComponent(input.basePosition.x, timeSeconds, Wave0, HorizontalSteepness.x);
-        displacement += EvaluateComponent(input.basePosition.x, timeSeconds, Wave1, HorizontalSteepness.y);
-        displacement += EvaluateComponent(input.basePosition.x, timeSeconds, Wave2, HorizontalSteepness.z);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave0, HorizontalSteepness.x);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave1, HorizontalSteepness.y);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave2, HorizontalSteepness.z);
     }
 
     const float surfaceWeight = input.surfaceWeight;
-    const float worldX = input.basePosition.x + displacement.x * surfaceWeight;
+    const float worldX = baseWorldX + displacement.x * surfaceWeight;
     const float worldY = input.basePosition.y + displacement.y * surfaceWeight;
     VSOutput output;
     output.position = mul(ViewProjection, float4(worldX, worldY, 0.0F, 1.0F));

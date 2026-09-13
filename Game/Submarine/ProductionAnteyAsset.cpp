@@ -408,9 +408,9 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                         {"semanticId", std::format("depth-plane.{}.{:02}", semanticGroup, index + 1U)},
                         {"group", std::string(groupValue)},
                         {"nodeReference", "SM_Antey_LOD0_" + sourceName},
-                        {"articulation", "ROTATION"},
-                        {"hingeAxisSource", "LOCAL_Y"},
-                        {"simulationOwnsAngle", true}});
+                        {"articulation", semanticGroup == "bow" ? "DEPLOYMENT_ONLY" : "ROTATION"},
+                        {"hingeAxisSource", semanticGroup == "bow" ? "NONE" : "LOCAL_Y"},
+                        {"simulationOwnsAngle", semanticGroup != "bow"}});
                 }
             };
             appendDepthPlaneGroup("bowPlanes", "bow", "BOW");
@@ -428,9 +428,15 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             const std::string semanticId = record.at("semanticId").get<std::string>();
             const std::string groupValue = record.at("group").get<std::string>();
             const std::string privateNodeReference = record.at("nodeReference").get<std::string>();
-            Require(record.at("articulation").get<std::string>() == "ROTATION" &&
-                    record.at("hingeAxisSource").get<std::string>() == "LOCAL_Y" &&
-                    record.at("simulationOwnsAngle").get<bool>(),
+            const bool bowDeploymentOnly = groupValue == "BOW" &&
+                record.at("articulation").get<std::string>() == "DEPLOYMENT_ONLY" &&
+                record.at("hingeAxisSource").get<std::string>() == "NONE" &&
+                !record.at("simulationOwnsAngle").get<bool>();
+            const bool sternRotating = groupValue == "STERN" &&
+                record.at("articulation").get<std::string>() == "ROTATION" &&
+                record.at("hingeAxisSource").get<std::string>() == "LOCAL_Y" &&
+                record.at("simulationOwnsAngle").get<bool>();
+            Require(bowDeploymentOnly || sternRotating,
                     "Antey depth-plane articulation authoring contract is invalid");
             const ProductionDepthPlaneGroup group = groupValue == "BOW"
                 ? ProductionDepthPlaneGroup::Bow

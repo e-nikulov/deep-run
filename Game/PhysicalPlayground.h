@@ -60,7 +60,7 @@ struct VesselPresentationTelemetry final
     // World +Y is upward, so positive values mean surfacing and negative values mean diving.
     float verticalSpeedMetersPerSecond = 0.0F;
     float throttleFraction = 0.0F;
-    float bowPlaneDeflectionFraction = 0.0F;
+    bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };
 
@@ -240,8 +240,20 @@ public:
         return M2GameplayCameraHorizontalSpanMeters;
     }
 
-    // Presentation-only bridge from the P-700 lifecycle. Semantic hatch identity was resolved from production
-    // authoring once at Initialize; no raw GLB node name or gameplay launch decision enters the renderer.
+    [[nodiscard]] std::expected<void, std::string> SetPeriscopePresentation(const bool raised)
+    {
+        if (!primaryPeriscopeNodeIndex_.has_value())
+            return std::unexpected("primary production periscope presentation binding is unavailable");
+        primaryPeriscopeRequestedRaised_ = raised;
+        return {};
+    }
+
+    [[nodiscard]] float PeriscopeDeploymentProgress() const noexcept
+    {
+        return primaryPeriscopeDeploymentProgress_;
+    }
+
+    // Presentation-only bridge from the P-700 lifecycle.
     [[nodiscard]] std::expected<void, std::string> SetP700HatchPresentation(
         const std::optional<std::string>& hatchGroupSemanticId,
         const float openProgress)
@@ -452,8 +464,13 @@ private:
     // IG1-B.1 fixed submerged presentation state. These per-node post transforms are built from opaque
     // IG1 production bindings once at initialization and never mutate ModelAsset or physics.
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides_;
+    std::optional<std::size_t> primaryPeriscopeNodeIndex_{};
+    Assets::ModelTransform primaryPeriscopeStowedTransform_{};
+    Assets::ModelTransform primaryPeriscopeDeployedTransform_{};
+    bool primaryPeriscopeRequestedRaised_ = false;
+    float primaryPeriscopeDeploymentProgress_ = 0.0F;
 
-    // Bounded H2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.
+    // Bounded H2 diagnostics:
     std::uint64_t fixedTickCount_ = 0;
     bool loggedFirstFixedSample_ = false;
     bool loggedLaterFixedSample_ = false;
