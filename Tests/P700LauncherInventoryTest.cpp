@@ -158,8 +158,7 @@ BuildAnchors()
         fast->definition.maximumTravelDistanceMeters != 50'000.0F ||
         economy->definition.maximumTravelDistanceMeters != 100'000.0F)
     {
-        std::cerr << "M5 four-item Weapon Selector/profile range contract is invalid
-";
+        std::cerr << "M5 four-item Weapon Selector/profile range contract is invalid\n";
         return false;
     }
     return true;
