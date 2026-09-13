@@ -315,6 +315,15 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
     {
         return false;
     }
+    const auto propellerMaterial = std::find_if(
+        model->Get()->materials.begin(), model->Get()->materials.end(),
+        [](const auto& material) { return material.name == "MAT_Antey_Propellers"; });
+    if (propellerMaterial == model->Get()->materials.end() || !propellerMaterial->doubleSided)
+    {
+        std::cerr << "[IG1-A] production propeller material must preserve glTF doubleSided=true\n";
+        return false;
+    }
+
     const auto baselineDraws = DeepRun::Render::PrepareModelDraws(*model->Get());
     if (!baselineDraws)
     {
@@ -374,6 +383,10 @@ bool IG1AStagedProductionDefinitionLoadsHeadlessly()
                           baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())
             {
                 continue;
+            }
+            if (baselineDraw.material.name != "MAT_Antey_Propellers" || !baselineDraw.material.doubleSided)
+            {
+                return false;
             }
             const auto rotatedDraw = std::find_if(rotatedDraws->begin(), rotatedDraws->end(), [&](const auto& candidate) {
                 return candidate.nodeIndex == baselineDraw.nodeIndex &&

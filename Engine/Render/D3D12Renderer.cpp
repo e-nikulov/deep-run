@@ -867,6 +867,14 @@ public:
         pipeline.SampleDesc.Count = 1;
         ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelPipeline)),
                       "Create model graphics pipeline");
+
+        // glTF doubleSided is a material contract, not a geometry rewrite. Keep the normal
+        // back-face-culling PSO for ordinary meshes and a second PSO for authored two-sided
+        // surfaces such as the production Antey propeller blades.
+        pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        ThrowIfFailed(
+            device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelDoubleSidedPipeline)),
+            "Create double-sided model graphics pipeline");
     }
 
     void CreateSuspendedParticlePipeline(const std::filesystem::path& shaderRoot)
@@ -1457,7 +1465,8 @@ public:
         {
             return std::unexpected("GPU model handle does not resolve in this renderer");
         }
-        if (modelPipeline == nullptr || modelRootSignature == nullptr || depthBuffer == nullptr)
+        if (modelPipeline == nullptr || modelDoubleSidedPipeline == nullptr ||
+            modelRootSignature == nullptr || depthBuffer == nullptr)
         {
             return std::unexpected("model pipeline or depth buffer is not ready");
         }
@@ -1470,6 +1479,7 @@ public:
         GpuModel& gpuModel = gpuModels[modelIndex];
         commandList->SetGraphicsRootSignature(modelRootSignature.Get());
         commandList->SetPipelineState(modelPipeline.Get());
+        bool doubleSidedPipelineBound = false;
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         if (!scenePresentationConfigured)
         {
@@ -1487,6 +1497,14 @@ public:
                 std::ostringstream message;
                 message << "draw references invalid GPU primitive " << draw.primitiveIndex;
                 return std::unexpected(message.str());
+            }
+
+            const bool useDoubleSidedPipeline = draw.material.doubleSided;
+            if (useDoubleSidedPipeline != doubleSidedPipelineBound)
+            {
+                commandList->SetPipelineState(
+                    useDoubleSidedPipeline ? modelDoubleSidedPipeline.Get() : modelPipeline.Get());
+                doubleSidedPipelineBound = useDoubleSidedPipeline;
             }
 
             const GpuPrimitive& primitive = gpuModel.primitives[draw.primitiveIndex];
@@ -2131,6 +2149,7 @@ public:
         gerstnerSurfaceRootSignature.Reset();
         suspendedParticlePipeline.Reset();
         suspendedParticleRootSignature.Reset();
+        modelDoubleSidedPipeline.Reset();
         modelPipeline.Reset();
         modelRootSignature.Reset();
         for (ScenePresentationUpload& upload : scenePresentationUploads)
@@ -2180,6 +2199,7 @@ public:
     ComPtr<ID3D12Resource> depthBuffer;
     ComPtr<ID3D12RootSignature> modelRootSignature;
     ComPtr<ID3D12PipelineState> modelPipeline;
+    ComPtr<ID3D12PipelineState> modelDoubleSidedPipeline;
     ComPtr<ID3D12RootSignature> gerstnerSurfaceRootSignature;
     ComPtr<ID3D12PipelineState> gerstnerSurfacePipeline;
     ComPtr<ID3D12RootSignature> suspendedParticleRootSignature;
@@ -2390,7 +2410,8 @@ bool D3D12Renderer::IsInitialized() const noexcept
 
 bool D3D12Renderer::IsModelPipelineReady() const noexcept
 {
-    return impl_->modelPipeline != nullptr && impl_->modelRootSignature != nullptr;
+    return impl_->modelPipeline != nullptr && impl_->modelDoubleSidedPipeline != nullptr &&
+           impl_->modelRootSignature != nullptr;
 }
 
 bool D3D12Renderer::IsDepthBufferReady() const noexcept
