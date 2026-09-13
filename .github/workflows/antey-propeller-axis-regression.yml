@@ -1,0 +1,158 @@
+name: Antey Propeller X Axis Regression Patch
+
+on:
+  push:
+    branches:
+      - fix/antey-propeller-runtime-presentation
+    paths:
+      - .github/workflows/antey-propeller-axis-regression.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace radius-only propeller gate with analytic X-axis gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          path = Path('Tests/TestMain.cpp')
+          text = path.read_text(encoding='utf-8')
+          start_marker = '    DeepRun::Assets::ModelTransform quarterTurn{};\n'
+          end_marker = '\n\n    const auto cantedCamera = DeepRun::Render::BuildFixedWorldSideViewCamera('
+          start = text.find(start_marker)
+          if start < 0:
+              raise SystemExit('propeller quarter-turn regression start not found')
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('propeller regression end not found')
+          replacement = r'''    const auto transformPoint = [](const DeepRun::Assets::ModelTransform& transform,
+                                   const DeepRun::Assets::ModelVector3& point)
+    {
+        return DeepRun::Assets::ModelVector3{
+            .x = transform.values[0] * point.x + transform.values[4] * point.y +
+                 transform.values[8] * point.z + transform.values[12],
+            .y = transform.values[1] * point.x + transform.values[5] * point.y +
+                 transform.values[9] * point.z + transform.values[13],
+            .z = transform.values[2] * point.x + transform.values[6] * point.y +
+                 transform.values[10] * point.z + transform.values[14]};
+    };
+    constexpr float Pi = 3.14159265358979323846F;
+    constexpr std::array<float, 5> TestAngles{0.0F, Pi * 0.25F, Pi * 0.5F, Pi, Pi * 1.5F};
+    for (const auto& propeller : definition->propellers)
+    {
+        if (propeller.presentationNodeBindingIndex >= model->Get()->nodeBindings.size())
+        {
+            return false;
+        }
+        const auto& binding = model->Get()->nodeBindings[propeller.presentationNodeBindingIndex];
+        if (binding.drawableMeshNodeIndices.size() != 7U ||
+            std::any_of(
+                binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
+                [&model](const std::size_t index) { return index >= model->Get()->nodes.size(); }))
+        {
+            return false;
+        }
+        bool checkedGeometry = false;
+        for (const float angle : TestAngles)
+        {
+            const float sine = std::sin(angle);
+            const float cosine = std::cos(angle);
+            DeepRun::Assets::ModelTransform xRotation{};
+            xRotation.values[5] = cosine;
+            xRotation.values[6] = sine;
+            xRotation.values[9] = -sine;
+            xRotation.values[10] = cosine;
+            const std::array<DeepRun::Render::ModelBindingTransformOverride, 1> overrides{{
+                {.bindingIndex = propeller.presentationNodeBindingIndex,
+                 .bindingLocalPostTransform = xRotation,
+                 .modelSpacePivot = propeller.localOrigin}}};
+            const auto rotatedDraws = DeepRun::Render::PrepareModelDraws(*model->Get(), {}, {}, overrides);
+            if (!rotatedDraws)
+            {
+                return false;
+            }
+            for (const auto& baselineDraw : *baselineDraws)
+            {
+                if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),
+                              baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())
+                {
+                    continue;
+                }
+                if (baselineDraw.material.name != "MAT_Antey_Propellers" || !baselineDraw.material.doubleSided)
+                {
+                    return false;
+                }
+                const auto rotatedDraw = std::find_if(rotatedDraws->begin(), rotatedDraws->end(), [&](const auto& candidate) {
+                    return candidate.nodeIndex == baselineDraw.nodeIndex &&
+                           candidate.primitiveIndex == baselineDraw.primitiveIndex;
+                });
+                if (rotatedDraw == rotatedDraws->end() || baselineDraw.primitiveIndex >= model->Get()->primitives.size())
+                {
+                    return false;
+                }
+                const auto& primitive = model->Get()->primitives[baselineDraw.primitiveIndex];
+                for (const auto& vertex : primitive.vertices)
+                {
+                    const auto before = transformPoint(baselineDraw.modelToWorld, vertex.position);
+                    const auto after = transformPoint(rotatedDraw->modelToWorld, vertex.position);
+                    const float relativeY = before.y - propeller.localOrigin.y;
+                    const float relativeZ = before.z - propeller.localOrigin.z;
+                    const DeepRun::Assets::ModelVector3 expected{
+                        .x = before.x,
+                        .y = propeller.localOrigin.y + cosine * relativeY - sine * relativeZ,
+                        .z = propeller.localOrigin.z + sine * relativeY + cosine * relativeZ};
+                    constexpr float PositionToleranceMeters = 2.0e-3F;
+                    if (!std::isfinite(after.x) || !std::isfinite(after.y) || !std::isfinite(after.z) ||
+                        std::abs(after.x - expected.x) > PositionToleranceMeters ||
+                        std::abs(after.y - expected.y) > PositionToleranceMeters ||
+                        std::abs(after.z - expected.z) > PositionToleranceMeters)
+                    {
+                        return false;
+                    }
+                    checkedGeometry = true;
+                }
+            }
+        }
+        if (!checkedGeometry)
+        {
+            return false;
+        }
+    }'''
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 .tmp_patch_axis_regression.py
+          python .tmp_patch_axis_regression.py
+
+      - name: Update acceptance note
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          path = Path('docs/development/antey-propeller-runtime-presentation-fix.md')
+          text = path.read_text(encoding='utf-8')
+          note = '\nThe persisted regression now validates the complete seven-node drawable subtree against the analytic model-space `R_x(theta)` result at 0, 45, 90, 180, and 270 degrees for every submitted propeller vertex; radius preservation alone is no longer accepted as proof of the shaft axis.\n'
+          if 'analytic model-space `R_x(theta)`' not in text:
+              path.write_text(text.rstrip() + '\n' + note, encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 .tmp_axis_docs.py
+          python .tmp_axis_docs.py
+
+      - name: Commit regression hardening
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git diff --check
+          git config user.name 'Evgeniy N.'
+          git config user.email 'gnikulov@gmail.com'
+          git add Tests/TestMain.cpp docs/development/antey-propeller-runtime-presentation-fix.md
+          git rm .github/workflows/antey-propeller-axis-regression.yml
+          git commit -m 'test: prove Antey propellers rotate around model X shaft'
+          git push origin HEAD:fix/antey-propeller-runtime-presentation
