@@ -36,6 +36,17 @@ const char* TrackLifecycleName(const Perception::TrackLifecycleState lifecycle) 
     return "UNKNOWN";
 }
 
+const char* ClassificationName(const Perception::ContactClassification classification) noexcept
+{
+    switch (classification)
+    {
+    case Perception::ContactClassification::Unknown: return "UNCONFIRMED";
+    case Perception::ContactClassification::MilitarySurfaceCombatant: return "MILITARY / VISUALLY CONFIRMED";
+    case Perception::ContactClassification::CivilianSurfaceVessel: return "CIVILIAN / FIRE INHIBITED";
+    }
+    return "UNCONFIRMED";
+}
+
 const char* CameraBandName(const Camera::MultiScaleCameraBand band) noexcept
 {
     switch (band)
@@ -47,6 +58,28 @@ const char* CameraBandName(const Camera::MultiScaleCameraBand band) noexcept
     case Camera::MultiScaleCameraBand::Strategic: return "STRATEGIC";
     }
     return "UNKNOWN";
+}
+
+// Depth-plane deflection is committed simulation state driven from the same canonical Depth command as the
+// low-speed variable-ballast controller. Use it only to name the player's trim intent; vertical speed then
+// distinguishes an actively damping neutral command from a genuinely settled/trimmed boat.
+const char* BuoyancyTrimStateName(const VesselNavigationHudSnapshot& snapshot) noexcept
+{
+    constexpr float commandThreshold = 0.01F;
+    constexpr float settlingVerticalSpeedThreshold = 0.05F;
+    if (snapshot.bowPlaneDeflectionFraction > commandThreshold)
+    {
+        return "INCREASING BUOYANCY";
+    }
+    if (snapshot.bowPlaneDeflectionFraction < -commandThreshold)
+    {
+        return "DECREASING BUOYANCY";
+    }
+    if (std::abs(snapshot.verticalSpeedMetersPerSecond) > settlingVerticalSpeedThreshold)
+    {
+        return "STABILIZING";
+    }
+    return "NEUTRAL / TRIMMED";
 }
 
 std::optional<ImVec2> ProjectWorldToMainViewport(
@@ -92,6 +125,8 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
     case PlayerCombatCommandType::FireWeapon: return "FIRE WEAPON";
     case PlayerCombatCommandType::ActiveSonarPing: return "ACTIVE SONAR";
     case PlayerCombatCommandType::DeployDecoy: return "DEPLOY DECOY";
+    case PlayerCombatCommandType::TogglePeriscope: return "PERISCOPE";
+    case PlayerCombatCommandType::VisualIdentify: return "VISUAL ID";
     }
     return "UNKNOWN COMMAND";
 }
@@ -101,8 +136,6 @@ void DrawCombatCommandUi(
     const PlayerCombatPresentationSnapshot& snapshot,
     CombatUiPresentationSettings* presentationSettings)
 {
-    // M5-V1: the Engine diagnostics overlay owns the upper-left corner. Combat presentation is anchored to
-    // the upper-right work area on every frame so resize/capture cannot reintroduce the old overlap.
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     if (viewport != nullptr)
     {
@@ -112,7 +145,7 @@ void DrawCombatCommandUi(
             ImGuiCond_Always,
             ImVec2(1.0F, 0.0F));
     }
-    ImGui::SetNextWindowSize(ImVec2(350.0F, 0.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(370.0F, 0.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.82F);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize |
                                        ImGuiWindowFlags_NoCollapse |
@@ -137,6 +170,7 @@ void DrawCombatCommandUi(
     {
         ImGui::TextUnformatted("Selected track: NONE");
         ImGui::TextUnformatted("Firing solution: NO TRACK");
+        ImGui::TextUnformatted("Identification: NO TRACK");
     }
     else
     {
@@ -170,8 +204,37 @@ void DrawCombatCommandUi(
                 ImGui::TextUnformatted("Position solution: unavailable");
             }
             ImGui::Text("Firing solution: %s", snapshot.selectedTrackWeaponQualified ? "QUALIFIED" : "INSUFFICIENT");
+            if (snapshot.selectedTrackVisuallyIdentified)
+            {
+                ImGui::Text("Identification: %s", ClassificationName(snapshot.selectedTrackClassification));
+            }
+            else if (snapshot.selectedTrackCivilianRisk)
+            {
+                ImGui::TextUnformatted("Identification: UNCONFIRMED - CIVILIAN RISK");
+            }
+            else
+            {
+                ImGui::TextUnformatted("Identification: UNCONFIRMED");
+            }
         }
     }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("PERISCOPE");
+    if (!snapshot.periscopeWithinOperatingDepth)
+    {
+        ImGui::TextUnformatted("State: UNAVAILABLE - TOO DEEP");
+    }
+    else
+    {
+        ImGui::Text("State: %s", snapshot.periscopeRaised ? "RAISED / MAST EXPOSED" : "STOWED");
+    }
+    if (snapshot.periscopeViewBearingRadians)
+    {
+        constexpr float radiansToDegrees = 57.2957795F;
+        ImGui::Text("Optical bearing: %.1f deg", *snapshot.periscopeViewBearingRadians * radiansToDegrees);
+    }
+    ImGui::Text("Visual ID: %s", snapshot.canVisualIdentify ? "READY" : "UNAVAILABLE");
 
     ImGui::Separator();
     ImGui::TextUnformatted("THREAT");
@@ -225,6 +288,8 @@ void DrawCombatCommandUi(
 
     ImGui::Separator();
     ImGui::TextUnformatted("Y / Tab          Select contact");
+    ImGui::TextUnformatted("D-pad Up / P     Raise/lower periscope");
+    ImGui::TextUnformatted("A / V            Visual identify");
     ImGui::TextUnformatted("D-pad L/R / Z/C  Select weapon");
     ImGui::TextUnformatted("LT / R / RMB     Prepare weapon");
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
@@ -232,7 +297,6 @@ void DrawCombatCommandUi(
     ImGui::TextUnformatted("X / F            Deploy decoy");
     ImGui::End();
 }
-
 
 void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
 {
@@ -306,9 +370,8 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
     drawList->AddText(ImVec2(center.x + radius - 18.0F, center.y + 7.0F), textColor, "BOW");
 
     const auto pointAt = [&center](const float bearingRadians, const float distancePixels) {
-        return ImVec2(
-            center.x + std::cos(bearingRadians) * distancePixels,
-            center.y - std::sin(bearingRadians) * distancePixels);
+        return ImVec2(center.x + std::cos(bearingRadians) * distancePixels,
+                      center.y - std::sin(bearingRadians) * distancePixels);
     };
 
     for (const auto& contact : snapshot.tracks)
@@ -335,10 +398,9 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
                 drawList->AddCircle(contactPoint, uncertaintyPixels, IM_COL32(105, 235, 190, 100), 24, 1.0F);
             }
             drawList->AddCircleFilled(contactPoint, contact.selected ? 5.5F : 4.0F, color, 16);
-            drawList->AddLine(
-                pointAt(bearing - uncertainty, radius * normalizedRange),
-                pointAt(bearing + uncertainty, radius * normalizedRange),
-                IM_COL32(105, 235, 190, 100), 1.0F);
+            drawList->AddLine(pointAt(bearing - uncertainty, radius * normalizedRange),
+                              pointAt(bearing + uncertainty, radius * normalizedRange),
+                              IM_COL32(105, 235, 190, 100), 1.0F);
         }
 
         const ImVec2 labelPoint = pointAt(
@@ -444,6 +506,7 @@ void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot)
     ImGui::TextUnformatted("NAV");
     ImGui::Text("Current depth: %.1f m", currentDepthMeters);
     ImGui::Text("Vertical speed: %+0.2f m/s (UP+)", snapshot.verticalSpeedMetersPerSecond);
+    ImGui::Text("Buoyancy / trim: %s", BuoyancyTrimStateName(snapshot));
     ImGui::Text("Throttle: %+0.0f%%", snapshot.throttleFraction * 100.0F);
     ImGui::Text("Bow/Stern planes: %+0.0f%% / %+0.0f%%",
                 snapshot.bowPlaneDeflectionFraction * 100.0F,
