@@ -60,6 +60,8 @@ struct PlayerCombatPresentationSnapshot final
     bool selectedTrackHasEstimatedPosition = false;
     std::optional<Physics::PhysicsVector3> selectedTrackEstimatedPositionMeters{};
     Perception::ContactClassification selectedTrackClassification = Perception::ContactClassification::Unknown;
+    Perception::OpticalIdentificationLevel selectedTrackOpticalIdentificationLevel =
+        Perception::OpticalIdentificationLevel::None;
     bool selectedTrackVisuallyIdentified = false;
     bool selectedTrackCivilianRisk = false;
     bool selectedTrackWeaponQualified = false;
@@ -197,6 +199,7 @@ public:
         snapshot.selectedTrackHasEstimatedPosition = selected->estimatedPositionMeters.has_value();
         snapshot.selectedTrackEstimatedPositionMeters = selected->estimatedPositionMeters;
         snapshot.selectedTrackClassification = selected->classification;
+        snapshot.selectedTrackOpticalIdentificationLevel = selected->opticalIdentificationLevel;
         snapshot.selectedTrackVisuallyIdentified = selected->visuallyIdentified;
         snapshot.selectedTrackWeaponQualified = Weapons::ValidateTrackForWeapon(definition_, *selected).has_value();
         snapshot.selectedTrackCivilianRisk = snapshot.selectedTrackWeaponQualified && !selected->visuallyIdentified;
