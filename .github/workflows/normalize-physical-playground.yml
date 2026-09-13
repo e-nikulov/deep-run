@@ -1,0 +1,195 @@
+name: Normalize PhysicalPlayground diff
+
+on:
+  push:
+    branches:
+      - feature/periscope-ballast-gameplay
+
+permissions:
+  contents: write
+
+concurrency:
+  group: normalize-physical-playground
+  cancel-in-progress: true
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild PhysicalPlayground from main with semantic ballast changes only
+        shell: bash
+        run: |
+          git fetch origin main
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          path = Path("Game/PhysicalPlayground.cpp")
+          current = path.read_text(encoding="utf-8")
+          target = subprocess.check_output(
+              ["git", "show", "origin/main:Game/PhysicalPlayground.cpp"],
+              text=True,
+              encoding="utf-8",
+          )
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{label}: expected one anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          target = replace_once(
+              target,
+              '#include "Game/Submarine/ProductionAnteyLodPolicy.h"\n',
+              '#include "Game/Submarine/ProductionAnteyLodPolicy.h"\n'
+              '#include "Game/Submarine/VariableBallastDepthControl.h"\n',
+              "ballast include",
+          )
+
+          target = replace_once(
+              target,
+              'constexpr float M2MaximumPlaneDeflection = 0.5F;\n',
+              'constexpr float M2MaximumPlaneDeflection = 0.5F;\n'
+              '// Low/zero-speed vertical authority is intentionally separate from hydrodynamic plane lift. This bounded\n'
+              '// Game-owned controller approximates variable ballast / trim effects without modelling classified tank hardware.\n'
+              'constexpr Submarine::VariableBallastDepthControlConfig M5LowSpeedBallastDepthControl{};\n',
+              "ballast policy",
+          )
+
+          control_pattern = re.compile(
+              r'(\n\s*controlResults\[index\]\s*=\s*\*control;\s*\n\s*\}\s*\n)'
+          )
+          control_matches = list(control_pattern.finditer(target))
+          if len(control_matches) != 1:
+              raise RuntimeError(f"control-surface anchor: expected one match, found {len(control_matches)}")
+          insert_at = control_matches[0].end()
+          ballast_eval = '''\n    const float vesselWeightNewtons = M2GameAnteyMassTuningKg * *gravityMagnitude;
+    const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
+        M5LowSpeedBallastDepthControl,
+        command.depthCommandFraction,
+        controlResults[M2BowPlaneIndex].bodyForwardSpeedMetersPerSecond,
+        state->linearVelocity.y,
+        vesselWeightNewtons);
+    if (!variableBallast)
+    {
+        return std::unexpected("physical playground variable-ballast evaluation failed: " + variableBallast.error());
+    }
+'''
+          target = target[:insert_at] + ballast_eval + target[insert_at:]
+
+          float_loop = '    for (std::size_t index = 0; index < surfaceFloatBuoyancyResult_.points.size(); ++index)\n'
+          if target.count(float_loop) != 1:
+              raise RuntimeError(f"surface-float anchor: expected one match, found {target.count(float_loop)}")
+          ballast_force = '''    // Variable ballast/trim is a real bounded simulation force at COM. It intentionally produces translation
+    // without inventing a pitch moment; bow/stern planes remain the separate pitch mechanism when flow exists.
+    Physics::PhysicsError ballastForceError;
+    if (!physics_->AddForceAtWorldPosition(
+            physicsBody_, variableBallast->forceNewtons, state->position, &ballastForceError))
+    {
+        return std::unexpected(
+            "physical playground variable-ballast force application failed: " + ballastForceError.message);
+    }
+
+'''
+          target = target.replace(float_loop, ballast_force + float_loop, 1)
+
+          log_pattern = re.compile(
+              r'FormatVector\(buoyancyResult->totalForceNewtons\)\s*\+\s*", drag force "\s*\+'
+          )
+          log_matches = list(log_pattern.finditer(target))
+          if len(log_matches) != 1:
+              raise RuntimeError(f"diagnostic anchor: expected one match, found {len(log_matches)}")
+          replacement = '''FormatVector(buoyancyResult->totalForceNewtons) + ", variable ballast authority " +
+                std::to_string(variableBallast->lowSpeedAuthorityFraction) + ", ballast target V/S " +
+                std::to_string(variableBallast->targetVerticalSpeedMetersPerSecond) +
+                " m/s, ballast force " + FormatVector(variableBallast->forceNewtons) + ", drag force " +'''
+          target = log_pattern.sub(replacement, target, count=1)
+
+          def canonical_cpp(source: str) -> str:
+              out = []
+              i = 0
+              n = len(source)
+              state = "normal"
+              quote = ""
+              while i < n:
+                  c = source[i]
+                  nxt = source[i + 1] if i + 1 < n else ""
+                  if state == "normal":
+                      if c == '/' and nxt == '/':
+                          state = "line_comment"
+                          i += 2
+                          continue
+                      if c == '/' and nxt == '*':
+                          state = "block_comment"
+                          i += 2
+                          continue
+                      if c in ('"', "'"):
+                          quote = c
+                          state = "literal"
+                          out.append(c)
+                          i += 1
+                          continue
+                      if c.isspace():
+                          i += 1
+                          continue
+                      out.append(c)
+                      i += 1
+                      continue
+                  if state == "line_comment":
+                      if c == '\n':
+                          state = "normal"
+                      i += 1
+                      continue
+                  if state == "block_comment":
+                      if c == '*' and nxt == '/':
+                          state = "normal"
+                          i += 2
+                      else:
+                          i += 1
+                      continue
+                  if state == "literal":
+                      out.append(c)
+                      if c == '\\' and i + 1 < n:
+                          out.append(source[i + 1])
+                          i += 2
+                          continue
+                      if c == quote:
+                          state = "normal"
+                      i += 1
+                      continue
+              return ''.join(out)
+
+          current_semantic = canonical_cpp(current)
+          target_semantic = canonical_cpp(target)
+          if current_semantic != target_semantic:
+              limit = min(len(current_semantic), len(target_semantic))
+              mismatch = next((i for i in range(limit) if current_semantic[i] != target_semantic[i]), limit)
+              lo = max(0, mismatch - 180)
+              hi = mismatch + 260
+              print("Semantic mismatch: refusing to normalize PhysicalPlayground.cpp", file=sys.stderr)
+              print("CURRENT:", current_semantic[lo:hi], file=sys.stderr)
+              print("TARGET :", target_semantic[lo:hi], file=sys.stderr)
+              sys.exit(2)
+
+          path.write_text(target, encoding="utf-8", newline="\n")
+          PY
+
+      - name: Commit normalized file when needed
+        shell: bash
+        run: |
+          if git diff --quiet -- Game/PhysicalPlayground.cpp; then
+            echo "PhysicalPlayground.cpp is already normalized"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Game/PhysicalPlayground.cpp
+          git commit -m "chore: normalize PhysicalPlayground ballast diff"
+          git push origin HEAD:feature/periscope-ballast-gameplay
