@@ -40,6 +40,8 @@ This is a gameplay model of variable ballast / trim compensation. It is intentio
 - WaterBody remains depth authority;
 - ballast output is a real bounded force applied through PhysicsWorld;
 - releasing depth input does not instantly stop the boat; trim authority damps vertical rate through force over time;
+- deep and periscope-depth operation retains submerged trim compensation, but a deliberate continued surface command arms surfaced hydrostatic mode near 7 m centre depth; in that mode reserve compensation is released and the boat settles by displaced volume near the explicit ~75% submerged target;
+- a dive command leaves surfaced mode immediately and restores submerged trim authority as displacement rises;
 - no presentation-only state may change depth.
 
 ### Navigation HUD contract

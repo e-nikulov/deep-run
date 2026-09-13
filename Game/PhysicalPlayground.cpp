@@ -107,6 +107,10 @@ constexpr float M2BuoyancySubmersionHalfHeightMeters = 6.0F;
 // the untrimmed surface equilibrium about 1/1.32 = 75.8% submerged while submerged trim cancels the reserve.
 constexpr float M5AnteyReserveBuoyancyFraction = 0.32F;
 constexpr float M5MaximumReserveBuoyancyReleaseFractionOfWeight = 0.04F;
+// Surface mode is armed only after a deliberate surfacing command reaches the near-surface band. This lets
+// periscope-depth trim remain neutral around 10 m, while a continued surface command releases hydrostatic trim
+// and lets reserve buoyancy find the natural ~3/4-submerged equilibrium.
+constexpr float M5SurfaceHydrostaticModeArmDepthMeters = 7.0F;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
 constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
@@ -1157,6 +1161,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     primaryPeriscopeDeployedTransform_ = primaryPeriscopeDeployedTransform;
     primaryPeriscopeRequestedRaised_ = false;
     primaryPeriscopeDeploymentProgress_ = 0.0F;
+    surfacedHydrostaticMode_ = false;
 
     if (verifyDistinctUploads)
     {
@@ -1350,6 +1355,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     controlResults[M2SternPlaneIndex] = *sternControl;
 
     const float vesselWeightNewtons = M2GameAnteyMassTuningKg * *gravityMagnitude;
+    const auto bodyWaterSample = water_->Sample(state->position);
+    if (!bodyWaterSample || !std::isfinite(bodyWaterSample->signedDepthMeters))
+        return std::unexpected("physical playground body depth is unavailable for hydrostatic mode");
+    bool nextSurfacedHydrostaticMode = surfacedHydrostaticMode_;
+    if (command.depthCommandFraction > 0.05F)
+        nextSurfacedHydrostaticMode = false;
+    else if (command.depthCommandFraction < -0.05F &&
+             bodyWaterSample->signedDepthMeters <= M5SurfaceHydrostaticModeArmDepthMeters)
+        nextSurfacedHydrostaticMode = true;
+
     const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
         M5LowSpeedBallastDepthControl,
         command.depthCommandFraction,
@@ -1404,16 +1419,22 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         }
     }
 
-    // Submerged trim cancels only reserve buoyancy above vessel weight; this preserves neutral submerged
-    // operation. A surface command releases a bounded part of that compensation so the boat rises physically.
-    // Near the surface the buoyancy model itself loses submerged volume, producing a stable surfaced equilibrium.
+    // Submerged mode cancels reserve buoyancy above vessel weight, preserving neutral deep/periscope-depth
+    // trim. A deliberate surface command first releases a bounded part of that compensation so the boat rises.
+    // Once the near-surface threshold is crossed, surfaced mode latches and removes reserve compensation entirely;
+    // the point-buoyancy model then loses displaced volume until natural hydrostatic equilibrium is reached.
     const float reserveExcessBuoyancyNewtons =
         (std::max)(0.0F, buoyancyResult->totalForceNewtons.y - vesselWeightNewtons);
-    const float reserveReleaseNewtons = (std::max)(0.0F, -command.depthCommandFraction) *
-        (std::min)(reserveExcessBuoyancyNewtons,
-                   vesselWeightNewtons * M5MaximumReserveBuoyancyReleaseFractionOfWeight);
+    const float reserveTrimCompensationNewtons = nextSurfacedHydrostaticMode
+        ? 0.0F
+        : reserveExcessBuoyancyNewtons;
+    const float reserveReleaseNewtons = nextSurfacedHydrostaticMode
+        ? 0.0F
+        : (std::max)(0.0F, -command.depthCommandFraction) *
+              (std::min)(reserveExcessBuoyancyNewtons,
+                         vesselWeightNewtons * M5MaximumReserveBuoyancyReleaseFractionOfWeight);
     Physics::PhysicsVector3 combinedBallastTrimForce = variableBallast->forceNewtons;
-    combinedBallastTrimForce.y += -reserveExcessBuoyancyNewtons + reserveReleaseNewtons;
+    combinedBallastTrimForce.y += -reserveTrimCompensationNewtons + reserveReleaseNewtons;
 
     Physics::PhysicsError ballastForceError;
     if (!physics_->AddForceAtWorldPosition(
@@ -1484,6 +1505,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
+    surfacedHydrostaticMode_ = nextSurfacedHydrostaticMode;
     consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
     committedThrottleFraction_ = command.throttleFraction;
     committedControlSurfaceDeflections_ = controlDeflections;
@@ -1571,7 +1593,10 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 std::to_string(variableBallast->targetVerticalSpeedMetersPerSecond) +
                 " m/s, ballast/trim force " + FormatVector(combinedBallastTrimForce) +
                 ", reserve buoyancy excess " + std::to_string(reserveExcessBuoyancyNewtons) +
-                " N, released reserve " + std::to_string(reserveReleaseNewtons) + " N, drag force " +
+                " N, reserve trim " + std::to_string(reserveTrimCompensationNewtons) +
+                " N, released reserve " + std::to_string(reserveReleaseNewtons) +
+                " N, hydrostatic mode " + std::string(nextSurfacedHydrostaticMode ? "SURFACED" : "SUBMERGED_TRIM") +
+                ", drag force " +
                 FormatVector(dragResult->forceNewtons) + ", drag torque " +
                 FormatVector(dragResult->torqueNewtonMeters) + ", requested drive " +
                 std::to_string(command.throttleFraction) + ", depth command " +

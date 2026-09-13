@@ -469,6 +469,7 @@ private:
     Assets::ModelTransform primaryPeriscopeDeployedTransform_{};
     bool primaryPeriscopeRequestedRaised_ = false;
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
+    bool surfacedHydrostaticMode_ = false;
 
     // Bounded H2 diagnostics:
     std::uint64_t fixedTickCount_ = 0;
