@@ -74,7 +74,8 @@ namespace DeepRun::Game::Combat
     const float ownshipDepthMeters,
     const float surfaceLevelYMeters,
     const PeriscopeTargetTruth& targetTruth,
-    const double simulationTimeSeconds)
+    const double simulationTimeSeconds,
+    const PeriscopeOpticalConditions& opticalConditions = {})
 {
     const auto selected = FindPeriscopeTrack(tracks, selectedTrackId);
     if (!selected)
@@ -104,7 +105,8 @@ namespace DeepRun::Game::Combat
         ownshipDepthMeters,
         surfaceLevelYMeters,
         targetTruth,
-        simulationTimeSeconds);
+        simulationTimeSeconds,
+        opticalConditions);
     if (!observation)
     {
         return std::unexpected("periscope optical simulation failed: " + observation.error());
@@ -117,7 +119,7 @@ namespace DeepRun::Game::Combat
             .trackId = selectedTrackId,
             .message = ownshipDepthMeters > PeriscopeObservationConfig{}.maximumOperatingDepthMeters
                 ? "visual identification unavailable: ownship is too deep"
-                : "selected contact is outside periscope range or field of view"};
+                : "selected contact is outside current optical visibility or field of view"};
     }
 
     const auto fusedTrackId = tracks.IntegrateObservation(**observation);
@@ -129,6 +131,17 @@ namespace DeepRun::Game::Combat
     {
         return std::unexpected("periscope optical evidence associated with a different perceived Track");
     }
+
+    const auto detail = (*observation)->opticalIdentificationLevel;
+    if (detail == Perception::OpticalIdentificationLevel::Detected)
+    {
+        return PlayerCombatCommandFeedback{
+            .command = PlayerCombatCommandType::VisualIdentify,
+            .accepted = true,
+            .trackId = selected->trackId,
+            .message = "visual contact detected; type unresolved at current range/conditions"};
+    }
+
     const auto classification = (*observation)->classificationEvidence.value_or(
         Perception::ContactClassification::Unknown);
     const char* label = classification == Perception::ContactClassification::CivilianSurfaceVessel
@@ -136,11 +149,14 @@ namespace DeepRun::Game::Combat
         : classification == Perception::ContactClassification::MilitarySurfaceCombatant
             ? "MILITARY surface combatant"
             : "UNCONFIRMED";
+    const char* detailLabel = detail == Perception::OpticalIdentificationLevel::FlagOrMarkingsResolved
+        ? "flag/markings resolved"
+        : "type resolved";
     return PlayerCombatCommandFeedback{
         .command = PlayerCombatCommandType::VisualIdentify,
         .accepted = true,
         .trackId = selected->trackId,
-        .message = std::string("visual identification: ") + label};
+        .message = std::string("visual identification: ") + label + " (" + detailLabel + ")"};
 }
 
 inline void ApplyPeriscopePresentation(
