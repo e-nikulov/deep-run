@@ -1,0 +1,41 @@
+name: Antey Propeller Runtime Repair
+
+on:
+  push:
+    branches:
+      - fix/antey-propeller-runtime-presentation
+    paths:
+      - Tools/patch_antey_propeller_runtime_presentation.py
+      - .github/workflows/antey-propeller-runtime-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply scoped runtime repair
+        run: python Tools/patch_antey_propeller_runtime_presentation.py
+      - name: Validate patch shape
+        shell: bash
+        run: |
+          git diff --check
+          grep -q "modelSpacePivot" Engine/Render/ModelDraw.h
+          grep -q "M5ProductionCameraDepthCantRadians" Game/PhysicalPlayground.h
+          grep -q "propellerPresentationBindings_" Game/PhysicalPlayground.cpp
+          grep -q "beforeRadiusSquared" Tests/TestMain.cpp
+          ! grep -q "propellerNodeBindingIndices_" Game/PhysicalPlayground.cpp
+      - name: Commit scoped repair and remove temporary patch machinery
+        shell: bash
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git add Engine Game Tests docs
+          git rm Tools/patch_antey_propeller_runtime_presentation.py .github/workflows/antey-propeller-runtime-repair.yml
+          git commit -m "fix: preserve Antey propeller hub geometry in runtime"
+          git push origin HEAD:fix/antey-propeller-runtime-presentation
