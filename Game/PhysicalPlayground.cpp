@@ -164,13 +164,32 @@ Assets::ModelTransform PropellerPostTransform(const float radians) noexcept
     return transform;
 }
 
-Assets::ModelTransform DepthPlanePostTransform(const float committedDeflectionFraction) noexcept
+constexpr float DepthPlaneVisualRadians(
+    const float committedDeflectionFraction,
+    const bool sternPlane) noexcept
 {
     const float normalized = M2MaximumPlaneDeflection > 0.0F
         ? std::clamp(committedDeflectionFraction / M2MaximumPlaneDeflection, -1.0F, 1.0F)
         : 0.0F;
-    // Blender LOCAL_Y hinge maps to runtime -Z under the accepted Antey basis conversion.
-    const float radians = -normalized * M5DepthPlaneVisualMaximumRadians;
+    // H2 intentionally commits opposite force signs for bow and stern so both forces create the same pitch
+    // moment. The production meshes do not share the same authored hinge basis, so presentation must account
+    // for that distinction rather than blindly mapping the simulation sign to the same local rotation sign.
+    const float authoredBasisSign = sternPlane ? 1.0F : -1.0F;
+    return authoredBasisSign * normalized * M5DepthPlaneVisualMaximumRadians;
+}
+
+// Regression contract for direct depth control. Surface/nose-up commits +bow/-stern force deflection; dive is
+// the inverse. Both production plane groups must therefore rotate coherently in the runtime presentation basis.
+static_assert(DepthPlaneVisualRadians(M2MaximumPlaneDeflection, false) < 0.0F);
+static_assert(DepthPlaneVisualRadians(-M2MaximumPlaneDeflection, true) < 0.0F);
+static_assert(DepthPlaneVisualRadians(-M2MaximumPlaneDeflection, false) > 0.0F);
+static_assert(DepthPlaneVisualRadians(M2MaximumPlaneDeflection, true) > 0.0F);
+
+Assets::ModelTransform DepthPlanePostTransform(
+    const float committedDeflectionFraction,
+    const bool sternPlane) noexcept
+{
+    const float radians = DepthPlaneVisualRadians(committedDeflectionFraction, sternPlane);
     const float cosine = std::cos(radians);
     const float sine = std::sin(radians);
     Assets::ModelTransform transform{};
@@ -477,7 +496,6 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     {
         return std::unexpected("physical playground requires two production Antey propeller bindings");
     }
-
     std::vector<std::pair<std::string, std::size_t>> p700HatchBindings;
     p700HatchBindings.reserve(productionDefinition->p700Hatches.size());
     for (const Submarine::ProductionP700Hatch& hatch : productionDefinition->p700Hatches)
@@ -597,7 +615,6 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     {
         return std::unexpected("physical playground canonical seabed must remain below the WaterBody surface");
     }
-
     // M3-G derives all root contact from the same authored profile that just built the Game-owned section.
     // It has no WaterBody, physics, simulation, or renderer dependency; the explicit Game reference level
     // merely keeps this canonical decorative field inside the established underwater presentation region.
@@ -1635,13 +1652,17 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
 
     // M5-V2-B composes dynamic production depth-plane articulation after the already accepted submerged
     // sail-device overrides. Both consume committed Game state; neither mutates ModelAsset or physics.
+    // The current submerged playground represents bow planes in their deployed hydrodynamic state. A future
+    // housed/retracted state must come from explicit production authoring/state, never by zeroing their forces.
     std::vector<Render::ModelNodeTransformOverride> submarineNodeOverrides = submergedSailDeviceOverrides_;
     submarineNodeOverrides.reserve(
         submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2BowPlaneIndex].size() +
         depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
     for (std::size_t group = 0; group < depthPlaneMeshNodeIndices_.size(); ++group)
     {
-        const Assets::ModelTransform postTransform = DepthPlanePostTransform(committedControlSurfaceDeflections_[group]);
+        const Assets::ModelTransform postTransform = DepthPlanePostTransform(
+            committedControlSurfaceDeflections_[group],
+            group == M2SternPlaneIndex);
         for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[group])
         {
             submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = postTransform});
