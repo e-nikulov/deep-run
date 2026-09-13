@@ -60,7 +60,8 @@ namespace DeepRun::Tests
     }
     const auto acousticTracks = tracks.Tracks();
     if (acousticTracks.size() != 1U || acousticTracks.front().visuallyIdentified ||
-        acousticTracks.front().classification != Perception::ContactClassification::Unknown)
+        acousticTracks.front().classification != Perception::ContactClassification::Unknown ||
+        acousticTracks.front().opticalIdentificationLevel != Perception::OpticalIdentificationLevel::None)
     {
         return false;
     }
@@ -72,11 +73,114 @@ namespace DeepRun::Tests
     {
         return false;
     }
+    auto illegalAcousticDetail = acoustic;
+    illegalAcousticDetail.observationTimeSeconds = 0.5;
+    illegalAcousticDetail.opticalIdentificationLevel = Perception::OpticalIdentificationLevel::Detected;
+    if (tracks.IntegrateObservation(illegalAcousticDetail))
+    {
+        return false;
+    }
+
+    const PeriscopeObservationConfig optics{};
+    const PeriscopeState raisedPeriscope{.raised = true, .viewBearingRadians = 0.0F};
+    const Physics::PhysicsVector3 periscopeOwnship{.x = 0.0F, .y = -10.0F, .z = 0.0F};
+    const auto farSilhouette = ObserveThroughPeriscope(
+        optics,
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 15'000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant,
+            .visibleHeightAboveSurfaceMeters = 20.0F},
+        0.6);
+    if (!farSilhouette || !farSilhouette->has_value() ||
+        (*farSilhouette)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::Detected ||
+        (*farSilhouette)->classificationEvidence.has_value() || (*farSilhouette)->estimatedRangeMeters.has_value())
+    {
+        return false;
+    }
+
+    const auto typeResolved = ObserveThroughPeriscope(
+        optics,
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 8'000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant,
+            .visibleHeightAboveSurfaceMeters = 20.0F},
+        0.7);
+    if (!typeResolved || !typeResolved->has_value() ||
+        (*typeResolved)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::TypeResolved ||
+        (*typeResolved)->classificationEvidence != Perception::ContactClassification::MilitarySurfaceCombatant ||
+        !(*typeResolved)->estimatedRangeMeters.has_value())
+    {
+        return false;
+    }
+
+    const auto flagResolved = ObserveThroughPeriscope(
+        optics,
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 3'000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::CivilianSurfaceVessel,
+            .visibleHeightAboveSurfaceMeters = 18.0F},
+        0.8);
+    if (!flagResolved || !flagResolved->has_value() ||
+        (*flagResolved)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::FlagOrMarkingsResolved ||
+        (*flagResolved)->classificationEvidence != Perception::ContactClassification::CivilianSurfaceVessel)
+    {
+        return false;
+    }
+
+    const auto poorVisibility = ObserveThroughPeriscope(
+        optics,
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 8'000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant},
+        0.9,
+        PeriscopeOpticalConditions{.meteorologicalVisibilityMeters = 5'000.0F});
+    if (!poorVisibility || poorVisibility->has_value())
+    {
+        return false;
+    }
+
+    const auto lowLight = ObserveThroughPeriscope(
+        optics,
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 8'000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant},
+        0.95,
+        PeriscopeOpticalConditions{
+            .meteorologicalVisibilityMeters = 20'000.0F,
+            .ambientLightFraction = 0.25F,
+            .glareFraction = 0.0F,
+            .seaStateObscurationFraction = 0.0F});
+    if (!lowLight || !lowLight->has_value() ||
+        (*lowLight)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::Detected ||
+        (*lowLight)->classificationEvidence.has_value())
+    {
+        return false;
+    }
 
     const auto optical = ObserveThroughPeriscope(
-        PeriscopeObservationConfig{},
-        PeriscopeState{.raised = true, .viewBearingRadians = 0.0F},
-        {.x = 0.0F, .y = -10.0F, .z = 0.0F},
+        optics,
+        raisedPeriscope,
+        periscopeOwnship,
         10.0F,
         0.0F,
         PeriscopeTargetTruth{
@@ -85,7 +189,8 @@ namespace DeepRun::Tests
         1.0);
     if (!optical || !optical->has_value() ||
         (*optical)->modality != Perception::SensorModality::Optical ||
-        (*optical)->classificationEvidence != Perception::ContactClassification::CivilianSurfaceVessel)
+        (*optical)->classificationEvidence != Perception::ContactClassification::CivilianSurfaceVessel ||
+        (*optical)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::FlagOrMarkingsResolved)
     {
         return false;
     }
@@ -96,14 +201,15 @@ namespace DeepRun::Tests
     }
     const auto identifiedTracks = tracks.Tracks();
     if (identifiedTracks.size() != 1U || !identifiedTracks.front().visuallyIdentified ||
-        identifiedTracks.front().classification != Perception::ContactClassification::CivilianSurfaceVessel)
+        identifiedTracks.front().classification != Perception::ContactClassification::CivilianSurfaceVessel ||
+        identifiedTracks.front().opticalIdentificationLevel != Perception::OpticalIdentificationLevel::FlagOrMarkingsResolved)
     {
         return false;
     }
 
     const auto tooDeep = ObserveThroughPeriscope(
-        PeriscopeObservationConfig{},
-        PeriscopeState{.raised = true, .viewBearingRadians = 0.0F},
+        optics,
+        raisedPeriscope,
         {.x = 0.0F, .y = -30.0F, .z = 0.0F},
         30.0F,
         0.0F,
@@ -221,6 +327,7 @@ namespace DeepRun::Tests
     auto unknownTrack = identifiedTracks.front();
     unknownTrack.classification = Perception::ContactClassification::Unknown;
     unknownTrack.visuallyIdentified = false;
+    unknownTrack.opticalIdentificationLevel = Perception::OpticalIdentificationLevel::Detected;
     const std::vector<Perception::Track> unknownTracks{unknownTrack};
     auto riskRuntimeResult = PlayerCombatCommandRuntime::Create(weapon, 3.0);
     if (!riskRuntimeResult)
