@@ -121,7 +121,20 @@ for rec in authoring["retractableSailDevices"]:
     stow_delta = [stow[0][3], stow[1][3], stow[2][3]]
     print(f"{rec['semanticId']} {name}: center={center}, dims={dims}, min={lo}, max={hi}, stow_delta={stow_delta}")
 
-print("=== DEPTH PLANES ===")
-for name in [n.get("name","") for n in nodes if "BowPlane" in n.get("name","") or "SternPlane" in n.get("name","")]:
-    i = next(j for j,n in enumerate(nodes) if n.get("name") == name)
-    print(name, mesh_bounds(i))
+print("=== DEPTH PLANES / DEPLOYMENT ROOTS ===")
+for i, node in enumerate(nodes):
+    name = node.get("name", "")
+    if "BowPlane" not in name and "SternPlane" not in name:
+        continue
+    parent = parents.get(i)
+    parent_name = nodes[parent].get("name", "") if parent is not None else None
+    print(
+        name,
+        "node=", i,
+        "parent=", parent_name,
+        "translation=", node.get("translation"),
+        "rotation=", node.get("rotation"),
+        "scale=", node.get("scale"),
+        "children=", [nodes[c].get("name", "") for c in node.get("children", [])],
+        "bounds=", mesh_bounds(i),
+    )
