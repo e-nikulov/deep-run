@@ -72,7 +72,7 @@ Current registry:
 |---|---|---|---|
 | D0 | Core Game Design / Game Loop | [design/game-loop.md](design/game-loop.md) | [design/submarine-command.md](design/submarine-command.md); [design/vertical-ocean-gameplay.md](design/vertical-ocean-gameplay.md) |
 | D1 | Controls & Handling | [design/controls.md](design/controls.md) | None |
-| D2 | Perception, Fog of War & Combat Intelligence | [design/perception-combat-intelligence.md](design/perception-combat-intelligence.md) | Runtime slice implemented on `design/perception-fog-salvo-awareness`; acceptance gated by Debug/Release CI |
+| D2 | Perception, Fog of War & Combat Intelligence | [design/perception-combat-intelligence.md](design/perception-combat-intelligence.md) | None |
 
 D1 preserves this boundary:
 
@@ -104,7 +104,7 @@ Current registry:
 
 | ID | Package | Primary document | Supporting contract |
 |---|---|---|---|
-| C0 | Player Submarine package: prototype + Antey/P700 canonical production assets | [content/submarine-prototype.md](content/submarine-prototype.md); [content/antey-asset.md](content/antey-asset.md); [content/p700-asset.md](content/p700-asset.md) | [content/asset-pipeline.md](content/asset-pipeline.md) |
+| C0 | Player Submarine package: prototype + Antey/P700 canonical production assets | [submarine-prototype.md](content/submarine-prototype.md); [antey-asset.md](content/antey-asset.md); [p700-asset.md](content/p700-asset.md) | [content/asset-pipeline.md](content/asset-pipeline.md) |
 
 ## Content specifications, authored content, and asset runtime
 
