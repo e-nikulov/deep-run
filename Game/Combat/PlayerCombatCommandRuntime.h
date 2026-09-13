@@ -25,6 +25,8 @@ enum class PlayerCombatCommandType
     FireWeapon,
     ActiveSonarPing,
     DeployDecoy,
+    TogglePeriscope,
+    VisualIdentify,
 };
 
 struct PlayerCombatCommand final
@@ -67,6 +69,14 @@ struct PlayerCombatPresentationSnapshot final
     bool canActiveSonarPing = false;
     bool activeSonarPulsePending = false;
     SonarPresentationSnapshot sonar{};
+
+    // Periscope state is still perceived/presentation state. The runtime may expose whether the mast is raised
+    // and whether optical identification can be attempted, but never a target entity/body identity.
+    bool periscopeWithinOperatingDepth = false;
+    bool periscopeRaised = false;
+    bool periscopeMastExposed = false;
+    bool canVisualIdentify = false;
+    std::optional<float> periscopeViewBearingRadians{};
 
     // M5-J3 is populated by CombatPlaygroundRuntime from a dedicated passive-acoustic perceived-world path.
     // No hostile transform, range estimate, weapon runtime pointer, or PhysicsBodyHandle is exposed to UI.
@@ -156,6 +166,9 @@ public:
             return std::unexpected("M5-J5 ActiveSonarPing is owned by CombatPlaygroundRuntime, not weapon runtime");
         case PlayerCombatCommandType::DeployDecoy:
             return std::unexpected("M5-J4 DeployDecoy is owned by CombatPlaygroundRuntime, not weapon runtime");
+        case PlayerCombatCommandType::TogglePeriscope:
+        case PlayerCombatCommandType::VisualIdentify:
+            return std::unexpected("periscope commands are owned by CombatPlaygroundRuntime, not weapon runtime");
         }
         return std::unexpected("M5-J1 received an unknown player combat command");
     }
