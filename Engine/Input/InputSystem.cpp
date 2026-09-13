@@ -146,185 +146,53 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
     {
         if (event.type == Platform::WindowEventType::KeyDown && !event.repeated)
         {
-            if (event.key == Platform::Key::Escape)
-            {
-                state_.SetActionDown(InputAction::Quit, true);
-            }
-            else if (event.key == Platform::Key::F1)
-            {
-                state_.SetActionDown(InputAction::ToggleDebugUi, true);
-            }
-            else if (event.key == Platform::Key::T)
-            {
-                turnAroundKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Tab)
-            {
-                selectContactKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Z)
-            {
-                previousWeaponKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::C)
-            {
-                nextWeaponKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::R)
-            {
-                prepareWeaponKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Enter)
-            {
-                fireWeaponKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Space)
-            {
-                activeSonarPingKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::F)
-            {
-                deployDecoyKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::P)
-            {
-                togglePeriscopeKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::V)
-            {
-                visualIdentifyKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::A)
-            {
-                throttleAsternKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::D)
-            {
-                throttleAheadKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::W)
-            {
-                depthSurfaceKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::S)
-            {
-                depthDiveKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Left)
-            {
-                cameraPanLeftKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Right)
-            {
-                cameraPanRightKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Up)
-            {
-                cameraPanUpKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Down)
-            {
-                cameraPanDownKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::Q)
-            {
-                cameraZoomInKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::E)
-            {
-                cameraZoomOutKeyDown_ = true;
-            }
+            if (event.key == Platform::Key::Escape) state_.SetActionDown(InputAction::Quit, true);
+            else if (event.key == Platform::Key::F1) state_.SetActionDown(InputAction::ToggleDebugUi, true);
+            else if (event.key == Platform::Key::T) turnAroundKeyDown_ = true;
+            else if (event.key == Platform::Key::Tab) selectContactKeyDown_ = true;
+            else if (event.key == Platform::Key::Z) previousWeaponKeyDown_ = true;
+            else if (event.key == Platform::Key::C) nextWeaponKeyDown_ = true;
+            else if (event.key == Platform::Key::R) prepareWeaponKeyDown_ = true;
+            else if (event.key == Platform::Key::Enter) fireWeaponKeyDown_ = true;
+            else if (event.key == Platform::Key::Space) activeSonarPingKeyDown_ = true;
+            else if (event.key == Platform::Key::F) deployDecoyKeyDown_ = true;
+            else if (event.key == Platform::Key::P) togglePeriscopeKeyDown_ = true;
+            else if (event.key == Platform::Key::V) visualIdentifyKeyDown_ = true;
+            else if (event.key == Platform::Key::A) throttleAsternKeyDown_ = true;
+            else if (event.key == Platform::Key::D) throttleAheadKeyDown_ = true;
+            else if (event.key == Platform::Key::W) depthSurfaceKeyDown_ = true;
+            else if (event.key == Platform::Key::S) depthDiveKeyDown_ = true;
+            else if (event.key == Platform::Key::Left) cameraPanLeftKeyDown_ = true;
+            else if (event.key == Platform::Key::Right) cameraPanRightKeyDown_ = true;
+            else if (event.key == Platform::Key::Up) cameraPanUpKeyDown_ = true;
+            else if (event.key == Platform::Key::Down) cameraPanDownKeyDown_ = true;
+            else if (event.key == Platform::Key::Q) cameraZoomInKeyDown_ = true;
+            else if (event.key == Platform::Key::E) cameraZoomOutKeyDown_ = true;
         }
         else if (event.type == Platform::WindowEventType::KeyUp)
         {
-            if (event.key == Platform::Key::Escape)
-            {
-                state_.SetActionDown(InputAction::Quit, false);
-            }
-            else if (event.key == Platform::Key::F1)
-            {
-                state_.SetActionDown(InputAction::ToggleDebugUi, false);
-            }
-            else if (event.key == Platform::Key::T)
-            {
-                turnAroundKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Tab)
-            {
-                selectContactKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Z)
-            {
-                previousWeaponKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::C)
-            {
-                nextWeaponKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::R)
-            {
-                prepareWeaponKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Enter)
-            {
-                fireWeaponKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Space)
-            {
-                activeSonarPingKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::F)
-            {
-                deployDecoyKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::P)
-            {
-                togglePeriscopeKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::V)
-            {
-                visualIdentifyKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::A)
-            {
-                throttleAsternKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::D)
-            {
-                throttleAheadKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::W)
-            {
-                depthSurfaceKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::S)
-            {
-                depthDiveKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Left)
-            {
-                cameraPanLeftKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Right)
-            {
-                cameraPanRightKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Up)
-            {
-                cameraPanUpKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Down)
-            {
-                cameraPanDownKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::Q)
-            {
-                cameraZoomInKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::E)
-            {
-                cameraZoomOutKeyDown_ = false;
-            }
+            if (event.key == Platform::Key::Escape) state_.SetActionDown(InputAction::Quit, false);
+            else if (event.key == Platform::Key::F1) state_.SetActionDown(InputAction::ToggleDebugUi, false);
+            else if (event.key == Platform::Key::T) turnAroundKeyDown_ = false;
+            else if (event.key == Platform::Key::Tab) selectContactKeyDown_ = false;
+            else if (event.key == Platform::Key::Z) previousWeaponKeyDown_ = false;
+            else if (event.key == Platform::Key::C) nextWeaponKeyDown_ = false;
+            else if (event.key == Platform::Key::R) prepareWeaponKeyDown_ = false;
+            else if (event.key == Platform::Key::Enter) fireWeaponKeyDown_ = false;
+            else if (event.key == Platform::Key::Space) activeSonarPingKeyDown_ = false;
+            else if (event.key == Platform::Key::F) deployDecoyKeyDown_ = false;
+            else if (event.key == Platform::Key::P) togglePeriscopeKeyDown_ = false;
+            else if (event.key == Platform::Key::V) visualIdentifyKeyDown_ = false;
+            else if (event.key == Platform::Key::A) throttleAsternKeyDown_ = false;
+            else if (event.key == Platform::Key::D) throttleAheadKeyDown_ = false;
+            else if (event.key == Platform::Key::W) depthSurfaceKeyDown_ = false;
+            else if (event.key == Platform::Key::S) depthDiveKeyDown_ = false;
+            else if (event.key == Platform::Key::Left) cameraPanLeftKeyDown_ = false;
+            else if (event.key == Platform::Key::Right) cameraPanRightKeyDown_ = false;
+            else if (event.key == Platform::Key::Up) cameraPanUpKeyDown_ = false;
+            else if (event.key == Platform::Key::Down) cameraPanDownKeyDown_ = false;
+            else if (event.key == Platform::Key::Q) cameraZoomInKeyDown_ = false;
+            else if (event.key == Platform::Key::E) cameraZoomOutKeyDown_ = false;
         }
         else if (event.type == Platform::WindowEventType::MouseMove)
         {
@@ -383,21 +251,16 @@ bool InputSystem::ApplyGamepadVibration(const GamepadVibration& vibration) noexc
 void InputSystem::RefreshSemanticAxes() noexcept
 {
     const ControllerSemanticAxes controller = SemanticAxesForGamepad(state_.Gamepad());
-    state_.SetAxis(
-        InputAxis::Throttle,
-        ResolveSemanticAxis(throttleAsternKeyDown_, throttleAheadKeyDown_, controller.throttle));
-    state_.SetAxis(
-        InputAxis::Depth,
-        ResolveSemanticAxis(depthSurfaceKeyDown_, depthDiveKeyDown_, controller.depth));
-    state_.SetAxis(
-        InputAxis::CameraPanX,
-        ResolveSemanticAxis(cameraPanLeftKeyDown_, cameraPanRightKeyDown_, controller.cameraPanX));
-    state_.SetAxis(
-        InputAxis::CameraPanY,
-        ResolveSemanticAxis(cameraPanDownKeyDown_, cameraPanUpKeyDown_, controller.cameraPanY));
-    state_.SetAxis(
-        InputAxis::CameraZoom,
-        ResolveSemanticAxis(cameraZoomInKeyDown_, cameraZoomOutKeyDown_, controller.cameraZoom));
+    state_.SetAxis(InputAxis::Throttle,
+                   ResolveSemanticAxis(throttleAsternKeyDown_, throttleAheadKeyDown_, controller.throttle));
+    state_.SetAxis(InputAxis::Depth,
+                   ResolveSemanticAxis(depthSurfaceKeyDown_, depthDiveKeyDown_, controller.depth));
+    state_.SetAxis(InputAxis::CameraPanX,
+                   ResolveSemanticAxis(cameraPanLeftKeyDown_, cameraPanRightKeyDown_, controller.cameraPanX));
+    state_.SetAxis(InputAxis::CameraPanY,
+                   ResolveSemanticAxis(cameraPanDownKeyDown_, cameraPanUpKeyDown_, controller.cameraPanY));
+    state_.SetAxis(InputAxis::CameraZoom,
+                   ResolveSemanticAxis(cameraZoomInKeyDown_, cameraZoomOutKeyDown_, controller.cameraZoom));
 }
 
 void InputSystem::RefreshSemanticActions() noexcept
@@ -417,9 +280,7 @@ void InputSystem::RefreshSemanticActions() noexcept
         fireWeaponKeyDown_ ||
             state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Left)) ||
             controller.fireWeapon);
-    state_.SetActionDown(
-        InputAction::ActiveSonarPing,
-        activeSonarPingKeyDown_ || controller.activeSonarPing);
+    state_.SetActionDown(InputAction::ActiveSonarPing, activeSonarPingKeyDown_ || controller.activeSonarPing);
     state_.SetActionDown(InputAction::DeployDecoy, deployDecoyKeyDown_ || controller.deployDecoy);
     state_.SetActionDown(InputAction::TogglePeriscope, togglePeriscopeKeyDown_ || controller.togglePeriscope);
     state_.SetActionDown(InputAction::VisualIdentify, visualIdentifyKeyDown_ || controller.visualIdentify);
@@ -454,3 +315,4 @@ const InputState& InputSystem::State() const noexcept
 {
     return state_;
 }
+} // namespace DeepRun::Input
