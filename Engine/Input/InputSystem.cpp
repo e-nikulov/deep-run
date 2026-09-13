@@ -97,7 +97,8 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
         .activeSonarPing = HasGamepadButton(gamepad, GamepadButton::RightShoulder),
         .deployDecoy = HasGamepadButton(gamepad, GamepadButton::X),
         .togglePeriscope = HasGamepadButton(gamepad, GamepadButton::DpadUp),
-        .visualIdentify = HasGamepadButton(gamepad, GamepadButton::A)};
+        .visualIdentify = HasGamepadButton(gamepad, GamepadButton::A),
+        .toggleP700SalvoMode = HasGamepadButton(gamepad, GamepadButton::DpadDown)};
 }
 
 float ResolveSemanticAxis(
@@ -194,6 +195,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 visualIdentifyKeyDown_ = true;
             }
+            else if (event.key == Platform::Key::G)
+            {
+                toggleP700SalvoModeKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::A)
             {
                 throttleAsternKeyDown_ = true;
@@ -284,6 +289,10 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::V)
             {
                 visualIdentifyKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::G)
+            {
+                toggleP700SalvoModeKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -423,6 +432,7 @@ void InputSystem::RefreshSemanticActions() noexcept
     state_.SetActionDown(InputAction::DeployDecoy, deployDecoyKeyDown_ || controller.deployDecoy);
     state_.SetActionDown(InputAction::TogglePeriscope, togglePeriscopeKeyDown_ || controller.togglePeriscope);
     state_.SetActionDown(InputAction::VisualIdentify, visualIdentifyKeyDown_ || controller.visualIdentify);
+    state_.SetActionDown(InputAction::ToggleP700SalvoMode, toggleP700SalvoModeKeyDown_ || controller.toggleP700SalvoMode);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept

@@ -43,6 +43,7 @@ struct ControllerSemanticActions final
     bool deployDecoy = false;
     bool togglePeriscope = false;
     bool visualIdentify = false;
+    bool toggleP700SalvoMode = false;
 };
 
 [[nodiscard]] ControllerSemanticAxes MapControllerLeftStick(float normalizedLeftX, float normalizedLeftY) noexcept;
@@ -105,5 +106,6 @@ private:
     bool deployDecoyKeyDown_ = false;
     bool togglePeriscopeKeyDown_ = false;
     bool visualIdentifyKeyDown_ = false;
+    bool toggleP700SalvoModeKeyDown_ = false;
 };
 }

@@ -597,6 +597,7 @@ The current playable mechanics have a direct Xbox-controller binding and a keybo
 | Fire weapon | `RT` | `Enter` | Left mouse remains optional duplicate. |
 | Active-sonar ping | `RB` | `Space` | Selected perceived contact bearing. |
 | Deploy acoustic decoy | `X` | `F` | One-shot defensive action in the current playground. |
+| Toggle P-700 salvo mode | D-pad Down | `G` | `SINGLE x1` / `PAIR x2`; pair consumes one authored two-missile hatch group and enables cooperative seeker fusion. |
 | Debug UI | n/a | `F1` | Development-only. |
 
 Reserved capacity is still sufficient for planned gameplay: `A/B` remain interact/cancel, `LB` remains silent-running, D-pad remains four quick-system slots, View remains tactical/map mode, Menu remains pause, and both right-stick click plus contextual combinations remain unused. P-700 selection/launcher lifecycle must consume this semantic budget deliberately rather than adding device-specific shortcuts.

@@ -20,6 +20,7 @@ enum class InputAction
     DeployDecoy,
     TogglePeriscope,
     VisualIdentify,
+    ToggleP700SalvoMode,
     Count,
 };
 

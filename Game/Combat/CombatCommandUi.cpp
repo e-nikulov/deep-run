@@ -174,6 +174,8 @@ void DrawCombatCommandUi(
     const std::string_view weaponName = Armament::PlayerWeaponName(snapshot.selectedWeapon);
     ImGui::Text("Weapon: %.*s / %s", static_cast<int>(weaponName.size()), weaponName.data(), WeaponPhaseName(snapshot.weaponPhase));
     ImGui::Text("P-700 loaded: %zu / %zu", snapshot.p700LoadedCount, Armament::AnteyP700LauncherSlotCount);
+    ImGui::Text("P-700 salvo: %s (G / D-pad Down)",
+        snapshot.p700SalvoMode == Weapons::P700SalvoMode::Pair ? "PAIR x2 / cooperative" : "SINGLE x1 / economical");
     if (snapshot.weaponTargetTrackId)
     {
         ImGui::Text("Weapon track: #%llu", static_cast<unsigned long long>(*snapshot.weaponTargetTrackId));

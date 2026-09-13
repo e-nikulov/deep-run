@@ -98,19 +98,43 @@ public:
         {
             return std::unexpected("P-700 salvo requested an invalid launcher count");
         }
+        if (requestedCount == 1U)
+        {
+            const auto first = FirstLoadedSlotIndex();
+            if (!first)
+                return std::unexpected("P-700 launcher inventory is exhausted");
+            return std::vector<std::size_t>{*first};
+        }
+        if (requestedCount == 2U)
+        {
+            // The production Antey contract is 24 missiles under 12 paired hatch groups. A Pair salvo uses
+            // the two still-loaded anchors under one real authored hatch instead of inventing another lid.
+            for (std::size_t first = 0U; first < slots_.size(); ++first)
+            {
+                if (slots_[first].state != P700LauncherSlotState::Loaded ||
+                    slots_[first].anchor.hatchGroupSemanticId.empty())
+                    continue;
+                for (std::size_t second = first + 1U; second < slots_.size(); ++second)
+                {
+                    if (slots_[second].state == P700LauncherSlotState::Loaded &&
+                        slots_[second].anchor.hatchGroupSemanticId == slots_[first].anchor.hatchGroupSemanticId)
+                    {
+                        return std::vector<std::size_t>{first, second};
+                    }
+                }
+            }
+            return std::unexpected("P-700 launcher inventory has no complete loaded paired hatch group");
+        }
+
         std::vector<std::size_t> result;
         result.reserve(requestedCount);
         for (std::size_t index = 0; index < slots_.size() && result.size() < requestedCount; ++index)
         {
             if (slots_[index].state == P700LauncherSlotState::Loaded)
-            {
                 result.push_back(index);
-            }
         }
         if (result.size() != requestedCount)
-        {
             return std::unexpected("P-700 launcher inventory does not contain enough loaded missiles for the salvo");
-        }
         return result;
     }
 

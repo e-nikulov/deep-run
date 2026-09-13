@@ -180,6 +180,11 @@ public:
         return std::unexpected("M5-J1 received an unknown player combat command");
     }
 
+    [[nodiscard]] std::expected<void, std::string> CompleteResolvedLaunch(const double simulationTimeSeconds)
+    {
+        return Weapons::ResetWeaponAfterResolvedLaunch(definition_, weapon_, simulationTimeSeconds);
+    }
+
     [[nodiscard]] PlayerCombatPresentationSnapshot BuildPresentationSnapshot(
         const std::span<const Perception::Track> tracks) const
     {

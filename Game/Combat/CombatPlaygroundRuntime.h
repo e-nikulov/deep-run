@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Game/Combat/CombatKnowledge.h"
+#include "Game/Combat/P700SeekerObservation.h"
 #include "Game/Combat/PeriscopeCombatRuntime.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
 #include "Game/Combat/SimpleCivilianVesselRuntime.h"
@@ -9,6 +11,7 @@
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Weapons/P700CarrierLaunchContract.h"
 #include "Game/Weapons/P700LauncherInventory.h"
+#include "Game/Weapons/P700SalvoLaunchCoordinator.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Acoustics/AcousticEnvironment.h"
@@ -510,6 +513,10 @@ public:
     {
         return playerP700_;
     }
+    [[nodiscard]] const std::vector<Weapons::P700GranitRuntimeState>& PlayerP700Wingmen() const noexcept
+    {
+        return playerP700Wingmen_;
+    }
     [[nodiscard]] std::optional<std::string> PlayerP700HatchGroupSemanticId() const
     {
         if (!playerP700LaunchSlotIndex_ || !p700LauncherInventory_ ||
@@ -909,6 +916,30 @@ private:
                     lastCombatCommand_ = *feedback;
                     continue;
                 }
+                if (command.type == PlayerCombatCommandType::ToggleP700SalvoMode)
+                {
+                    if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit)
+                    {
+                        lastCombatCommand_ = PlayerCombatCommandFeedback{
+                            .command = command.type, .accepted = false,
+                            .trackId = playerCombat_.SelectedTrackId(),
+                            .message = "P-700 salvo mode is available only while P-700 GRANIT is selected"};
+                        continue;
+                    }
+                    if (playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Single &&
+                        (!p700LauncherInventory_ || !p700LauncherInventory_->LoadedSlotIndices(2U)))
+                    {
+                        lastCombatCommand_ = PlayerCombatCommandFeedback{
+                            .command = command.type, .accepted = false,
+                            .trackId = playerCombat_.SelectedTrackId(),
+                            .message = "PAIR requires a complete loaded two-missile hatch group"};
+                        continue;
+                    }
+                    const auto toggled = playerCombat_.Execute(command, playerTracks_.Tracks(), simulationTimeSeconds);
+                    if (!toggled) return std::unexpected("D2 P-700 salvo-mode command failed: " + toggled.error());
+                    lastCombatCommand_ = *toggled;
+                    continue;
+                }
                 if (command.type == PlayerCombatCommandType::ActiveSonarPing)
                 {
                     const auto feedback = ExecutePlayerActiveSonarCommand(
@@ -1019,7 +1050,7 @@ private:
                 return std::unexpected("M5-J2 launched weapon lost its perceived launch track on the launch tick");
             }
             const auto launch = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
-                ? MaterializePlayerP700Launch(playerSnapshot, *targetTrack, simulationTimeSeconds)
+                ? MaterializePlayerP700Launch(playerSnapshot, *destroyerAcoustics, *targetTrack, simulationTimeSeconds)
                 : MaterializePlayerLaunch(
                       playerSnapshot, *destroyerAcoustics, civilianEmitter, *targetTrack, simulationTimeSeconds);
             if (!launch)
@@ -1104,18 +1135,60 @@ private:
         }
 
         std::optional<Weapons::P700GranitImpact> p700Impact{};
-        if (playerP700_ && playerP700_->phase != Weapons::P700GranitPhase::Stored &&
-            playerP700_->phase != Weapons::P700GranitPhase::Spent)
+        if (playerP700_)
         {
             const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerP700_->guidanceTrackId);
+
+            // Each airborne missile gets its own bounded sensor observation. Ground truth is consumed only
+            // inside ObserveP700SurfaceContact; cooperative guidance receives identity-free noisy estimates.
+            std::vector<Weapons::P700SalvoObservation> cooperativeEvidence;
+            const auto collectSeekerEvidence = [&](const Weapons::P700GranitRuntimeState& missile,
+                                                   const std::uint64_t missileId) -> std::expected<void, std::string>
+            {
+                if (missile.phase != Weapons::P700GranitPhase::Cruise &&
+                    missile.phase != Weapons::P700GranitPhase::Terminal)
+                    return {};
+                if (!missile.guidanceTrackId) return {};
+                const std::uint64_t sample = static_cast<std::uint64_t>(std::llround(simulationTimeSeconds * 4.0));
+                const auto observed = ObserveP700SurfaceContact(
+                    P700SeekerObservationConfig{}, missile, missileId, *missile.guidanceTrackId,
+                    surfaceTruths, simulationTimeSeconds, missile.terminalRandomSeed ^ sample);
+                if (!observed) return std::unexpected(observed.error());
+                if (observed->has_value()) cooperativeEvidence.push_back(**observed);
+                return {};
+            };
+            if (auto r = collectSeekerEvidence(*playerP700_, 1U); !r)
+                return std::unexpected("P-700 leader seeker failed: " + r.error());
+            for (std::size_t index = 0U; index < playerP700Wingmen_.size(); ++index)
+                if (auto r = collectSeekerEvidence(playerP700Wingmen_[index], index + 2U); !r)
+                    return std::unexpected("P-700 wingman seeker failed: " + r.error());
+
+            if (!cooperativeEvidence.empty())
+            {
+                const auto fused = Weapons::FuseP700SalvoObservations(cooperativeEvidence);
+                if (fused)
+                {
+                    const Perception::Track salvoTrack = Weapons::P700SalvoTrackAsPerceivedTrack(*fused, simulationTimeSeconds);
+                    if (Weapons::ValidateTrackForWeapon(playerP700Definition_.weapon, salvoTrack))
+                    {
+                        const auto leaderUpdated = Weapons::UpdateP700PerceivedGuidance(
+                            playerP700Definition_, *playerP700_, salvoTrack);
+                        if (!leaderUpdated) return std::unexpected("P-700 fused leader guidance failed: " + leaderUpdated.error());
+                        for (auto& wingman : playerP700Wingmen_)
+                        {
+                            const auto updated = Weapons::UpdateP700PerceivedGuidance(playerP700Definition_, wingman, salvoTrack);
+                            if (!updated) return std::unexpected("P-700 fused wingman guidance failed: " + updated.error());
+                        }
+                    }
+                }
+            }
+
             bool actualTargetHasTerminalDefense = true;
             if (perceivedTrack)
             {
                 const auto truth = SelectSurfaceContactTruthByBearing(
-                    playerSnapshot.passiveReceiver.positionMeters,
-                    perceivedTrack->estimatedBearingRadians,
-                    surfaceTruths,
-                    M5CombatSurfaceTruthAssociationGateRadians);
+                    playerSnapshot.passiveReceiver.positionMeters, perceivedTrack->estimatedBearingRadians,
+                    surfaceTruths, M5CombatSurfaceTruthAssociationGateRadians);
                 if (truth && truth->kind == SurfaceContactTruthKind::CivilianVessel)
                     actualTargetHasTerminalDefense = false;
             }
@@ -1123,30 +1196,54 @@ private:
                 p700AcceptanceMode_ || !actualTargetHasTerminalDefense
                     ? std::nullopt
                     : std::optional<Weapons::P700TerminalDefenseProfile>{Weapons::P700TerminalDefenseProfile{}};
-            const auto advanced = Weapons::AdvanceP700GranitWithCollision(
-                playerP700Definition_, *playerP700_, perceivedTrack, *physicsWorld_, simulationTimeSeconds, playerBody_, targetDefense);
-            if (!advanced)
+
+            const auto applyP700Impact = [&](const Weapons::P700GranitImpact& hit) -> std::expected<void, std::string>
             {
-                return std::unexpected("M5 P-700 fixed-step advance failed: " + advanced.error());
-            }
-            if (advanced->has_value())
+                if (!p700Impact) p700Impact = hit;
+                lastExplosion_ = hit.explosion;
+                if (hit.physicsHit.body == destroyer_.body && !destroyer_.integrity.destroyed)
+                {
+                    const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, hit.damage);
+                    if (!damaged) return std::unexpected("P-700 destroyer damage failed: " + damaged.error());
+                }
+                else if (civilian_ && hit.physicsHit.body == civilian_->body && !civilian_->integrity.destroyed)
+                {
+                    const auto damaged = ApplySimpleCivilianVesselDamage(civilianDefinition_, *civilian_, hit.damage);
+                    if (!damaged) return std::unexpected("civilian P-700 damage failed: " + damaged.error());
+                }
+                return {};
+            };
+            const auto advanceMember = [&](Weapons::P700GranitRuntimeState& missile) -> std::expected<void, std::string>
             {
-                p700Impact = **advanced;
-                lastExplosion_ = p700Impact->explosion;
-                if (p700Impact->physicsHit.body == destroyer_.body)
-                {
-                    const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, p700Impact->damage);
-                    if (!damaged)
-                    {
-                        return std::unexpected("M5 P-700 destroyer damage application failed: " + damaged.error());
-                    }
-                }
-                else if (civilian_ && p700Impact->physicsHit.body == civilian_->body)
-                {
-                    const auto damaged = ApplySimpleCivilianVesselDamage(civilianDefinition_, *civilian_, p700Impact->damage);
-                    if (!damaged)
-                        return std::unexpected("civilian P-700 damage application failed: " + damaged.error());
-                }
+                if (missile.phase == Weapons::P700GranitPhase::Stored || missile.phase == Weapons::P700GranitPhase::Spent)
+                    return {};
+                const auto guidance = missile.guidanceTrackId == playerP700_->guidanceTrackId
+                    ? FindTrack(playerTracks_.Tracks(), missile.guidanceTrackId)
+                    : std::optional<Perception::Track>{};
+                const auto advanced = Weapons::AdvanceP700GranitWithCollision(
+                    playerP700Definition_, missile, guidance, *physicsWorld_, simulationTimeSeconds, playerBody_, targetDefense);
+                if (!advanced) return std::unexpected(advanced.error());
+                if (advanced->has_value()) return applyP700Impact(**advanced);
+                return {};
+            };
+            if (auto r = advanceMember(*playerP700_); !r)
+                return std::unexpected("P-700 leader fixed-step advance failed: " + r.error());
+            for (auto& wingman : playerP700Wingmen_)
+                if (auto r = advanceMember(wingman); !r)
+                    return std::unexpected("P-700 wingman fixed-step advance failed: " + r.error());
+
+            const bool allSpent = playerP700_->phase == Weapons::P700GranitPhase::Spent &&
+                std::ranges::all_of(playerP700Wingmen_, [](const auto& missile) {
+                    return missile.phase == Weapons::P700GranitPhase::Spent;
+                });
+            if (allSpent && !p700AcceptanceMode_)
+            {
+                const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
+                if (!rearmed) return std::unexpected("P-700 commander re-arm failed: " + rearmed.error());
+                playerP700_.reset();
+                playerP700Wingmen_.clear();
+                playerP700LaunchSlotIndex_.reset();
+                playerP700LaunchSlotIndices_.clear();
             }
         }
 
@@ -1277,7 +1374,9 @@ private:
         playerCombatPresentation.selectedWeapon = selectedPlayerWeapon_;
         playerCombatPresentation.p700LoadedCount = p700LauncherInventory_ ? p700LauncherInventory_->LoadedCount() : 0U;
         if (selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit &&
-            playerCombatPresentation.p700LoadedCount == 0U)
+            (playerCombatPresentation.p700LoadedCount == 0U ||
+             (playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Pair &&
+              (!p700LauncherInventory_ || !p700LauncherInventory_->LoadedSlotIndices(2U)))))
         {
             playerCombatPresentation.canPrepareWeapon = false;
             playerCombatPresentation.canFireWeapon = false;
@@ -1450,6 +1549,12 @@ private:
             return Weapons::WeaponEmploymentAssessment{
                 .allowed = false,
                 .reason = "selected perceived track has no spatial estimate"};
+        }
+        if (playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Pair &&
+            (!p700LauncherInventory_ || !p700LauncherInventory_->LoadedSlotIndices(2U)))
+        {
+            return Weapons::WeaponEmploymentAssessment{
+                .allowed = false, .reason = "PAIR requires two loaded missiles under one paired production hatch"};
         }
         const auto launch = BuildPlayerP700LaunchCandidate(playerSnapshot);
         if (!launch)
@@ -1646,6 +1751,16 @@ private:
         activeReflector_ = Acoustics::AcousticReflector{
             .positionMeters = truth->emitter.positionMeters,
             .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
+        const auto exposed = ObserveExposureEvent(
+            ExposureSource::ActiveSonarTransmission,
+            destroyerAcoustics.passiveReceiver.positionMeters,
+            playerSnapshot.emitter.positionMeters,
+            destroyerAcoustics.passiveReceiver.sensorId,
+            simulationTimeSeconds,
+            static_cast<std::uint64_t>(std::llround(simulationTimeSeconds * 60.0)) ^ 0xA571C50AULL);
+        if (!exposed) return std::unexpected("active-sonar exposure simulation failed: " + exposed.error());
+        if (exposed->has_value() && !destroyerTracks_.IntegrateObservation(**exposed))
+            return std::unexpected("active-sonar exposure failed hostile Track integration");
         return PlayerCombatCommandFeedback{
             .command = PlayerCombatCommandType::ActiveSonarPing,
             .accepted = true,
@@ -1799,6 +1914,17 @@ private:
         playerTorpedoActiveReflector_.reset();
         playerTorpedoActivePulseDeadlineSeconds_ = simulationTimeSeconds;
 
+        const auto torpedoExposure = ObserveExposureEvent(
+            ExposureSource::TorpedoLaunch,
+            destroyerAcoustics.passiveReceiver.positionMeters,
+            launchPosition,
+            destroyerAcoustics.passiveReceiver.sensorId,
+            simulationTimeSeconds,
+            static_cast<std::uint64_t>(std::llround(simulationTimeSeconds * 60.0)) ^ 0x70A0ED0ULL);
+        if (!torpedoExposure) return std::unexpected("torpedo-launch exposure simulation failed: " + torpedoExposure.error());
+        if (torpedoExposure->has_value() && !destroyerTracks_.IntegrateObservation(**torpedoExposure))
+            return std::unexpected("torpedo-launch exposure failed hostile Track integration");
+
         const auto truths = BuildSurfaceContactTruths(destroyerAcoustics, civilianEmitter);
         const auto actualTarget = SelectSurfaceContactTruthByBearing(
             playerSnapshot.passiveReceiver.positionMeters,
@@ -1824,46 +1950,51 @@ private:
 
     [[nodiscard]] std::expected<void, std::string> MaterializePlayerP700Launch(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
+        const SimpleDestroyerAcousticSnapshot& destroyerAcoustics,
         const Perception::Track& targetTrack,
         const double simulationTimeSeconds)
     {
         if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit ||
             playerCombat_.Weapon().phase != Weapons::WeaponPhase::Launched ||
             playerCombat_.Weapon().targetTrackId != std::optional<std::uint64_t>{targetTrack.trackId} ||
-            !Weapons::ValidateTrackForWeapon(playerP700Definition_.weapon, targetTrack))
+            !Weapons::ValidateTrackForWeapon(playerP700Definition_.weapon, targetTrack) ||
+            !p700CarrierLaunchContract_ || !p700LauncherInventory_ || !currentPlayerPhysicalProxy_)
         {
-            return std::unexpected("M5 P-700 materialization requires the accepted perceived launch track");
+            return std::unexpected("D2 P-700 salvo materialization requires accepted perceived Track and production carrier");
         }
-        const auto launch = BuildPlayerP700LaunchCandidate(playerSnapshot);
-        if (!launch)
-        {
-            return std::unexpected(launch.error());
-        }
-        auto missile = Weapons::CreateP700GranitRuntime(playerP700Definition_, simulationTimeSeconds);
-        if (!missile)
-        {
-            return std::unexpected("M5 P-700 runtime creation failed: " + missile.error());
-        }
-        const auto launched = Weapons::LaunchP700Granit(
-            playerP700Definition_, *missile, targetTrack, launch->carrier, simulationTimeSeconds);
-        if (!launched)
-        {
-            return std::unexpected("M5 P-700 production launch failed: " + launched.error());
-        }
-        if (!launched->allowed)
-        {
-            return std::unexpected("M5 P-700 materialization reached a disallowed employment state: " + launched->reason);
-        }
-        const auto consumed = p700LauncherInventory_->Consume(launch->slotIndex);
-        if (!consumed)
-        {
-            return std::unexpected("M5 P-700 launcher consumption failed after accepted launch: " + consumed.error());
-        }
-        missile->terminalRandomSeed = Weapons::P700SplitMix64(
-            missile->terminalRandomSeed ^ static_cast<std::uint64_t>(launch->slotIndex + 1U) ^
-            static_cast<std::uint64_t>(std::llround(simulationTimeSeconds * 60.0)));
-        playerP700LaunchSlotIndex_ = launch->slotIndex;
-        playerP700_ = std::move(*missile);
+        const auto& velocity = playerSnapshot.emitter.velocityMetersPerSecond;
+        const float carrierSpeed = static_cast<float>(std::sqrt(
+            static_cast<double>(velocity.x) * velocity.x +
+            static_cast<double>(velocity.y) * velocity.y +
+            static_cast<double>(velocity.z) * velocity.z));
+        const float surfaceLevel = playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+        const std::uint64_t salvoId = nextP700SalvoId_++;
+        auto committed = Armament::LaunchProductionP700Salvo(
+            playerP700Definition_, targetTrack, *p700CarrierLaunchContract_, *p700LauncherInventory_,
+            *currentPlayerPhysicalProxy_, surfaceLevel, playerSnapshot.signedDepthMeters, carrierSpeed,
+            playerCombat_.P700SalvoMode(), simulationTimeSeconds, salvoId);
+        if (!committed)
+            return std::unexpected("D2 production P-700 salvo launch failed: " + committed.error());
+        if (committed->runtime.missiles.empty() || committed->launcherSlotIndices.empty())
+            return std::unexpected("D2 production P-700 salvo committed no missile");
+
+        playerP700LaunchSlotIndex_ = committed->launcherSlotIndices.front();
+        playerP700LaunchSlotIndices_ = committed->launcherSlotIndices;
+        playerP700_ = std::move(committed->runtime.missiles.front());
+        playerP700Wingmen_.clear();
+        for (std::size_t index = 1U; index < committed->runtime.missiles.size(); ++index)
+            playerP700Wingmen_.push_back(std::move(committed->runtime.missiles[index]));
+
+        const auto exposure = ObserveExposureEvent(
+            ExposureSource::P700Launch,
+            destroyerAcoustics.passiveReceiver.positionMeters,
+            playerSnapshot.emitter.positionMeters,
+            destroyerAcoustics.passiveReceiver.sensorId,
+            simulationTimeSeconds,
+            salvoId ^ 0x503730304558504FULL);
+        if (!exposure) return std::unexpected("P-700 launch exposure simulation failed: " + exposure.error());
+        if (exposure->has_value() && !destroyerTracks_.IntegrateObservation(**exposure))
+            return std::unexpected("P-700 launch exposure failed hostile Track integration");
         return {};
     }
 
@@ -2467,7 +2598,10 @@ private:
     std::optional<Armament::P700CarrierLaunchContract> p700CarrierLaunchContract_{};
     std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
     std::optional<Weapons::P700GranitRuntimeState> playerP700_{};
+    std::vector<Weapons::P700GranitRuntimeState> playerP700Wingmen_{};
     std::optional<std::size_t> playerP700LaunchSlotIndex_{};
+    std::vector<std::size_t> playerP700LaunchSlotIndices_{};
+    std::uint64_t nextP700SalvoId_ = 1U;
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
