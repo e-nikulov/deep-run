@@ -91,6 +91,29 @@ public:
         return std::nullopt;
     }
 
+    [[nodiscard]] std::expected<std::vector<std::size_t>, std::string> LoadedSlotIndices(
+        const std::size_t requestedCount) const
+    {
+        if (requestedCount == 0U || requestedCount > AnteyP700LauncherSlotCount)
+        {
+            return std::unexpected("P-700 salvo requested an invalid launcher count");
+        }
+        std::vector<std::size_t> result;
+        result.reserve(requestedCount);
+        for (std::size_t index = 0; index < slots_.size() && result.size() < requestedCount; ++index)
+        {
+            if (slots_[index].state == P700LauncherSlotState::Loaded)
+            {
+                result.push_back(index);
+            }
+        }
+        if (result.size() != requestedCount)
+        {
+            return std::unexpected("P-700 launcher inventory does not contain enough loaded missiles for the salvo");
+        }
+        return result;
+    }
+
     // Consumption is explicit and one-way. Choosing the slot is intentionally separate so a later launch
     // policy can balance port/starboard or honor hatch-group constraints without changing inventory authority.
     [[nodiscard]] std::expected<Submarine::ProductionLaunchAnchor, std::string> Consume(
@@ -107,6 +130,43 @@ public:
         }
         slot.state = P700LauncherSlotState::Spent;
         return slot.anchor;
+    }
+
+    // Salvo consumption is transactional: every requested slot is validated before any Loaded -> Spent mutation.
+    // A failed pair launch therefore cannot silently expend the first missile and leave the second uncommitted.
+    [[nodiscard]] std::expected<std::vector<Submarine::ProductionLaunchAnchor>, std::string> ConsumeMany(
+        const std::span<const std::size_t> slotIndices)
+    {
+        if (slotIndices.empty() || slotIndices.size() > AnteyP700LauncherSlotCount)
+        {
+            return std::unexpected("P-700 salvo consumption requires one to 24 launcher slots");
+        }
+        std::unordered_set<std::size_t> uniqueIndices;
+        uniqueIndices.reserve(slotIndices.size());
+        for (const std::size_t slotIndex : slotIndices)
+        {
+            if (slotIndex >= slots_.size())
+            {
+                return std::unexpected("P-700 salvo launcher slot index is out of range");
+            }
+            if (!uniqueIndices.insert(slotIndex).second)
+            {
+                return std::unexpected("P-700 salvo launcher slot list contains a duplicate");
+            }
+            if (slots_[slotIndex].state != P700LauncherSlotState::Loaded)
+            {
+                return std::unexpected("P-700 salvo contains an already-spent launcher slot");
+            }
+        }
+
+        std::vector<Submarine::ProductionLaunchAnchor> consumed;
+        consumed.reserve(slotIndices.size());
+        for (const std::size_t slotIndex : slotIndices)
+        {
+            slots_[slotIndex].state = P700LauncherSlotState::Spent;
+            consumed.push_back(slots_[slotIndex].anchor);
+        }
+        return consumed;
     }
 
 private:
