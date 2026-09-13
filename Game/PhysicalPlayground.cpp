@@ -1394,7 +1394,6 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     if (!nextBallastState)
         return std::unexpected("physical playground ballast-state advance failed: " + nextBallastState.error());
     const float nextDynamicMassKg = Submarine::AnteyPhysicalMassKg(M5AnteyBallastControl, *nextBallastState);
-    const float vesselWeightNewtons = nextDynamicMassKg * *gravityMagnitude;
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
     // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
     const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(

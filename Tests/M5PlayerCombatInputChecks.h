@@ -270,10 +270,14 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Canonical Antey handling contract: 24,000 t submerged gameplay mass, weaker astern drive, physical
-    // shaft braking through zero, and a non-instantaneous 180-degree 2.5D facing transition.
+    // Canonical Antey handling contract: 14,700 t surfaced + 4,700 t main-ballast water = 19,400 t
+    // fully submerged gameplay mass, weaker astern drive, physical shaft braking through zero, and a
+    // non-instantaneous 180-degree 2.5D facing transition.
     using namespace Game::Submarine;
-    if (AnteyCanonicalFullSubmergedMassKg != 24'000'000.0F ||
+    if (AnteyPublicSurfaceDisplacementMassKg != 14'700'000.0F ||
+        AnteyCanonicalFullSubmergedMassKg != 19'400'000.0F ||
+        AnteyMainBallastWaterCapacityKg != 4'700'000.0F ||
+        std::abs(AnteyPublicReserveBuoyancyFraction - 0.3197279F) > 1.0e-4F ||
         AnteyGameplayPropulsion.maxReverseRpm >= AnteyGameplayPropulsion.maxForwardRpm ||
         AnteyGameplayPropulsion.maxReverseThrustNewtons >= AnteyGameplayPropulsion.maxForwardThrustNewtons)
     {
