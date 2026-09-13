@@ -64,12 +64,28 @@ A raised mast is itself exposed state. It will feed the existing signature/detec
 
 ### Optical observation
 
-A successful optical observation may provide:
+Optical identification is staged. Raising the periscope does not reveal target truth and a distant visual contact does not immediately become a known ship type.
 
-- much tighter bearing evidence;
-- range estimate suitable for visual ranging gameplay;
+The current clear-day gameplay defaults are deliberately conservative policy values rather than claimed Project 949A optical specifications:
+
+- effective detection is bounded by meteorological visibility, a `24 km` absolute gameplay cap, and geographic horizon from optical-head/target visible height;
+- default meteorological visibility: `20 km`;
+- `Detected`: silhouette/contact only, no visual classification and no visual range solution;
+- `TypeResolved`: up to `10 km` in the default clear-day profile; military-vs-civilian/type evidence may enter the Track and a stadimeter-style visual range estimate becomes available;
+- `FlagOrMarkingsResolved`: up to `4 km`; flag or equivalent identifying markings are considered visually resolved.
+
+The geographic horizon is evaluated with the public Bowditch-style standard-refraction relationship equivalent to roughly `3.92 km * (sqrt(observer height m) + sqrt(target visible height m))`. This means ideal weather never permits optical sensing through the Earth horizon.
+
+These thresholds are gameplay abstractions informed by public marine-navigation/visibility physics and public historical periscope optics, not assertions about classified or undocumented `Сигнал-3` / `Лебедь-11` performance. Weather, daylight, glare, sea state and target-specific visual dimensions can later feed the same configuration instead of bypassing perception.
+
+A successful optical observation may therefore provide, depending on detail level:
+
+- tighter bearing evidence;
+- no range at silhouette-only detail;
+- a bounded-uncertainty range estimate once type/class is resolved;
 - confidence;
-- visual classification evidence.
+- visual classification evidence only from `TypeResolved` or better;
+- a persistent Track optical-detail level distinct from military/civilian classification.
 
 Initial surface classification vocabulary:
 
@@ -111,13 +127,15 @@ acoustic contact
     -> optionally approach 0–20 m quietly using low-speed ballast/trim
     -> raise periscope
     -> point optics at selected Track
-    -> obtain optical observation if geometry/range permit
-    -> Track gains visual classification evidence
+    -> distant look may only detect a silhouette
+    -> closer look resolves type/class
+    -> close high-quality look may resolve flag/markings
+    -> optical evidence fuses into the same Track
     -> commander decides whether to engage
     -> lower periscope / return deep
 ```
 
-The intended tension is that remaining deep is safer but leaves classification uncertainty, while going shallow and exposing the mast improves identification at detection risk.
+The intended tension is that remaining deep is safer but leaves classification uncertainty, while going shallow and exposing the mast improves identification at detection risk. Closing distance can improve identification but also raises exposure and engagement risk.
 
 ## Presentation requirements
 
@@ -127,13 +145,15 @@ Navigation HUD:
 - vertical speed with explicit `UP+` convention;
 - throttle;
 - diving-plane deflections;
-- low-speed ballast/trim authority and/or commanded vertical rate where useful for acceptance.
+- low-speed ballast/trim state (`INCREASING BUOYANCY`, `STABILIZING`, `DECREASING BUOYANCY`, `NEUTRAL / TRIMMED`) and useful authority telemetry.
 
 Combat/periscope presentation:
 
 - periscope unavailable outside operating depth;
 - stowed / raised / exposed state;
 - selected Track ID and visual-ID status;
+- silhouette-only state must remain visibly `UNCONFIRMED`;
+- type/class-resolved state must not imply that flag/markings are also known;
 - `UNCONFIRMED — CIVILIAN RISK` warning for weapon-qualified unknown contacts;
 - explicit `CIVILIAN — FIRE INHIBITED` after positive visual identification;
 - military confirmation when obtained;
@@ -158,17 +178,21 @@ From a submerged, nearly stationary boat with throttle at zero:
 2. firing that Track is possible and visibly marked as civilian-risk;
 3. above the periscope operating depth, optical identification is unavailable;
 4. inside the periscope zone, raise the periscope and align it with the selected contact;
-5. optical observation fuses into that Track without exposing target entity identity;
-6. a military target becomes visually confirmed and remains engageable subject to weapon gates;
-7. a civilian target becomes visually confirmed and the normal fire command is rejected by ROE;
-8. acoustic evidence alone can never set either visual classification.
+5. beyond the effective optical horizon/visibility range, no optical observation is produced;
+6. between type-recognition range and the detection limit, optical evidence may confirm a silhouette/contact but classification remains `Unknown`;
+7. within type-recognition range, optical evidence may resolve military/civilian type and fuse into the same Track without exposing target entity identity;
+8. within flag/markings range, the Track records the higher optical-detail level;
+9. a military target becomes visually confirmed and remains engageable subject to weapon gates;
+10. a civilian target becomes visually confirmed and the normal fire command is rejected by ROE;
+11. acoustic evidence alone can never set either visual classification or optical-identification level.
 
 ## Explicit non-goals
 
 - classified Project 949A ballast-system replication;
+- classified/undocumented Project 949A periscope performance claims;
 - emergency surfacing / emergency blow procedures;
 - full crew-station simulation;
 - omniscient target labels;
-- perfect optical visibility through weather/night/sea-state in this first slice;
+- full dynamic weather/night/glare/sea-state optics in this slice; the sensor contract is prepared for those modifiers;
 - campaign/legal consequences for civilian casualties (future gameplay scope);
 - replacing sonar or TrackManager with a periscope-specific target list.
