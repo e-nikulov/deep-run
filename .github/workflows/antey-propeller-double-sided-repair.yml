@@ -1,0 +1,110 @@
+name: Antey Propeller Double-Sided Repair
+
+on:
+  push:
+    branches:
+      - fix/antey-propeller-runtime-presentation
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply material culling repair
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f"{path}: expected exactly one match, got {count}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          replace_once(
+              "Engine/Assets/ModelAsset.h",
+              '''    float metallicFactor = 1.0F;\n    float roughnessFactor = 1.0F;\n};''',
+              '''    float metallicFactor = 1.0F;\n    float roughnessFactor = 1.0F;\n    // glTF material.doubleSided. When true the renderer must not discard back-facing triangles.\n    bool doubleSided = false;\n};''')
+
+          replace_once(
+              "Engine/Assets/GltfModelLoader.cpp",
+              '''            material.metallicFactor = static_cast<float>(pbr.metallicFactor);\n            material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);\n            if (!IsFinite(material))''',
+              '''            material.metallicFactor = static_cast<float>(pbr.metallicFactor);\n            material.roughnessFactor = static_cast<float>(pbr.roughnessFactor);\n            material.doubleSided = sourceMaterial.doubleSided;\n            if (!IsFinite(material))''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''        ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelPipeline)),\n                      "Create model graphics pipeline");\n    }''',
+              '''        ThrowIfFailed(device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelPipeline)),\n                      "Create model graphics pipeline");\n\n        // glTF doubleSided is a material contract, not a geometry rewrite. Keep the normal\n        // back-face-culling PSO for ordinary meshes and a second PSO for authored two-sided\n        // surfaces such as the production Antey propeller blades.\n        pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;\n        ThrowIfFailed(\n            device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelDoubleSidedPipeline)),\n            "Create double-sided model graphics pipeline");\n    }''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''        if (modelPipeline == nullptr || modelRootSignature == nullptr || depthBuffer == nullptr)\n        {\n            return std::unexpected("model pipeline or depth buffer is not ready");\n        }''',
+              '''        if (modelPipeline == nullptr || modelDoubleSidedPipeline == nullptr ||\n            modelRootSignature == nullptr || depthBuffer == nullptr)\n        {\n            return std::unexpected("model pipeline or depth buffer is not ready");\n        }''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''        commandList->SetGraphicsRootSignature(modelRootSignature.Get());\n        commandList->SetPipelineState(modelPipeline.Get());\n        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);''',
+              '''        commandList->SetGraphicsRootSignature(modelRootSignature.Get());\n        commandList->SetPipelineState(modelPipeline.Get());\n        bool doubleSidedPipelineBound = false;\n        commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''            const GpuPrimitive& primitive = gpuModel.primitives[draw.primitiveIndex];\n            DrawRootConstants constants;''',
+              '''            const bool useDoubleSidedPipeline = draw.material.doubleSided;\n            if (useDoubleSidedPipeline != doubleSidedPipelineBound)\n            {\n                commandList->SetPipelineState(\n                    useDoubleSidedPipeline ? modelDoubleSidedPipeline.Get() : modelPipeline.Get());\n                doubleSidedPipelineBound = useDoubleSidedPipeline;\n            }\n\n            const GpuPrimitive& primitive = gpuModel.primitives[draw.primitiveIndex];\n            DrawRootConstants constants;''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''        suspendedParticlePipeline.Reset();\n        suspendedParticleRootSignature.Reset();\n        modelPipeline.Reset();\n        modelRootSignature.Reset();''',
+              '''        suspendedParticlePipeline.Reset();\n        suspendedParticleRootSignature.Reset();\n        modelDoubleSidedPipeline.Reset();\n        modelPipeline.Reset();\n        modelRootSignature.Reset();''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''    ComPtr<ID3D12RootSignature> modelRootSignature;\n    ComPtr<ID3D12PipelineState> modelPipeline;\n    ComPtr<ID3D12RootSignature> gerstnerSurfaceRootSignature;''',
+              '''    ComPtr<ID3D12RootSignature> modelRootSignature;\n    ComPtr<ID3D12PipelineState> modelPipeline;\n    ComPtr<ID3D12PipelineState> modelDoubleSidedPipeline;\n    ComPtr<ID3D12RootSignature> gerstnerSurfaceRootSignature;''')
+
+          replace_once(
+              "Engine/Render/D3D12Renderer.cpp",
+              '''bool D3D12Renderer::IsModelPipelineReady() const noexcept\n{\n    return impl_->modelPipeline != nullptr && impl_->modelRootSignature != nullptr;\n}''',
+              '''bool D3D12Renderer::IsModelPipelineReady() const noexcept\n{\n    return impl_->modelPipeline != nullptr && impl_->modelDoubleSidedPipeline != nullptr &&\n           impl_->modelRootSignature != nullptr;\n}''')
+
+          replace_once(
+              "Tests/TestMain.cpp",
+              '''    const auto baselineDraws = DeepRun::Render::PrepareModelDraws(*model->Get());\n    if (!baselineDraws)\n    {\n        return false;\n    }''',
+              '''    const auto propellerMaterial = std::find_if(\n        model->Get()->materials.begin(), model->Get()->materials.end(),\n        [](const auto& material) { return material.name == "MAT_Antey_Propellers"; });\n    if (propellerMaterial == model->Get()->materials.end() || !propellerMaterial->doubleSided)\n    {\n        std::cerr << "[IG1-A] production propeller material must preserve glTF doubleSided=true\\n";\n        return false;\n    }\n\n    const auto baselineDraws = DeepRun::Render::PrepareModelDraws(*model->Get());\n    if (!baselineDraws)\n    {\n        return false;\n    }''')
+
+          replace_once(
+              "Tests/TestMain.cpp",
+              '''            if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),\n                          baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())\n            {\n                continue;\n            }\n            const auto rotatedDraw =''',
+              '''            if (std::find(binding.drawableMeshNodeIndices.begin(), binding.drawableMeshNodeIndices.end(),\n                          baselineDraw.nodeIndex) == binding.drawableMeshNodeIndices.end())\n            {\n                continue;\n            }\n            if (baselineDraw.material.name != "MAT_Antey_Propellers" || !baselineDraw.material.doubleSided)\n            {\n                return false;\n            }\n            const auto rotatedDraw =''')
+          '@ | Set-Content -Encoding UTF8 .tmp_propeller_double_sided_patch.py
+          python .tmp_propeller_double_sided_patch.py
+          Remove-Item .tmp_propeller_double_sided_patch.py
+
+      - name: Validate patch
+        shell: pwsh
+        run: |
+          git diff --check
+          Select-String -Path Engine/Assets/ModelAsset.h -Pattern 'doubleSided = false'
+          Select-String -Path Engine/Assets/GltfModelLoader.cpp -Pattern 'sourceMaterial.doubleSided'
+          Select-String -Path Engine/Render/D3D12Renderer.cpp -Pattern 'modelDoubleSidedPipeline'
+          Select-String -Path Tests/TestMain.cpp -Pattern 'production propeller material must preserve glTF doubleSided=true'
+
+      - name: Commit repair and remove temporary workflow
+        shell: pwsh
+        run: |
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git rm .github/workflows/antey-propeller-double-sided-repair.yml
+          git add Engine/Assets/ModelAsset.h Engine/Assets/GltfModelLoader.cpp Engine/Render/D3D12Renderer.cpp Tests/TestMain.cpp
+          git commit -m "fix: preserve double-sided Antey propeller blades"
+          git push origin HEAD:fix/antey-propeller-runtime-presentation
