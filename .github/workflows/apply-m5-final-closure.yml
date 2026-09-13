@@ -19,6 +19,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/m5-final-closure-gaps
+      - name: Normalize exact patch anchors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('Game/PhysicalPlayground.h')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace(
+              '    // Presentation-only bridge from the P-700 lifecycle. Semantic hatch identity was resolved from production\n'
+              '    // authoring once at Initialize; no raw GLB node name or gameplay launch decision enters the renderer.\n',
+              '    // Presentation-only bridge from the P-700 lifecycle.\n')
+          s = s.replace(
+              '    // Bounded H2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.\n',
+              '    // Bounded H2 diagnostics:\n')
+          p.write_text(s, encoding='utf-8', newline='\n')
+          PY
       - name: Apply closure patch
         run: python Tools/apply_m5_final_closure.py
       - name: Commit generated repair
