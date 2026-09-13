@@ -794,6 +794,7 @@ struct P700GranitImpact final
         const auto impact = moveSegment(*direction, speed, stepSeconds);
         if (!impact) return std::unexpected(impact.error());
         if (*impact) return *impact;
+        if (state.phase == P700GranitPhase::Spent) return std::optional<P700GranitImpact>{};
         cursorTime += stepSeconds;
         remainingSeconds -= stepSeconds;
         state.lastUpdateTimeSeconds = cursorTime;

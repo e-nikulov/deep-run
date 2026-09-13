@@ -194,7 +194,7 @@ namespace M5P700Detail
     }
 
     auto shortRangeDefinition = definition;
-    shortRangeDefinition.maximumTravelDistanceMeters = 500.0F;
+    shortRangeDefinition.maximumTravelDistanceMeters = 2'000.0F;
     auto shortRangeRuntime = CreateP700GranitRuntime(shortRangeDefinition, 0.0);
     if (!shortRangeRuntime)
     {
@@ -211,7 +211,7 @@ namespace M5P700Detail
     if (!shortRangeAdvance || shortRangeAdvance->has_value() ||
         shortRangeRuntime->phase != P700GranitPhase::Spent ||
         shortRangeRuntime->terminalReason != P700LifecycleTerminalReason::RangeExpired ||
-        std::abs(shortRangeRuntime->travelledDistanceMeters - 500.0F) > 0.01F ||
+        std::abs(shortRangeRuntime->travelledDistanceMeters - 2'000.0F) > 0.01F ||
         shortRangeRuntime->impactedBody.has_value())
     {
         return fail("P-700 runtime travel budget expiry");
