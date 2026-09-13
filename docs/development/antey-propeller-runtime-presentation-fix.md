@@ -13,6 +13,7 @@ The canonical `Content/submarines/Antey/Antey.glb` contains the accepted twin se
 - The explicit pivot path is presentation-only and must preserve every vertex distance from the hub centre under shaft rotation; no scale, shear, orbit, or translation of the propeller assembly is allowed.
 - Normal production framing uses an 8-degree presentation-only side yaw. World Y remains screen-vertical, so the accepted underwater surface/seabed vertical composition is unchanged, while the small depth cant makes the real twin-propeller geometry readable.
 - The glTF `material.doubleSided` flag is now preserved by `GltfModelLoader`. D3D12 keeps the normal back-face-culling PSO for one-sided materials and switches only authored double-sided draws to a no-cull model PSO. This restores the reverse-facing portions of the thin propeller blades instead of duplicating geometry or disabling culling globally.
+- The generic Engine/Render implementation contains no submarine, propeller, propulsion, shaft, or RPM semantics; the two-sided decision is driven solely by imported material state on each draw.
 - The production Antey regression requires `MAT_Antey_Propellers` to import as double-sided and verifies that every submitted propeller draw retains that material contract.
 - Physics, collision, buoyancy, propulsion authority, shaft RPM, acoustic authority, weapons, and the canonical `Antey.glb` remain unchanged.
 
