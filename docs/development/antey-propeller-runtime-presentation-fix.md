@@ -20,3 +20,7 @@ The canonical `Content/submarines/Antey/Antey.glb` contains the accepted twin se
 ## Acceptance
 
 Acceptance requires Debug and Release build/CTest plus the existing windowed combat and P-700 smokes. The headless production-asset regression additionally rotates each production propeller by 90 degrees around its explicit hub pivot and verifies that the squared distance of every submitted propeller vertex from that pivot is invariant within tolerance. It also fails if the canonical propeller material loses its glTF double-sided contract.
+
+## Shaft-center correction
+
+The seven source-derived meshes under each production propeller root are equal 819-triangle components. The mesh named `*_Hub` is only the first component; it is not a standalone mechanical hub. The previous sidecar writer therefore derived a false shaft from that component's bounds. The production shaft center is now reconstructed using the exact source-first authoring rule: the centroid of all vertices across all seven LOD0 source components, with `PROP_ASSEMBLY`, `SHAFT_PIVOT_SHARED`, `ROTATION_AXIS=LOCAL_X`, and `SOURCE_BLADE_COUNT=7` enforced. The canonical GLB geometry is unchanged.
