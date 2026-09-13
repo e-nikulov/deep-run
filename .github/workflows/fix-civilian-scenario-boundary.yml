@@ -28,22 +28,13 @@ jobs:
           if (($text.Split($oldGuard).Count - 1) -ne 1) { throw 'civilian guard anchor not unique' }
           $text = $text.Replace($oldGuard, $newGuard)
 
-          $oldFactory = @'
-        runtime->p700CarrierLaunchContract_ = std::move(p700CarrierLaunchContract);
-        runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);
-        return std::move(*runtime);
-'@
-          $newFactory = @'
-        runtime->p700CarrierLaunchContract_ = std::move(p700CarrierLaunchContract);
-        runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);
-        runtime->civilianGameplayEnabled_ = !p700AcceptanceMode;
-        return std::move(*runtime);
-'@
-          if (($text.Split($oldFactory).Count - 1) -ne 1) { throw 'production factory anchor not unique' }
-          $text = $text.Replace($oldFactory, $newFactory)
+          $factoryPattern = 'runtime->p700CarrierLaunchContract_ = std::move\(p700CarrierLaunchContract\);\r?\n\s*runtime->p700LauncherInventory_ = std::move\(p700LauncherInventory\);\r?\n\s*return std::move\(\*runtime\);'
+          if ([regex]::Matches($text, $factoryPattern).Count -ne 1) { throw 'production factory anchor not unique' }
+          $factoryReplacement = "runtime->p700CarrierLaunchContract_ = std::move(p700CarrierLaunchContract);`n        runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);`n        runtime->civilianGameplayEnabled_ = !p700AcceptanceMode;`n        return std::move(*runtime);"
+          $text = [regex]::Replace($text, $factoryPattern, $factoryReplacement, 1)
 
           $oldMember = '    bool p700AcceptanceMode_ = false;'
-          $newMember = "    bool p700AcceptanceMode_ = false;`r`n    bool civilianGameplayEnabled_ = false;"
+          $newMember = "    bool p700AcceptanceMode_ = false;`n    bool civilianGameplayEnabled_ = false;"
           if (($text.Split($oldMember).Count - 1) -ne 1) { throw 'runtime member anchor not unique' }
           $text = $text.Replace($oldMember, $newMember)
 
