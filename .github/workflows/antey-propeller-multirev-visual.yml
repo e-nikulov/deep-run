@@ -1,0 +1,66 @@
+name: Antey Propeller Multi-Revolution Visual Acceptance
+
+on:
+  push:
+    branches:
+      - fix/antey-propeller-runtime-presentation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: antey-propeller-multirev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual-acceptance:
+    runs-on: windows-2025-vs2026
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject temporary close-up acceptance driver
+        shell: pwsh
+        run: |
+          python .github/scripts/antey_propeller_multirev.py
+          git diff --check
+
+      - name: Configure Debug
+        shell: pwsh
+        run: cmake --preset windows-debug
+
+      - name: Build Debug
+        shell: pwsh
+        run: cmake --build --preset windows-debug --parallel
+
+      - name: Run close-up multi-revolution acceptance
+        shell: pwsh
+        env:
+          DR_PROPELLER_VISUAL_ACCEPTANCE: "1"
+        run: |
+          $exe = ".\build\windows-debug\Debug\DeepRun.exe"
+          $output = & $exe 2>&1 | Tee-Object -Variable visualOutput
+          $exitCode = $LASTEXITCODE
+          $text = ($visualOutput | Out-String)
+          if ($exitCode -ne 0) {
+            Write-Host $text
+            throw "propeller visual acceptance executable failed with exit code $exitCode"
+          }
+          if ($text -notmatch "PropellerAcceptance\] PASS") {
+            Write-Host $text
+            throw "propeller visual acceptance did not reach the multi-revolution PASS marker"
+          }
+          $captures = @(Get-ChildItem -File "antey-propeller-closeup-*.bmp" | Sort-Object Name)
+          if ($captures.Count -ne 8) {
+            throw "expected exactly 8 close-up captures, got $($captures.Count)"
+          }
+          Get-FileHash Content\submarines\Antey\Antey.glb -Algorithm SHA256
+
+      - name: Upload close-up sequence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antey-propeller-multirev-closeup
+          if-no-files-found: error
+          path: antey-propeller-closeup-*.bmp
