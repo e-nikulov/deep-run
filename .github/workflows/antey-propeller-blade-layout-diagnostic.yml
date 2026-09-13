@@ -1,0 +1,59 @@
+name: Antey Propeller Blade Layout Diagnostic
+
+on:
+  push:
+    branches:
+      - fix/antey-propeller-runtime-presentation
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect blade component angular layout
+        shell: pwsh
+        run: |
+          @'
+          import json, math, struct
+          from pathlib import Path
+          data=Path('Content/submarines/Antey/Antey.glb').read_bytes(); off=12; chunks=[]
+          while off<len(data):
+              n,t=struct.unpack_from('<II',data,off); off+=8; chunks.append((t,data[off:off+n])); off+=n
+          g=json.loads(next(x for t,x in chunks if t==0x4E4F534A).decode().rstrip('\x00 ')); b=next(x for t,x in chunks if t==0x004E4942)
+          side=json.loads(Path('Content/submarines/Antey/Antey.authoring.json').read_text(encoding='utf-8'))
+          def pts_for_node(name):
+              node=next(n for n in g['nodes'] if n.get('name')==name); out=[]
+              for p in g['meshes'][node['mesh']]['primitives']:
+                  a=g['accessors'][p['attributes']['POSITION']]; v=g['bufferViews'][a['bufferView']]
+                  stride=v.get('byteStride',12); base=v.get('byteOffset',0)+a.get('byteOffset',0)
+                  out += [struct.unpack_from('<fff',b,base+i*stride) for i in range(a['count'])]
+              return out
+          def center(pts):
+              return [sum(p[k] for p in pts)/len(pts) for k in range(3)]
+          def runtime_origin(src):
+              x,y,z=src; return [x,z,-y]
+          result={}
+          for side_name,root_name,semantic in [('port','SM_Propeller_Port','propeller.port'),('starboard','SM_Propeller_Starboard','propeller.starboard')]:
+              root=next(i for i,n in enumerate(g['nodes']) if n.get('name')==root_name)
+              desc=[]; stack=list(g['nodes'][root].get('children',[]))
+              while stack:
+                  i=stack.pop(); desc.append(i); stack.extend(g['nodes'][i].get('children',[]))
+              mesh_nodes=[g['nodes'][i] for i in desc if 'mesh' in g['nodes'][i]]
+              pivot=runtime_origin(next(p for p in side['propellers'] if p['semanticId']==semantic)['origin'])
+              rec=[]
+              for node in mesh_nodes:
+                  c=center(pts_for_node(node['name']))
+                  dy=c[1]-pivot[1]; dz=c[2]-pivot[2]
+                  rec.append({'name':node['name'],'center':c,'radius_yz':math.hypot(dy,dz),'angle_deg':math.degrees(math.atan2(dz,dy))})
+              result[side_name]={'pivot':pivot,'components':sorted(rec,key=lambda r:r['angle_deg'])}
+          print(json.dumps(result,indent=2))
+          Path('antey-propeller-blade-layout.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 .tmp_blade_layout.py
+          python .tmp_blade_layout.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: antey-propeller-blade-layout
+          path: antey-propeller-blade-layout.json
