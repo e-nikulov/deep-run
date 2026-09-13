@@ -484,6 +484,7 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedDeployDecoySequence = 0;
         std::uint64_t consumedTogglePeriscopeSequence = 0;
         std::uint64_t consumedVisualIdentifySequence = 0;
+        std::uint64_t consumedP700SalvoModeSequence = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
         bool loggedHapticSubmissionFailure = false;
@@ -609,7 +610,7 @@ int main(const int argumentCount, char** argumentValues)
              &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
              &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
-             &consumedTogglePeriscopeSequence, &consumedVisualIdentifySequence,
+             &consumedTogglePeriscopeSequence, &consumedVisualIdentifySequence, &consumedP700SalvoModeSequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
@@ -695,7 +696,7 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     currentOwnshipNavigationPositionMeters = playerCollisionProxy->positionMeters;
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 9> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 10> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -721,6 +722,9 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::VisualIdentify,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::VisualIdentify,
                                 consumedVisualIdentifySequence);
+                        consume(*inputState, DeepRun::Input::InputAction::ToggleP700SalvoMode,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::ToggleP700SalvoMode,
+                                consumedP700SalvoModeSequence);
                         consume(*inputState, DeepRun::Input::InputAction::PreviousWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::PreviousWeapon,
                                 consumedPreviousWeaponSequence);

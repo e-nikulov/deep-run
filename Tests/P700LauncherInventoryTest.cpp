@@ -21,6 +21,7 @@ BuildAnchors()
     for (std::size_t index = 0; index < anchors.size(); ++index)
     {
         anchors[index].semanticId = "p700.fixture." + std::to_string(index + 1U);
+        anchors[index].hatchGroupSemanticId = "FIXTURE_HATCH_" + std::to_string(index / 2U + 1U);
         anchors[index].localTransform.values[12] = 10.0F + static_cast<float>(index);
         anchors[index].localTransform.values[13] = (index % 2U == 0U) ? 2.0F : -2.0F;
         anchors[index].localTransform.values[14] = 1.0F;
@@ -54,6 +55,20 @@ BuildAnchors()
         inventory.FirstLoadedSlotIndex() != 0U)
     {
         std::cerr << "P-700 initial 24-slot inventory state is invalid\n";
+        return false;
+    }
+
+    const auto firstPair = inventory.LoadedSlotIndices(2U);
+    if (!firstPair || firstPair->size() != 2U || (*firstPair)[0] != 0U || (*firstPair)[1] != 1U ||
+        inventory.Slots()[0].anchor.hatchGroupSemanticId != inventory.Slots()[1].anchor.hatchGroupSemanticId)
+    {
+        std::cerr << "P-700 pair selection did not use one authored hatch group\n";
+        return false;
+    }
+    const std::array<std::size_t, 2> duplicatePair{0U, 0U};
+    if (inventory.ConsumeMany(duplicatePair) || inventory.LoadedCount() != AnteyP700LauncherSlotCount)
+    {
+        std::cerr << "P-700 transactional pair consumption mutated inventory after invalid request\n";
         return false;
     }
 

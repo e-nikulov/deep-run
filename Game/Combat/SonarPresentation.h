@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/CombatKnowledge.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Perception/TrackManager.h"
@@ -24,6 +25,10 @@ struct SonarTrackPresentation final
 {
     std::uint64_t trackId = 0;
     Perception::TrackLifecycleState lifecycle = Perception::TrackLifecycleState::Tentative;
+    ContactKnowledgeLevel knowledge = ContactKnowledgeLevel::BearingOnly;
+    Perception::ContactClassification classification = Perception::ContactClassification::Unknown;
+    Perception::OpticalIdentificationLevel opticalIdentificationLevel =
+        Perception::OpticalIdentificationLevel::None;
     float relativeBearingRadians = 0.0F;
     float bearingUncertaintyRadians = 0.0F;
     float confidence = 0.0F;
@@ -96,9 +101,9 @@ struct SonarPresentationSnapshot final
 }
 
 // Presentation-only projection. Inputs are ownship state, perceived Tracks, the player's own transmitted pulse,
-// and measured echo evidence. No hostile transform/body/entity identity is accepted by this boundary. The sound
-// speed defaults to the same AcousticWorldConfig used by the current M5 runtime; a future non-default world config
-// must pass its effective value explicitly so presentation cannot drift from simulation.
+// and measured echo evidence. No hostile transform/body/entity identity is accepted by this boundary. Unknown
+// contacts remain bearing sectors or uncertainty areas; classification appears only when the Track contains
+// ordinary sensor-derived evidence. The sound speed defaults to the same AcousticWorldConfig used by runtime.
 [[nodiscard]] inline std::expected<SonarPresentationSnapshot, std::string> BuildSonarPresentation(
     const std::span<const Perception::Track> tracks,
     const std::optional<std::uint64_t> selectedTrackId,
@@ -130,46 +135,31 @@ struct SonarPresentationSnapshot final
         {
             continue;
         }
-        if (track.trackId == 0U || !std::isfinite(track.estimatedBearingRadians) ||
-            !std::isfinite(track.bearingUncertaintyRadians) || track.bearingUncertaintyRadians < 0.0F ||
-            !std::isfinite(track.confidence) || track.confidence < 0.0F || track.confidence > 1.0F)
+        const auto hypothesis = BuildContactHypothesis(track, ownshipPositionMeters);
+        if (!hypothesis)
         {
-            return std::unexpected("M5 sonar presentation received an invalid perceived Track");
+            return std::unexpected("M5 sonar presentation received an invalid perceived Track: " + hypothesis.error());
         }
 
         SonarTrackPresentation contact{
             .trackId = track.trackId,
             .lifecycle = track.lifecycle,
+            .knowledge = hypothesis->knowledge,
+            .classification = hypothesis->classification,
+            .opticalIdentificationLevel = hypothesis->opticalIdentificationLevel,
             .relativeBearingRadians = WrapSonarAngle(track.estimatedBearingRadians - ownshipHeadingRadians),
             .bearingUncertaintyRadians = track.bearingUncertaintyRadians,
             .confidence = track.confidence,
-            .positionUncertaintyMeters = track.positionUncertaintyMeters,
+            .estimatedRangeMeters = hypothesis->estimatedRangeMeters,
+            .positionUncertaintyMeters = hypothesis->hypothesisRadiusMeters,
             .selected = selectedTrackId.has_value() && *selectedTrackId == track.trackId};
 
-        if (track.positionUncertaintyMeters &&
-            (!std::isfinite(*track.positionUncertaintyMeters) || *track.positionUncertaintyMeters < 0.0F))
+        if (contact.estimatedRangeMeters)
         {
-            return std::unexpected("M5 sonar presentation received invalid perceived position uncertainty");
-        }
-        if (track.estimatedPositionMeters)
-        {
-            if (!track.estimatedPositionMeters->IsFinite())
-            {
-                return std::unexpected("M5 sonar presentation received an invalid perceived position");
-            }
-            const double dx = static_cast<double>(track.estimatedPositionMeters->x) - ownshipPositionMeters.x;
-            const double dy = static_cast<double>(track.estimatedPositionMeters->y) - ownshipPositionMeters.y;
-            const double dz = static_cast<double>(track.estimatedPositionMeters->z) - ownshipPositionMeters.z;
-            const double rangeMeters = std::sqrt(dx * dx + dy * dy + dz * dz);
-            if (!std::isfinite(rangeMeters))
-            {
-                return std::unexpected("M5 sonar presentation perceived range is non-finite");
-            }
-            contact.estimatedRangeMeters = static_cast<float>(rangeMeters);
-            const float uncertainty = track.positionUncertaintyMeters.value_or(0.0F);
+            const float uncertainty = contact.positionUncertaintyMeters.value_or(0.0F);
             requestedRangeMeters = std::max(
                 requestedRangeMeters,
-                static_cast<float>(rangeMeters) * 1.20F + uncertainty);
+                *contact.estimatedRangeMeters * 1.20F + uncertainty);
         }
         result.tracks.push_back(contact);
     }

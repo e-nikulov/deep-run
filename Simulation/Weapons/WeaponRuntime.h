@@ -245,4 +245,20 @@ struct WeaponRuntimeState final
     state.lastUpdateTimeSeconds = simulationTimeSeconds;
     return {};
 }
+[[nodiscard]] inline std::expected<void, std::string> ResetWeaponAfterResolvedLaunch(
+    const WeaponDefinition& definition, WeaponRuntimeState& state, const double simulationTimeSeconds)
+{
+    if (state.definitionId != definition.id)
+        return std::unexpected("weapon runtime does not match definition");
+    const auto validTime = ValidateWeaponTime(state, simulationTimeSeconds);
+    if (!validTime)
+        return std::unexpected(validTime.error());
+    if (state.phase != WeaponPhase::Launched)
+        return std::unexpected("only a resolved Launched weapon may return to Stored");
+    state.phase = WeaponPhase::Stored;
+    state.phaseEnteredTimeSeconds = simulationTimeSeconds;
+    state.lastUpdateTimeSeconds = simulationTimeSeconds;
+    state.targetTrackId.reset();
+    return {};
+}
 } // namespace DeepRun::Weapons

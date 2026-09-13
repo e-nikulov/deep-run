@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Simulation/Weapons/WeaponEmploymentEnvelope.h"
+#include "Tests/D2CombatKnowledgeSalvoChecks.h"
 
 #include <cmath>
 
@@ -75,6 +76,7 @@ namespace DeepRun::Tests
         P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 0.0F, 0.0F, KnotsToMetersPerSecond(5.1F));
     const auto granitSubmergedTarget = at(P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 30.0F, 0.0F, 0.0F);
     return granitNominal.allowed && granitSurfaceLaunch.allowed && !granitTooDeep.allowed && !granitTooClose.allowed &&
-           !granitTooFar.allowed && !granitWrongSector.allowed && !granitTooFast.allowed && !granitSubmergedTarget.allowed;
+           !granitTooFar.allowed && !granitWrongSector.allowed && !granitTooFast.allowed && !granitSubmergedTarget.allowed &&
+           RunD2CombatKnowledgeSalvoChecks();
 }
 } // namespace DeepRun::Tests

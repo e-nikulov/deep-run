@@ -141,6 +141,7 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
     case PlayerCombatCommandType::DeployDecoy: return "DEPLOY DECOY";
     case PlayerCombatCommandType::TogglePeriscope: return "PERISCOPE";
     case PlayerCombatCommandType::VisualIdentify: return "VISUAL ID";
+    case PlayerCombatCommandType::ToggleP700SalvoMode: return "P-700 SALVO MODE";
     }
     return "UNKNOWN COMMAND";
 }
@@ -174,6 +175,8 @@ void DrawCombatCommandUi(
     const std::string_view weaponName = Armament::PlayerWeaponName(snapshot.selectedWeapon);
     ImGui::Text("Weapon: %.*s / %s", static_cast<int>(weaponName.size()), weaponName.data(), WeaponPhaseName(snapshot.weaponPhase));
     ImGui::Text("P-700 loaded: %zu / %zu", snapshot.p700LoadedCount, Armament::AnteyP700LauncherSlotCount);
+    ImGui::Text("P-700 salvo: %s (G / D-pad Down)",
+        snapshot.p700SalvoMode == Weapons::P700SalvoMode::Pair ? "PAIR x2 / cooperative" : "SINGLE x1 / economical");
     if (snapshot.weaponTargetTrackId)
     {
         ImGui::Text("Weapon track: #%llu", static_cast<unsigned long long>(*snapshot.weaponTargetTrackId));
@@ -306,6 +309,7 @@ void DrawCombatCommandUi(
     ImGui::TextUnformatted("D-pad Up / P     Raise/lower periscope");
     ImGui::TextUnformatted("A / V            Visual identify");
     ImGui::TextUnformatted("D-pad L/R / Z/C  Select weapon");
+    ImGui::TextUnformatted("D-pad Down / G    P-700 single/pair");
     ImGui::TextUnformatted("LT / R / RMB     Prepare weapon");
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
     ImGui::TextUnformatted("RB / Space       Active sonar ping");
@@ -482,7 +486,17 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
             contact.estimatedRangeMeters
                 ? radius * std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F)
                 : radius);
-        const std::string label = "#" + std::to_string(static_cast<unsigned long long>(contact.trackId));
+        const char* knowledge = "BRG";
+        switch (contact.knowledge)
+        {
+        case ContactKnowledgeLevel::BearingOnly: knowledge = "BRG"; break;
+        case ContactKnowledgeLevel::AreaEstimate: knowledge = "AREA"; break;
+        case ContactKnowledgeLevel::Classified: knowledge = "CLASS"; break;
+        case ContactKnowledgeLevel::PositiveIdentification: knowledge = "ID"; break;
+        case ContactKnowledgeLevel::Coasting: knowledge = "COAST"; break;
+        }
+        const std::string label = "#" + std::to_string(static_cast<unsigned long long>(contact.trackId)) +
+                                  " " + knowledge;
         drawList->AddText(ImVec2(labelPoint.x + 6.0F, labelPoint.y - 7.0F), color, label.c_str());
     }
 
@@ -518,7 +532,7 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
                           ImVec2(echoPoint.x + 6.0F, echoPoint.y - 6.0F), echoColor, 2.0F);
     }
 
-    ImGui::TextUnformatted("Bearing-only = radial line | ranged = contact point");
+    ImGui::TextUnformatted("BRG=line | AREA=estimated region | CLASS/ID=optical evidence | COAST=stale");
     ImGui::End();
 }
 

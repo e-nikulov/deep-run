@@ -64,9 +64,11 @@ struct CombatPlaygroundPresentationSnapshot final
     Physics::PhysicsBodyState destroyerBody{};
     float destroyerIntegrityFraction = 1.0F;
     bool destroyerDestroyed = false;
+    bool destroyerVisible = true;
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
     std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};
     std::optional<CombatPlaygroundP700Presentation> playerP700{};
+    std::vector<CombatPlaygroundP700Presentation> playerP700Wingmen{};
     std::optional<CombatPlaygroundDecoyPresentation> decoy{};
     std::optional<CombatPlaygroundDecoyPresentation> playerDecoy{};
     std::optional<CombatPlaygroundMinePresentation> navalMine{};
@@ -129,7 +131,9 @@ BuildCombatPlaygroundPresentationSnapshot(
         .destroyerBody = *destroyerBody,
         .destroyerIntegrityFraction = std::clamp(
             destroyer.integrity.remainingIntegrity / destroyer.integrity.maximumIntegrity, 0.0F, 1.0F),
-        .destroyerDestroyed = destroyer.integrity.destroyed};
+        .destroyerDestroyed = destroyer.integrity.destroyed,
+        .destroyerVisible = !runtime.PlayerFogOfWarActive() ||
+            runtime.PlayerHasVisualClassification(Perception::ContactClassification::MilitarySurfaceCombatant)};
 
     if (const auto& torpedo = runtime.PlayerTorpedo(); torpedo.has_value())
     {
@@ -179,6 +183,23 @@ BuildCombatPlaygroundPresentationSnapshot(
             .mainEngineActive = p700->mainEngineActive,
             .terminalOutcome = p700->terminalOutcome,
             .phase = p700->phase};
+    }
+    for (const auto& p700 : runtime.PlayerP700Wingmen())
+    {
+        if (p700.phase == Weapons::P700GranitPhase::Stored || p700.phase == Weapons::P700GranitPhase::Spent)
+            continue;
+        if (!p700.positionMeters.IsFinite() || !std::isfinite(p700.headingRadians) ||
+            !std::isfinite(p700.hatchOpenProgress) || !std::isfinite(p700.postExitTransitionProgress) ||
+            !std::isfinite(p700.deploymentProgress))
+            return std::unexpected("D2 P-700 wingman presentation state is invalid");
+        snapshot.playerP700Wingmen.push_back(CombatPlaygroundP700Presentation{
+            .positionMeters = p700.positionMeters, .headingRadians = p700.headingRadians,
+            .hatchOpenProgress = p700.hatchOpenProgress,
+            .postExitTransitionProgress = p700.postExitTransitionProgress,
+            .deploymentProgress = p700.deploymentProgress,
+            .launchBoosterActive = p700.launchBoosterActive, .launchBoosterAttached = p700.launchBoosterAttached,
+            .noseProtectionCapAttached = p700.noseProtectionCapAttached, .mainEngineActive = p700.mainEngineActive,
+            .terminalOutcome = p700.terminalOutcome, .phase = p700.phase});
     }
 
     if (const auto& decoy = runtime.Decoy(); decoy.has_value())
@@ -456,8 +477,11 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
     {
         return std::unexpected("M5-H.1 destroyer presentation draw failed");
     }
-    draws.push_back(std::move(*hull));
-    draws.push_back(std::move(*superstructure));
+    if (snapshot.destroyerVisible)
+    {
+        draws.push_back(std::move(*hull));
+        draws.push_back(std::move(*superstructure));
+    }
 
     if (snapshot.playerTorpedo && snapshot.playerTorpedo->movementDomain == Weapons::MovementDomain::Underwater)
     {
@@ -501,16 +525,15 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         draws.push_back(std::move(*draw));
     }
 
-    if (snapshot.playerP700)
+    const auto addP700TransientPresentation = [&](const CombatPlaygroundP700Presentation& p700)
+        -> std::expected<void, std::string>
     {
-        const auto missilePose = BodyPoseTransform(
-            snapshot.playerP700->positionMeters,
-            Weapons::P700HeadingQuaternion(snapshot.playerP700->headingRadians));
+        const auto missilePose = BodyPoseTransform(p700.positionMeters, Weapons::P700HeadingQuaternion(p700.headingRadians));
         if (!missilePose) return std::unexpected(missilePose.error());
-        const auto addP700Proxy = [&](const CombatPlaygroundPresentationElement element,
-                                     const Physics::PhysicsVector3& scale,
-                                     const Physics::PhysicsVector3& localOffset,
-                                     const std::array<float,4>& color) -> std::expected<void,std::string>
+        const auto addProxy = [&](const CombatPlaygroundPresentationElement element,
+                                  const Physics::PhysicsVector3& scale,
+                                  const Physics::PhysicsVector3& localOffset,
+                                  const std::array<float,4>& color) -> std::expected<void,std::string>
         {
             const Assets::ModelTransform transform = Render::Multiply(*missilePose, LocalScaleTranslation(scale, localOffset));
             auto draw = MakeDraw(element, transform, Material("M5P700Transient", color, 0.02F, 0.20F));
@@ -518,31 +541,29 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
             draws.push_back(std::move(*draw));
             return {};
         };
-        // Canonical GLB has no separately authored nose protection cap. This small fairing proxy is therefore
-        // presentation-only and deliberately never participates in missile bounds, collision or damage.
-        if (snapshot.playerP700->noseProtectionCapAttached)
+        if (p700.noseProtectionCapAttached)
         {
-            if (auto r = addP700Proxy(CombatPlaygroundPresentationElement::P700NoseProtectionCap,
-                    {0.65F, 0.95F, 0.95F}, {5.25F, 0.0F, 0.0F}, {0.72F,0.74F,0.72F,1.0F}); !r) return std::unexpected(r.error());
+            if (auto r = addProxy(CombatPlaygroundPresentationElement::P700NoseProtectionCap,
+                    {0.65F,0.95F,0.95F}, {5.25F,0.0F,0.0F}, {0.72F,0.74F,0.72F,1.0F}); !r) return r;
         }
-        else if (snapshot.playerP700->phase == Weapons::P700GranitPhase::PostExitTransition &&
-                 snapshot.playerP700->postExitTransitionProgress < 0.80F)
+        else if (p700.phase == Weapons::P700GranitPhase::PostExitTransition && p700.postExitTransitionProgress < 0.80F)
         {
-            const float p = snapshot.playerP700->postExitTransitionProgress;
-            if (auto r = addP700Proxy(CombatPlaygroundPresentationElement::P700DetachedNoseProtectionCap,
-                    {0.65F, 0.95F, 0.95F}, {5.25F + 3.0F*p, 1.5F*p, 0.0F}, {0.72F,0.74F,0.72F,1.0F}); !r) return std::unexpected(r.error());
+            const float p = p700.postExitTransitionProgress;
+            if (auto r = addProxy(CombatPlaygroundPresentationElement::P700DetachedNoseProtectionCap,
+                    {0.65F,0.95F,0.95F}, {5.25F+3.0F*p,1.5F*p,0.0F}, {0.72F,0.74F,0.72F,1.0F}); !r) return r;
         }
-        if (snapshot.playerP700->launchBoosterActive)
-        {
-            if (auto r = addP700Proxy(CombatPlaygroundPresentationElement::P700LaunchBoosterPlume,
-                    {3.4F, 0.32F, 0.32F}, {-6.0F, 0.0F, 0.0F}, {1.0F,0.72F,0.18F,1.0F}); !r) return std::unexpected(r.error());
-        }
-        if (snapshot.playerP700->mainEngineActive)
-        {
-            if (auto r = addP700Proxy(CombatPlaygroundPresentationElement::P700MainEnginePlume,
-                    {4.8F, 0.28F, 0.28F}, {-6.8F, 0.0F, 0.0F}, {1.0F,0.46F,0.08F,1.0F}); !r) return std::unexpected(r.error());
-        }
-    }
+        if (p700.launchBoosterActive)
+            if (auto r = addProxy(CombatPlaygroundPresentationElement::P700LaunchBoosterPlume,
+                    {3.4F,0.32F,0.32F}, {-6.0F,0.0F,0.0F}, {1.0F,0.72F,0.18F,1.0F}); !r) return r;
+        if (p700.mainEngineActive)
+            if (auto r = addProxy(CombatPlaygroundPresentationElement::P700MainEnginePlume,
+                    {4.8F,0.28F,0.28F}, {-6.8F,0.0F,0.0F}, {1.0F,0.46F,0.08F,1.0F}); !r) return r;
+        return {};
+    };
+    if (snapshot.playerP700)
+        if (auto r = addP700TransientPresentation(*snapshot.playerP700); !r) return std::unexpected(r.error());
+    for (const auto& wingman : snapshot.playerP700Wingmen)
+        if (auto r = addP700TransientPresentation(wingman); !r) return std::unexpected(r.error());
 
     if (snapshot.decoy && snapshot.decoy->active)
     {
