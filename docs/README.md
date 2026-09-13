@@ -72,6 +72,7 @@ Current registry:
 |---|---|---|---|
 | D0 | Core Game Design / Game Loop | [design/game-loop.md](design/game-loop.md) | [design/submarine-command.md](design/submarine-command.md); [design/vertical-ocean-gameplay.md](design/vertical-ocean-gameplay.md) |
 | D1 | Controls & Handling | [design/controls.md](design/controls.md) | None |
+| D2 | Perception, Fog of War & Combat Intelligence | [design/perception-combat-intelligence.md](design/perception-combat-intelligence.md) | None |
 
 D1 preserves this boundary:
 
@@ -83,9 +84,12 @@ Physical Input
 ```
 
 `Throttle`, `Depth`, and other gameplay commands are not raw Engine Input.
+D2 preserves a parallel knowledge boundary: scenario/physics truth may feed
+sensor simulation, but player UI, hostile AI, and weapons consume only their
+own observations and perceived Tracks.
+
 New D-IDs are added only when a distinct design contract is ready to be
-specified; possible future subjects include sonar gameplay, combat,
-crew/damage, and progression.
+specified; possible future subjects include crew/damage and progression.
 
 ## C — Content specifications
 
