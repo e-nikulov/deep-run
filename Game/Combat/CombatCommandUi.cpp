@@ -47,6 +47,18 @@ const char* ClassificationName(const Perception::ContactClassification classific
     return "UNCONFIRMED";
 }
 
+const char* OpticalDetailName(const Perception::OpticalIdentificationLevel detail) noexcept
+{
+    switch (detail)
+    {
+    case Perception::OpticalIdentificationLevel::None: return "NONE";
+    case Perception::OpticalIdentificationLevel::Detected: return "SILHOUETTE / TYPE UNRESOLVED";
+    case Perception::OpticalIdentificationLevel::TypeResolved: return "TYPE RESOLVED";
+    case Perception::OpticalIdentificationLevel::FlagOrMarkingsResolved: return "FLAG / MARKINGS RESOLVED";
+    }
+    return "NONE";
+}
+
 const char* CameraBandName(const Camera::MultiScaleCameraBand band) noexcept
 {
     switch (band)
@@ -204,6 +216,7 @@ void DrawCombatCommandUi(
                 ImGui::TextUnformatted("Position solution: unavailable");
             }
             ImGui::Text("Firing solution: %s", snapshot.selectedTrackWeaponQualified ? "QUALIFIED" : "INSUFFICIENT");
+            ImGui::Text("Optical detail: %s", OpticalDetailName(snapshot.selectedTrackOpticalIdentificationLevel));
             if (snapshot.selectedTrackVisuallyIdentified)
             {
                 ImGui::Text("Identification: %s", ClassificationName(snapshot.selectedTrackClassification));
