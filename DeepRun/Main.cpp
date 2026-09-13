@@ -1081,7 +1081,11 @@ int main(const int argumentCount, char** argumentValues)
                         DeepRun::Game::Combat::DrawVesselNavigationHud({
                             .signedDepthMeters = navigationTelemetry->signedDepthMeters,
                             .verticalSpeedMetersPerSecond = navigationTelemetry->verticalSpeedMetersPerSecond,
+                            .forwardSpeedMetersPerSecond = navigationTelemetry->forwardSpeedMetersPerSecond,
                             .throttleFraction = navigationTelemetry->throttleFraction,
+                            .mainBallastFillFraction = navigationTelemetry->mainBallastFillFraction,
+                            .trimMassDeltaKg = navigationTelemetry->trimMassDeltaKg,
+                            .dynamicMassKg = navigationTelemetry->dynamicMassKg,
                             .bowPlanesDeployed = navigationTelemetry->bowPlanesDeployed,
                             .sternPlaneDeflectionFraction = navigationTelemetry->sternPlaneDeflectionFraction});
 

@@ -9,6 +9,7 @@
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
+#include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Submarine/ProductionAnteyLodPolicy.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
@@ -113,10 +114,9 @@ constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
     M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
 static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.23F &&
               M5SurfaceEquilibriumBodyCenterDepthMeters < 2.25F);
-// Exact 949A flood/blow timing is not asserted from public data. Full empty<->full is a 40 s GAME POLICY.
-constexpr float M5MainBallastFillRateFractionPerSecond = 0.025F;
-constexpr float M5MainBallastBlowRateFractionPerSecond = 0.025F;
-constexpr float M5MaximumTrimMassFractionOfSubmergedMass = 0.015F;
+// Exact tank timing remains explicit GAME POLICY in the pure ballast-state controller. Main ballast is not
+// used for ordinary submerged depth changes; the controller only arms normal blowing in the final surface band.
+constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
 // Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
 constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
 constexpr float M5SurfacedLongitudinalEffectiveAreaSquareMeters = 109.77216F;
@@ -1164,8 +1164,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     primaryPeriscopeDeployedTransform_ = primaryPeriscopeDeployedTransform;
     primaryPeriscopeRequestedRaised_ = false;
     primaryPeriscopeDeploymentProgress_ = 0.0F;
-    mainBallastFillFraction_ = 1.0F;
+    ballastState_ = {};
     committedDynamicMassKg_ = M5AnteySubmergedMassKg;
+    committedForwardSpeedMetersPerSecond_ = 0.0F;
 
     if (verifyDistinctUploads)
     {
@@ -1371,25 +1372,28 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     if (!std::isfinite(pitchRestoringTorqueNewtonMeters))
         return std::unexpected("physical playground pitch restoring torque is non-finite");
 
-    const float mainBallastRate = command.depthCommandFraction >= 0.0F
-        ? M5MainBallastFillRateFractionPerSecond
-        : M5MainBallastBlowRateFractionPerSecond;
-    const float nextMainBallastFillFraction = std::clamp(
-        mainBallastFillFraction_ + command.depthCommandFraction * mainBallastRate * fixedDeltaSeconds,
-        0.0F, 1.0F);
-    const float baseMassKg = M5AnteySurfaceMassKg + M5AnteyMainBallastCapacityKg * nextMainBallastFillFraction;
-    const float baseWeightNewtons = baseMassKg * *gravityMagnitude;
+    const auto bodyWaterSample = water_->Sample(state->position);
+    if (!bodyWaterSample || !std::isfinite(bodyWaterSample->signedDepthMeters))
+        return std::unexpected("physical playground body depth is unavailable for ballast control");
+
+    const float currentBaseMassKg = M5AnteySurfaceMassKg +
+        M5AnteyMainBallastCapacityKg * ballastState_.mainBallastFillFraction;
+    const float currentWeightNewtons = currentBaseMassKg * *gravityMagnitude;
     const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
         M5LowSpeedBallastDepthControl, command.depthCommandFraction,
-        sternControl->bodyForwardSpeedMetersPerSecond, state->linearVelocity.y, baseWeightNewtons);
+        sternControl->bodyForwardSpeedMetersPerSecond, state->linearVelocity.y, currentWeightNewtons);
     if (!variableBallast)
         return std::unexpected("physical playground variable-ballast evaluation failed: " + variableBallast.error());
-    // The low-speed controller requests trim by changing equivalent water mass, never by injecting vertical force.
+
+    // Convert the controller request to a desired equivalent trim-water mass. The pure state controller then
+    // applies finite actuator slew and decides whether main-ballast flooding/blowing is operationally allowed.
     const float requestedTrimMassDeltaKg = -variableBallast->forceNewtons.y / *gravityMagnitude;
-    const float maximumTrimMassKg = M5AnteySubmergedMassKg * M5MaximumTrimMassFractionOfSubmergedMass;
-    const float trimMassDeltaKg = std::clamp(requestedTrimMassDeltaKg, -maximumTrimMassKg, maximumTrimMassKg);
-    const float nextDynamicMassKg = std::clamp(
-        baseMassKg + trimMassDeltaKg, M5AnteySurfaceMassKg, M5AnteySubmergedMassKg + maximumTrimMassKg);
+    const auto nextBallastState = Submarine::AdvanceAnteyBallastState(
+        M5AnteyBallastControl, ballastState_, command.depthCommandFraction,
+        bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, fixedDeltaSeconds);
+    if (!nextBallastState)
+        return std::unexpected("physical playground ballast-state advance failed: " + nextBallastState.error());
+    const float nextDynamicMassKg = Submarine::AnteyPhysicalMassKg(M5AnteyBallastControl, *nextBallastState);
     const float vesselWeightNewtons = nextDynamicMassKg * *gravityMagnitude;
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
     // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
@@ -1512,8 +1516,9 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
-    mainBallastFillFraction_ = nextMainBallastFillFraction;
+    ballastState_ = *nextBallastState;
     committedDynamicMassKg_ = nextDynamicMassKg;
+    committedForwardSpeedMetersPerSecond_ = sternControl->bodyForwardSpeedMetersPerSecond;
     consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
     committedThrottleFraction_ = command.throttleFraction;
     committedSternPlaneDeflection_ = sternControlDeflection;
@@ -1599,8 +1604,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 FormatVector(buoyancyResult->totalForceNewtons) + ", variable ballast authority " +
                 std::to_string(variableBallast->lowSpeedAuthorityFraction) + ", ballast target V/S " +
                 std::to_string(variableBallast->targetVerticalSpeedMetersPerSecond) +
-                " m/s, main ballast fill " + std::to_string(nextMainBallastFillFraction) +
-                ", trim mass delta " + std::to_string(trimMassDeltaKg) +
+                " m/s, main ballast fill " + std::to_string(nextBallastState->mainBallastFillFraction) +
+                ", trim mass delta " + std::to_string(nextBallastState->trimMassDeltaKg) +
                 " kg, dynamic mass " + std::to_string(nextDynamicMassKg) +
                 " kg, surface exposure " + std::to_string(surfacedExposureFraction) +
                 ", drag force " +
@@ -1656,7 +1661,11 @@ std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::Buil
     return VesselPresentationTelemetry{
         .signedDepthMeters = waterSample->signedDepthMeters,
         .verticalSpeedMetersPerSecond = state->linearVelocity.y,
+        .forwardSpeedMetersPerSecond = committedForwardSpeedMetersPerSecond_,
         .throttleFraction = committedThrottleFraction_,
+        .mainBallastFillFraction = ballastState_.mainBallastFillFraction,
+        .trimMassDeltaKg = ballastState_.trimMassDeltaKg,
+        .dynamicMassKg = committedDynamicMassKg_,
         .bowPlanesDeployed = true,
         .sternPlaneDeflectionFraction = committedSternPlaneDeflection_};
 }

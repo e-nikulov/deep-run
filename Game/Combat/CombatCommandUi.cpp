@@ -580,7 +580,13 @@ void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot)
     ImGui::TextUnformatted("NAV");
     ImGui::Text("Current depth: %.1f m", currentDepthMeters);
     ImGui::Text("Vertical speed: %+0.2f m/s (UP+)", snapshot.verticalSpeedMetersPerSecond);
+    ImGui::Text("Axial speed: %+0.1f kn / %+0.2f m/s",
+                snapshot.forwardSpeedMetersPerSecond * 1.94384449F,
+                snapshot.forwardSpeedMetersPerSecond);
     ImGui::Text("Buoyancy / trim: %s", BuoyancyTrimStateName(snapshot));
+    ImGui::Text("Main ballast: %.0f%% | Trim: %+0.1f t",
+                snapshot.mainBallastFillFraction * 100.0F, snapshot.trimMassDeltaKg / 1000.0F);
+    ImGui::Text("Physical mass: %.0f t", snapshot.dynamicMassKg / 1000.0F);
     ImGui::Text("Throttle: %+0.0f%%", snapshot.throttleFraction * 100.0F);
     ImGui::Text("Bow planes: %s", snapshot.bowPlanesDeployed ? "DEPLOYED / FIXED" : "STOWED");
     ImGui::Text("Stern planes: %+0.0f%%", snapshot.sternPlaneDeflectionFraction * 100.0F);

@@ -16,6 +16,7 @@
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
+#include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -59,7 +60,11 @@ struct VesselPresentationTelemetry final
     float signedDepthMeters = 0.0F;
     // World +Y is upward, so positive values mean surfacing and negative values mean diving.
     float verticalSpeedMetersPerSecond = 0.0F;
+    float forwardSpeedMetersPerSecond = 0.0F;
     float throttleFraction = 0.0F;
+    float mainBallastFillFraction = 1.0F;
+    float trimMassDeltaKg = 0.0F;
+    float dynamicMassKg = 0.0F;
     bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };
@@ -468,8 +473,9 @@ private:
     Assets::ModelTransform primaryPeriscopeDeployedTransform_{};
     bool primaryPeriscopeRequestedRaised_ = false;
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
-    float mainBallastFillFraction_ = 1.0F;
+    Submarine::AnteyBallastState ballastState_{};
     float committedDynamicMassKg_ = 0.0F;
+    float committedForwardSpeedMetersPerSecond_ = 0.0F;
 
     // Bounded H2 diagnostics:
     std::uint64_t fixedTickCount_ = 0;

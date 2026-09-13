@@ -3,6 +3,7 @@
 #include "Game/Combat/PeriscopeCombatRuntime.h"
 #include "Game/Combat/PeriscopeObservationSystem.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
+#include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Simulation/Perception/TrackManager.h"
@@ -41,6 +42,23 @@ namespace DeepRun::Tests
         std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||
         std::abs(maximumBallastOnlyVertical - 7.0697F) > 0.03F)
         return false;
+    const AnteyBallastControlConfig ballastStateConfig{};
+    const AnteyBallastState fullMainBallast{};
+    const auto deepSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, fullMainBallast, -1.0F, 100.0F, -100'000.0F, 1.0F);
+    const auto nearSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, fullMainBallast, -1.0F, 2.5F, -100'000.0F, 1.0F);
+    const AnteyBallastState partlyBlown{.mainBallastFillFraction = 0.5F, .trimMassDeltaKg = 0.0F};
+    const auto diveFromSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, partlyBlown, 1.0F, 2.0F, 100'000.0F, 1.0F);
+    if (!deepSurfaceBallast || !nearSurfaceBallast || !diveFromSurfaceBallast ||
+        std::abs(deepSurfaceBallast->mainBallastFillFraction - 1.0F) > 1.0e-6F ||
+        !(nearSurfaceBallast->mainBallastFillFraction < 1.0F) ||
+        !(diveFromSurfaceBallast->mainBallastFillFraction > partlyBlown.mainBallastFillFraction) ||
+        !(deepSurfaceBallast->trimMassDeltaKg < 0.0F) ||
+        std::abs(deepSurfaceBallast->trimMassDeltaKg) >= 100'000.0F)
+        return false;
+
     const VariableBallastDepthControlConfig ballast{};
     const auto surface = CalculateVariableBallastDepthControl(ballast, -1.0F, 0.0F, 0.0F, WeightNewtons);
     const auto dive = CalculateVariableBallastDepthControl(ballast, 1.0F, 0.0F, 0.0F, WeightNewtons);
