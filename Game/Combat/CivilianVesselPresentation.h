@@ -3,10 +3,12 @@
 #include "Engine/Render/ModelDraw.h"
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <expected>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace DeepRun::Game::Combat
