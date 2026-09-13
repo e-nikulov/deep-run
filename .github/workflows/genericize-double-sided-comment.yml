@@ -20,16 +20,23 @@ jobs:
       - name: Keep renderer gameplay-agnostic
         shell: pwsh
         run: |
-          $path = 'Engine/Render/D3D12Renderer.cpp'
-          $text = Get-Content -Raw $path
-          $old = "        // back-face-culling PSO for ordinary meshes and a second PSO for authored two-sided`r`n        // surfaces such as the production Antey propeller blades."
-          $new = "        // back-face-culling PSO for ordinary meshes and a second PSO for authored two-sided`r`n        // surfaces that require visibility from both winding orientations."
-          if (-not $text.Contains($old)) { throw 'expected renderer comment not found' }
-          $text = $text.Replace($old, $new)
-          Set-Content -Path $path -Value $text -Encoding UTF8 -NoNewline
+          @'
+          from pathlib import Path
+          path = Path("Engine/Render/D3D12Renderer.cpp")
+          text = path.read_text(encoding="utf-8")
+          old = "surfaces such as the production Antey propeller blades."
+          new = "surfaces that require visibility from both winding orientations."
+          if text.count(old) != 1:
+              raise RuntimeError(f"expected one renderer wording match, got {text.count(old)}")
+          text = text.replace(old, new)
+          path.write_text(text, encoding="utf-8")
+          lower = text.lower()
+          if "propeller" in lower or "submarine" in lower:
+              raise RuntimeError("generic renderer contains gameplay vocabulary")
+          '@ | Set-Content -Encoding UTF8 .tmp_genericize_renderer.py
+          python .tmp_genericize_renderer.py
+          Remove-Item .tmp_genericize_renderer.py
           git diff --check
-          if ((Get-Content -Raw $path).ToLowerInvariant().Contains('propeller')) { throw 'generic renderer still contains gameplay propeller vocabulary' }
-          if ((Get-Content -Raw $path).ToLowerInvariant().Contains('submarine')) { throw 'generic renderer still contains gameplay submarine vocabulary' }
       - name: Commit and remove temporary workflow
         shell: pwsh
         run: |
