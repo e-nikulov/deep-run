@@ -1,0 +1,185 @@
+#pragma once
+
+#include "Game/Combat/PeriscopeObservationSystem.h"
+#include "Game/Combat/PlayerCombatCommandRuntime.h"
+#include "Game/Submarine/VariableBallastDepthControl.h"
+#include "Simulation/Perception/TrackManager.h"
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+namespace DeepRun::Tests
+{
+[[nodiscard]] inline bool RunPeriscopeBallastGameplayChecks()
+{
+    using namespace Game::Combat;
+    using namespace Game::Submarine;
+
+    constexpr float WeightNewtons = 100'000'000.0F;
+    const VariableBallastDepthControlConfig ballast{};
+    const auto surface = CalculateVariableBallastDepthControl(ballast, -1.0F, 0.0F, 0.0F, WeightNewtons);
+    const auto dive = CalculateVariableBallastDepthControl(ballast, 1.0F, 0.0F, 0.0F, WeightNewtons);
+    const auto neutralArrest = CalculateVariableBallastDepthControl(ballast, 0.0F, 0.0F, 0.5F, WeightNewtons);
+    const auto hydrodynamicSpeed = CalculateVariableBallastDepthControl(
+        ballast, -1.0F, ballast.zeroAuthorityAboveForwardSpeedMetersPerSecond, 0.0F, WeightNewtons);
+    if (!surface || !dive || !neutralArrest || !hydrodynamicSpeed ||
+        surface->lowSpeedAuthorityFraction != 1.0F || surface->targetVerticalSpeedMetersPerSecond <= 0.0F ||
+        surface->forceNewtons.y <= 0.0F || dive->forceNewtons.y >= 0.0F ||
+        neutralArrest->forceNewtons.y >= 0.0F || hydrodynamicSpeed->lowSpeedAuthorityFraction != 0.0F ||
+        hydrodynamicSpeed->forceNewtons != Physics::PhysicsVector3{})
+    {
+        return false;
+    }
+
+    auto tracksResult = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+        .observationsToConfirm = 1U,
+        .maximumTracks = 4U});
+    if (!tracksResult)
+    {
+        return false;
+    }
+    auto tracks = std::move(*tracksResult);
+
+    const Perception::SensorObservation acoustic{
+        .modality = Perception::SensorModality::ActiveAcoustic,
+        .sensorId = "TEST_ACTIVE",
+        .sensorPositionMeters = Physics::PhysicsVector3{.x = 0.0F, .y = -10.0F, .z = 0.0F},
+        .observationTimeSeconds = 0.0,
+        .measuredBearingRadians = 0.01F,
+        .bearingUncertaintyRadians = 0.04F,
+        .estimatedRangeMeters = 1000.0F,
+        .rangeUncertaintyMeters = 25.0F,
+        .confidence = 0.90F,
+        .classificationEvidence = std::nullopt};
+    const auto acousticTrackId = tracks.IntegrateObservation(acoustic);
+    if (!acousticTrackId)
+    {
+        return false;
+    }
+    const auto acousticTracks = tracks.Tracks();
+    if (acousticTracks.size() != 1U || acousticTracks.front().visuallyIdentified ||
+        acousticTracks.front().classification != Perception::ContactClassification::Unknown)
+    {
+        return false;
+    }
+
+    auto illegalAcousticClassification = acoustic;
+    illegalAcousticClassification.observationTimeSeconds = 0.5;
+    illegalAcousticClassification.classificationEvidence = Perception::ContactClassification::CivilianSurfaceVessel;
+    if (tracks.IntegrateObservation(illegalAcousticClassification))
+    {
+        return false;
+    }
+
+    const auto optical = ObserveThroughPeriscope(
+        PeriscopeObservationConfig{},
+        PeriscopeState{.raised = true, .viewBearingRadians = 0.0F},
+        {.x = 0.0F, .y = -10.0F, .z = 0.0F},
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 1000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::CivilianSurfaceVessel},
+        1.0);
+    if (!optical || !optical->has_value() ||
+        (*optical)->modality != Perception::SensorModality::Optical ||
+        (*optical)->classificationEvidence != Perception::ContactClassification::CivilianSurfaceVessel)
+    {
+        return false;
+    }
+    const auto identifiedTrackId = tracks.IntegrateObservation(**optical);
+    if (!identifiedTrackId || *identifiedTrackId != *acousticTrackId)
+    {
+        return false;
+    }
+    const auto identifiedTracks = tracks.Tracks();
+    if (identifiedTracks.size() != 1U || !identifiedTracks.front().visuallyIdentified ||
+        identifiedTracks.front().classification != Perception::ContactClassification::CivilianSurfaceVessel)
+    {
+        return false;
+    }
+
+    const auto tooDeep = ObserveThroughPeriscope(
+        PeriscopeObservationConfig{},
+        PeriscopeState{.raised = true, .viewBearingRadians = 0.0F},
+        {.x = 0.0F, .y = -30.0F, .z = 0.0F},
+        30.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 1000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant},
+        2.0);
+    if (!tooDeep || tooDeep->has_value())
+    {
+        return false;
+    }
+
+    const Weapons::WeaponDefinition weapon{
+        .id = "periscope-roe-test",
+        .preparationSeconds = 0.0,
+        .targeting = Weapons::WeaponTargetingRequirements{
+            .minimumTrackConfidence = 0.65F,
+            .maximumBearingUncertaintyRadians = 0.10F,
+            .maximumPositionUncertaintyMeters = 150.0F,
+            .requiresEstimatedPosition = true,
+            .allowCoastingTrack = false}};
+
+    auto civilianRuntimeResult = PlayerCombatCommandRuntime::Create(weapon, 2.0);
+    if (!civilianRuntimeResult)
+    {
+        return false;
+    }
+    auto civilianRuntime = std::move(*civilianRuntimeResult);
+    const std::vector<Perception::Track> civilianTracks{identifiedTracks.front()};
+    if (!civilianRuntime.Execute({.type = PlayerCombatCommandType::SelectNextTrack}, civilianTracks, 2.0) ||
+        !civilianRuntime.Execute({.type = PlayerCombatCommandType::PrepareWeapon}, civilianTracks, 2.0) ||
+        !civilianRuntime.Advance(2.0))
+    {
+        return false;
+    }
+    const auto civilianSnapshot = civilianRuntime.BuildPresentationSnapshot(civilianTracks);
+    if (!civilianSnapshot.selectedTrackWeaponQualified || civilianSnapshot.selectedTrackRulesOfEngagementQualified ||
+        !civilianSnapshot.selectedTrackVisuallyIdentified || civilianSnapshot.canFireWeapon)
+    {
+        return false;
+    }
+    const auto civilianFire = civilianRuntime.Execute(
+        {.type = PlayerCombatCommandType::FireWeapon}, civilianTracks, 2.0);
+    if (!civilianFire || civilianFire->accepted ||
+        civilianFire->message.find("CIVILIAN") == std::string::npos)
+    {
+        return false;
+    }
+
+    auto unknownTrack = identifiedTracks.front();
+    unknownTrack.classification = Perception::ContactClassification::Unknown;
+    unknownTrack.visuallyIdentified = false;
+    const std::vector<Perception::Track> unknownTracks{unknownTrack};
+    auto riskRuntimeResult = PlayerCombatCommandRuntime::Create(weapon, 3.0);
+    if (!riskRuntimeResult)
+    {
+        return false;
+    }
+    auto riskRuntime = std::move(*riskRuntimeResult);
+    if (!riskRuntime.Execute({.type = PlayerCombatCommandType::SelectNextTrack}, unknownTracks, 3.0) ||
+        !riskRuntime.Execute({.type = PlayerCombatCommandType::PrepareWeapon}, unknownTracks, 3.0) ||
+        !riskRuntime.Advance(3.0))
+    {
+        return false;
+    }
+    const auto riskSnapshot = riskRuntime.BuildPresentationSnapshot(unknownTracks);
+    if (!riskSnapshot.selectedTrackWeaponQualified || !riskSnapshot.selectedTrackRulesOfEngagementQualified ||
+        !riskSnapshot.selectedTrackCivilianRisk || !riskSnapshot.canFireWeapon)
+    {
+        return false;
+    }
+    const auto riskFire = riskRuntime.Execute({.type = PlayerCombatCommandType::FireWeapon}, unknownTracks, 3.0);
+    if (!riskFire || !riskFire->accepted || riskFire->message.find("civilian-risk") == std::string::npos)
+    {
+        return false;
+    }
+
+    return true;
+}
+} // namespace DeepRun::Tests
