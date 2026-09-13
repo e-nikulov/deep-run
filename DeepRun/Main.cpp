@@ -75,9 +75,6 @@ public:
             return false;
         }
 
-        // D3D12 Present and DWM composition are asynchronous. Acceptance asks for the already-presented
-        // production frame, so synchronize the compositor before PrintWindow/BitBlt reads the client image.
-        // This is a presentation/capture fence, not a sleep or a simulation delay.
         const HRESULT compositorSync = DwmFlush();
         if (FAILED(compositorSync))
         {
@@ -179,11 +176,6 @@ private:
             return true;
         }
 
-        // PrintWindow may paint top-level non-client chrome into a DIB sized from GetClientRect. A completely
-        // white D3D12 client can therefore appear "non-blank" because the title bar/border contributes a few
-        // dark pixels. Judge the central 80% instead: real Deep Run presentation is strongly non-uniform there,
-        // while compositor startup white/black remains near-uniform. The tolerance also ignores a few driver or
-        // window-decoration pixels without turning this into an image-quality gate.
         const std::uint32_t marginX = (std::max)(1U, width / 10U);
         const std::uint32_t marginY = (std::max)(1U, height / 10U);
         const std::uint32_t endX = width - marginX;
@@ -490,6 +482,8 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedFireWeaponSequence = 0;
         std::uint64_t consumedActiveSonarPingSequence = 0;
         std::uint64_t consumedDeployDecoySequence = 0;
+        std::uint64_t consumedTogglePeriscopeSequence = 0;
+        std::uint64_t consumedVisualIdentifySequence = 0;
         bool capturedInitial = false;
         bool capturedLater = false;
         bool loggedHapticSubmissionFailure = false;
@@ -615,6 +609,7 @@ int main(const int argumentCount, char** argumentValues)
              &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
              &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
+             &consumedTogglePeriscopeSequence, &consumedVisualIdentifySequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
@@ -700,7 +695,7 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     currentOwnshipNavigationPositionMeters = playerCollisionProxy->positionMeters;
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 7> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 9> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -720,6 +715,12 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::SelectContact,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::SelectNextTrack,
                                 consumedSelectContactSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::TogglePeriscope,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::TogglePeriscope,
+                                consumedTogglePeriscopeSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::VisualIdentify,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::VisualIdentify,
+                                consumedVisualIdentifySequence);
                         consume(*inputState, DeepRun::Input::InputAction::PreviousWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::PreviousWeapon,
                                 consumedPreviousWeaponSequence);
@@ -1232,9 +1233,6 @@ int main(const int argumentCount, char** argumentValues)
                 ++renderFrames;
                 if (options.benchmarkM3)
                 {
-                    // Historical M3 benchmark remains an exact regression gate. Normal M5 framing may
-                    // intentionally add presentation-only environment tiles or suppress bounded local-detail
-                    // passes, so applying M3 draw totals to it would incorrectly make valid zoom/pan fail.
                     return rendered->drawCalls == 74 && rendered->submittedPrimitives == 72 &&
                            rendered->submittedIndices == 364380;
                 }

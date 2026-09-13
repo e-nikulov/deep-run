@@ -11,6 +11,7 @@
 #include "Game/PropulsionPresentation.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Submarine/ProductionAnteyLodPolicy.h"
+#include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/Environment/ScalableEnvironmentPresentation.h"
 #include "Game/Environment/UnderwaterFaunaField.h"
@@ -132,6 +133,9 @@ constexpr std::array<Marine::ControlSurfaceComponent, 2> M2ControlSurfaces{{
      .maxEffectiveLiftAreaSquareMeters = 40.0F}}};
 
 constexpr float M2MaximumPlaneDeflection = 0.5F;
+// Low/zero-speed vertical authority is intentionally separate from hydrodynamic plane lift. This bounded
+// Game-owned controller approximates variable ballast / trim effects without modelling classified tank hardware.
+constexpr Submarine::VariableBallastDepthControlConfig M5LowSpeedBallastDepthControl{};
 // Presentation-only articulation envelope. This is not a claim about classified/production hardware limits;
 // it maps the accepted normalized H2 simulation deflection visibly onto the authored production plane pivots.
 constexpr float M5DepthPlaneVisualMaximumRadians = 0.436332313F; // 25 degrees
@@ -1332,6 +1336,18 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         controlResults[index] = *control;
     }
 
+
+    const float vesselWeightNewtons = M2GameAnteyMassTuningKg * *gravityMagnitude;
+    const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
+        M5LowSpeedBallastDepthControl,
+        command.depthCommandFraction,
+        controlResults[M2BowPlaneIndex].bodyForwardSpeedMetersPerSecond,
+        state->linearVelocity.y,
+        vesselWeightNewtons);
+    if (!variableBallast)
+    {
+        return std::unexpected("physical playground variable-ballast evaluation failed: " + variableBallast.error());
+    }
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
     // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
     const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(
@@ -1378,6 +1394,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
 
     // Apply exactly the published wave-aware point forces. No force is reconstructed at COM and no dt scale,
     // wave velocity, drag, or visual displacement enters this path; Jolt derives the two-point pitch moment.
+    // Variable ballast/trim is a real bounded simulation force at COM. It intentionally produces translation
+    // without inventing a pitch moment; bow/stern planes remain the separate pitch mechanism when flow exists.
+    Physics::PhysicsError ballastForceError;
+    if (!physics_->AddForceAtWorldPosition(
+            physicsBody_, variableBallast->forceNewtons, state->position, &ballastForceError))
+    {
+        return std::unexpected(
+            "physical playground variable-ballast force application failed: " + ballastForceError.message);
+    }
+
     for (std::size_t index = 0; index < surfaceFloatBuoyancyResult_.points.size(); ++index)
     {
         const Marine::BuoyancyPointResult& point = surfaceFloatBuoyancyResult_.points[index];
@@ -1519,7 +1545,10 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 FormatVector(state->angularVelocity) + ", signed depth " +
                 std::to_string(bodyDepth->signedDepthMeters) + " m, submerged volume " +
                 std::to_string(buoyancyResult->totalSubmergedVolumeCubicMeters) + " m^3, buoyancy force " +
-                FormatVector(buoyancyResult->totalForceNewtons) + ", drag force " +
+                FormatVector(buoyancyResult->totalForceNewtons) + ", variable ballast authority " +
+                std::to_string(variableBallast->lowSpeedAuthorityFraction) + ", ballast target V/S " +
+                std::to_string(variableBallast->targetVerticalSpeedMetersPerSecond) +
+                " m/s, ballast force " + FormatVector(variableBallast->forceNewtons) + ", drag force " +
                 FormatVector(dragResult->forceNewtons) + ", drag torque " +
                 FormatVector(dragResult->torqueNewtonMeters) + ", requested drive " +
                 std::to_string(command.throttleFraction) + ", depth command " +

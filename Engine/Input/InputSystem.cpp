@@ -95,7 +95,9 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
         .prepareWeapon = leftTrigger >= TriggerActionThreshold,
         .fireWeapon = rightTrigger >= TriggerActionThreshold,
         .activeSonarPing = HasGamepadButton(gamepad, GamepadButton::RightShoulder),
-        .deployDecoy = HasGamepadButton(gamepad, GamepadButton::X)};
+        .deployDecoy = HasGamepadButton(gamepad, GamepadButton::X),
+        .togglePeriscope = HasGamepadButton(gamepad, GamepadButton::DpadUp),
+        .visualIdentify = HasGamepadButton(gamepad, GamepadButton::A)};
 }
 
 float ResolveSemanticAxis(
@@ -184,6 +186,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 deployDecoyKeyDown_ = true;
             }
+            else if (event.key == Platform::Key::P)
+            {
+                togglePeriscopeKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::V)
+            {
+                visualIdentifyKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::A)
             {
                 throttleAsternKeyDown_ = true;
@@ -266,6 +276,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::F)
             {
                 deployDecoyKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::P)
+            {
+                togglePeriscopeKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::V)
+            {
+                visualIdentifyKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -403,6 +421,8 @@ void InputSystem::RefreshSemanticActions() noexcept
         InputAction::ActiveSonarPing,
         activeSonarPingKeyDown_ || controller.activeSonarPing);
     state_.SetActionDown(InputAction::DeployDecoy, deployDecoyKeyDown_ || controller.deployDecoy);
+    state_.SetActionDown(InputAction::TogglePeriscope, togglePeriscopeKeyDown_ || controller.togglePeriscope);
+    state_.SetActionDown(InputAction::VisualIdentify, visualIdentifyKeyDown_ || controller.visualIdentify);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept

@@ -41,6 +41,8 @@ struct ControllerSemanticActions final
     bool fireWeapon = false;
     bool activeSonarPing = false;
     bool deployDecoy = false;
+    bool togglePeriscope = false;
+    bool visualIdentify = false;
 };
 
 [[nodiscard]] ControllerSemanticAxes MapControllerLeftStick(float normalizedLeftX, float normalizedLeftY) noexcept;
@@ -101,5 +103,7 @@ private:
     bool fireWeaponKeyDown_ = false;
     bool activeSonarPingKeyDown_ = false;
     bool deployDecoyKeyDown_ = false;
+    bool togglePeriscopeKeyDown_ = false;
+    bool visualIdentifyKeyDown_ = false;
 };
 }

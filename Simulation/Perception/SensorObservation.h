@@ -12,12 +12,39 @@ enum class SensorModality
 {
     PassiveAcoustic,
     ActiveAcoustic,
+    Optical,
+};
+
+// Optical identification deliberately progresses through perceptual detail rather than becoming a binary
+// "seen/not seen" truth leak. A distant periscope look may detect a silhouette without resolving vessel type;
+// closer deliberate observation may resolve type/class, and only the closest/highest-quality view resolves
+// flag or equivalent identifying markings.
+enum class OpticalIdentificationLevel
+{
+    None,
+    Detected,
+    TypeResolved,
+    FlagOrMarkingsResolved,
+};
+
+// Classification is perceived-world knowledge, not authoritative actor identity. Unknown is a valid and
+// important gameplay state: a high-quality acoustic solution can still leave the commander unsure whether a
+// surface contact is a combatant or a civilian vessel.
+enum class ContactClassification
+{
+    Unknown,
+    MilitarySurfaceCombatant,
+    CivilianSurfaceVessel,
 };
 
 // Perceived-world evidence shared above sensor-specific simulation. Deliberately contains no authoritative
 // source/entity identity. Bearing-only passive observations may legitimately carry no range estimate.
 // sensorPositionMeters, when present, is own-sensor state supplied by the observing participant so ranged
 // evidence can be spatialized without exposing the observed source's authoritative position.
+//
+// classificationEvidence is accepted only from Optical observations at TypeResolved detail or better. This
+// keeps visual identification inside the normal SensorObservation -> Contact -> Track knowledge path rather
+// than leaking scenario truth into UI, weapon targeting or AI.
 struct SensorObservation final
 {
     SensorModality modality = SensorModality::PassiveAcoustic;
@@ -29,6 +56,8 @@ struct SensorObservation final
     std::optional<float> estimatedRangeMeters{};
     std::optional<float> rangeUncertaintyMeters{};
     float confidence = 0.0F;
+    OpticalIdentificationLevel opticalIdentificationLevel = OpticalIdentificationLevel::None;
+    std::optional<ContactClassification> classificationEvidence{};
 };
 
 [[nodiscard]] inline std::optional<SensorObservation> FromAcousticObservation(
@@ -60,6 +89,8 @@ struct SensorObservation final
         .bearingUncertaintyRadians = acoustic.bearingUncertaintyRadians,
         .estimatedRangeMeters = acoustic.estimatedRangeMeters,
         .rangeUncertaintyMeters = acoustic.rangeUncertaintyMeters,
-        .confidence = acoustic.confidence};
+        .confidence = acoustic.confidence,
+        .opticalIdentificationLevel = OpticalIdentificationLevel::None,
+        .classificationEvidence = std::nullopt};
 }
 }

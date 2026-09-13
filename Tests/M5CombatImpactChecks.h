@@ -16,6 +16,7 @@
 #include "Tests/M5ScalableEnvironmentPresentationChecks.h"
 #include "Tests/M5SimpleDestroyerCombatChecks.h"
 #include "Tests/M5SimpleDestroyerRuntimeChecks.h"
+#include "Tests/PeriscopeBallastGameplayChecks.h"
 
 #include <cmath>
 #include <iostream>
@@ -242,6 +243,10 @@ namespace M5CombatImpactDetail
     if (!RunM5PlayerCombatInputChecks())
     {
         return fail("M5-J2-A controller-first combat semantic input bindings");
+    }
+    if (!RunPeriscopeBallastGameplayChecks())
+    {
+        return fail("low-speed ballast authority, periscope optical ID and civilian ROE risk");
     }
     if (!RunM5AcousticDecoyChecks())
     {
