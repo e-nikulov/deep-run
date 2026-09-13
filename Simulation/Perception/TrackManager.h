@@ -15,15 +15,11 @@
 
 namespace DeepRun::Perception
 {
-enum class ContactClassification
-{
-    Unknown,
-};
-
 struct Contact final
 {
     std::uint64_t contactId = 0;
     ContactClassification classification = ContactClassification::Unknown;
+    bool visuallyIdentified = false;
     float lastMeasuredBearingRadians = 0.0F;
     float bearingUncertaintyRadians = 0.0F;
     float confidence = 0.0F;
@@ -43,6 +39,8 @@ enum class TrackLifecycleState
 // A Track is an estimate, never an authoritative target. Bearing-only passive observations leave position and
 // velocity empty. Ranged observations may populate a spatial estimate only from perceived bearing/range plus
 // the observing participant's own sensor position; hostile ground-truth position never crosses this boundary.
+// Classification is likewise perceived evidence: acoustic quality may produce a fire-control-quality solution
+// while classification remains Unknown until an optical observation supplies positive visual identification.
 struct Track final
 {
     std::uint64_t trackId = 0;
@@ -57,6 +55,8 @@ struct Track final
     std::size_t observationCount = 0;
     double firstObservationTimeSeconds = 0.0;
     double lastObservationTimeSeconds = 0.0;
+    ContactClassification classification = ContactClassification::Unknown;
+    bool visuallyIdentified = false;
 };
 
 struct TrackManagerConfig final
@@ -101,7 +101,9 @@ public:
             (observation.estimatedRangeMeters &&
              (!std::isfinite(*observation.estimatedRangeMeters) || *observation.estimatedRangeMeters < 0.0F)) ||
             (observation.rangeUncertaintyMeters &&
-             (!std::isfinite(*observation.rangeUncertaintyMeters) || *observation.rangeUncertaintyMeters < 0.0F)))
+             (!std::isfinite(*observation.rangeUncertaintyMeters) || *observation.rangeUncertaintyMeters < 0.0F)) ||
+            (observation.classificationEvidence.has_value() && observation.modality != SensorModality::Optical) ||
+            (observation.classificationEvidence == ContactClassification::Unknown))
         {
             return std::unexpected("invalid or time-reversing SensorObservation");
         }
@@ -268,14 +270,24 @@ private:
             .uncertaintyMeters = uncertaintyMeters};
     }
 
+    [[nodiscard]] static ContactClassification ClassificationFrom(const SensorObservation& observation) noexcept
+    {
+        return observation.modality == SensorModality::Optical && observation.classificationEvidence
+            ? *observation.classificationEvidence
+            : ContactClassification::Unknown;
+    }
+
     [[nodiscard]] Record CreateRecord(const SensorObservation& observation)
     {
         const std::uint64_t contactId = nextContactId_++;
         const std::uint64_t trackId = nextTrackId_++;
+        const ContactClassification classification = ClassificationFrom(observation);
+        const bool visuallyIdentified = classification != ContactClassification::Unknown;
         Record record{
             .contact = {
                 .contactId = contactId,
-                .classification = ContactClassification::Unknown,
+                .classification = classification,
+                .visuallyIdentified = visuallyIdentified,
                 .lastMeasuredBearingRadians = WrapAngle(observation.measuredBearingRadians),
                 .bearingUncertaintyRadians = observation.bearingUncertaintyRadians,
                 .confidence = observation.confidence,
@@ -294,7 +306,9 @@ private:
                 .confidence = observation.confidence,
                 .observationCount = 1U,
                 .firstObservationTimeSeconds = observation.observationTimeSeconds,
-                .lastObservationTimeSeconds = observation.observationTimeSeconds},
+                .lastObservationTimeSeconds = observation.observationTimeSeconds,
+                .classification = classification,
+                .visuallyIdentified = visuallyIdentified},
             .confidenceAtLastObservation = observation.confidence,
             .bearingUncertaintyAtLastObservation = observation.bearingUncertaintyRadians,
             .positionUncertaintyAtEstimateMeters = std::nullopt,
@@ -341,6 +355,14 @@ private:
             record.track.positionUncertaintyMeters = spatial->uncertaintyMeters;
             record.positionUncertaintyAtEstimateMeters = spatial->uncertaintyMeters;
             record.positionEstimateTimeSeconds = observation.observationTimeSeconds;
+        }
+
+        if (observation.modality == SensorModality::Optical && observation.classificationEvidence)
+        {
+            record.contact.classification = *observation.classificationEvidence;
+            record.contact.visuallyIdentified = true;
+            record.track.classification = *observation.classificationEvidence;
+            record.track.visuallyIdentified = true;
         }
 
         record.confidenceAtLastObservation = fusedConfidence;
