@@ -20,18 +20,40 @@ jobs:
           fetch-depth: 0
 
       - name: Apply scoped repair
+        id: repair
+        continue-on-error: true
         shell: pwsh
-        run: python Tools/apply_weapon_range_fix.py
+        run: |
+          python Tools/apply_weapon_range_fix.py 2>&1 | Tee-Object -FilePath weapon-range-repair.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Preserve repair diagnostics
+        if: steps.repair.outcome == 'failure'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add weapon-range-repair.log
+          git commit -m "chore: capture weapon range repair failure"
+          git push origin HEAD:fix/weapon-runtime-range-budgets
+
+      - name: Fail after diagnostics
+        if: steps.repair.outcome == 'failure'
+        shell: pwsh
+        run: throw "weapon runtime range repair failed; diagnostic log committed"
 
       - name: Validate patch
+        if: steps.repair.outcome == 'success'
         shell: pwsh
         run: git diff --check
 
       - name: Commit repaired runtime
+        if: steps.repair.outcome == 'success'
         shell: pwsh
         run: |
           Remove-Item Tools/apply_weapon_range_fix.py
           Remove-Item .github/workflows/apply-weapon-range-fix.yml
+          if (Test-Path weapon-range-repair.log) { Remove-Item weapon-range-repair.log }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
