@@ -1,0 +1,173 @@
+name: Antey Propeller Shaft Center Repair V2
+
+on:
+  push:
+    branches:
+      - fix/antey-propeller-runtime-presentation
+    paths:
+      - .github/workflows/antey-propeller-shaft-center-repair-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch sidecar writer to derive one shared shaft center
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          path = Path('Tools/Blender/write_production_sidecars.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    hubs = [mesh for mesh in meshes if "_Hub" in mesh.name]\n    if not hubs:\n        raise RuntimeError(f"Propeller assembly has no source-first hub geometry: {name}")\n    hub_minimum, hub_maximum = bounds(hubs)\n    pivot = (hub_minimum + hub_maximum) * 0.5\n    if not all(math.isfinite(value) for value in pivot):\n        raise RuntimeError(f"Propeller hub pivot is non-finite: {name}")\n'''
+          new = '''    # The source-first Antey propeller is seven equal source-derived components.\n    # The child named *_Hub is only the first component and is NOT a standalone\n    # mechanical hub, so its bounds cannot define the shaft. Reconstruct the same\n    # shared shaft center used by build_antey_source_first.py: the centroid of every\n    # vertex in the complete seven-component assembly.\n    if root is not None and root.type == "EMPTY":\n        if not bool(root.get("PROP_ASSEMBLY", False)):\n            raise RuntimeError(f"Propeller EMPTY root is not a production assembly: {name}")\n        if root.get("ROTATION_AXIS") != "LOCAL_X" or not bool(root.get("SHAFT_PIVOT_SHARED", False)):\n            raise RuntimeError(f"Propeller assembly lacks the shared LOCAL_X shaft contract: {name}")\n        if int(root.get("SOURCE_BLADE_COUNT", 0)) != 7 or len(meshes) != 7:\n            raise RuntimeError(f"Propeller assembly must contain exactly seven source components: {name}")\n        if any(not bool(mesh.get("SHAFT_PIVOT_SHARED", False)) for mesh in meshes):\n            raise RuntimeError(f"Propeller child geometry does not share the shaft contract: {name}")\n        world_points = [mesh.matrix_world @ vertex.co for mesh in meshes for vertex in mesh.data.vertices]\n        if not world_points:\n            raise RuntimeError(f"Propeller assembly has no source geometry: {name}")\n        pivot = sum(world_points, Vector()) / len(world_points)\n    else:\n        # Legacy single-mesh fallback only. Current production Antey must use the\n        # seven-component EMPTY assembly path above.\n        minimum, maximum = bounds(meshes)\n        pivot = (minimum + maximum) * 0.5\n    if not all(math.isfinite(value) for value in pivot):\n        raise RuntimeError(f"Propeller shaft pivot is non-finite: {name}")\n'''
+          if old not in text:
+              raise SystemExit('expected legacy pseudo-hub pivot block not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 .tmp_patch_propeller_sidecar.py
+          python .tmp_patch_propeller_sidecar.py
+          python -m py_compile Tools/Blender/write_production_sidecars.py
+
+      - name: Download Blender 5.2.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'blender-5.2.1-windows-x64.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'blender-5.2.1'
+          curl.exe -L --fail --retry 4 --retry-delay 5 -o $zip https://download.blender.org/release/Blender5.2/blender-5.2.1-windows-x64.zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $blender = Get-ChildItem -Path $dir -Filter blender.exe -Recurse | Select-Object -First 1
+          if (-not $blender) { throw 'Blender executable not found' }
+          "BLENDER_EXE=$($blender.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Compute independent seven-component shaft centers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item Content/submarines/Antey/Antey.authoring.json $env:RUNNER_TEMP/Antey.authoring.before.json
+          @'
+          import bpy, json, math
+          from mathutils import Vector
+          from pathlib import Path
+
+          out = {}
+          for name in ('SM_Propeller_Port', 'SM_Propeller_Starboard'):
+              root = bpy.data.objects.get(name)
+              if root is None or root.type != 'EMPTY':
+                  raise RuntimeError(f'missing production propeller EMPTY root: {name}')
+              if not root.get('PROP_ASSEMBLY') or root.get('ROTATION_AXIS') != 'LOCAL_X' or not root.get('SHAFT_PIVOT_SHARED'):
+                  raise RuntimeError(f'invalid shared shaft contract: {name}')
+              children = [obj for obj in root.children_recursive if obj.type == 'MESH' and int(obj.get('lod', -1)) == 0]
+              if len(children) != 7 or int(root.get('SOURCE_BLADE_COUNT', 0)) != 7:
+                  raise RuntimeError(f'{name}: expected exactly seven source components, got {len(children)}')
+              if any(not obj.get('SHAFT_PIVOT_SHARED') for obj in children):
+                  raise RuntimeError(f'{name}: child lacks SHAFT_PIVOT_SHARED')
+              points = [obj.matrix_world @ vertex.co for obj in children for vertex in obj.data.vertices]
+              center = sum(points, Vector()) / len(points)
+              if not all(math.isfinite(v) for v in center):
+                  raise RuntimeError(f'{name}: non-finite center')
+              out[name] = [float(center.x), float(center.y), float(center.z)]
+          Path('shaft-centers.json').write_text(json.dumps(out, indent=2), encoding='utf-8')
+          print(json.dumps(out, indent=2))
+          '@ | Set-Content -Encoding UTF8 .tmp_compute_shaft_centers.py
+          & $env:BLENDER_EXE --background 'Content/submarines/Antey/Antey_GameReady.blend' --python .tmp_compute_shaft_centers.py
+          if ($LASTEXITCODE -ne 0) { throw "shaft center computation failed: $LASTEXITCODE" }
+
+      - name: Regenerate canonical sidecars
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --python 'Tools/Blender/write_production_sidecars.py' `
+            -- `
+            --asset antey `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --glb 'Content/submarines/Antey/Antey.glb' `
+            --asset-json 'Content/submarines/Antey/Antey.asset.json' `
+            --authoring-json 'Content/submarines/Antey/Antey.authoring.json'
+          if ($LASTEXITCODE -ne 0) { throw "sidecar regeneration failed: $LASTEXITCODE" }
+          Copy-Item -Force Content/submarines/Antey/Antey.authoring.json Engine/Assets/submarines/Antey/Antey.authoring.json
+          Copy-Item -Force Content/submarines/Antey/Antey.asset.json Engine/Assets/submarines/Antey/Antey.asset.json
+
+      - name: Gate corrected separated shaft centers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import json, math, os
+          from pathlib import Path
+          expected = json.loads(Path('shaft-centers.json').read_text(encoding='utf-8'))
+          before = json.loads(Path(os.environ['RUNNER_TEMP']).joinpath('Antey.authoring.before.json').read_text(encoding='utf-8'))
+          after = json.loads(Path('Content/submarines/Antey/Antey.authoring.json').read_text(encoding='utf-8'))
+          before_by = {p['semanticId']: p for p in before['propellers']}
+          after_by = {p['semanticId']: p for p in after['propellers']}
+          mapping = {'propeller.port': 'SM_Propeller_Port', 'propeller.starboard': 'SM_Propeller_Starboard'}
+          centers = {}
+          for semantic, root_name in mapping.items():
+              wanted = expected[root_name]
+              actual = after_by[semantic]['origin']
+              error = math.dist(actual, wanted)
+              old = before_by[semantic]['origin']
+              shift = math.dist(actual, old)
+              print(f'{semantic}: old={old} corrected={actual} expected={wanted} shift={shift:.6f}m error={error:.9f}m')
+              if error > 1e-6:
+                  raise RuntimeError(f'{semantic}: regenerated origin differs from seven-component center')
+              if shift < 0.1:
+                  raise RuntimeError(f'{semantic}: known pseudo-hub pivot was not corrected')
+              if after_by[semantic].get('axis') != '+X' or int(after_by[semantic].get('visibleBlades', 0)) != 7:
+                  raise RuntimeError(f'{semantic}: shaft/blade contract changed')
+              centers[semantic] = actual
+          port, starboard = centers['propeller.port'], centers['propeller.starboard']
+          if abs(port[0] - starboard[0]) > 0.02 or abs(port[2] - starboard[2]) > 0.02:
+              raise RuntimeError('port/starboard shafts are not longitudinally/vertically aligned')
+          if abs(port[1] - starboard[1]) < 1.0 or port[1] * starboard[1] >= 0.0:
+              raise RuntimeError('port/starboard shafts are not separated across the vessel centerline')
+          if Path('Content/submarines/Antey/Antey.authoring.json').read_bytes() != Path('Engine/Assets/submarines/Antey/Antey.authoring.json').read_bytes():
+              raise RuntimeError('staged authoring sidecar differs from content sidecar')
+          '@ | Set-Content -Encoding UTF8 .tmp_gate_shaft_centers.py
+          python .tmp_gate_shaft_centers.py
+
+      - name: Record root cause and correction
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          path = Path('docs/development/antey-propeller-runtime-presentation-fix.md')
+          text = path.read_text(encoding='utf-8')
+          note = '''\n## Shaft-center correction\n\nThe seven source-derived meshes under each production propeller root are equal 819-triangle components. The mesh named `*_Hub` is only the first component; it is not a standalone mechanical hub. The previous sidecar writer therefore derived a false shaft from that component's bounds. The production shaft center is now reconstructed using the exact source-first authoring rule: the centroid of all vertices across all seven LOD0 source components, with `PROP_ASSEMBLY`, `SHAFT_PIVOT_SHARED`, `ROTATION_AXIS=LOCAL_X`, and `SOURCE_BLADE_COUNT=7` enforced. The canonical GLB geometry is unchanged.\n'''
+          if '## Shaft-center correction' not in text:
+              path.write_text(text.rstrip() + '\n' + note, encoding='utf-8')
+          '@ | Set-Content -Encoding UTF8 .tmp_update_docs.py
+          python .tmp_update_docs.py
+
+      - name: Commit scoped correction and remove temporary diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git diff --check
+          git diff --exit-code -- Content/submarines/Antey/Antey.glb
+          git config user.name 'Evgeniy N.'
+          git config user.email 'gnikulov@gmail.com'
+          git add Tools/Blender/write_production_sidecars.py Content/submarines/Antey/Antey.authoring.json Content/submarines/Antey/Antey.asset.json Engine/Assets/submarines/Antey/Antey.authoring.json Engine/Assets/submarines/Antey/Antey.asset.json docs/development/antey-propeller-runtime-presentation-fix.md
+          foreach ($path in @(
+            '.github/workflows/antey-propeller-axis-diagnostic.yml',
+            '.github/workflows/antey-propeller-blade-layout-diagnostic.yml',
+            '.github/workflows/antey-propeller-components.yml',
+            '.github/workflows/antey-propeller-hub-diagnostic.yml',
+            '.github/workflows/antey-propeller-shaft-center-repair.yml',
+            '.github/workflows/antey-propeller-shaft-center-repair-v2.yml'
+          )) {
+            if (Test-Path $path) { git rm $path }
+          }
+          git commit -m 'fix: rotate Antey propellers around seven-blade shaft centers'
+          git push origin HEAD:fix/antey-propeller-runtime-presentation
