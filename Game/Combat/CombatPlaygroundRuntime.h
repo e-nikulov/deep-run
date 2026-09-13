@@ -1139,6 +1139,28 @@ private:
             }
         }
 
+        // A miss that consumes propulsion/endurance is a resolved launch just like P-700 RangeExpired.
+        // Keep Impact state resident for the existing visual-acceptance contract, but never leave normal gameplay
+        // permanently stuck in WeaponPhase::Launched after a torpedo simply runs out of range or endurance.
+        if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent &&
+            (playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::RangeExpired ||
+             playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::EnduranceExpired))
+        {
+            const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
+            if (!rearmed)
+                return std::unexpected("player torpedo range/endurance re-arm failed: " + rearmed.error());
+            playerTorpedo_.reset();
+            playerTorpedoLaunchPosition_.reset();
+            playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
+                .selectedTrackId = std::nullopt,
+                .lastUpdateTimeSeconds = simulationTimeSeconds};
+            pendingPlayerTorpedoSeekerEmissions_.clear();
+            nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ = simulationTimeSeconds;
+            playerTorpedoActivePulse_.reset();
+            playerTorpedoActiveReflector_.reset();
+            playerTorpedoActivePulseDeadlineSeconds_ = simulationTimeSeconds;
+        }
+
         std::optional<Weapons::P700GranitImpact> p700Impact{};
         if (playerP700_)
         {
