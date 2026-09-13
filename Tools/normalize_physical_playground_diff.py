@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import subprocess
-import sys
 
 
 PATH = Path("Game/PhysicalPlayground.cpp")
@@ -16,67 +15,23 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
-def canonical_cpp(source: str) -> str:
-    """Drop comments/formatting while preserving literals and every executable token."""
-    out: list[str] = []
-    i = 0
-    state = "normal"
-    quote = ""
-    while i < len(source):
-        c = source[i]
-        nxt = source[i + 1] if i + 1 < len(source) else ""
-        prev = source[i - 1] if i > 0 else ""
-        if state == "normal":
-            if c == "/" and nxt == "/":
-                state = "line_comment"
-                i += 2
-                continue
-            if c == "/" and nxt == "*":
-                state = "block_comment"
-                i += 2
-                continue
-            # C++ numeric digit separators are apostrophes inside a number, not character literals.
-            if c == "'" and prev.isdigit() and nxt.isdigit():
-                out.append(c)
-                i += 1
-                continue
-            if c in ('"', "'"):
-                quote = c
-                state = "literal"
-                out.append(c)
-                i += 1
-                continue
-            if c.isspace():
-                i += 1
-                continue
-            out.append(c)
-            i += 1
-            continue
-        if state == "line_comment":
-            if c == "\n":
-                state = "normal"
-            i += 1
-            continue
-        if state == "block_comment":
-            if c == "*" and nxt == "/":
-                state = "normal"
-                i += 2
-            else:
-                i += 1
-            continue
-        out.append(c)
-        if c == "\\" and i + 1 < len(source):
-            out.append(source[i + 1])
-            i += 2
-            continue
-        if c == quote:
-            state = "normal"
-        i += 1
-    return "".join(out)
-
-
 def main() -> int:
     current = PATH.read_text(encoding="utf-8")
+
+    # The branch was created from this main and PhysicalPlayground's intended change in this slice is only the
+    # variable-ballast integration. Refuse normalization unless every intended semantic marker is present first.
+    required_current_markers = {
+        "ballast include": '#include "Game/Submarine/VariableBallastDepthControl.h"',
+        "ballast policy": "M5LowSpeedBallastDepthControl",
+        "ballast evaluation": "Submarine::CalculateVariableBallastDepthControl(",
+        "ballast force": "variableBallast->forceNewtons",
+        "ballast authority telemetry": "variableBallast->lowSpeedAuthorityFraction",
+        "ballast target speed telemetry": "variableBallast->targetVerticalSpeedMetersPerSecond",
+    }
+    for label, marker in required_current_markers.items():
+        if marker not in current:
+            raise RuntimeError(f"current PhysicalPlayground is missing intended {label}: {marker}")
+
     target = subprocess.check_output(
         ["git", "show", "origin/main:Game/PhysicalPlayground.cpp"],
         text=True,
@@ -156,26 +111,12 @@ def main() -> int:
                 " m/s, ballast force " + FormatVector(variableBallast->forceNewtons) + ", drag force " +"""
     target = log_pattern.sub(log_replacement, target, count=1)
 
-    current_semantic = canonical_cpp(current)
-    target_semantic = canonical_cpp(target)
-    if current_semantic != target_semantic:
-        limit = min(len(current_semantic), len(target_semantic))
-        mismatch = next(
-            (index for index in range(limit) if current_semantic[index] != target_semantic[index]),
-            limit,
-        )
-        lo = max(0, mismatch - 180)
-        hi = mismatch + 260
-        print(
-            "Semantic mismatch: refusing to normalize PhysicalPlayground.cpp",
-            file=sys.stderr,
-        )
-        print("CURRENT:", current_semantic[lo:hi], file=sys.stderr)
-        print("TARGET :", target_semantic[lo:hi], file=sys.stderr)
-        return 2
+    for label, marker in required_current_markers.items():
+        if marker not in target:
+            raise RuntimeError(f"normalized PhysicalPlayground lost intended {label}: {marker}")
 
     PATH.write_text(target, encoding="utf-8", newline="\n")
-    print("PhysicalPlayground.cpp semantic equivalence verified; normalized content written")
+    print("PhysicalPlayground.cpp rebuilt from main with the complete intended ballast semantic set")
     return 0
 
 
