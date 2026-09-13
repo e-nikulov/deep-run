@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/PeriscopeCombatRuntime.h"
 #include "Game/Combat/PeriscopeObservationSystem.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
@@ -111,6 +112,71 @@ namespace DeepRun::Tests
             .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant},
         2.0);
     if (!tooDeep || tooDeep->has_value())
+    {
+        return false;
+    }
+
+    // Live command bridge: raise from a perceived Track, run optical simulation, fuse evidence into that exact
+    // Track, and project only the resulting periscope/Track state into UI-facing presentation.
+    auto liveTracksResult = Perception::TrackManager::Create(Perception::TrackManagerConfig{
+        .observationsToConfirm = 1U,
+        .maximumTracks = 4U});
+    if (!liveTracksResult)
+    {
+        return false;
+    }
+    auto liveTracks = std::move(*liveTracksResult);
+    const auto liveTrackId = liveTracks.IntegrateObservation(acoustic);
+    if (!liveTrackId)
+    {
+        return false;
+    }
+    PeriscopeState livePeriscope{};
+    const auto raised = TogglePeriscopeForSelectedTrack(livePeriscope, liveTracks, *liveTrackId, 10.0F);
+    if (!raised.accepted || !livePeriscope.raised)
+    {
+        return false;
+    }
+    const auto liveVisual = VisualIdentifySelectedTrack(
+        livePeriscope,
+        liveTracks,
+        *liveTrackId,
+        {.x = 0.0F, .y = -10.0F, .z = 0.0F},
+        10.0F,
+        0.0F,
+        PeriscopeTargetTruth{
+            .positionMeters = {.x = 1000.0F, .y = 0.0F, .z = 0.0F},
+            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant},
+        1.0);
+    if (!liveVisual || !liveVisual->accepted)
+    {
+        return false;
+    }
+    const auto liveSnapshotTracks = liveTracks.Tracks();
+    if (liveSnapshotTracks.size() != 1U || liveSnapshotTracks.front().trackId != *liveTrackId ||
+        !liveSnapshotTracks.front().visuallyIdentified ||
+        liveSnapshotTracks.front().classification != Perception::ContactClassification::MilitarySurfaceCombatant)
+    {
+        return false;
+    }
+    PlayerCombatPresentationSnapshot livePresentation{
+        .selectedTrackId = *liveTrackId,
+        .selectedTrackPresent = true,
+        .selectedTrackLifecycle = liveSnapshotTracks.front().lifecycle};
+    ApplyPeriscopePresentation(livePresentation, livePeriscope, 10.0F);
+    if (!livePresentation.periscopeWithinOperatingDepth || !livePresentation.periscopeRaised ||
+        !livePresentation.periscopeMastExposed || !livePresentation.canVisualIdentify)
+    {
+        return false;
+    }
+    const auto stowed = TogglePeriscopeForSelectedTrack(livePeriscope, liveTracks, *liveTrackId, 10.0F);
+    if (!stowed.accepted || livePeriscope.raised)
+    {
+        return false;
+    }
+    PeriscopeState deepPeriscope{};
+    const auto rejectedDeepRaise = TogglePeriscopeForSelectedTrack(deepPeriscope, liveTracks, *liveTrackId, 30.0F);
+    if (rejectedDeepRaise.accepted || deepPeriscope.raised)
     {
         return false;
     }
