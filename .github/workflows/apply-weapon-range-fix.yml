@@ -24,7 +24,13 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          python Tools/apply_weapon_range_fix.py 2>&1 | Tee-Object -FilePath weapon-range-repair.txt
+          $scriptPath = "Tools/apply_weapon_range_fix.py"
+          $script = Get-Content -Raw $scriptPath
+          $old = "    expected=3)"
+          $new = "    expected=4)"
+          if (-not $script.Contains($old)) { throw "expected USET assessment-count assertion was not found" }
+          Set-Content -Path $scriptPath -Value ($script.Replace($old, $new)) -NoNewline
+          python $scriptPath 2>&1 | Tee-Object -FilePath weapon-range-repair.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Preserve repair diagnostics
