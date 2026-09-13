@@ -320,6 +320,7 @@ public:
         }
         runtime->p700CarrierLaunchContract_ = std::move(p700CarrierLaunchContract);
         runtime->p700LauncherInventory_ = std::move(p700LauncherInventory);
+        runtime->civilianGameplayEnabled_ = !p700AcceptanceMode;
         return std::move(*runtime);
     }
 
@@ -574,7 +575,7 @@ private:
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const double simulationTimeSeconds)
     {
-        if (civilian_ || p700AcceptanceMode_)
+        if (civilian_ || !civilianGameplayEnabled_ || p700AcceptanceMode_)
             return {};
         if (physicsWorld_ == nullptr || !playerSnapshot.emitter.positionMeters.IsFinite() ||
             !std::isfinite(playerSnapshot.signedDepthMeters))
@@ -2472,5 +2473,6 @@ private:
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
     bool p700AcceptanceMode_ = false;
+    bool civilianGameplayEnabled_ = false;
 };
 } // namespace DeepRun::Game::Combat
