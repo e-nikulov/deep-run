@@ -3,6 +3,8 @@
 #include "Game/Combat/PeriscopeCombatRuntime.h"
 #include "Game/Combat/PeriscopeObservationSystem.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
+#include "Game/Submarine/AnteyBallastControl.h"
+#include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Simulation/Perception/TrackManager.h"
 
@@ -18,6 +20,45 @@ namespace DeepRun::Tests
     using namespace Game::Submarine;
 
     constexpr float WeightNewtons = 100'000'000.0F;
+    constexpr float SeaWaterDensity = 1025.0F;
+    constexpr float SurfaceWaterplaneHalfHeight = 4.35F;
+    const float reserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
+    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyPublicSubmergedDisplacementMassKg;
+    const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);
+    const float submergedTerminal = std::sqrt(
+        2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 24.11986F));
+    const float surfacedTerminal = std::sqrt(
+        2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 109.77216F));
+    constexpr float MaximumTrajectoryAngleRadians = 0.436332313F;
+    const float maximumHydrodynamicVertical =
+        AnteyPublicMaximumSubmergedSpeedMetersPerSecond * std::sin(MaximumTrajectoryAngleRadians);
+    const float maximumPositiveBuoyancyNewtons =
+        AnteyMainBallastWaterCapacityKg * 9.81F;
+    const float maximumBallastOnlyVertical = std::sqrt(
+        2.0F * maximumPositiveBuoyancyNewtons / (SeaWaterDensity * 1800.0F));
+    if (std::abs(reserve - 0.32F) > 0.001F || std::abs(surfaceCenterDepth - 2.242268F) > 0.01F ||
+        std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||
+        std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F ||
+        std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||
+        std::abs(maximumBallastOnlyVertical - 7.0697F) > 0.03F)
+        return false;
+    const AnteyBallastControlConfig ballastStateConfig{};
+    const AnteyBallastState fullMainBallast{};
+    const auto deepSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, fullMainBallast, -1.0F, 100.0F, -100'000.0F, 1.0F);
+    const auto nearSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, fullMainBallast, -1.0F, 2.5F, -100'000.0F, 1.0F);
+    const AnteyBallastState partlyBlown{.mainBallastFillFraction = 0.5F, .trimMassDeltaKg = 0.0F};
+    const auto diveFromSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, partlyBlown, 1.0F, 2.0F, 100'000.0F, 1.0F);
+    if (!deepSurfaceBallast || !nearSurfaceBallast || !diveFromSurfaceBallast ||
+        std::abs(deepSurfaceBallast->mainBallastFillFraction - 1.0F) > 1.0e-6F ||
+        !(nearSurfaceBallast->mainBallastFillFraction < 1.0F) ||
+        !(diveFromSurfaceBallast->mainBallastFillFraction > partlyBlown.mainBallastFillFraction) ||
+        !(deepSurfaceBallast->trimMassDeltaKg < 0.0F) ||
+        std::abs(deepSurfaceBallast->trimMassDeltaKg) >= 100'000.0F)
+        return false;
+
     const VariableBallastDepthControlConfig ballast{};
     const auto surface = CalculateVariableBallastDepthControl(ballast, -1.0F, 0.0F, 0.0F, WeightNewtons);
     const auto dive = CalculateVariableBallastDepthControl(ballast, 1.0F, 0.0F, 0.0F, WeightNewtons);
@@ -173,6 +214,30 @@ namespace DeepRun::Tests
     if (!lowLight || !lowLight->has_value() ||
         (*lowLight)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::Detected ||
         (*lowLight)->classificationEvidence.has_value())
+    {
+        return false;
+    }
+
+    const auto exposedMast = ObserveExposedPeriscopeMast(
+        ExposedPeriscopeMastDetectionConfig{},
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        {.x = 3'000.0F, .y = 0.0F, .z = 0.0F},
+        0.97);
+    const auto stowedMast = ObserveExposedPeriscopeMast(
+        ExposedPeriscopeMastDetectionConfig{},
+        PeriscopeState{},
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        {.x = 3'000.0F, .y = 0.0F, .z = 0.0F},
+        0.98);
+    if (!exposedMast || !exposedMast->has_value() || !stowedMast || stowedMast->has_value() ||
+        (*exposedMast)->modality != Perception::SensorModality::Optical ||
+        (*exposedMast)->estimatedRangeMeters.has_value() || (*exposedMast)->classificationEvidence.has_value() ||
+        (*exposedMast)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::Detected)
     {
         return false;
     }

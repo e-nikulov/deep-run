@@ -54,6 +54,8 @@ enum class RetractableSailDeviceState
 struct ProductionRetractableSailDevice final
 {
     std::string semanticId;
+    // Semantic equipment role crosses the authoring/runtime boundary; raw source node identity does not.
+    std::string functionalRole;
     // Opaque Assets-layer binding index; never a GLB node name contract.
     std::size_t presentationNodeBindingIndex = 0;
     ProductionLocalTransform deployedLocalPostTransform{};

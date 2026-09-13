@@ -36,8 +36,12 @@ struct VesselNavigationHudSnapshot final
 {
     float signedDepthMeters = 0.0F;
     float verticalSpeedMetersPerSecond = 0.0F;
+    float forwardSpeedMetersPerSecond = 0.0F;
     float throttleFraction = 0.0F;
-    float bowPlaneDeflectionFraction = 0.0F;
+    float mainBallastFillFraction = 1.0F;
+    float trimMassDeltaKg = 0.0F;
+    float dynamicMassKg = 0.0F;
+    bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };
 

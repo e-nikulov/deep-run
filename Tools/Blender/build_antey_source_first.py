@@ -715,9 +715,14 @@ def set_pivot(obj: bpy.types.Object, role: str) -> None:
         obj.data.transform(Matrix.Translation(-pivot))
         obj.location = pivot
         obj["CONTROL_SURFACE_ROLE"] = "BOW_DEPTH_PLANE" if role.startswith("BOW") else "STERN_DEPTH_PLANE"
-        obj["ARTICULATION"] = "ROTATION"
-        obj["HINGE_AXIS"] = "LOCAL_Y"
-        obj["SIMULATION_OWNS_ANGLE"] = True
+        if role.startswith("BOW"):
+            obj["ARTICULATION"] = "DEPLOYMENT_ONLY"
+            obj["HINGE_AXIS"] = "NONE"
+            obj["SIMULATION_OWNS_ANGLE"] = False
+        else:
+            obj["ARTICULATION"] = "ROTATION"
+            obj["HINGE_AXIS"] = "LOCAL_Y"
+            obj["SIMULATION_OWNS_ANGLE"] = True
     elif role.startswith("PROPELLER"):
         centre = sum((vertex.co for vertex in obj.data.vertices), Vector()) / len(obj.data.vertices)
         obj.data.transform(Matrix.Translation(-centre))

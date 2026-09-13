@@ -9,6 +9,7 @@
 #include "Game/Haptics/HapticFeedbackSystem.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/PropulsionPresentation.h"
+#include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Submarine/ProductionAnteyLodPolicy.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
@@ -41,6 +42,10 @@ constexpr float IG1BProductionLengthMinimumMeters = 150.0F;
 constexpr float IG1BProductionLengthMaximumMeters = 158.0F;
 constexpr float M2GameplayCameraHorizontalSpanMeters = 600.0F;
 constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
+// Gameplay resolves the primary periscope by semantic equipment role published by the production asset boundary.
+// Raw GLB/source node names and ordinal sail.retractable IDs never enter this composition layer.
+constexpr std::string_view M5PrimaryPeriscopeFunctionalRole = "PERISCOPE_PRIMARY";
+constexpr float M5PrimaryPeriscopeDeploymentSeconds = 2.5F; // explicit GAME POLICY, not hardware timing data
 
 // Fully-submerged Project 949A gameplay mass. The public-source basis and displacement-definition caveat live
 // in AnteyHandlingModel.h; collision/buoyancy proxy geometry remains spatial authority only.
@@ -95,10 +100,32 @@ constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 // IG1-C Game policy: sample the production buoyancy BOX at four deterministic normalized longitudinal
 // positions. The fractions preserve the accepted M2 spacing while removing prototype/world-space metres.
 constexpr std::array<float, 4> M2BuoyancyLongitudinalFractions = {0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
-// Production COB is spatial authority. This explicit Game-owned offset preserves the accepted M2 pitch
-// stability behaviour; it is not a fabricated historical metacentric height.
-constexpr float M2GameBuoyancyStabilityOffsetMeters = 2.0F;
-constexpr float M2BuoyancySubmersionHalfHeightMeters = 6.0F;
+// One physical displacement model serves both surfaced and submerged states. Fully immersed displacement
+// supports 19,400 t; empty main ballast leaves the public 14,700 t surfaced mass. With the calibrated
+// waterplane half-height the resulting flat-water equilibrium is 2.242 m body-centre depth.
+constexpr float M2GameBuoyancyStabilityOffsetMeters = 0.0F;
+constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;
+constexpr float M5AnteySurfaceMassKg = Submarine::AnteyPublicSurfaceDisplacementMassKg;
+constexpr float M5AnteySubmergedMassKg = Submarine::AnteyPublicSubmergedDisplacementMassKg;
+constexpr float M5AnteyMainBallastCapacityKg = Submarine::AnteyMainBallastWaterCapacityKg;
+constexpr float M5SurfaceEquilibriumSubmergedFraction = M5AnteySurfaceMassKg / M5AnteySubmergedMassKg;
+constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
+    M2GameBuoyancyStabilityOffsetMeters +
+    M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
+static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.23F &&
+              M5SurfaceEquilibriumBodyCenterDepthMeters < 2.25F);
+// Exact tank timing remains explicit GAME POLICY in the pure ballast-state controller. Main ballast is not
+// used for ordinary submerged depth changes; the controller only arms normal blowing in the final surface band.
+constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
+// Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
+constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
+constexpr float M5SurfacedLongitudinalEffectiveAreaSquareMeters = 109.77216F;
+// No reliable public 949A-specific maximum vertical rate was found. GAME POLICY therefore chooses a 25 degree
+// full-command steady trajectory. At the public 32 kn maximum submerged speed this is 6.96 m/s vertical,
+// consistent with the generic 6-9 m/s open-literature envelope for nuclear submarines without claiming it as TTX.
+constexpr float M5MaximumHydrodynamicTrajectoryAngleRadians = 0.436332313F; // 25 degrees
+constexpr float M5PitchStaticStabilityEffectiveMomentMeters3 =
+    40.0F * 0.5F * 32.0F / M5MaximumHydrodynamicTrajectoryAngleRadians;
 constexpr float M2InitialBalanceRelativeTolerance = 1.0e-4F;
 constexpr float M2GravityAlignmentRelativeTolerance = 1.0e-4F;
 constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
@@ -107,7 +134,8 @@ constexpr std::uint64_t M2LaterDiagnosticFixedTick = 90;
 // hydrostatics and not values derived from the render mesh, collision box, or displaced-water model.
 // Longitudinal X is intentionally much lower than vertical/lateral Y/Z. The current 2.5D body locks RX/RY,
 // so only Z pitch damping needs a non-zero angular coefficient in this playground.
-constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{150.0F, 1800.0F, 2200.0F};
+constexpr Physics::PhysicsVector3 M2LinearEffectiveAreaSquareMeters{
+    M5SubmergedLongitudinalEffectiveAreaSquareMeters, 1800.0F, 2200.0F};
 constexpr Physics::PhysicsVector3 M2AngularEffectiveMomentMeters5{0.0F, 0.0F, 50'000'000.0F};
 
 // Aggregate synchronized twin-propeller gameplay drive. Ahead/astern asymmetry is explicit GAME POLICY; the
@@ -122,24 +150,22 @@ constexpr float M2AvailablePropulsionPowerFraction = 1.0F;
 // the production semantic contract; these points are not derived from render bounds.
 constexpr Physics::PhysicsVector3 M2PropulsorBodyLocalPositionMeters{-50.0F, 0.0F, 0.0F};
 
-// H2 Game-owned prototype tuning for exactly two independently evaluated diving-plane groups. These values
-// are not measured/classified vessel data, mesh- or collision-derived, or universal submarine constants.
+// Corrective M5 closure: bow planes are production deployment/presentation hardware only. These two indices
+// are presentation-group slots, not simulation surfaces. Hydrodynamic pitch authority contains one and only
+// one ControlSurfaceComponent: the stern horizontal-plane group.
 constexpr std::size_t M2BowPlaneIndex = 0;
 constexpr std::size_t M2SternPlaneIndex = 1;
-constexpr std::array<Marine::ControlSurfaceComponent, 2> M2ControlSurfaces{{
-    {.bodyLocalPositionMeters = {32.0F, 0.0F, 0.0F},
-     .maxEffectiveLiftAreaSquareMeters = 40.0F},
-    {.bodyLocalPositionMeters = {-32.0F, 0.0F, 0.0F},
-     .maxEffectiveLiftAreaSquareMeters = 40.0F}}};
+constexpr Marine::ControlSurfaceComponent M2SternControlSurface{
+    .bodyLocalPositionMeters = {-32.0F, 0.0F, 0.0F},
+    .maxEffectiveLiftAreaSquareMeters = 40.0F};
 
 constexpr float M2MaximumPlaneDeflection = 0.5F;
-// Low/zero-speed vertical authority is intentionally separate from hydrodynamic plane lift. This bounded
-// Game-owned controller approximates variable ballast / trim effects without modelling classified tank hardware.
+// Low/zero-speed depth authority is separate from hydrodynamic plane lift. This bounded controller computes
+// a trim request which Game converts to equivalent ballast-water mass; its force value is never applied to Jolt.
 constexpr Submarine::VariableBallastDepthControlConfig M5LowSpeedBallastDepthControl{};
 // Presentation-only articulation envelope. This is not a claim about classified/production hardware limits;
 // it maps the accepted normalized H2 simulation deflection visibly onto the authored production plane pivots.
 constexpr float M5DepthPlaneVisualMaximumRadians = 0.436332313F; // 25 degrees
-constexpr std::array<std::string_view, 2> M2ControlSurfaceNames{"bow", "stern"};
 
 // Diagnostics-only logger for the playground; the Engine's logger is not reachable through the generic API.
 Diagnostics::Logger& PlaygroundLog() noexcept
@@ -168,32 +194,20 @@ Assets::ModelTransform PropellerPostTransform(const float radians) noexcept
     return transform;
 }
 
-constexpr float DepthPlaneVisualRadians(
-    const float committedDeflectionFraction,
-    const bool sternPlane) noexcept
+constexpr float SternPlaneVisualRadians(const float committedDeflectionFraction) noexcept
 {
     const float normalized = M2MaximumPlaneDeflection > 0.0F
         ? std::clamp(committedDeflectionFraction / M2MaximumPlaneDeflection, -1.0F, 1.0F)
         : 0.0F;
-    // H2 intentionally commits opposite force signs for bow and stern so both forces create the same pitch
-    // moment. The production meshes do not share the same authored hinge basis, so presentation must account
-    // for that distinction rather than blindly mapping the simulation sign to the same local rotation sign.
-    const float authoredBasisSign = sternPlane ? 1.0F : -1.0F;
-    return authoredBasisSign * normalized * M5DepthPlaneVisualMaximumRadians;
+    return normalized * M5DepthPlaneVisualMaximumRadians;
 }
 
-// Regression contract for direct depth control. Surface/nose-up commits +bow/-stern force deflection; dive is
-// the inverse. Both production plane groups must therefore rotate coherently in the runtime presentation basis.
-static_assert(DepthPlaneVisualRadians(M2MaximumPlaneDeflection, false) < 0.0F);
-static_assert(DepthPlaneVisualRadians(-M2MaximumPlaneDeflection, true) < 0.0F);
-static_assert(DepthPlaneVisualRadians(-M2MaximumPlaneDeflection, false) > 0.0F);
-static_assert(DepthPlaneVisualRadians(M2MaximumPlaneDeflection, true) > 0.0F);
+static_assert(SternPlaneVisualRadians(-M2MaximumPlaneDeflection) < 0.0F);
+static_assert(SternPlaneVisualRadians(M2MaximumPlaneDeflection) > 0.0F);
 
-Assets::ModelTransform DepthPlanePostTransform(
-    const float committedDeflectionFraction,
-    const bool sternPlane) noexcept
+Assets::ModelTransform SternPlanePostTransform(const float committedDeflectionFraction) noexcept
 {
-    const float radians = DepthPlaneVisualRadians(committedDeflectionFraction, sternPlane);
+    const float radians = SternPlaneVisualRadians(committedDeflectionFraction);
     const float cosine = std::cos(radians);
     const float sine = std::sin(radians);
     Assets::ModelTransform transform{};
@@ -332,7 +346,8 @@ Marine::BuoyancyComponent BuildM2Buoyancy(
     const Submarine::ProductionBuoyancyDefinition& productionBuoyancy,
     const Submarine::ProductionCollisionDefinition& collision)
 {
-    const float totalDisplacedVolume = M2GameAnteyMassTuningKg / water.Config().densityKgPerCubicMeter;
+    const float totalDisplacedVolume =
+        M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter;
     const float pointVolume = totalDisplacedVolume / static_cast<float>(M2BuoyancyLongitudinalFractions.size());
 
     Marine::BuoyancyComponent component;
@@ -437,6 +452,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     }
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides;
     submergedSailDeviceOverrides.reserve(productionDefinition->retractableSailDevices.size());
+    std::optional<std::size_t> primaryPeriscopeNodeIndex;
+    Assets::ModelTransform primaryPeriscopeStowedTransform{};
+    Assets::ModelTransform primaryPeriscopeDeployedTransform{};
     for (const Submarine::ProductionRetractableSailDevice& device : productionDefinition->retractableSailDevices)
     {
         if (device.defaultState != Submarine::RetractableSailDeviceState::Stowed ||
@@ -451,7 +469,17 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         }
         submergedSailDeviceOverrides.push_back(
             {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
+        if (device.functionalRole == M5PrimaryPeriscopeFunctionalRole)
+        {
+            if (primaryPeriscopeNodeIndex.has_value())
+                return std::unexpected("physical playground has duplicate primary periscope semantic binding");
+            primaryPeriscopeNodeIndex = *meshNodeIndex;
+            primaryPeriscopeStowedTransform = device.stowedLocalPostTransform;
+            primaryPeriscopeDeployedTransform = device.deployedLocalPostTransform;
+        }
     }
+    if (!primaryPeriscopeNodeIndex.has_value())
+        return std::unexpected("physical playground primary production periscope semantic binding is missing");
     std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices;
     for (const Submarine::ProductionDepthPlane& plane : productionDefinition->depthPlanes)
     {
@@ -791,12 +819,9 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     m2VesselDof.rotationY = false;
     m2VesselDof.rotationZ = true;
 
-    std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces = M2ControlSurfaces;
-    for (auto& control : controlSurfaces)
-    {
-        control.bodyLocalPositionMeters = ShiftProductionPointToBodyLocal(
-            control.bodyLocalPositionMeters, collisionCenter);
-    }
+    Marine::ControlSurfaceComponent sternControlSurface = M2SternControlSurface;
+    sternControlSurface.bodyLocalPositionMeters = ShiftProductionPointToBodyLocal(
+        sternControlSurface.bodyLocalPositionMeters, collisionCenter);
     const Physics::PhysicsVector3 propulsorBodyLocalPosition =
         ShiftProductionPointToBodyLocal(M2PropulsorBodyLocalPositionMeters, collisionCenter);
 
@@ -819,7 +844,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
 
     Physics::DynamicBoxBodyCreateInfo bodyInfo;
     bodyInfo.halfExtents = collisionHalfExtents;
-    bodyInfo.mass = M2GameAnteyMassTuningKg; // temporary Game-owned neutral-mass tuning
+    bodyInfo.mass = M5AnteySubmergedMassKg; // fully flooded main ballast: neutral submerged condition
     bodyInfo.position = initialBodyWorldCenter;
     bodyInfo.orientation = {}; // canonical production BOX orientation is identity
     bodyInfo.gravityEnabled = true;
@@ -844,10 +869,10 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground initial body state is unavailable");
     }
 
-    // IG1-C: production buoyancy proxy supplies spatial extent/COB only. Effective neutral displacement
-    // remains the accepted Game-owned mass / density policy and is split across four bounded points.
+    // Production buoyancy proxy supplies spatial extent/COB only. Potential displaced volume is the public
+    // 19,400 t submerged displacement divided by seawater density; ballast changes physical mass, not volume.
     Marine::BuoyancyComponent buoyancy = BuildM2Buoyancy(*water, buoyancyProxy, collisionProxy);
-    const double expectedVolume = static_cast<double>(M2GameAnteyMassTuningKg) /
+    const double expectedVolume = static_cast<double>(M5AnteySubmergedMassKg) /
                                   static_cast<double>(water->Config().densityKgPerCubicMeter);
     double configuredPotentialVolume = 0.0;
     const Physics::PhysicsVector3 proxyCenter = ToPhysicsVector(buoyancyProxy.localCenter);
@@ -899,7 +924,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
                                initialBuoyancy.error().message);
     }
 
-    const double expectedWeight = static_cast<double>(M2GameAnteyMassTuningKg) * *gravityMagnitude;
+    const double expectedWeight = static_cast<double>(M5AnteySubmergedMassKg) * *gravityMagnitude;
+    const double expectedFullySubmergedBuoyancy = expectedWeight;
     const Physics::PhysicsVector3& initialForce = initialBuoyancy->totalForceNewtons;
     const bool allFullySubmerged = std::ranges::all_of(initialBuoyancy->points, [](const auto& point) {
         return std::abs(point.submergedFraction - 1.0F) <= M2InitialBalanceRelativeTolerance;
@@ -908,7 +934,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         !NearlyEqualRelative(initialBuoyancy->totalSubmergedVolumeCubicMeters,
                              expectedVolume,
                              M2InitialBalanceRelativeTolerance) ||
-        !NearlyEqualRelative(initialForce.y, expectedWeight, M2InitialBalanceRelativeTolerance) ||
+        !NearlyEqualRelative(initialForce.y, expectedFullySubmergedBuoyancy, M2InitialBalanceRelativeTolerance) ||
         std::abs(initialForce.x) > expectedWeight * M2InitialBalanceRelativeTolerance ||
         std::abs(initialForce.z) > expectedWeight * M2InitialBalanceRelativeTolerance || initialForce.y <= 0.0F)
     {
@@ -926,26 +952,21 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
             "physical playground initial transform cannot be built: " + initialBodyToWorld.error());
     }
 
-    // H2 content/configuration gate: validate exactly two independent Game-owned groups against the initial
-    // pose with benign zero deflection. At rest their published application points must be finite and their
-    // forces exactly zero. No mesh node or asset bound supplies either physics position.
+    // Hydrodynamic initialization validates the stern control surface only. Bow planes have no Marine
+    // ControlSurfaceComponent at all; their deployment roots are validated solely by production presentation.
     const Marine::ControlSurfaceKinematics initialControlKinematics{
         .bodyWorldPositionMeters = initialState->position,
         .worldOrientation = initialState->orientation,
         .worldLinearVelocityMetersPerSecond = initialState->linearVelocity};
-    for (std::size_t index = 0; index < controlSurfaces.size(); ++index)
+    const auto initialSternControl = Marine::ControlSurfaceSystem::Calculate(
+        *water, sternControlSurface, initialControlKinematics, 0.0F);
+    if (!initialSternControl || !initialSternControl->worldPositionMeters.IsFinite() ||
+        initialSternControl->forceNewtons != Physics::PhysicsVector3{})
     {
-        const auto control = Marine::ControlSurfaceSystem::Calculate(
-            *water, controlSurfaces[index], initialControlKinematics, 0.0F);
-        if (!control || !control->worldPositionMeters.IsFinite() ||
-            control->forceNewtons != Physics::PhysicsVector3{})
-        {
-            (void)physics.DestroyBody(body, &physicsError);
-            return std::unexpected(
-                "physical playground " + std::string(M2ControlSurfaceNames[index]) +
-                " control-surface initialization validation failed" +
-                (control ? std::string{} : ": " + control.error().message));
-        }
+        (void)physics.DestroyBody(body, &physicsError);
+        return std::unexpected(
+            "physical playground stern control-surface initialization validation failed" +
+            (initialSternControl ? std::string{} : ": " + initialSternControl.error().message));
     }
 
     std::vector<Physics::PhysicsBodyHandle> seabedBodies;
@@ -1122,8 +1143,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     hydroDrag_ = BuildM2HydroDrag();
     propulsion_ = M2Propulsion;
     propulsionState_ = {};
-    controlSurfaces_ = std::move(controlSurfaces);
-    committedControlSurfaceDeflections_ = {};
+    sternControlSurface_ = sternControlSurface;
+    committedSternPlaneDeflection_ = 0.0F;
     committedThrottleFraction_ = 0.0F;
     depthPlaneMeshNodeIndices_ = std::move(depthPlaneMeshNodeIndices);
     propellerPresentationBindings_ = std::move(propellerPresentationBindings);
@@ -1138,6 +1159,14 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     modelToBody_ = TranslationTransform(
         {-collisionCenter.x, -collisionCenter.y, -collisionCenter.z});
     submergedSailDeviceOverrides_ = std::move(submergedSailDeviceOverrides);
+    primaryPeriscopeNodeIndex_ = primaryPeriscopeNodeIndex;
+    primaryPeriscopeStowedTransform_ = primaryPeriscopeStowedTransform;
+    primaryPeriscopeDeployedTransform_ = primaryPeriscopeDeployedTransform;
+    primaryPeriscopeRequestedRaised_ = false;
+    primaryPeriscopeDeploymentProgress_ = 0.0F;
+    ballastState_ = {};
+    committedDynamicMassKg_ = M5AnteySubmergedMassKg;
+    committedForwardSpeedMetersPerSecond_ = 0.0F;
 
     if (verifyDistinctUploads)
     {
@@ -1282,11 +1311,21 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                surfaceFloatCalculated.error().message);
     }
 
-    // F2 consumes the SAME beginning-of-tick body snapshot as buoyancy. Both force producers finish before
-    // any output is applied, so neither observes state affected by the other in this fixed tick.
+    // Longitudinal resistance rises continuously as the hull emerges. There is no hidden speed clamp.
+    float meanSubmergedFraction = 0.0F;
+    for (const Marine::BuoyancyPointResult& point : buoyancyResult->points)
+        meanSubmergedFraction += point.submergedFraction;
+    meanSubmergedFraction /= static_cast<float>(buoyancyResult->points.size());
+    const float surfacedExposureFraction = std::clamp(
+        (1.0F - meanSubmergedFraction) / (1.0F - M5SurfaceEquilibriumSubmergedFraction), 0.0F, 1.0F);
+    Marine::HydroDragComponent liveHydroDrag = hydroDrag_;
+    liveHydroDrag.linearEffectiveAreaSquareMeters.x =
+        M5SubmergedLongitudinalEffectiveAreaSquareMeters +
+        (M5SurfacedLongitudinalEffectiveAreaSquareMeters - M5SubmergedLongitudinalEffectiveAreaSquareMeters) *
+            surfacedExposureFraction;
     const auto dragResult = Marine::HydroDragSystem::Calculate(
         *water_,
-        hydroDrag_,
+        liveHydroDrag,
         Marine::HydroDragState{
             .worldOrientation = state->orientation,
             .worldLinearVelocityMetersPerSecond = state->linearVelocity,
@@ -1308,46 +1347,53 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                propulsionResult.error().message);
     }
 
-    // Both H2 surfaces consume the SAME beginning-of-tick pose/velocity. H1 alone owns conversion to body
-    // flow, force magnitude/sign, orientation back to world, and the published world application point.
+    // Corrective M5 closure: bow planes never receive an angular command. They are deployment-only hardware.
+    // The stern horizontal planes alone consume the semantic Depth command and create hydrodynamic pitch force.
     const Marine::ControlSurfaceKinematics controlKinematics{
         .bodyWorldPositionMeters = state->position,
         .worldOrientation = state->orientation,
-            .worldLinearVelocityMetersPerSecond = state->linearVelocity};
-    // I1 intentionally maps direct semantic Depth to the existing H2 prototype *actual* deflection range.
-    // There is no actuator state, target depth, vertical-velocity command, or stabilization layer here.
-    const std::array<float, 2> controlDeflections{
-        -M2MaximumPlaneDeflection * command.depthCommandFraction,
-        M2MaximumPlaneDeflection * command.depthCommandFraction};
-    std::array<Marine::ControlSurfaceResult, 2> controlResults{};
-    for (std::size_t index = 0; index < controlSurfaces_.size(); ++index)
+        .worldLinearVelocityMetersPerSecond = state->linearVelocity};
+    const float sternControlDeflection = M2MaximumPlaneDeflection * command.depthCommandFraction;
+    const auto sternControl = Marine::ControlSurfaceSystem::Calculate(
+        *water_, sternControlSurface_, controlKinematics, sternControlDeflection);
+    if (!sternControl)
     {
-        const auto control = Marine::ControlSurfaceSystem::Calculate(
-            *water_,
-            controlSurfaces_[index],
-            controlKinematics,
-            controlDeflections[index]);
-        if (!control)
-        {
-            return std::unexpected(
-                "physical playground " + std::string(M2ControlSurfaceNames[index]) +
-                " control-surface calculation failed: " + control.error().message);
-        }
-        controlResults[index] = *control;
+        return std::unexpected(
+            "physical playground stern control-surface calculation failed: " + sternControl.error().message);
     }
+    constexpr float TwoPi = 6.28318530717958647692F;
+    const float pitchRadians = std::remainder(
+        2.0F * std::atan2(state->orientation.z, state->orientation.w), TwoPi);
+    const float forwardSpeedSquared =
+        sternControl->bodyForwardSpeedMetersPerSecond * sternControl->bodyForwardSpeedMetersPerSecond;
+    const float pitchRestoringTorqueNewtonMeters =
+        -0.5F * water_->Config().densityKgPerCubicMeter * M5PitchStaticStabilityEffectiveMomentMeters3 *
+        forwardSpeedSquared * pitchRadians;
+    if (!std::isfinite(pitchRestoringTorqueNewtonMeters))
+        return std::unexpected("physical playground pitch restoring torque is non-finite");
 
+    const auto bodyWaterSample = water_->Sample(state->position);
+    if (!bodyWaterSample || !std::isfinite(bodyWaterSample->signedDepthMeters))
+        return std::unexpected("physical playground body depth is unavailable for ballast control");
 
-    const float vesselWeightNewtons = M2GameAnteyMassTuningKg * *gravityMagnitude;
+    const float currentBaseMassKg = M5AnteySurfaceMassKg +
+        M5AnteyMainBallastCapacityKg * ballastState_.mainBallastFillFraction;
+    const float currentWeightNewtons = currentBaseMassKg * *gravityMagnitude;
     const auto variableBallast = Submarine::CalculateVariableBallastDepthControl(
-        M5LowSpeedBallastDepthControl,
-        command.depthCommandFraction,
-        controlResults[M2BowPlaneIndex].bodyForwardSpeedMetersPerSecond,
-        state->linearVelocity.y,
-        vesselWeightNewtons);
+        M5LowSpeedBallastDepthControl, command.depthCommandFraction,
+        sternControl->bodyForwardSpeedMetersPerSecond, state->linearVelocity.y, currentWeightNewtons);
     if (!variableBallast)
-    {
         return std::unexpected("physical playground variable-ballast evaluation failed: " + variableBallast.error());
-    }
+
+    // Convert the controller request to a desired equivalent trim-water mass. The pure state controller then
+    // applies finite actuator slew and decides whether main-ballast flooding/blowing is operationally allowed.
+    const float requestedTrimMassDeltaKg = -variableBallast->forceNewtons.y / *gravityMagnitude;
+    const auto nextBallastState = Submarine::AdvanceAnteyBallastState(
+        M5AnteyBallastControl, ballastState_, command.depthCommandFraction,
+        bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, fixedDeltaSeconds);
+    if (!nextBallastState)
+        return std::unexpected("physical playground ballast-state advance failed: " + nextBallastState.error());
+    const float nextDynamicMassKg = Submarine::AnteyPhysicalMassKg(M5AnteyBallastControl, *nextBallastState);
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
     // use the SAME beginning-of-tick pose as buoyancy/drag. Signed thrust maps to body-local +X.
     const auto propulsionForceWorld = RotateBodyLocalVectorToWorld(
@@ -1392,16 +1438,12 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         }
     }
 
-    // Apply exactly the published wave-aware point forces. No force is reconstructed at COM and no dt scale,
-    // wave velocity, drag, or visual displacement enters this path; Jolt derives the two-point pitch moment.
-    // Variable ballast/trim is a real bounded simulation force at COM. It intentionally produces translation
-    // without inventing a pitch moment; bow/stern planes remain the separate pitch mechanism when flow exists.
-    Physics::PhysicsError ballastForceError;
-    if (!physics_->AddForceAtWorldPosition(
-            physicsBody_, variableBallast->forceNewtons, state->position, &ballastForceError))
+    // Ballast changes the Jolt rigid body's real mass/inertia. Buoyancy remains purely Archimedean.
+    if (std::abs(nextDynamicMassKg - committedDynamicMassKg_) > 0.5F)
     {
-        return std::unexpected(
-            "physical playground variable-ballast force application failed: " + ballastForceError.message);
+        Physics::PhysicsError massError;
+        if (!physics_->SetDynamicBodyMass(physicsBody_, nextDynamicMassKg, &massError))
+            return std::unexpected("physical playground ballast mass update failed: " + massError.message);
     }
 
     for (std::size_t index = 0; index < surfaceFloatBuoyancyResult_.points.size(); ++index)
@@ -1433,6 +1475,14 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                dragTorqueError.message);
     }
 
+    Physics::PhysicsError pitchStabilityError;
+    if (!physics_->AddTorque(
+            physicsBody_, {0.0F, 0.0F, pitchRestoringTorqueNewtonMeters}, &pitchStabilityError))
+    {
+        return std::unexpected(
+            "physical playground pitch stability torque application failed: " + pitchStabilityError.message);
+    }
+
     Physics::PhysicsError propulsionForceError;
     if (!physics_->AddForceAtWorldPosition(
             physicsBody_, *propulsionForceWorld, *propulsorWorldPosition, &propulsionForceError))
@@ -1441,31 +1491,36 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                propulsionForceError.message);
     }
 
-    // Apply the two published H1 outputs independently. Their near-zero linear sum must never be collapsed
-    // at COM: opposite forces at +/-32 m generate the physical pitch moment through PhysicsWorld/Jolt.
-    for (std::size_t index = 0; index < controlResults.size(); ++index)
+    // Only the stern horizontal planes are an active hydrodynamic control surface. Bow planes never publish
+    // or apply control force; their separate deployment state is presentation/content state only.
+    Physics::PhysicsError controlForceError;
+    if (!physics_->AddForceAtWorldPosition(
+            physicsBody_,
+            sternControl->forceNewtons,
+            sternControl->worldPositionMeters,
+            &controlForceError))
     {
-        Physics::PhysicsError controlForceError;
-        if (!physics_->AddForceAtWorldPosition(
-                physicsBody_,
-                controlResults[index].forceNewtons,
-                controlResults[index].worldPositionMeters,
-                &controlForceError))
-        {
-            return std::unexpected(
-                "physical playground " + std::string(M2ControlSurfaceNames[index]) +
-                " control-surface force application failed: " + controlForceError.message);
-        }
+        return std::unexpected(
+            "physical playground stern control-surface force application failed: " + controlForceError.message);
     }
 
-    // Transaction boundary: state advances only after every calculation and force/torque application,
-    // including both H2 surface forces, succeeds.
+    // Presentation animation follows committed gameplay periscope state but never feeds physics/sensors.
+    const float periscopeStep = fixedDeltaSeconds / M5PrimaryPeriscopeDeploymentSeconds;
+    if (primaryPeriscopeRequestedRaised_)
+        primaryPeriscopeDeploymentProgress_ = std::clamp(primaryPeriscopeDeploymentProgress_ + periscopeStep, 0.0F, 1.0F);
+    else
+        primaryPeriscopeDeploymentProgress_ = std::clamp(primaryPeriscopeDeploymentProgress_ - periscopeStep, 0.0F, 1.0F);
+
+    // Transaction boundary: state advances only after every calculation and force/torque application succeeds.
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
+    ballastState_ = *nextBallastState;
+    committedDynamicMassKg_ = nextDynamicMassKg;
+    committedForwardSpeedMetersPerSecond_ = sternControl->bodyForwardSpeedMetersPerSecond;
     consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
     committedThrottleFraction_ = command.throttleFraction;
-    committedControlSurfaceDeflections_ = controlDeflections;
+    committedSternPlaneDeflection_ = sternControlDeflection;
 
     // I2 presentation producer: derive semantic intensity only from the newly committed authoritative shaft
     // RPM. A malformed impossible state is validated and diagnosed once, but haptic presentation can never
@@ -1529,7 +1584,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
             minimumFraction = (std::min)(minimumFraction, point.submergedFraction);
             maximumFraction = (std::max)(maximumFraction, point.submergedFraction);
         }
-        const double weightMagnitude = static_cast<double>(M2GameAnteyMassTuningKg) * *gravityMagnitude;
+        const double weightMagnitude = static_cast<double>(nextDynamicMassKg) * *gravityMagnitude;
         const float pitchDegrees = 2.0F * std::atan2(state->orientation.z, state->orientation.w) *
                                    (180.0F / 3.14159265358979323846F);
         const bool first = !loggedFirstFixedSample_;
@@ -1548,7 +1603,11 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 FormatVector(buoyancyResult->totalForceNewtons) + ", variable ballast authority " +
                 std::to_string(variableBallast->lowSpeedAuthorityFraction) + ", ballast target V/S " +
                 std::to_string(variableBallast->targetVerticalSpeedMetersPerSecond) +
-                " m/s, ballast force " + FormatVector(variableBallast->forceNewtons) + ", drag force " +
+                " m/s, main ballast fill " + std::to_string(nextBallastState->mainBallastFillFraction) +
+                ", trim mass delta " + std::to_string(nextBallastState->trimMassDeltaKg) +
+                " kg, dynamic mass " + std::to_string(nextDynamicMassKg) +
+                " kg, surface exposure " + std::to_string(surfacedExposureFraction) +
+                ", drag force " +
                 FormatVector(dragResult->forceNewtons) + ", drag torque " +
                 FormatVector(dragResult->torqueNewtonMeters) + ", requested drive " +
                 std::to_string(command.throttleFraction) + ", depth command " +
@@ -1558,15 +1617,12 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                 std::to_string(propulsionState_.shaftRpm) + ", target RPM " +
                 std::to_string(propulsionResult->targetRpm) + ", engine haptic intensity " +
                 std::to_string(engineVibrationIntensity) + ", thrust " +
-                std::to_string(propulsionResult->thrustNewtons) + " N, bow deflection " +
-                std::to_string(controlDeflections[M2BowPlaneIndex]) +
-                ", bow force " + FormatVector(controlResults[M2BowPlaneIndex].forceNewtons) +
-                ", bow point " + FormatVector(controlResults[M2BowPlaneIndex].worldPositionMeters) +
-                ", stern deflection " +
-                std::to_string(controlDeflections[M2SternPlaneIndex]) +
-                ", stern force " + FormatVector(controlResults[M2SternPlaneIndex].forceNewtons) +
-                ", stern point " + FormatVector(controlResults[M2SternPlaneIndex].worldPositionMeters) +
-                ", gravity magnitude " +
+                std::to_string(propulsionResult->thrustNewtons) + " N, bow planes DEPLOYMENT_ONLY, stern deflection " +
+                std::to_string(sternControlDeflection) +
+                ", stern force " + FormatVector(sternControl->forceNewtons) +
+                ", stern point " + FormatVector(sternControl->worldPositionMeters) +
+                ", pitch restoring torque " + std::to_string(pitchRestoringTorqueNewtonMeters) +
+                " Nm, gravity magnitude " +
                 std::to_string(*gravityMagnitude) + " m/s^2, weight " +
                 std::to_string(weightMagnitude) + " N, point fraction range [" +
                 std::to_string(minimumFraction) + ", " + std::to_string(maximumFraction) + ']');
@@ -1604,9 +1660,13 @@ std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::Buil
     return VesselPresentationTelemetry{
         .signedDepthMeters = waterSample->signedDepthMeters,
         .verticalSpeedMetersPerSecond = state->linearVelocity.y,
+        .forwardSpeedMetersPerSecond = committedForwardSpeedMetersPerSecond_,
         .throttleFraction = committedThrottleFraction_,
-        .bowPlaneDeflectionFraction = committedControlSurfaceDeflections_[M2BowPlaneIndex],
-        .sternPlaneDeflectionFraction = committedControlSurfaceDeflections_[M2SternPlaneIndex]};
+        .mainBallastFillFraction = ballastState_.mainBallastFillFraction,
+        .trimMassDeltaKg = ballastState_.trimMassDeltaKg,
+        .dynamicMassKg = committedDynamicMassKg_,
+        .bowPlanesDeployed = true,
+        .sternPlaneDeflectionFraction = committedSternPlaneDeflection_};
 }
 
 std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
@@ -1679,23 +1739,33 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     }
     surfaceFloatDraw.normalToWorld = *surfaceFloatNormal;
 
-    // M5-V2-B composes dynamic production depth-plane articulation after the already accepted submerged
-    // sail-device overrides. Both consume committed Game state; neither mutates ModelAsset or physics.
-    // The current submerged playground represents bow planes in their deployed hydrodynamic state. A future
-    // housed/retracted state must come from explicit production authoring/state, never by zeroing their forces.
+    // Production bow planes are deployment-only and therefore receive no rotation override. Stern planes
+    // alone articulate from committed simulation state. The primary periscope replaces its default stowed
+    // sail-device transform with the bounded deployment animation driven by gameplay periscope state.
     std::vector<Render::ModelNodeTransformOverride> submarineNodeOverrides = submergedSailDeviceOverrides_;
     submarineNodeOverrides.reserve(
-        submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2BowPlaneIndex].size() +
-        depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
-    for (std::size_t group = 0; group < depthPlaneMeshNodeIndices_.size(); ++group)
+        submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
+    const Assets::ModelTransform sternPostTransform =
+        SternPlanePostTransform(committedSternPlaneDeflection_);
+    for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[M2SternPlaneIndex])
     {
-        const Assets::ModelTransform postTransform = DepthPlanePostTransform(
-            committedControlSurfaceDeflections_[group],
-            group == M2SternPlaneIndex);
-        for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[group])
+        submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = sternPostTransform});
+    }
+    if (primaryPeriscopeNodeIndex_.has_value())
+    {
+        Assets::ModelTransform periscopeTransform = primaryPeriscopeStowedTransform_;
+        for (std::size_t element = 0; element < periscopeTransform.values.size(); ++element)
         {
-            submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = postTransform});
+            periscopeTransform.values[element] = primaryPeriscopeStowedTransform_.values[element] +
+                (primaryPeriscopeDeployedTransform_.values[element] - primaryPeriscopeStowedTransform_.values[element]) *
+                    primaryPeriscopeDeploymentProgress_;
         }
+        const auto existing = std::ranges::find_if(submarineNodeOverrides, [&](const auto& value) {
+            return value.nodeIndex == *primaryPeriscopeNodeIndex_;
+        });
+        if (existing == submarineNodeOverrides.end())
+            return std::unexpected("physical playground primary periscope stowed override disappeared");
+        existing->nodeLocalPostTransform = periscopeTransform;
     }
     const Assets::ModelTransform propellerPostTransform =
         PropellerPostTransform(propellerPresentationAngleRadians_);
@@ -1951,17 +2021,10 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     // reveal the local mesh/field bounds. Untouched 600 m M3 still takes the original draw path exactly once.
     const Render::GerstnerSurfacePresentationParameters gerstnerPresentation =
         BuildGerstnerSurfacePresentation(*water_);
-    const bool gerstnerCoversView = HorizontalPresentationBoundsCoverView(
-        gerstnerPresentation.minimumX,
-        gerstnerPresentation.maximumX,
-        camera->target.x,
-        camera->width);
+    // The renderer remaps the immutable Gerstner mesh around the current camera. Waves therefore remain
+    // continuous while the boat travels or the camera zooms; absolute world X still owns phase continuity.
     std::expected<Render::GerstnerSurfaceDrawStats, std::string> gerstnerStats =
-        Render::GerstnerSurfaceDrawStats{};
-    if (gerstnerCoversView)
-    {
-        gerstnerStats = renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
-    }
+        renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
     if (!gerstnerStats)
     {
         return std::unexpected("physical playground Gerstner surface draw failed: " + gerstnerStats.error());

@@ -1,6 +1,6 @@
 # Low-speed depth control and periscope identification gameplay
 
-Status: IMPLEMENTED — FINAL CI / HUMAN ACCEPTANCE PENDING
+Status: CORRECTIVE CLOSURE CANDIDATE — FINAL CI / HUMAN ACCEPTANCE PENDING
 
 This slice joins two related normal-gameplay mechanics without weakening the accepted perceived-world or physics boundaries:
 
@@ -13,6 +13,12 @@ The player must be able to approach periscope depth quietly without having to ru
 
 The player must also make a tactically meaningful choice between remaining submerged and uncertain, or exposing a periscope to obtain stronger visual identification. Acoustic certainty about bearing/range is not the same thing as knowing whether a surface contact is military or civilian.
 
+## Physical ballast / hydrostatic authority
+
+Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source gameplay canonical is 14,700 t surfaced and 19,400 t submerged; the 4,700 t difference is main-ballast water (~31.97% reserve buoyancy relative to surfaced displacement). Jolt rigid-body mass and inertia change with ballast fill. With main ballast empty, the calibrated waterplane settles the body reference at ~2.242 m below mean sea level in flat water; with main ballast full, 19,400 t is neutrally buoyant when fully submerged. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed only in the final near-surface band, while a dive command floods any partly empty main ballast.
+
+Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX. The current model independently produces ~7.07 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory.
+
 ## Scope A — low/zero-speed depth control
 
 Canonical input remains unchanged:
@@ -20,31 +26,36 @@ Canonical input remains unchanged:
 - `Depth -1` = surface / nose-up intent;
 - `Depth +1` = dive / nose-down intent.
 
-At ordinary forward speed, bow/stern diving planes remain the primary pitch/depth-control mechanism and their force continues to emerge from local water flow.
+At ordinary forward speed, only the stern horizontal planes provide hydrodynamic pitch authority. The production bow planes are deployment-only: they are either housed or extended and never rotate with Depth input or generate control-surface force in Deep Run.
 
-At low forward speed a separate Game-owned variable-ballast/trim controller supplies bounded net vertical force at the vessel centre of mass:
+At low forward speed a Game-owned trim controller requests a bounded **equivalent water-mass change** rather than applying a vertical force. At higher speed that trim authority fades and the stern horizontal planes carry the manoeuvre. Main-ballast fill is physical mass state: empty corresponds to the public surfaced displacement and full corresponds to the public submerged displacement.
 
-- surface intent -> positive buoyancy tendency / upward vertical rate;
-- dive intent -> negative buoyancy tendency / downward vertical rate;
-- neutral depth input -> target vertical speed returns to zero, allowing trim authority to arrest residual ascent/descent;
-- low-speed ballast authority fades continuously as forward speed rises;
-- once the configured hydrodynamic-speed threshold is reached, this extra authority reaches zero and the diving planes carry the manoeuvre.
+- submerged surface intent -> reduce bounded trim-water mass; sustained intent in the final surface band may then blow main ballast;
+- submerged dive intent -> increase bounded trim-water mass while the filled main ballast stays filled; from a surfaced/partly blown state the same intent floods main ballast;
+- neutral depth input -> trim target returns toward neutral and residual vertical motion is arrested by physical drag plus finite trim-mass correction;
+- low-speed trim authority fades continuously as forward speed rises;
+- at hydrodynamic speed the stern planes and the hull's static pitch stability determine the vertical trajectory.
 
-This is a gameplay model of variable ballast / trim compensation. It is intentionally **not** a classified simulation of Project 949A tank volumes, pump rates, valve sequencing or emergency-blow hardware.
+This is a gameplay-level physical ballast model. It intentionally **does not** claim Project 949A tank volumes, valve sequencing, pump/blow rates or emergency-blow timing that are not established by public data.
 
 ### Required invariants
 
 - no teleporting or direct modification of world Y;
-- no fake force added to `ControlSurfaceSystem` at zero forward speed;
-- Jolt remains the motion authority;
-- WaterBody remains depth authority;
-- ballast output is a real bounded force applied through PhysicsWorld;
-- releasing depth input does not instantly stop the boat; trim authority damps vertical rate through force over time;
+- no fake lift from a control surface at zero water flow;
+- no direct ballast/reserve-compensation vertical force;
+- Jolt remains motion, mass and inertia authority;
+- WaterBody remains depth and displaced-water authority;
+- main-ballast/trim commands change physical rigid-body mass with finite GAME-policy rates;
+- ordinary deep/periscope-depth commands do not blow the main ballast tanks;
+- buoyancy is produced only by displaced water through `BuoyancySystem`;
+- with full main ballast the fully immersed 19,400 t state is neutrally buoyant;
+- with empty main ballast the 14,700 t state settles naturally at ~2.242 m body-reference depth in flat water;
+- stern-plane moment is opposed by speed-squared static pitch stability, so held input converges to a trajectory instead of allowing endless pitch rotation;
 - no presentation-only state may change depth.
 
 ### Navigation HUD contract
 
-The normal NAV HUD exposes the committed simulation state in player-readable terms:
+The normal NAV HUD exposes the committed simulation state in player-readable terms, including actual axial speed, main-ballast fill percentage, signed trim-water mass and total physical mass, plus the semantic trim state:
 
 - `INCREASING BUOYANCY`;
 - `STABILIZING`;
@@ -71,11 +82,13 @@ The periscope is an optical sensor, not a ground-truth shortcut.
 
 The current normal gameplay contract defines `0–20 m` as the surface/periscope zone. A raised periscope may produce optical observations only while the ownship is inside the configured periscope operating-depth envelope.
 
-A raised mast is exposed state. It can feed the existing signature/detection architecture as an optical-mast/periscope exposure channel when hostile visual sensing is implemented. The player therefore trades information quality for detectability.
+A raised mast is exposed state. The destroyer's visual watch now produces an ordinary bearing-only Optical `SensorObservation` for an exposed mast inside its bounded visual envelope. The observation carries no player body/entity identity, no free range and no classification; it enters the destroyer's normal TrackManager and can therefore provoke active ranging/engagement. The player trades information quality for detectability.
 
 Normal-play bindings:
 
-- `P / D-pad Up` — raise or stow periscope;
+- `P / D-pad Up` — raise or stow the production primary periscope;
+
+Direct production-GLB inspection plus the public Project 949A retractable-device arrangement identifies private authoring node `SailDevice_08` as the gameplay primary periscope and `SailDevice_17` as the secondary. Those node names do not cross into normal runtime: generated sidecars publish `PERISCOPE_PRIMARY` / `PERISCOPE_SECONDARY`, the production loader requires exactly one of each, and gameplay resolves the primary mast by semantic role. No disputed exact historical optics-model designation is asserted. The primary mast uses the already-authored stowed/deployed transforms and a 2.5 s GAME-POLICY animation.
 - `V / A` — attempt visual identification of the selected perceived Track.
 
 ### Staged optical observation

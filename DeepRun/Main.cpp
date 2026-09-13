@@ -760,6 +760,14 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
                     combatUiSnapshot = combatFrame->playerCombat;
+                    const auto periscopePresentation =
+                        playground.SetPeriscopePresentation(combatFrame->playerCombat.periscopeRaised);
+                    if (!periscopePresentation)
+                    {
+                        std::cerr << "[Game][ERROR] production periscope presentation failed: "
+                                  << periscopePresentation.error() << '\n';
+                        return false;
+                    }
                     if (combatPlayground->Runtime().has_value())
                     {
                         const auto& runtime = *combatPlayground->Runtime();
@@ -1073,8 +1081,12 @@ int main(const int argumentCount, char** argumentValues)
                         DeepRun::Game::Combat::DrawVesselNavigationHud({
                             .signedDepthMeters = navigationTelemetry->signedDepthMeters,
                             .verticalSpeedMetersPerSecond = navigationTelemetry->verticalSpeedMetersPerSecond,
+                            .forwardSpeedMetersPerSecond = navigationTelemetry->forwardSpeedMetersPerSecond,
                             .throttleFraction = navigationTelemetry->throttleFraction,
-                            .bowPlaneDeflectionFraction = navigationTelemetry->bowPlaneDeflectionFraction,
+                            .mainBallastFillFraction = navigationTelemetry->mainBallastFillFraction,
+                            .trimMassDeltaKg = navigationTelemetry->trimMassDeltaKg,
+                            .dynamicMassKg = navigationTelemetry->dynamicMassKg,
+                            .bowPlanesDeployed = navigationTelemetry->bowPlanesDeployed,
                             .sternPlaneDeflectionFraction = navigationTelemetry->sternPlaneDeflectionFraction});
 
                         if (framing.band == DeepRun::Game::Camera::MultiScaleCameraBand::Operational ||

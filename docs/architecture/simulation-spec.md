@@ -433,7 +433,7 @@ batch flora without affecting authoritative state.
 ### Marine fauna and surface birds
 
 The architecture reserves lightweight authored behaviour for whales, sperm
-whales, dolphins, fish/small schools, gulls, and pelicans. An entity may opt into
+whales, orcas, dolphins, fish/small schools, gulls, and pelicans. An entity may opt into
 independent capabilities:
 
 - ambient presentation/animation;

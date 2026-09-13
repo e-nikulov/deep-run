@@ -408,9 +408,9 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                         {"semanticId", std::format("depth-plane.{}.{:02}", semanticGroup, index + 1U)},
                         {"group", std::string(groupValue)},
                         {"nodeReference", "SM_Antey_LOD0_" + sourceName},
-                        {"articulation", "ROTATION"},
-                        {"hingeAxisSource", "LOCAL_Y"},
-                        {"simulationOwnsAngle", true}});
+                        {"articulation", semanticGroup == "bow" ? "DEPLOYMENT_ONLY" : "ROTATION"},
+                        {"hingeAxisSource", semanticGroup == "bow" ? "NONE" : "LOCAL_Y"},
+                        {"simulationOwnsAngle", semanticGroup != "bow"}});
                 }
             };
             appendDepthPlaneGroup("bowPlanes", "bow", "BOW");
@@ -428,9 +428,15 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             const std::string semanticId = record.at("semanticId").get<std::string>();
             const std::string groupValue = record.at("group").get<std::string>();
             const std::string privateNodeReference = record.at("nodeReference").get<std::string>();
-            Require(record.at("articulation").get<std::string>() == "ROTATION" &&
-                    record.at("hingeAxisSource").get<std::string>() == "LOCAL_Y" &&
-                    record.at("simulationOwnsAngle").get<bool>(),
+            const bool bowDeploymentOnly = groupValue == "BOW" &&
+                record.at("articulation").get<std::string>() == "DEPLOYMENT_ONLY" &&
+                record.at("hingeAxisSource").get<std::string>() == "NONE" &&
+                !record.at("simulationOwnsAngle").get<bool>();
+            const bool sternRotating = groupValue == "STERN" &&
+                record.at("articulation").get<std::string>() == "ROTATION" &&
+                record.at("hingeAxisSource").get<std::string>() == "LOCAL_Y" &&
+                record.at("simulationOwnsAngle").get<bool>();
+            Require(bowDeploymentOnly || sternRotating,
                     "Antey depth-plane articulation authoring contract is invalid");
             const ProductionDepthPlaneGroup group = groupValue == "BOW"
                 ? ProductionDepthPlaneGroup::Bow
@@ -457,6 +463,8 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 "Antey must have retractable sail-device records");
         std::unordered_set<std::string> sailDeviceSemanticIds;
         std::unordered_set<std::size_t> sailDeviceBindingIndices;
+        std::size_t primaryPeriscopeCount = 0U;
+        std::size_t secondaryPeriscopeCount = 0U;
         for (const Json& device : retractableSailDevices)
         {
             const std::string privateNodeReference = device.at("nodeReference").get<std::string>();
@@ -468,6 +476,12 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             Require(device.at("defaultState").get<std::string>() == "STOWED",
                     "Antey submerged sail-device default must be stowed");
             const std::string semanticId = device.at("semanticId").get<std::string>();
+            const std::string functionalRole = device.at("functionalRole").get<std::string>();
+            Require(functionalRole == "OTHER_RETRACTABLE" || functionalRole == "PERISCOPE_PRIMARY" ||
+                        functionalRole == "PERISCOPE_SECONDARY",
+                    "Antey retractable sail-device functional role is unexpected");
+            primaryPeriscopeCount += functionalRole == "PERISCOPE_PRIMARY" ? 1U : 0U;
+            secondaryPeriscopeCount += functionalRole == "PERISCOPE_SECONDARY" ? 1U : 0U;
             Require(sailDeviceSemanticIds.insert(semanticId).second,
                     "Antey retractable sail-device semantic IDs must be unique");
             Require(sailDeviceBindingIndices.insert(bindingIndex).second,
@@ -476,6 +490,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 device.at("stowedSailEnvelopeMaximumSource"), "sail-device stowed envelope maximum");
             definition.retractableSailDevices.push_back({
                 .semanticId = std::move(semanticId),
+                .functionalRole = functionalRole,
                 .presentationNodeBindingIndex = bindingIndex,
                 .deployedLocalPostTransform = ReadTransform(
                     device.at("deployedLocalPostTransform"), "sail-device deployed transform"),
@@ -484,6 +499,8 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 .defaultState = RetractableSailDeviceState::Stowed,
                 .stowedSailEnvelopeMaximumY = ConvertAnteyAuthoringVector(sourceEnvelopeTop).y});
         }
+        Require(primaryPeriscopeCount == 1U && secondaryPeriscopeCount == 1U,
+                "Antey must expose exactly one primary and one secondary production periscope role");
 
         const Json& torpedoes = authoring.at("torpedoTubes");
         Require(torpedoes.is_array() && torpedoes.size() == 6U, "Antey must have six torpedo records");

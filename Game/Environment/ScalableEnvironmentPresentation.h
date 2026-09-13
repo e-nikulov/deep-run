@@ -71,19 +71,22 @@ inline constexpr std::array<StrategicSeabedPresentationPoint, 14> M5LocalBathyme
     }
 
     const float distanceFromLocalMeters = (std::max)(0.0F, std::abs(xMeters) - 400.0F);
-    const float baseDepthMeters = 165.0F + (std::min)(3'600.0F, distanceFromLocalMeters * 0.055F);
+    // M5's current authored combat region is a readable continental/shelf theatre, not an automatic descent
+    // into a 4.8 km abyss merely because ownship moved away from x=0. Keep broad deterministic relief visible
+    // in normal underwater framing; future world data will replace this presentation-only regional profile.
+    const float baseDepthMeters = 165.0F + (std::min)(45.0F, distanceFromLocalMeters * 0.006F);
     const float reliefWeight = std::clamp(distanceFromLocalMeters / 2'000.0F, 0.0F, 1.0F);
     const float regionalReliefMeters = reliefWeight * (
-        85.0F * std::sin(xMeters / 1'900.0F) +
-        55.0F * std::sin(xMeters / 710.0F + 0.8F) +
-        35.0F * std::sin(xMeters / 3'300.0F + 1.6F));
-    const float depthMeters = std::clamp(baseDepthMeters + regionalReliefMeters, 150.0F, 4'800.0F);
+        32.0F * std::sin(xMeters / 1'900.0F) +
+        20.0F * std::sin(xMeters / 710.0F + 0.8F) +
+        14.0F * std::sin(xMeters / 3'300.0F + 1.6F));
+    const float depthMeters = std::clamp(baseDepthMeters + regionalReliefMeters, 150.0F, 280.0F);
     return -depthMeters;
 }
 
 [[nodiscard]] inline std::vector<StrategicSeabedPresentationPoint> BuildM5TacticalBathymetryProfile()
 {
-    constexpr int ExtentKilometers = 300;
+    constexpr int ExtentKilometers = 1'000;
     std::vector<StrategicSeabedPresentationPoint> result;
     result.reserve(static_cast<std::size_t>(ExtentKilometers * 2) + M5LocalBathymetryAnchorProfile.size());
 

@@ -1880,9 +1880,13 @@ public:
                 component.angularFrequencyRadiansPerSecond,
                 component.phaseOffsetRadians};
         };
+        const float authoredSpanMeters = parameters.maximumX - parameters.minimumX;
+        const float horizontalScale = (std::max)(1.0F, camera.width * 1.05F / authoredSpanMeters);
         const GerstnerDrawConstants constants{
             .viewProjection = camera.viewProjection.values,
-            .referenceLevelAndTime = {parameters.referenceLevelY, static_cast<float>(simulationTimeSeconds), 0.0F, 0.0F},
+            // z/w remap the immutable local M3 mesh around the live camera; wave phase still uses absolute world X.
+            .referenceLevelAndTime = {parameters.referenceLevelY, static_cast<float>(simulationTimeSeconds),
+                                      camera.target.x, horizontalScale},
             .wave0 = asConstants(parameters.components[0]),
             .wave1 = asConstants(parameters.components[1]),
             .wave2 = asConstants(parameters.components[2]),

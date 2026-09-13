@@ -16,6 +16,7 @@
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
+#include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VesselCommandState.h"
@@ -59,8 +60,12 @@ struct VesselPresentationTelemetry final
     float signedDepthMeters = 0.0F;
     // World +Y is upward, so positive values mean surfacing and negative values mean diving.
     float verticalSpeedMetersPerSecond = 0.0F;
+    float forwardSpeedMetersPerSecond = 0.0F;
     float throttleFraction = 0.0F;
-    float bowPlaneDeflectionFraction = 0.0F;
+    float mainBallastFillFraction = 1.0F;
+    float trimMassDeltaKg = 0.0F;
+    float dynamicMassKg = 0.0F;
+    bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };
 
@@ -77,8 +82,8 @@ struct VesselPresentationTelemetry final
 // derives presentation from those values; the renderer never sees a WaterBody, and the WaterBody never
 // knows about the renderer, camera or submarine. Game composes that water with Game-owned buoyancy/drag
 // tuning and generic PhysicsWorld force/torque operations during the fixed phase. G2 adds one authoritative
-// shaft state; propeller angle is presentation-only and can never feed the simulation. H2 composes two
-// Game-owned control surfaces through their pure Marine calculation and the existing world-point force API. I1
+// shaft state; propeller angle is presentation-only and can never feed the simulation. H2 now composes only
+// the stern hydrodynamic control surface; production bow planes are deployment-only presentation hardware. I1
 // receives only a Game-owned VesselCommandState; it never sees a physical key, gamepad field, or backend type.
 // I2 publishes a Game-owned semantic feedback event after authoritative propulsion state commit; it never sees
 // a motor value or platform backend, and feedback success never participates in the simulation transaction.
@@ -240,8 +245,20 @@ public:
         return M2GameplayCameraHorizontalSpanMeters;
     }
 
-    // Presentation-only bridge from the P-700 lifecycle. Semantic hatch identity was resolved from production
-    // authoring once at Initialize; no raw GLB node name or gameplay launch decision enters the renderer.
+    [[nodiscard]] std::expected<void, std::string> SetPeriscopePresentation(const bool raised)
+    {
+        if (!primaryPeriscopeNodeIndex_.has_value())
+            return std::unexpected("primary production periscope presentation binding is unavailable");
+        primaryPeriscopeRequestedRaised_ = raised;
+        return {};
+    }
+
+    [[nodiscard]] float PeriscopeDeploymentProgress() const noexcept
+    {
+        return primaryPeriscopeDeploymentProgress_;
+    }
+
+    // Presentation-only bridge from the P-700 lifecycle.
     [[nodiscard]] std::expected<void, std::string> SetP700HatchPresentation(
         const std::optional<std::string>& hatchGroupSemanticId,
         const float openProgress)
@@ -423,10 +440,9 @@ private:
     Marine::HydroDragComponent hydroDrag_;
     Marine::PropulsionComponent propulsion_;
     Marine::PropulsionState propulsionState_{};
-    std::array<Marine::ControlSurfaceComponent, 2> controlSurfaces_{};
-    // M5-V2-B committed simulation-control state. Presentation reads only these values after the full fixed
-    // transaction succeeds; raw keyboard/controller state never drives model articulation directly.
-    std::array<float, 2> committedControlSurfaceDeflections_{};
+    Marine::ControlSurfaceComponent sternControlSurface_{};
+    // M5-V2-B committed stern-control state. Bow-plane deployment never enters this simulation value.
+    float committedSternPlaneDeflection_ = 0.0F;
     float committedThrottleFraction_ = 0.0F;
     std::array<std::vector<std::size_t>, 2> depthPlaneMeshNodeIndices_{};
     std::vector<std::pair<std::size_t, Assets::ModelVector3>> propellerPresentationBindings_{};
@@ -452,8 +468,16 @@ private:
     // IG1-B.1 fixed submerged presentation state. These per-node post transforms are built from opaque
     // IG1 production bindings once at initialization and never mutate ModelAsset or physics.
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides_;
+    std::optional<std::size_t> primaryPeriscopeNodeIndex_{};
+    Assets::ModelTransform primaryPeriscopeStowedTransform_{};
+    Assets::ModelTransform primaryPeriscopeDeployedTransform_{};
+    bool primaryPeriscopeRequestedRaised_ = false;
+    float primaryPeriscopeDeploymentProgress_ = 0.0F;
+    Submarine::AnteyBallastState ballastState_{};
+    float committedDynamicMassKg_ = 0.0F;
+    float committedForwardSpeedMetersPerSecond_ = 0.0F;
 
-    // Bounded H2 diagnostics: physics in FixedUpdate; camera/water/propeller presentation in Render.
+    // Bounded H2 diagnostics:
     std::uint64_t fixedTickCount_ = 0;
     bool loggedFirstFixedSample_ = false;
     bool loggedLaterFixedSample_ = false;

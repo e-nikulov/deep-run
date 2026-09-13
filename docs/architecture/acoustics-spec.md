@@ -130,6 +130,7 @@ Examples:
 - active sonar pulse;
 - whale vocalisation;
 - sperm-whale clicks;
+- orca vocalisation;
 - dolphin vocalisation;
 - ice movement/fracture;
 - rain;

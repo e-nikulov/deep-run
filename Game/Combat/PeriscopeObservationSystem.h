@@ -244,6 +244,72 @@ ObserveThroughPeriscope(
         .classificationEvidence = classification}};
 }
 
+struct ExposedPeriscopeMastDetectionConfig final
+{
+    // GAME POLICY for a small exposed mast observed from a surface combatant. This is deliberately much shorter
+    // than the player's deliberate high-power periscope target-detection envelope and is not a historical spec.
+    float maximumDetectionRangeMeters = 8'000.0F;
+    float bearingUncertaintyRadians = 1.0F * PeriscopePi / 180.0F;
+    float minimumConfidence = 0.58F;
+};
+
+[[nodiscard]] inline std::expected<std::optional<Perception::SensorObservation>, std::string>
+ObserveExposedPeriscopeMast(
+    const ExposedPeriscopeMastDetectionConfig& config,
+    const PeriscopeState& state,
+    const Physics::PhysicsVector3& ownshipPositionMeters,
+    const float signedDepthMeters,
+    const float surfaceLevelYMeters,
+    const Physics::PhysicsVector3& observerPositionMeters,
+    const double simulationTimeSeconds,
+    const PeriscopeOpticalConditions& conditions = {})
+{
+    if (!std::isfinite(config.maximumDetectionRangeMeters) || config.maximumDetectionRangeMeters <= 0.0F ||
+        !std::isfinite(config.bearingUncertaintyRadians) || config.bearingUncertaintyRadians < 0.0F ||
+        !std::isfinite(config.minimumConfidence) || config.minimumConfidence < 0.0F || config.minimumConfidence > 1.0F ||
+        !ownshipPositionMeters.IsFinite() || !observerPositionMeters.IsFinite() || !std::isfinite(signedDepthMeters) ||
+        signedDepthMeters < 0.0F || !std::isfinite(surfaceLevelYMeters) || !std::isfinite(simulationTimeSeconds) ||
+        simulationTimeSeconds < 0.0 || !ValidPeriscopeOpticalConditions(conditions))
+    {
+        return std::unexpected("invalid exposed-periscope visual detection input");
+    }
+    if (!state.raised || signedDepthMeters > PeriscopeObservationConfig{}.maximumOperatingDepthMeters)
+        return std::optional<Perception::SensorObservation>{};
+
+    const Physics::PhysicsVector3 mastTop{
+        .x = ownshipPositionMeters.x,
+        .y = surfaceLevelYMeters + PeriscopeObservationConfig{}.opticalHeadHeightAboveSurfaceMeters,
+        .z = ownshipPositionMeters.z};
+    const float dx = mastTop.x - observerPositionMeters.x;
+    const float dy = mastTop.y - observerPositionMeters.y;
+    const float distanceMeters = std::hypot(dx, dy);
+    const float quality = PeriscopeDetectionQuality(conditions);
+    const float effectiveRange = std::min({
+        config.maximumDetectionRangeMeters * quality,
+        conditions.meteorologicalVisibilityMeters,
+        PeriscopeObservationConfig{}.clearDayMeteorologicalVisibilityMeters});
+    if (!std::isfinite(distanceMeters) || distanceMeters > effectiveRange)
+        return std::optional<Perception::SensorObservation>{};
+
+    const float rangeFraction = std::clamp(distanceMeters / effectiveRange, 0.0F, 1.0F);
+    const float confidence = std::clamp(
+        (1.0F - 0.35F * rangeFraction) * quality,
+        config.minimumConfidence,
+        1.0F);
+    return std::optional<Perception::SensorObservation>{Perception::SensorObservation{
+        .modality = Perception::SensorModality::Optical,
+        .sensorId = "DESTROYER_VISUAL_WATCH",
+        .sensorPositionMeters = observerPositionMeters,
+        .observationTimeSeconds = simulationTimeSeconds,
+        .measuredBearingRadians = std::atan2(dy, dx),
+        .bearingUncertaintyRadians = config.bearingUncertaintyRadians,
+        .estimatedRangeMeters = std::nullopt,
+        .rangeUncertaintyMeters = std::nullopt,
+        .confidence = confidence,
+        .opticalIdentificationLevel = Perception::OpticalIdentificationLevel::Detected,
+        .classificationEvidence = std::nullopt}};
+}
+
 [[nodiscard]] inline PeriscopePresentationSnapshot BuildPeriscopePresentationSnapshot(
     const PeriscopeObservationConfig& config,
     const PeriscopeState& state,

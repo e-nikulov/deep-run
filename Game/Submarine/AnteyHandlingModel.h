@@ -10,25 +10,39 @@
 
 namespace DeepRun::Game::Submarine
 {
-// Project 949A public sources commonly publish about 24,000 t full/submerged displacement. Rubin's public
-// Project 949A page identifies the design but does not publish a displacement table, while specialist public
-// references disagree on whether 19,400 t or ~24,000 t is the appropriate submerged/full-load figure.
-// Deep Run therefore uses 24,000 t as the canonical fully-submerged gameplay mass, not as a classified claim.
-inline constexpr float AnteyCanonicalFullSubmergedMassKg = 24'000'000.0F;
+// Public Project 949A figures are not perfectly uniform, so Deep Run fixes one documented canonical set:
+// Apalkov/Deepstorm-style 14,700 t surfaced, 19,400 t submerged, 32 kn submerged and 15 kn surfaced.
+// The 4,700 t difference is treated as main-ballast water, giving 31.97% reserve buoyancy relative to surfaced
+// displacement. These are public-source gameplay authorities, not claims about classified loading conditions.
+inline constexpr float AnteyPublicSurfaceDisplacementMassKg = 14'700'000.0F;
+inline constexpr float AnteyPublicSubmergedDisplacementMassKg = 19'400'000.0F;
+inline constexpr float AnteyMainBallastWaterCapacityKg =
+    AnteyPublicSubmergedDisplacementMassKg - AnteyPublicSurfaceDisplacementMassKg;
+inline constexpr float AnteyPublicReserveBuoyancyFraction =
+    AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
+inline constexpr float AnteyPublicMaximumSubmergedSpeedKnots = 32.0F;
+inline constexpr float AnteyPublicMaximumSurfacedSpeedKnots = 15.0F;
+inline constexpr float KnotsToMetersPerSecond = 0.514444F;
+inline constexpr float AnteyPublicMaximumSubmergedSpeedMetersPerSecond =
+    AnteyPublicMaximumSubmergedSpeedKnots * KnotsToMetersPerSecond;
+inline constexpr float AnteyPublicMaximumSurfacedSpeedMetersPerSecond =
+    AnteyPublicMaximumSurfacedSpeedKnots * KnotsToMetersPerSecond;
+// Compatibility name retained for existing acoustic/runtime code: fully submerged neutral mass is 19,400 t.
+inline constexpr float AnteyCanonicalFullSubmergedMassKg = AnteyPublicSubmergedDisplacementMassKg;
 
-// GAME POLICY. No reliable public Project 949A maximum-astern figure was found. Reverse drive is deliberately
-// much weaker than ahead drive, while shaft reversal itself remains physical: an ahead-turning shaft must spin
-// down through zero before it can build astern RPM.
+// GAME POLICY calibrated jointly with hydrodynamic drag so full ahead asymptotically matches the public 32 kn
+// submerged / 15 kn surfaced envelope. Public sources give roughly 2 x 50,000 hp shaft power; the thrust value
+// itself is not published and is therefore not presented as a historical hardware specification.
 inline constexpr Marine::PropulsionComponent AnteyGameplayPropulsion{
     .maxForwardRpm = 180.0F,
     .maxReverseRpm = 90.0F,
-    .maxForwardThrustNewtons = 12'000'000.0F,
-    .maxReverseThrustNewtons = 3'000'000.0F,
+    .maxForwardThrustNewtons = 3'350'000.0F,
+    .maxReverseThrustNewtons = 837'500.0F,
     .spinUpRateRpmPerSecond = 30.0F,
     .spinDownRateRpmPerSecond = 45.0F};
 
-// GAME POLICY. A 154 m / ~24,000 t boat must not snap-flip in a side-view game. The production rigid body
-// remains constrained to the XY gameplay plane; this state provides the missing longitudinal facing dimension.
+// GAME POLICY. A 154 m / ~19,400 t fully submerged boat must not snap-flip in a side-view game. The production
+// rigid body remains constrained to the XY gameplay plane; this state provides the missing longitudinal facing dimension.
 inline constexpr float AnteyTurnAroundDurationSeconds = 60.0F;
 
 struct AnteyFacingState final
@@ -127,7 +141,10 @@ struct AnteyFacingAdvance final
     return transform;
 }
 
-static_assert(AnteyCanonicalFullSubmergedMassKg == 24'000'000.0F);
+static_assert(AnteyPublicSurfaceDisplacementMassKg == 14'700'000.0F);
+static_assert(AnteyCanonicalFullSubmergedMassKg == 19'400'000.0F);
+static_assert(AnteyMainBallastWaterCapacityKg == 4'700'000.0F);
+static_assert(AnteyPublicReserveBuoyancyFraction > 0.319F && AnteyPublicReserveBuoyancyFraction < 0.321F);
 static_assert(AnteyGameplayPropulsion.maxReverseRpm < AnteyGameplayPropulsion.maxForwardRpm);
 static_assert(AnteyGameplayPropulsion.maxReverseThrustNewtons < AnteyGameplayPropulsion.maxForwardThrustNewtons);
 static_assert(AnteyTurnAroundDurationSeconds >= 30.0F);

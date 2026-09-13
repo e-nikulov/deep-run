@@ -830,11 +830,11 @@ Hydrodynamic wake is not required for the first working Milestone 4 vertical
 slice. Synthetic/debug emitters and reflectors should be used where practical;
 torpedoes, destroyers, explosions and full combat remain in Milestone 5.
 
-## Active milestones
+## Completed milestones (continued)
 
 ### Milestone 5 - Combat Playground
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 Accepted implementation now includes:
 
@@ -848,7 +848,10 @@ Accepted implementation now includes:
 - J3 passive-acoustic incoming-threat warning projected to combat UI without hostile position/body truth
 - J4 player defensive acoustic decoy with reciprocal seeker diversion through perceived tracks
 - J5 explicit player active-sonar ranging from a selected passive Track plus D1 combat-control convergence
-- J4 controller/keyboard player defensive decoy command with reciprocal torpedo local-seeker diversion through perceived acoustics
+- production P-700 lifecycle, launcher inventory, physical impact and visual acceptance
+- low/zero-speed ballast/trim, periscope optical identification, civilian-risk ROE and exposed-mast detection
+- corrective closure: deployment-only bow planes, stern-only hydrodynamic pitch, surfaced reserve buoyancy,
+  production periscope animation, continuous travelling waves and non-disappearing M5 regional seabed
 <!-- deeprun-m5-command-note:start -->
 
 Commander interaction added in M5:
@@ -1003,8 +1006,7 @@ Future work:
 - helicopters
 - aircraft
 - sonobuoys
-- P700 runtime weapon definition and entity using the accepted C0 content asset
-- missile launch and authoritative underwater-to-air transition
+- additional missile/ASW weapon families beyond the already accepted M5 P-700 path
 - supercavitating/Shkval-inspired weapon
 - smaller/lighter torpedo or compact underwater weapon
 - dropped ASW weapons and depth-charge-like threats

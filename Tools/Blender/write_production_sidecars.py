@@ -18,6 +18,12 @@ from artifact_provenance import require_path_suffix
 
 
 MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
+# Reviewed production-device identity from the accepted GLB + public 949A retractable-device layout.
+# Private node names stop here; runtime consumes only semantic functional roles.
+ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES = {
+    "SM_Antey_LOD0_SailDevice_08": "PERISCOPE_PRIMARY",
+    "SM_Antey_LOD0_SailDevice_17": "PERISCOPE_SECONDARY",
+}
 
 
 def args() -> argparse.Namespace:
@@ -121,6 +127,7 @@ def retractable_sail_devices(
                 "semanticId": f"sail.retractable.{len(retractable) + 1:02d}",
                 "nodeReference": obj.name,
                 "classification": "RETRACTABLE",
+                "functionalRole": ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES.get(obj.name, "OTHER_RETRACTABLE"),
                 "defaultState": "STOWED",
                 "deployedLocalPostTransform": identity_matrix_values(),
                 "stowedLocalPostTransform": source_translation_matrix(stowed_top - device_maximum.z),
@@ -133,6 +140,9 @@ def retractable_sail_devices(
         )
     if not retractable:
         raise RuntimeError("No explicitly retractable LOD0 sail devices were found")
+    roles = [item["functionalRole"] for item in retractable]
+    if roles.count("PERISCOPE_PRIMARY") != 1 or roles.count("PERISCOPE_SECONDARY") != 1:
+        raise RuntimeError("Antey production sidecar must expose exactly one primary and one secondary periscope")
     return retractable
 
 
@@ -437,17 +447,20 @@ def production_depth_plane_authoring(objects: dict[str, bpy.types.Object]) -> li
     group_counts = {"BOW": 0, "STERN": 0}
     for obj in candidates:
         role = obj.get("CONTROL_SURFACE_ROLE")
-        if obj.get("ARTICULATION") != "ROTATION" or obj.get("HINGE_AXIS") != "LOCAL_Y" or not bool(obj.get("SIMULATION_OWNS_ANGLE", False)):
-            raise RuntimeError(f"Depth plane has invalid articulation contract: {obj.name}")
         group = "BOW" if role == "BOW_DEPTH_PLANE" else "STERN"
+        if group == "BOW":
+            if obj.get("ARTICULATION") != "DEPLOYMENT_ONLY" or obj.get("HINGE_AXIS") != "NONE" or bool(obj.get("SIMULATION_OWNS_ANGLE", True)):
+                raise RuntimeError(f"Bow plane must be deployment-only: {obj.name}")
+        elif obj.get("ARTICULATION") != "ROTATION" or obj.get("HINGE_AXIS") != "LOCAL_Y" or not bool(obj.get("SIMULATION_OWNS_ANGLE", False)):
+            raise RuntimeError(f"Stern plane has invalid articulation contract: {obj.name}")
         group_counts[group] += 1
         records.append({
             "semanticId": f"depth-plane.{group.lower()}.{group_counts[group]:02d}",
             "group": group,
             "nodeReference": obj.name,
-            "articulation": "ROTATION",
-            "hingeAxisSource": "LOCAL_Y",
-            "simulationOwnsAngle": True,
+            "articulation": "DEPLOYMENT_ONLY" if group == "BOW" else "ROTATION",
+            "hingeAxisSource": "NONE" if group == "BOW" else "LOCAL_Y",
+            "simulationOwnsAngle": group == "STERN",
         })
     if group_counts != {"BOW": 2, "STERN": 2}:
         raise RuntimeError(f"Production Antey depth-plane group counts are invalid: {group_counts}")
