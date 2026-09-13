@@ -47,7 +47,7 @@ A full streamed/procedural world is NOT part of M5-V2. Future world traversal mu
 
 ## V2-B — Dive-control presentation
 
-Existing simulation already accepts semantic `Depth` input and evaluates bow/stern control-surface forces.
+Semantic `Depth` input drives the stern horizontal-plane hydrodynamic surface plus low-speed ballast/trim. Production bow planes are deployment-only hardware: they have no hydrodynamic `ControlSurfaceComponent`, no commanded angle and no control force.
 
 Required presentation closure:
 
@@ -108,7 +108,7 @@ M5-V2 requires:
 - windowed smoke PASS;
 - accepted camera presentation remains regression-free;
 - manual ownship travel beyond the original local camera footprint;
-- manual dive/surface test with visible production-plane deflection and depth HUD feedback;
+- manual dive/surface test with visible stern-plane deflection, fixed-angle deployed bow planes and depth HUD feedback;
 - manual active sonar ping showing outgoing pulse and reflected echo with real acoustic timing;
 - sonar visualization option demonstrably disables visuals without altering ranging behavior.
 
@@ -142,4 +142,4 @@ Current `main` no longer duplicates V2-only `controlSurfaces` records in `Antey.
 therefore consumes accepted `controlSurfaceAuthoring` identity from `Antey.asset.json` when those explicit records
 are absent, resolves the corresponding four production GLB nodes privately, and exposes only semantic bow/stern
 groups plus opaque presentation binding indices to runtime code. This compatibility boundary does not modify the
-accepted model, GLB, physics authority, or simulation ownership of control-surface angle.
+accepted model, GLB or physics authority: only the stern group has simulation-owned angle; the bow group is deployment-only.
