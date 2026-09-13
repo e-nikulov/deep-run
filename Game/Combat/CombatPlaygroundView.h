@@ -2,6 +2,7 @@
 
 #include "Engine/Assets/AssetManager.h"
 #include "Engine/Render/D3D12Renderer.h"
+#include "Game/Combat/CivilianVesselPresentation.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
 #include "Game/Weapons/ProductionP700Asset.h"
 
@@ -23,7 +24,7 @@ struct CombatPlaygroundRenderFrame final
 
 // M5-H.1-B renderer composition for the bounded combat playground. The view owns only opaque GPU uploads.
 // Simulation, PhysicsWorld, TrackManager, target selection, damage and weapon lifecycle all remain external
-// authorities. Each frame is rebuilt from the read-only presentation snapshot defined by H.1-A.
+// authorities. Each frame is rebuilt from read-only presentation boundaries.
 class CombatPlaygroundView final
 {
 public:
@@ -133,6 +134,11 @@ public:
         {
             return std::unexpected("M5-H.1 combat view draw composition failed: " + presentationDraws.error());
         }
+        const auto civilianDraws = BuildCivilianVesselPresentationDraws(runtime, physicsWorld);
+        if (!civilianDraws)
+        {
+            return std::unexpected("civilian surface-vessel presentation failed: " + civilianDraws.error());
+        }
 
         const bool useUset80Review =
             uset80Asset_.IsValid() && uset80Asset_.Get() != nullptr && uset80GpuModel_.IsValid() &&
@@ -142,7 +148,7 @@ public:
             renderer.IsGpuModelValid(kit6576GpuModel_);
 
         std::vector<Render::ModelDrawInstance> proxyDraws;
-        proxyDraws.reserve(presentationDraws->size());
+        proxyDraws.reserve(presentationDraws->size() + civilianDraws->size());
         std::optional<Assets::ModelTransform> playerTorpedoTransform{};
         std::optional<Assets::ModelTransform> destroyerTorpedoTransform{};
         for (const auto& presentationDraw : *presentationDraws)
@@ -160,6 +166,7 @@ public:
                 proxyDraws.push_back(presentationDraw.draw);
             }
         }
+        proxyDraws.insert(proxyDraws.end(), civilianDraws->begin(), civilianDraws->end());
         if (proxyDraws.empty())
         {
             return std::unexpected("M5-H.1 combat view must contain at least the destroyer presentation");
