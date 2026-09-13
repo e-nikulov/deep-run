@@ -870,7 +870,7 @@ public:
 
         // glTF doubleSided is a material contract, not a geometry rewrite. Keep the normal
         // back-face-culling PSO for ordinary meshes and a second PSO for authored two-sided
-        // surfaces such as the production Antey propeller blades.
+        // surfaces that require visibility from both winding orientations.
         pipeline.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
         ThrowIfFailed(
             device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&modelDoubleSidedPipeline)),
