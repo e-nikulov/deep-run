@@ -15,6 +15,20 @@ namespace DeepRun::Tests
 {
     using namespace Input;
 
+    // D1/I1 vertical-control polarity is player-facing contract, not a tunable presentation detail:
+    // physical stick up / W means surface (Depth -1), while stick down / S means dive (Depth +1).
+    const auto surfaceStick = MapControllerLeftStick(0.0F, 1.0F);
+    const auto diveStick = MapControllerLeftStick(0.0F, -1.0F);
+    if (std::abs(surfaceStick.depth + 1.0F) > 1.0e-6F ||
+        std::abs(diveStick.depth - 1.0F) > 1.0e-6F ||
+        std::abs(surfaceStick.throttle) > 1.0e-6F ||
+        std::abs(diveStick.throttle) > 1.0e-6F ||
+        ResolveSemanticAxis(true, false, 0.0F) != -1.0F ||
+        ResolveSemanticAxis(false, true, 0.0F) != 1.0F)
+    {
+        return false;
+    }
+
     const std::uint16_t combatButtons =
         static_cast<std::uint16_t>(GamepadButton::LeftStick) |
         static_cast<std::uint16_t>(GamepadButton::Y) |

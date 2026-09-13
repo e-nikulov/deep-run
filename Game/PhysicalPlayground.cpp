@@ -169,8 +169,10 @@ Assets::ModelTransform DepthPlanePostTransform(const float committedDeflectionFr
     const float normalized = M2MaximumPlaneDeflection > 0.0F
         ? std::clamp(committedDeflectionFraction / M2MaximumPlaneDeflection, -1.0F, 1.0F)
         : 0.0F;
-    // Blender LOCAL_Y hinge maps to runtime -Z under the accepted Antey basis conversion.
-    const float radians = -normalized * M5DepthPlaneVisualMaximumRadians;
+    // Simulation deflection is a lift-force sign, not an authoring-axis rotation sign. For the
+    // production +X plane chord, positive bow deflection must visibly rise toward runtime +Y; therefore
+    // surface / nose-up presentation uses positive runtime Z rotation here.
+    const float radians = normalized * M5DepthPlaneVisualMaximumRadians;
     const float cosine = std::cos(radians);
     const float sine = std::sin(radians);
     Assets::ModelTransform transform{};
@@ -1295,6 +1297,8 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
             .worldLinearVelocityMetersPerSecond = state->linearVelocity};
     // I1 intentionally maps direct semantic Depth to the existing H2 prototype *actual* deflection range.
     // There is no actuator state, target depth, vertical-velocity command, or stabilization layer here.
+    // Polarity contract: Depth -1 (surface) gives bow + / stern -. With ahead flow this produces
+    // +Y lift at +X and -Y lift at -X, i.e. a +Z nose-up pitch moment. Depth +1 is the exact inverse.
     const std::array<float, 2> controlDeflections{
         -M2MaximumPlaneDeflection * command.depthCommandFraction,
         M2MaximumPlaneDeflection * command.depthCommandFraction};

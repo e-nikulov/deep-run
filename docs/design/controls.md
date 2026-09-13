@@ -93,6 +93,11 @@ Left Stick up / W = Depth -1 (surface)
 Left Stick down / S = Depth +1 (dive)
 ```
 
+Production depth-plane presentation follows the same player-readable polarity: a surface / nose-up command
+must visibly raise the bow-plane +X chord toward world +Y, while a dive / nose-down command does the inverse.
+The HUD `Depth` value follows `WaterBody` signed depth (positive below the surface), so moving upward reduces the
+displayed depth; `V/S` uses world +Y and therefore reports upward motion as positive.
+
 Actual vessel motion is determined by:
 
 ```text
