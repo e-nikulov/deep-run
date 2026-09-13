@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/PeriscopeCombatRuntime.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
@@ -29,10 +30,6 @@
 
 namespace DeepRun::Game::Combat
 {
-// M5 playground framing/weapon-profile tuning. The physical engagement is authored in kilometres; camera span
-// is presentation policy and must not dictate target placement. M5-V1.2 restores normal local framing around
-// ownship; contextual follow/pan belongs to the production presentation camera and never changes actor state.
-// These are gameplay values, not claimed real-world Project 949A or torpedo performance data.
 inline constexpr float M5CombatCameraTargetOffsetXMeters = 0.0F;
 inline constexpr float M5CombatDestroyerInitialXMeters = 1800.0F;
 inline constexpr float M5CombatDestroyerCruiseVelocityXMetersPerSecond = -2.0F;
@@ -50,8 +47,6 @@ inline constexpr float M5CombatMineDepthOffsetMeters = 35.0F;
 inline constexpr float M5CombatPlayerMaximumIntegrity = 100.0F;
 inline constexpr double M5CombatTorpedoSeekerEmissionSampleIntervalSeconds = 0.10;
 inline constexpr float M5CombatTorpedoSeekerAssociationGateRadians = 0.03F;
-// Torpedo-local active seeker values are GAME POLICY only, not real weapon performance data. They exist to
-// distinguish the much smaller local seeker from the carrier sonar while preserving the same acoustic simulator.
 inline constexpr double M5CombatTorpedoActiveListenWindowSeconds = 4.0;
 inline constexpr float M5CombatTorpedoActiveBeamHalfAngleRadians = 0.45F;
 inline constexpr Acoustics::ActiveSonarConfig M5CombatTorpedoActiveSonarConfig{
@@ -61,11 +56,8 @@ inline constexpr Acoustics::ActiveSonarConfig M5CombatTorpedoActiveSonarConfig{
 inline constexpr float M5CombatDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr float M5CombatPlayerDecoyVerticalOffsetMeters = 120.0F;
 inline constexpr double M5CombatIncomingThreatEmissionSampleIntervalSeconds = 0.10;
-// M5/P-700 fire-control ranging profile. GAME POLICY only: the generic M4 sonar defaults remain unchanged.
-// At the canonical 20.1 km acceptance range this profile yields ~405 m positional uncertainty, preserving
-// the P-700 <=500 m Track-quality gate without fabricating target state or weakening weapon requirements.
 inline constexpr Acoustics::ActiveSonarConfig M5CombatPlayerFireControlActiveSonarConfig{
-    .bearingUncertaintyRadians = 0.0174532925F, // 1 degree
+    .bearingUncertaintyRadians = 0.0174532925F,
     .minimumRangeUncertaintyMeters = 5.0F,
     .fractionalRangeUncertainty = 0.01F};
 
@@ -83,9 +75,6 @@ struct CombatPlaygroundFrame final
     bool playerDestroyed = false;
 };
 
-// M5-H live fixed-step combat composition. Authoritative scenario truth is used only where a simulator must
-// physically/acoustically model the remote participant. Player targeting and destroyer AI consume Tracks only;
-// target body identity reaches weapon state only after PhysicsWorld confirms an impact.
 class CombatPlaygroundRuntime final
 {
 public:
@@ -296,9 +285,6 @@ public:
             p700AcceptanceMode);
     }
 
-    // Production/windowed overload. Existing headless M5 tests keep the three-argument factory and therefore
-    // retain the accepted torpedo-only fixture. Normal play injects one validated 24-slot P-700 inventory;
-    // this is carrier load state only and does not grant a target, launch solution or renderer authority.
     [[nodiscard]] static std::expected<CombatPlaygroundRuntime, std::string> Create(
         Physics::PhysicsWorld& physicsWorld,
         const float surfaceLevelY,
@@ -328,8 +314,6 @@ public:
         return std::move(*runtime);
     }
 
-    // Accepted H/H.1 smoke and headless regression path. It deliberately retains deterministic automatic
-    // commander decisions so existing combat/capture gates remain reproducible after J2 introduces live input.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> Advance(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const double simulationTimeSeconds)
@@ -337,8 +321,6 @@ public:
         return AdvanceImpl(playerSnapshot, {}, simulationTimeSeconds, true);
     }
 
-    // Normal-play J2 path. Commands are already semantic edge events; this runtime does not inspect keyboard,
-    // mouse or controller state and does not maintain a generic command queue.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvancePlayerControlled(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const std::span<const PlayerCombatCommand> commands,
@@ -347,8 +329,6 @@ public:
         return AdvanceImpl(playerSnapshot, commands, simulationTimeSeconds, false);
     }
 
-    // Dedicated windowed acceptance driver. It issues only the same semantic commands normal input can issue;
-    // perception/ranging/readiness/employment/materialization all stay on the production path.
     [[nodiscard]] std::expected<CombatPlaygroundFrame, std::string> AdvanceP700Acceptance(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const double simulationTimeSeconds)
@@ -384,8 +364,6 @@ public:
         return AdvanceImpl(playerSnapshot, std::span<const PlayerCombatCommand>{commands.data(), count}, simulationTimeSeconds, false);
     }
 
-    // M5-I.2 binds the production Antey physical proxy once after the windowed composition has both the
-    // PhysicalPlayground and CombatPlayground alive. The mine is a physical hazard, not perceived target truth.
     [[nodiscard]] std::expected<void, std::string> BindPlayerPhysicalProxy(
         const Submarine::AnteyPhysicalCollisionProxySnapshot& proxy,
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
@@ -446,8 +424,6 @@ public:
         return {};
     }
 
-    // Refreshes the read-only production physical snapshot for the upcoming fixed combat tick. The acoustic
-    // body-reference position must agree with the physical bridge, but the physical snapshot owns sweep geometry.
     [[nodiscard]] std::expected<void, std::string> UpdatePlayerPhysicalProxy(
         const Submarine::AnteyPhysicalCollisionProxySnapshot& proxy,
         const Submarine::AnteyAcousticSnapshot& playerSnapshot)
@@ -627,10 +603,6 @@ private:
             return std::unexpected("M5-H destroyer TrackManager failed to advance");
         }
 
-        // M5-F.1: active ranging is initiated from perceived passive awareness only. The beam direction comes
-        // from the destroyer's Track; player ground truth is visible solely to the acoustic simulator as a
-        // reflector. The returned active echo is converted back into ordinary ranged perceived evidence before
-        // the existing Track-only combat controller is allowed to make a fire-control decision.
         if (!destroyerActivePulse_ && simulationTimeSeconds >= nextDestroyerActivePulseTimeSeconds_)
         {
             const auto awarenessTrack = SelectBestSimpleDestroyerTrack(
@@ -689,9 +661,6 @@ private:
             return std::unexpected("M5-H destroyer combat AI failed: " + destroyerDecision.error());
         }
 
-        // M5-F.2 materializes hostile weapon state only from the Track that the existing F.1 controller actually
-        // accepted for LaunchWeapon. No player body handle or authoritative player Transform is used to create,
-        // target, or steer the torpedo.
         if (destroyerDecision->action == SimpleDestroyerCombatAction::LaunchWeapon && !destroyerTorpedo_)
         {
             const auto targetTrack = FindTrack(destroyerTracks_.Tracks(), destroyer_.weapon.targetTrackId);
@@ -707,9 +676,6 @@ private:
             }
         }
 
-        // M5-J5 gives normal play a legitimate bearing-only passive contact before any active ranging. Continuous
-        // source sampling uses the same bounded direct acoustic propagation already used by the reciprocal side;
-        // FromAcousticObservation deliberately receives no own-position argument, so no range/position is fabricated.
         bool integratedPlayerEvidence = false;
         const double playerPassiveDistance = Distance(
             destroyerAcoustics->emitter.positionMeters, playerSnapshot.passiveReceiver.positionMeters);
@@ -738,8 +704,6 @@ private:
             integratedPlayerEvidence = true;
         }
 
-        // The accepted automated smoke path retains its deterministic ranging helper. Normal play never enters
-        // this branch: it must issue ActiveSonarPing against a selected perceived Track below.
         if (automatedPlayer && !activePulse_.has_value() && simulationTimeSeconds >= nextActivePulseTimeSeconds_)
         {
             const Physics::PhysicsVector3 delta = Difference(
@@ -844,9 +808,37 @@ private:
                     lastCombatCommand_ = *feedback;
                     continue;
                 }
+                if (command.type == PlayerCombatCommandType::TogglePeriscope)
+                {
+                    lastCombatCommand_ = TogglePeriscopeForSelectedTrack(
+                        periscopeState_, playerTracks_, playerCombat_.SelectedTrackId(), playerSnapshot.signedDepthMeters);
+                    continue;
+                }
+                if (command.type == PlayerCombatCommandType::VisualIdentify)
+                {
+                    const float surfaceLevelYMeters =
+                        playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+                    const auto feedback = VisualIdentifySelectedTrack(
+                        periscopeState_,
+                        playerTracks_,
+                        playerCombat_.SelectedTrackId(),
+                        playerSnapshot.emitter.positionMeters,
+                        playerSnapshot.signedDepthMeters,
+                        surfaceLevelYMeters,
+                        PeriscopeTargetTruth{
+                            .positionMeters = destroyerAcoustics->emitter.positionMeters,
+                            .visualClassification = Perception::ContactClassification::MilitarySurfaceCombatant},
+                        simulationTimeSeconds);
+                    if (!feedback)
+                    {
+                        return std::unexpected("periscope visual-identification command failed: " + feedback.error());
+                    }
+                    lastCombatCommand_ = *feedback;
+                    continue;
+                }
                 if (playerTorpedo_.has_value() || playerP700_.has_value())
                 {
-                    continue; // Preserve J2 post-launch weapon-command behavior; sonar/decoy remain available.
+                    continue;
                 }
                 if (command.type == PlayerCombatCommandType::FireWeapon)
                 {
@@ -894,9 +886,6 @@ private:
             }
         }
 
-        // M5-E.1: the destroyer's deployed countermeasure advances before the local seeker samples it. The
-        // seeker consumes timestamped AcousticEmission values through AcousticWorld/TrackManager; no decoy flag,
-        // source entity, destroyer body handle or ground-truth target position crosses into seeker selection.
         if (decoy_)
         {
             const auto advanced = Weapons::AdvanceAcousticDecoy(decoyDefinition_, *decoy_, simulationTimeSeconds);
@@ -929,9 +918,6 @@ private:
                 ? (playerTorpedo_->positionMeters.x - playerTorpedoLaunchPosition_->x) * playerTorpedoForwardSign_
                 : 0.0F;
             const bool seekerEnabled = forwardProgressMeters >= M5CombatTorpedoStraightRunMeters;
-            // Before seeker enable the launch-platform fire-control Track may update the onboard aim point. Once
-            // enabled, loss of local contact never falls back to live carrier Track updates: the weapon continues
-            // from its last onboard solution until its own passive/active seeker reacquires something.
             const auto guidanceTrack = seekerEnabled
                 ? std::optional<Perception::Track>{}
                 : BuildPlayerTorpedoGuidanceTrack(perceivedTrack);
@@ -957,8 +943,6 @@ private:
                 pendingPlayerTorpedoSeekerEmissions_.clear();
                 playerTorpedoActivePulse_.reset();
                 playerTorpedoActiveReflector_.reset();
-                // Any Jolt hit physically consumes the weapon. Only a hit on the intended destroyer body
-                // applies destroyer integrity damage; terrain/other-body contact is a legitimate terminal miss.
                 if (impact->physicsHit.body == destroyer_.body)
                 {
                     const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, impact->damage);
@@ -999,9 +983,6 @@ private:
             }
         }
 
-        // M5-J3 warning evidence is produced through the same AcousticWorld -> SensorObservation -> TrackManager
-        // boundary as other perceived-world data. The simulator may know the hostile torpedo position to emit
-        // sound, but the commander projection receives bearing/confidence only.
         const auto threatPerception = AdvanceIncomingThreatPerception(playerSnapshot, simulationTimeSeconds);
         if (!threatPerception)
         {
@@ -1140,6 +1121,7 @@ private:
             selectedPlayerTrack->lifecycle != Perception::TrackLifecycleState::Lost &&
             !activePulse_.has_value() && simulationTimeSeconds + 1.0e-9 >= nextActivePulseTimeSeconds_;
         playerCombatPresentation.activeSonarPulsePending = activePulse_.has_value();
+        ApplyPeriscopePresentation(playerCombatPresentation, periscopeState_, playerSnapshot.signedDepthMeters);
 
         float sonarOwnshipHeadingRadians = 0.0F;
         if (currentPlayerPhysicalProxy_.has_value())
@@ -1409,7 +1391,7 @@ private:
             }
             if (!employment->allowed)
             {
-                return {}; // Valid perceived target, but the carrier/geometry is outside the launch envelope.
+                return {};
             }
             const auto fired = playerCombat_.Execute(
                 {.type = PlayerCombatCommandType::FireWeapon}, tracks, simulationTimeSeconds);
@@ -1468,8 +1450,6 @@ private:
             .sourceLevelDb = {.levelDb = {230.0F, 232.0F, 234.0F, 230.0F}},
             .beamHalfAngleRadians = 0.35F,
             .emissionTimeSeconds = simulationTimeSeconds};
-        // Authoritative target position is used only by the acoustic simulator as reflector state. It never
-        // enters command feedback, PlayerCombatPresentationSnapshot, Track identity, or weapon target state.
         activeReflector_ = Acoustics::AcousticReflector{
             .positionMeters = destroyerAcoustics.emitter.positionMeters,
             .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
@@ -1830,7 +1810,6 @@ private:
                 .sourceLevelDb = {.levelDb = {188.0F, 191.0F, 193.0F, 189.0F}},
                 .beamHalfAngleRadians = M5CombatTorpedoActiveBeamHalfAngleRadians,
                 .emissionTimeSeconds = simulationTimeSeconds};
-            // Ground truth is confined to reflector input of the acoustic simulator and never enters guidance.
             playerTorpedoActiveReflector_ = Acoustics::AcousticReflector{
                 .positionMeters = destroyerAcoustics.emitter.positionMeters,
                 .reflectionLossDb = {.levelDb = {8.0F, 8.0F, 8.0F, 8.0F}}};
@@ -1991,9 +1970,6 @@ private:
                 .sourceLevelDb = {.levelDb = {188.0F, 191.0F, 193.0F, 189.0F}},
                 .beamHalfAngleRadians = M5CombatTorpedoActiveBeamHalfAngleRadians,
                 .emissionTimeSeconds = simulationTimeSeconds};
-            // An active seeker is not acoustically invisible. Publish its outgoing transmission into the same
-            // incoming-threat acoustic evidence queue used by machinery noise. Propagation delay, environmental
-            // loss, SNR and TrackManager association remain authoritative; no torpedo body identity is exposed.
             const auto outgoingPing = Acoustics::MakeActiveTransmissionEmission(*destroyerTorpedoActivePulse_);
             if (!outgoingPing)
                 return std::unexpected("M5 hostile torpedo active transmission emission failed: " + outgoingPing.error());
@@ -2021,16 +1997,12 @@ private:
             return std::unexpected("M5-J3 incoming-threat receiver/time input is invalid");
         }
 
-        // Sample the hostile weapon only while it physically exists underwater. Samples keep the source position
-        // and emission SimulationTime at which sound was actually emitted; they are never backdated to make a newly
-        // launched threat visible immediately.
         if (destroyerTorpedo_ && destroyerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater &&
             destroyerTorpedo_->positionMeters.IsFinite() &&
             simulationTimeSeconds + 1.0e-9 >= nextIncomingThreatEmissionSampleTimeSeconds_)
         {
             pendingIncomingThreatEmissions_.push_back(Acoustics::AcousticEmission{
                 .positionMeters = destroyerTorpedo_->positionMeters,
-                // Gameplay-authored coarse machinery/propulsor signature for the M5 warning slice.
                 .sourceLevelDb = {.levelDb = {176.0F, 172.0F, 164.0F, 156.0F}},
                 .emissionTimeSeconds = simulationTimeSeconds});
             nextIncomingThreatEmissionSampleTimeSeconds_ =
@@ -2094,8 +2066,6 @@ private:
 
     void ApplyIncomingThreatPresentation(PlayerCombatPresentationSnapshot& snapshot) const noexcept
     {
-        // TrackManager::Tracks() intentionally returns a snapshot by value. Keep the selected perceived Track by
-        // value as well; never retain a pointer/reference into that temporary snapshot beyond the loop.
         std::optional<Perception::Track> best{};
         for (const auto& track : incomingThreatTracks_.Tracks())
         {
@@ -2227,6 +2197,7 @@ private:
     Perception::TrackManager destroyerTorpedoSeekerTracks_;
     Perception::TrackManager destroyerTorpedoActiveSeekerTracks_;
     Perception::TrackManager incomingThreatTracks_;
+    PeriscopeState periscopeState_{};
     std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
     double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;
     Weapons::TorpedoSeekerConfig playerTorpedoSeekerConfig_{
@@ -2281,7 +2252,6 @@ private:
     std::optional<Weapons::AcousticDecoyRuntimeState> playerDecoy_{};
     bool playerDecoyAvailable_ = true;
     std::optional<PlayerCombatCommandFeedback> lastCombatCommand_{};
-    // M5-I.2 live mine state is bound only when a real production player physical proxy is supplied.
     std::optional<Weapons::NavalMineDefinition> mineDefinition_{};
     std::optional<Weapons::NavalMineRuntimeState> mine_{};
     Physics::PhysicsBodyHandle playerBody_{};
