@@ -49,6 +49,8 @@ Key TranslateKey(const WPARAM virtualKey)
     case 'T': return Key::T;
     case 'Z': return Key::Z;
     case 'C': return Key::C;
+    case 'P': return Key::P;
+    case 'V': return Key::V;
     case VK_LEFT: return Key::Left;
     case VK_RIGHT: return Key::Right;
     case VK_UP: return Key::Up;
