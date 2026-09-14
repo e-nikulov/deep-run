@@ -71,25 +71,37 @@ jobs:
           Remove-Item $stdout, $stderr -ErrorAction SilentlyContinue
           $process = Start-Process -FilePath $executable -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           try {
-            Start-Sleep -Seconds 6
-            $process.Refresh()
-            $text = ((Get-Content $stdout -ErrorAction SilentlyContinue) +
-                     (Get-Content $stderr -ErrorAction SilentlyContinue)) -join "`n"
-            if ($process.HasExited) {
+            $deadline = (Get-Date).AddSeconds(15)
+            $ready = $false
+            $text = ""
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+              $text = ((Get-Content $stdout -ErrorAction SilentlyContinue) +
+                       (Get-Content $stderr -ErrorAction SilentlyContinue)) -join "`n"
+              if ($process.HasExited) {
+                Write-Host "----- normal startup output -----"
+                Write-Host $text
+                Write-Host "----- end normal startup output -----"
+                throw "DeepRun normal gameplay exited unexpectedly during startup (exit code $($process.ExitCode))"
+              }
+              if ($text -match "\[(Game|Render)\]\[ERROR\]") {
+                Write-Host "----- normal startup output -----"
+                Write-Host $text
+                Write-Host "----- end normal startup output -----"
+                throw "DeepRun normal gameplay emitted a startup render/game error"
+              }
+              if ($text -match "Engine initialized in windowed mode" -and
+                  $text -match "M5 live combat runtime active") {
+                $ready = $true
+                break
+              }
+            }
+            if (-not $ready) {
               Write-Host "----- normal startup output -----"
               Write-Host $text
               Write-Host "----- end normal startup output -----"
-              throw "DeepRun normal gameplay exited unexpectedly during startup (exit code $($process.ExitCode))"
-            }
-            if ($text -match "\[(Game|Render)\]\[ERROR\]") {
-              Write-Host "----- normal startup output -----"
-              Write-Host $text
-              Write-Host "----- end normal startup output -----"
-              throw "DeepRun normal gameplay emitted a startup render/game error"
-            }
-            if ($text -notmatch "Engine initialized in windowed mode" -or
-                $text -notmatch "M5 live combat runtime active") {
-              throw "DeepRun normal gameplay did not reach the expected initialized combat state"
+              throw "DeepRun normal gameplay did not reach the expected initialized combat state before the startup deadline"
             }
           }
           finally {
