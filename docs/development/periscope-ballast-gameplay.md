@@ -17,9 +17,9 @@ The player must also make a tactically meaningful choice between remaining subme
 
 ## Physical ballast / hydrostatic authority
 
-Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source gameplay canonical is 14,700 t surfaced and 19,400 t submerged; the 4,700 t difference is main-ballast water (~31.97% reserve buoyancy relative to surfaced displacement). Jolt rigid-body mass and inertia change with ballast fill. With main ballast empty, the calibrated waterplane settles the body reference at ~2.242 m below mean sea level in flat water; with main ballast full, 19,400 t is neutrally buoyant when fully submerged. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed only in the final near-surface band, while a dive command floods any partly empty main ballast.
+Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source reference set remains 14,700 t surfaced / 19,400 t submerged, but runtime hydrostatics are deliberately separated from those historical reference figures. Production gameplay keeps the 14,700 t empty-main-ballast mass and uses a calibrated 20,622.267 t fully flooded mass, so main-ballast capacity is 5,922.267 t (~40.29% of surfaced mass). At the authoritative 1025 kg/m^3 seawater density the full displaced volume is ~20,119.285 m^3. Jolt rigid-body mass and inertia change with ballast fill. With no buoyancy-point/render offset, empty main ballast settles the level body reference at ~1.85155 m below mean sea level in flat water; full main ballast is neutrally buoyant when fully submerged. In the accepted production LOD0 this places the deployed bow-plane lower edge ~0.500 m above water while the highest propeller geometry remains ~0.877 m below it. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed only in the final near-surface band, while a dive command floods any partly empty main ballast.
 
-Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX. The current model independently produces ~7.07 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory.
+Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX. The current model independently produces ~7.94 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory.
 
 ## Scope A — low/zero-speed depth control
 
@@ -30,7 +30,7 @@ Canonical input remains unchanged:
 
 At ordinary forward speed, only the stern horizontal planes provide hydrodynamic pitch authority. The production bow planes are deployment-only: they are either housed or extended and never rotate with Depth input or generate control-surface force in Deep Run.
 
-At low forward speed a Game-owned trim controller requests a bounded **equivalent water-mass change** rather than applying a vertical force. At higher speed that trim authority fades and the stern horizontal planes carry the manoeuvre. Main-ballast fill is physical mass state: empty corresponds to the public surfaced displacement and full corresponds to the public submerged displacement.
+At low forward speed a Game-owned trim controller requests a bounded **equivalent water-mass change** rather than applying a vertical force. At higher speed that trim authority fades and the stern horizontal planes carry the manoeuvre. Main-ballast fill is physical mass state: empty is the 14,700 t gameplay surfaced mass and full is the calibrated 20,622.267 t gameplay full-submerged mass.
 
 - submerged surface intent -> reduce bounded trim-water mass; sustained intent in the final surface band may then blow main ballast;
 - submerged dive intent -> increase bounded trim-water mass while the filled main ballast stays filled; from a surfaced/partly blown state the same intent floods main ballast;
@@ -50,8 +50,9 @@ This is a gameplay-level physical ballast model. It intentionally **does not** c
 - main-ballast/trim commands change physical rigid-body mass with finite GAME-policy rates;
 - ordinary deep/periscope-depth commands do not blow the main ballast tanks;
 - buoyancy is produced only by displaced water through `BuoyancySystem`;
-- with full main ballast the fully immersed 19,400 t state is neutrally buoyant;
-- with empty main ballast the 14,700 t state settles naturally at ~2.242 m body-reference depth in flat water;
+- with full main ballast the fully immersed 20,622.267 t gameplay state is neutrally buoyant;
+- with empty main ballast the 14,700 t state settles naturally at ~1.85155 m body-reference depth in flat water;
+- no buoyancy-point, render, camera or body-position offset participates in surfaced equilibrium;
 - stern-plane moment is opposed by speed-squared static pitch stability, so held input converges to a trajectory instead of allowing endless pitch rotation;
 - no presentation-only state may change depth.
 

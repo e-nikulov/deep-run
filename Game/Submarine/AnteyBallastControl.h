@@ -9,7 +9,7 @@
 
 namespace DeepRun::Game::Submarine
 {
-// GAME POLICY around public Project 949A displacement values. Exact tank/pump/blow timing is not asserted.
+// GAME POLICY around the calibrated runtime hydrostatic masses. Exact tank/pump/blow timing is not asserted.
 struct AnteyBallastControlConfig final
 {
     // Main ballast stays flooded during ordinary submerged depth changes. A sustained surface command may
@@ -20,13 +20,13 @@ struct AnteyBallastControlConfig final
     float depthCommandDeadzone = 0.05F;
 
     // Low-speed trim is real equivalent water mass with finite actuator response, not an applied vertical force.
-    float maximumTrimMassKg = AnteyPublicSubmergedDisplacementMassKg * 0.015F;
+    float maximumTrimMassKg = AnteyGameplayFullSubmergedMassKg * 0.015F;
     float trimFullRangeResponseSeconds = 10.0F; // neutral -> one extreme; explicit GAME POLICY
 };
 
 struct AnteyBallastState final
 {
-    // 0 = public surfaced displacement (main ballast empty), 1 = public submerged displacement (main ballast full).
+    // 0 = calibrated gameplay surfaced mass (main ballast empty), 1 = calibrated full-submerged mass.
     float mainBallastFillFraction = 1.0F;
     // Signed equivalent trim-water delta about the main-ballast mass. Positive = heavier, negative = lighter.
     float trimMassDeltaKg = 0.0F;
@@ -98,11 +98,11 @@ struct AnteyBallastState final
     const AnteyBallastControlConfig& config,
     const AnteyBallastState& state) noexcept
 {
-    const float baseMassKg = AnteyPublicSurfaceDisplacementMassKg +
-        AnteyMainBallastWaterCapacityKg * std::clamp(state.mainBallastFillFraction, 0.0F, 1.0F);
+    const float baseMassKg = AnteyGameplaySurfaceMassKg +
+        AnteyGameplayMainBallastWaterCapacityKg * std::clamp(state.mainBallastFillFraction, 0.0F, 1.0F);
     return std::clamp(
         baseMassKg + state.trimMassDeltaKg,
-        AnteyPublicSurfaceDisplacementMassKg,
-        AnteyPublicSubmergedDisplacementMassKg + config.maximumTrimMassKg);
+        AnteyGameplaySurfaceMassKg,
+        AnteyGameplayFullSubmergedMassKg + config.maximumTrimMassKg);
 }
 } // namespace DeepRun::Game::Submarine

@@ -22,9 +22,11 @@ namespace DeepRun::Tests
     constexpr float WeightNewtons = 100'000'000.0F;
     constexpr float SeaWaterDensity = 1025.0F;
     constexpr float SurfaceWaterplaneHalfHeight = 4.35F;
-    const float reserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
-    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyPublicSubmergedDisplacementMassKg;
+    const float publicReserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
+    const float gameplayReserve = AnteyGameplayMainBallastWaterCapacityKg / AnteyGameplaySurfaceMassKg;
+    const float surfacedFraction = AnteyGameplaySurfaceMassKg / AnteyGameplayFullSubmergedMassKg;
     const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);
+    const float fullDisplacedVolume = AnteyGameplayFullSubmergedMassKg / SeaWaterDensity;
     const float submergedTerminal = std::sqrt(
         2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 24.11986F));
     const float surfacedTerminal = std::sqrt(
@@ -33,17 +35,24 @@ namespace DeepRun::Tests
     const float maximumHydrodynamicVertical =
         AnteyPublicMaximumSubmergedSpeedMetersPerSecond * std::sin(MaximumTrajectoryAngleRadians);
     const float maximumPositiveBuoyancyNewtons =
-        AnteyMainBallastWaterCapacityKg * 9.81F;
+        AnteyGameplayMainBallastWaterCapacityKg * 9.81F;
     const float maximumBallastOnlyVertical = std::sqrt(
         2.0F * maximumPositiveBuoyancyNewtons / (SeaWaterDensity * 1800.0F));
-    if (std::abs(reserve - 0.32F) > 0.001F || std::abs(surfaceCenterDepth - 2.242268F) > 0.01F ||
+    if (std::abs(publicReserve - 0.3197279F) > 1.0e-4F ||
+        std::abs(gameplayReserve - 0.4028753F) > 1.0e-4F ||
+        std::abs(surfaceCenterDepth - 1.851549F) > 0.001F ||
+        std::abs(fullDisplacedVolume - 20'119.285F) > 0.02F ||
         std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||
         std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F ||
         std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||
-        std::abs(maximumBallastOnlyVertical - 7.0697F) > 0.03F)
+        std::abs(maximumBallastOnlyVertical - 7.9359F) > 0.03F)
         return false;
     const AnteyBallastControlConfig ballastStateConfig{};
+    const AnteyBallastState emptyMainBallast{.mainBallastFillFraction = 0.0F, .trimMassDeltaKg = 0.0F};
     const AnteyBallastState fullMainBallast{};
+    if (std::abs(AnteyPhysicalMassKg(ballastStateConfig, emptyMainBallast) - AnteyGameplaySurfaceMassKg) > 1.0F ||
+        std::abs(AnteyPhysicalMassKg(ballastStateConfig, fullMainBallast) - AnteyGameplayFullSubmergedMassKg) > 1.0F)
+        return false;
     const auto deepSurfaceBallast = AdvanceAnteyBallastState(
         ballastStateConfig, fullMainBallast, -1.0F, 100.0F, -100'000.0F, 1.0F);
     const auto nearSurfaceBallast = AdvanceAnteyBallastState(

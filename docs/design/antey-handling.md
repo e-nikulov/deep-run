@@ -6,7 +6,7 @@ Status: production gameplay contract for the canonical Deep Run Project 949A-ins
 
 The official Rubin public Project 949A page identifies the design and its mission/architecture but does not publish a public displacement table. Open specialist/educational references commonly quote approximately `14,700 t` surfaced and `24,000 t` submerged/full displacement; some specialist compilations instead show `19,400 t (24,000?)`, so the exact public displacement definition is not perfectly consistent.
 
-Deep Run uses **24,000,000 kg** as the canonical fully-submerged gameplay rigid-body mass. This is an explicit open-source convention for the submerged game state, not a claim of access to classified hydrostatic documentation. The buoyancy system derives neutral displaced volume from this mass and authoritative seawater density, so changing the mass cannot silently leave a 12,000 t neutral-buoyancy model behind.
+Deep Run keeps the public displacement figures as source-reference data, but the normal gameplay rigid body uses a production-geometry-calibrated **20,622,267 kg** fully-submerged mass while retaining **14,700,000 kg** with main ballast empty. This is explicit GAME POLICY, not a claim about classified loading conditions. At the authoritative 1025 kg/m^3 seawater density, the buoyancy system therefore uses ~**20,119.285 m^3** as full displaced volume. The calibration contains no positional buoyancy/render offset: the level flat-water equilibrium is set only by mass, displaced volume and the accepted waterplane response.
 
 References:
 - Rubin Design Bureau, Project 949A public project page: <https://ckb-rubin.ru/proekty/voennoe_korablestroenie/podvodnye_lodki/proekt_949a/>

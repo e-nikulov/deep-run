@@ -10,16 +10,28 @@
 
 namespace DeepRun::Game::Submarine
 {
-// Public Project 949A figures are not perfectly uniform, so Deep Run fixes one documented canonical set:
-// Apalkov/Deepstorm-style 14,700 t surfaced, 19,400 t submerged, 32 kn submerged and 15 kn surfaced.
-// The 4,700 t difference is treated as main-ballast water, giving 31.97% reserve buoyancy relative to surfaced
-// displacement. These are public-source gameplay authorities, not claims about classified loading conditions.
+// Public Project 949A displacement figures are not perfectly uniform. Keep one documented source set as
+// reference data, separate from the production-geometry hydrostatic tuning used by normal gameplay.
+// Apalkov/Deepstorm-style values are 14,700 t surfaced and 19,400 t submerged; they remain public-reference
+// facts and are not silently rewritten to make the rendered waterline fit.
 inline constexpr float AnteyPublicSurfaceDisplacementMassKg = 14'700'000.0F;
 inline constexpr float AnteyPublicSubmergedDisplacementMassKg = 19'400'000.0F;
 inline constexpr float AnteyMainBallastWaterCapacityKg =
     AnteyPublicSubmergedDisplacementMassKg - AnteyPublicSurfaceDisplacementMassKg;
 inline constexpr float AnteyPublicReserveBuoyancyFraction =
     AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
+
+// GAME POLICY: runtime hydrostatic mass/displacement is calibrated against the accepted production LOD0
+// surfaced geometry, with no buoyancy-point or render offset. Empty main ballast keeps the public 14,700 t
+// surfaced mass. Fully flooded mass is 20,622.267 t; at 1025 kg/m^3 this is 20,119.285 m^3 of full
+// displacement. The resulting level flat-water body-centre depth is ~1.85155 m: the deployed bow-plane
+// lower edge is ~0.500 m above water while the highest propeller geometry remains ~0.877 m submerged.
+inline constexpr float AnteyGameplaySurfaceMassKg = AnteyPublicSurfaceDisplacementMassKg;
+inline constexpr float AnteyGameplayFullSubmergedMassKg = 20'622'267.0F;
+inline constexpr float AnteyGameplayMainBallastWaterCapacityKg =
+    AnteyGameplayFullSubmergedMassKg - AnteyGameplaySurfaceMassKg;
+inline constexpr float AnteyGameplayReserveBuoyancyFraction =
+    AnteyGameplayMainBallastWaterCapacityKg / AnteyGameplaySurfaceMassKg;
 inline constexpr float AnteyPublicMaximumSubmergedSpeedKnots = 32.0F;
 inline constexpr float AnteyPublicMaximumSurfacedSpeedKnots = 15.0F;
 inline constexpr float KnotsToMetersPerSecond = 0.514444F;
@@ -27,8 +39,8 @@ inline constexpr float AnteyPublicMaximumSubmergedSpeedMetersPerSecond =
     AnteyPublicMaximumSubmergedSpeedKnots * KnotsToMetersPerSecond;
 inline constexpr float AnteyPublicMaximumSurfacedSpeedMetersPerSecond =
     AnteyPublicMaximumSurfacedSpeedKnots * KnotsToMetersPerSecond;
-// Compatibility name retained for existing acoustic/runtime code: fully submerged neutral mass is 19,400 t.
-inline constexpr float AnteyCanonicalFullSubmergedMassKg = AnteyPublicSubmergedDisplacementMassKg;
+// Compatibility name retained for existing runtime code; it now follows the calibrated physical gameplay mass.
+inline constexpr float AnteyCanonicalFullSubmergedMassKg = AnteyGameplayFullSubmergedMassKg;
 
 // GAME POLICY calibrated jointly with hydrodynamic drag so full ahead asymptotically matches the public 32 kn
 // submerged / 15 kn surfaced envelope. Public sources give roughly 2 x 50,000 hp shaft power; the thrust value
@@ -142,9 +154,14 @@ struct AnteyFacingAdvance final
 }
 
 static_assert(AnteyPublicSurfaceDisplacementMassKg == 14'700'000.0F);
-static_assert(AnteyCanonicalFullSubmergedMassKg == 19'400'000.0F);
+static_assert(AnteyPublicSubmergedDisplacementMassKg == 19'400'000.0F);
 static_assert(AnteyMainBallastWaterCapacityKg == 4'700'000.0F);
 static_assert(AnteyPublicReserveBuoyancyFraction > 0.319F && AnteyPublicReserveBuoyancyFraction < 0.321F);
+static_assert(AnteyGameplaySurfaceMassKg == 14'700'000.0F);
+static_assert(AnteyGameplayFullSubmergedMassKg == 20'622'267.0F);
+static_assert(AnteyGameplayMainBallastWaterCapacityKg == 5'922'267.0F);
+static_assert(AnteyGameplayReserveBuoyancyFraction > 0.402F && AnteyGameplayReserveBuoyancyFraction < 0.404F);
+static_assert(AnteyCanonicalFullSubmergedMassKg == AnteyGameplayFullSubmergedMassKg);
 static_assert(AnteyGameplayPropulsion.maxReverseRpm < AnteyGameplayPropulsion.maxForwardRpm);
 static_assert(AnteyGameplayPropulsion.maxReverseThrustNewtons < AnteyGameplayPropulsion.maxForwardThrustNewtons);
 static_assert(AnteyTurnAroundDurationSeconds >= 30.0F);
