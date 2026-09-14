@@ -34,15 +34,13 @@ jobs:
             throw 'Antey source-tree runtime staging reference remains in CMakeLists.txt'
           }
 
-      - name: Commit fix
+      - name: Commit source fix
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Remove-Item Tools/apply_runtime_staging_startup_fix.py
-          Remove-Item .github/workflows/apply-runtime-staging-startup-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add CMakeLists.txt DeepRun/Main.cpp
           git commit -m "fix: keep runtime assets in build tree and allow FOW-empty startup frames"
           if ($LASTEXITCODE -ne 0) { throw "runtime staging/startup fix commit failed" }
           git push origin HEAD:fix/runtime-asset-staging-and-startup-draw-gate
