@@ -6,6 +6,7 @@
 #include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
+#include "Game/Weapons/AnteyTorpedoInventory.h"
 #include "Simulation/Perception/TrackManager.h"
 
 #include <cmath>
@@ -22,9 +23,11 @@ namespace DeepRun::Tests
     constexpr float WeightNewtons = 100'000'000.0F;
     constexpr float SeaWaterDensity = 1025.0F;
     constexpr float SurfaceWaterplaneHalfHeight = 4.35F;
-    const float reserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
-    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyPublicSubmergedDisplacementMassKg;
+    const float publicReserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
+    const float gameplayReserve = AnteyGameplayMainBallastWaterCapacityKg / AnteyGameplaySurfaceMassKg;
+    const float surfacedFraction = AnteyGameplaySurfaceMassKg / AnteyGameplayFullSubmergedMassKg;
     const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);
+    const float fullDisplacedVolume = AnteyGameplayFullSubmergedMassKg / SeaWaterDensity;
     const float submergedTerminal = std::sqrt(
         2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 24.11986F));
     const float surfacedTerminal = std::sqrt(
@@ -33,30 +36,68 @@ namespace DeepRun::Tests
     const float maximumHydrodynamicVertical =
         AnteyPublicMaximumSubmergedSpeedMetersPerSecond * std::sin(MaximumTrajectoryAngleRadians);
     const float maximumPositiveBuoyancyNewtons =
-        AnteyMainBallastWaterCapacityKg * 9.81F;
+        AnteyGameplayMainBallastWaterCapacityKg * 9.81F;
     const float maximumBallastOnlyVertical = std::sqrt(
         2.0F * maximumPositiveBuoyancyNewtons / (SeaWaterDensity * 1800.0F));
-    if (std::abs(reserve - 0.32F) > 0.001F || std::abs(surfaceCenterDepth - 2.242268F) > 0.01F ||
+    if (std::abs(publicReserve - 0.2991903F) > 1.0e-4F ||
+        std::abs(gameplayReserve - 0.2991903F) > 1.0e-4F ||
+        std::abs(surfaceCenterDepth - 2.346479F) > 0.001F ||
+        std::abs(fullDisplacedVolume - 18'784.390F) > 0.02F ||
         std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||
         std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F ||
         std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||
-        std::abs(maximumBallastOnlyVertical - 7.0697F) > 0.03F)
+        std::abs(maximumBallastOnlyVertical - 6.8667F) > 0.03F)
         return false;
     const AnteyBallastControlConfig ballastStateConfig{};
+    const AnteyBallastState emptyMainBallast{.mainBallastFillFraction = 0.0F, .trimMassDeltaKg = 0.0F};
     const AnteyBallastState fullMainBallast{};
+    if (std::abs(AnteyPhysicalMassKg(ballastStateConfig, emptyMainBallast) - AnteyGameplaySurfaceMassKg) > 1.0F ||
+        std::abs(AnteyPhysicalMassKg(ballastStateConfig, fullMainBallast) - AnteyGameplayFullSubmergedMassKg) > 1.0F)
+        return false;
     const auto deepSurfaceBallast = AdvanceAnteyBallastState(
-        ballastStateConfig, fullMainBallast, -1.0F, 100.0F, -100'000.0F, 1.0F);
+        ballastStateConfig, fullMainBallast, -1.0F, 100.0F, -100'000.0F, 0.0F, 1.0F);
     const auto nearSurfaceBallast = AdvanceAnteyBallastState(
-        ballastStateConfig, fullMainBallast, -1.0F, 2.5F, -100'000.0F, 1.0F);
+        ballastStateConfig, fullMainBallast, -1.0F, 2.5F, -100'000.0F, 0.0F, 1.0F);
     const AnteyBallastState partlyBlown{.mainBallastFillFraction = 0.5F, .trimMassDeltaKg = 0.0F};
     const auto diveFromSurfaceBallast = AdvanceAnteyBallastState(
-        ballastStateConfig, partlyBlown, 1.0F, 2.0F, 100'000.0F, 1.0F);
+        ballastStateConfig, partlyBlown, 1.0F, 2.0F, 100'000.0F, 0.0F, 1.0F);
     if (!deepSurfaceBallast || !nearSurfaceBallast || !diveFromSurfaceBallast ||
         std::abs(deepSurfaceBallast->mainBallastFillFraction - 1.0F) > 1.0e-6F ||
         !(nearSurfaceBallast->mainBallastFillFraction < 1.0F) ||
         !(diveFromSurfaceBallast->mainBallastFillFraction > partlyBlown.mainBallastFillFraction) ||
         !(deepSurfaceBallast->trimMassDeltaKg < 0.0F) ||
         std::abs(deepSurfaceBallast->trimMassDeltaKg) >= 100'000.0F)
+        return false;
+
+    // A fired weapon removes mass immediately; dedicated compensation water then restores it at a finite rate.
+    const auto oneSecondAfterP700 = AdvanceAnteyBallastState(
+        ballastStateConfig, fullMainBallast, 0.0F, 100.0F, 0.0F,
+        Game::Armament::P700GranitRoundMassKg, 1.0F);
+    if (!oneSecondAfterP700 ||
+        std::abs(oneSecondAfterP700->weaponCompensationWaterMassKg - 2'800.0F) > 1.0F ||
+        std::abs(AnteyPhysicalMassKg(
+            ballastStateConfig, *oneSecondAfterP700, Game::Armament::P700GranitRoundMassKg) -
+            (AnteyGameplayFullSubmergedMassKg - 4'200.0F)) > 2.0F)
+        return false;
+    const AnteyBallastState fullyCompensatedP700{
+        .mainBallastFillFraction = 1.0F, .trimMassDeltaKg = 0.0F,
+        .weaponCompensationWaterMassKg = Game::Armament::P700GranitRoundMassKg};
+    if (std::abs(AnteyPhysicalMassKg(
+            ballastStateConfig, fullyCompensatedP700, Game::Armament::P700GranitRoundMassKg) -
+            AnteyGameplayFullSubmergedMassKg) > 1.0F)
+        return false;
+
+    Game::Armament::AnteyTorpedoInventory torpedoes{};
+    if (torpedoes.LoadedCount(Game::Armament::PlayerWeaponType::HeavyweightTorpedo) != 18U ||
+        torpedoes.LoadedCount(Game::Armament::PlayerWeaponType::Type6576AFast) != 10U ||
+        torpedoes.ExpendedMassKg() != 0.0F ||
+        Game::Armament::AnteyConfiguredCombatOrdnanceMassKg != 249'000.0F)
+        return false;
+    if (!torpedoes.Consume(Game::Armament::PlayerWeaponType::HeavyweightTorpedo) ||
+        !torpedoes.Consume(Game::Armament::PlayerWeaponType::Type6576AEconomy) ||
+        torpedoes.LoadedCount(Game::Armament::PlayerWeaponType::HeavyweightTorpedo) != 17U ||
+        torpedoes.LoadedCount(Game::Armament::PlayerWeaponType::Type6576AFast) != 9U ||
+        std::abs(torpedoes.ExpendedMassKg() - 6'500.0F) > 1.0F)
         return false;
 
     const VariableBallastDepthControlConfig ballast{};

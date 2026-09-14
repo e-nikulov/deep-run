@@ -775,6 +775,13 @@ int main(const int argumentCount, char** argumentValues)
                     if (combatPlayground->Runtime().has_value())
                     {
                         const auto& runtime = *combatPlayground->Runtime();
+                        const auto ordnanceMassSync =
+                            playground.SetExpendedOrdnanceMassKg(runtime.PlayerExpendedOrdnanceMassKg());
+                        if (!ordnanceMassSync)
+                        {
+                            std::cerr << "[Game][ERROR] weapon-mass sync failed: " << ordnanceMassSync.error() << '\n';
+                            return false;
+                        }
                         std::optional<std::string> hatchGroup{};
                         float hatchProgress = 0.0F;
                         if (runtime.PlayerP700().has_value())

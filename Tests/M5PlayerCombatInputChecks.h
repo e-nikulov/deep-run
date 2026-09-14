@@ -270,14 +270,21 @@ namespace DeepRun::Tests
         return false;
     }
 
-    // Canonical Antey handling contract: 14,700 t surfaced + 4,700 t main-ballast water = 19,400 t
-    // fully submerged gameplay mass, weaker astern drive, physical shaft braking through zero, and a
-    // non-instantaneous 180-degree 2.5D facing transition.
+    // Project 949A source-first hydrostatics: runtime uses the RussianShips displacement pair directly.
+    // Deepstorm/Apalkov and other conflicting public values remain explicit reference data only.
     using namespace Game::Submarine;
-    if (AnteyPublicSurfaceDisplacementMassKg != 14'700'000.0F ||
-        AnteyCanonicalFullSubmergedMassKg != 19'400'000.0F ||
-        AnteyMainBallastWaterCapacityKg != 4'700'000.0F ||
-        std::abs(AnteyPublicReserveBuoyancyFraction - 0.3197279F) > 1.0e-4F ||
+    if (AnteyPublicSurfaceDisplacementMassKg != 14'820'000.0F ||
+        AnteyPublicSubmergedDisplacementMassKg != 19'254'000.0F ||
+        AnteyAlternateSurfaceReferenceMassKg != 14'700'000.0F ||
+        AnteyAlternateSubmergedReferenceMassKg != 19'400'000.0F ||
+        AnteyPublicHighSubmergedReferenceMassKg != 23'860'000.0F ||
+        AnteyMainBallastWaterCapacityKg != 4'434'000.0F ||
+        std::abs(AnteyPublicReserveBuoyancyFraction - 0.2991903F) > 1.0e-4F ||
+        AnteyGameplaySurfaceMassKg != AnteyPublicSurfaceDisplacementMassKg ||
+        AnteyGameplayFullSubmergedMassKg != AnteyPublicSubmergedDisplacementMassKg ||
+        AnteyGameplayMainBallastWaterCapacityKg != AnteyMainBallastWaterCapacityKg ||
+        AnteyCanonicalFullSubmergedMassKg != AnteyGameplayFullSubmergedMassKg ||
+        std::abs(AnteyGameplayReserveBuoyancyFraction - 0.2991903F) > 1.0e-4F ||
         AnteyGameplayPropulsion.maxReverseRpm >= AnteyGameplayPropulsion.maxForwardRpm ||
         AnteyGameplayPropulsion.maxReverseThrustNewtons >= AnteyGameplayPropulsion.maxForwardThrustNewtons)
     {

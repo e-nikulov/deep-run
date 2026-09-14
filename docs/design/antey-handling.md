@@ -4,19 +4,28 @@ Status: production gameplay contract for the canonical Deep Run Project 949A-ins
 
 ## Public-source boundary
 
-The official Rubin public Project 949A page identifies the design and its mission/architecture but does not publish a public displacement table. Open specialist/educational references commonly quote approximately `14,700 t` surfaced and `24,000 t` submerged/full displacement; some specialist compilations instead show `19,400 t (24,000?)`, so the exact public displacement definition is not perfectly consistent.
+Deep Run's production player submarine is explicitly **Project 949A `Antey` / Oscar II**, not Project 949 `Granit` / Oscar I. For hydrostatic runtime authority we use the RussianShips Project 949A table directly: **14,820 t surfaced / 19,254 t submerged**. Deepstorm/Apalkov's **14,700 / 19,400 (24,000?) t** and other published values remain provenance/reference data only; they are not averaged into gameplay physics.
 
-Deep Run uses **24,000,000 kg** as the canonical fully-submerged gameplay rigid-body mass. This is an explicit open-source convention for the submerged game state, not a claim of access to classified hydrostatic documentation. The buoyancy system derives neutral displaced volume from this mass and authoritative seawater density, so changing the mass cannot silently leave a 12,000 t neutral-buoyancy model behind.
+Runtime hydrostatics therefore use **14,820,000 kg surfaced / 19,254,000 kg fully submerged**, with a main-ballast mass delta of **4,434,000 kg** (~29.92% of surfaced displacement). At 1025 kg/m^3 the fixed full displaced volume is ~**18,784.390 m^3**. There is no positional buoyancy/render/body offset and no hand-authored waterline target: with the existing production waterplane response, the level flat-water equilibrium follows naturally at ~2.34648 m body-centre depth.
 
 References:
+- RussianShips Project 949/949A table (primary hydrostatic and ammunition-count authority): <https://russianships.info/podlodki/949.htm>
 - Rubin Design Bureau, Project 949A public project page: <https://ckb-rubin.ru/proekty/voennoe_korablestroenie/podvodnye_lodki/proekt_949a/>
-- Deepstorm Project 949A public compilation (Apalkov-sourced characteristics): <https://www.deepstorm.ru/DeepStorm.files/45-92/nsrs/949A/list.htm>
+- Deepstorm Project 949A public compilation (Apalkov-sourced alternate characteristics): <https://www.deepstorm.ru/DeepStorm.files/45-92/nsrs/949A/list.htm>
+- RusNavy Project 949A vessel pages (14,700 / 23,860 t examples): <https://rusnavy.com/nowadays/strength/submarines/tomsk/>
+- NTI Project 949A profile documenting a wider published displacement spread: <https://www.nti.org/wp-content/uploads/2021/09/project_949A_antey_oscarII_1.pdf>
+
+## Ordnance mass and launch compensation
+
+Project 949A source-backed physical inventory is **24 P-700 + 18 rounds in the 533 mm pool + 10 rounds in the 650 mm pool**. RussianShips explicitly lists mixed weapon families inside those pools, so Deep Run does not claim that all 18 were USET-80 or all 10 were 65-76A. Until the additional historical weapons are implemented, USET-80 and 65-76A are the playable representatives. Using their current GAME mass approximations (2.0 t and 4.5 t) yields a configured representative ordnance mass of **249 t** including 168 t of P-700. FAST/ECONOMY 65-76A selections share the same finite 10-round 650 mm pool.
+
+A successful launch immediately removes the actual round mass from the Jolt rigid body. The submarine therefore becomes physically lighter until compensation water catches up. Dedicated weapon-compensation water then slews toward the cumulative expended-ordnance mass at **2.8 t/s GAME POLICY**; the fixed hull displaced volume never changes. The chosen rate keeps the effect finite and observable while roughly matching a 14 t two-P-700 mass change over five seconds. Public descriptions support torpedo compensation tanks and seawater-flooded missile/torpedo launch arrangements, but Deep Run does **not** assert an undocumented Project 949A pump rate or exact valve sequence.
 
 ## Ahead / braking / astern
 
 `Throttle` is a signed command. Positive drive spins the aggregate synchronized twin-propeller shaft state ahead; negative drive commands astern. If the shaft is still rotating ahead when astern is requested, the generic propulsion simulation first reduces RPM toward exactly zero and only subsequent fixed ticks build reverse RPM. The same mechanism makes reverse thrust a physical braking command while the boat still has forward inertia.
 
-No reliable public Project 949A maximum-astern speed figure was found. Therefore Deep Run's asymmetry is explicitly **GAME POLICY**: `180 rpm / 12 MN` ahead versus `90 rpm / 3 MN` astern in the current coarse propulsion model. The purpose is to make sustained astern motion materially slower than ahead motion, not to publish a historical performance number.
+No reliable public Project 949A maximum-astern speed figure was found. Therefore Deep Run's asymmetry is explicitly **GAME POLICY**: `180 rpm / 3.35 MN` ahead versus `90 rpm / 0.8375 MN` astern in the current coarse propulsion model. The purpose is to make sustained astern motion materially slower than ahead motion, not to publish a historical performance number.
 
 Both production propeller nodes are hub-centred, local `+X` articulated assets. Their visible angle is derived from signed authoritative shaft RPM, so they spin in the opposite direction under astern command. Presentation never drives thrust.
 
