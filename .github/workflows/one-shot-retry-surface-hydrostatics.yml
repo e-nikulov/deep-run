@@ -1,0 +1,73 @@
+name: One-shot retry surfaced hydrostatics calibration
+
+on:
+  push:
+    branches:
+      - fix/m5-surface-hydrostatics-calibration
+    paths:
+      - .github/workflows/one-shot-retry-surface-hydrostatics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply production patch and update source-policy regression
+        shell: bash
+        run: |
+          python - <<'PY2'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/one-shot-apply-surface-hydrostatics.yml').read_text(encoding='utf-8')
+          marker = "          python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          body = workflow[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in body.splitlines())
+          exec(compile(script, 'embedded_surface_hydrostatics_patch.py', 'exec'), {'__name__': '__main__'})
+
+          test = Path('Tests/TestMain.cpp')
+          text = test.read_text(encoding='utf-8')
+          old = '''    const bool productionSpatialPolicy = source.find("productionBuoyancy.halfExtents.x") != std::string::npos &&
+              source.find("M2GameBuoyancyStabilityOffsetMeters") != std::string::npos &&
+              source.find("M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter") != std::string::npos &&
+              source.find("17'400") == std::string::npos;'''
+          new = '''    const bool productionSpatialPolicy = source.find("productionBuoyancy.halfExtents.x") != std::string::npos &&
+              source.find("M2GameBuoyancyStabilityOffsetMeters") == std::string::npos &&
+              source.find("Submarine::AnteyGameplayFullSubmergedMassKg") != std::string::npos &&
+              source.find("M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter") != std::string::npos &&
+              source.find("17'400") == std::string::npos;'''
+          if text.count(old) != 1:
+              raise SystemExit('Tests/TestMain.cpp: source-policy block did not match exactly once')
+          test.write_text(text.replace(old, new), encoding='utf-8')
+
+          retry = Path('.github/workflows/one-shot-retry-surface-hydrostatics.yml')
+          if retry.exists():
+              retry.unlink()
+          PY2
+
+      - name: Verify mass/displacement-only surface equilibrium
+        shell: bash
+        run: |
+          if grep -R "M2GameBuoyancyStabilityOffsetMeters" -n Game; then
+            echo "special buoyancy offset still present in production code" >&2
+            exit 1
+          fi
+          grep -q "AnteyGameplayFullSubmergedMassKg = 20'622'267.0F" Game/Submarine/AnteyHandlingModel.h
+          grep -q "productionBuoyancy.centerOfBuoyancy.y," Game/PhysicalPlayground.cpp
+          git diff --check
+
+      - name: Commit calibrated hydrostatics
+        shell: bash
+        run: |
+          git config user.name "Deep Run automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(m5): calibrate surfaced hydrostatics by mass and displacement"
+          git push origin HEAD:fix/m5-surface-hydrostatics-calibration
