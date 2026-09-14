@@ -1,0 +1,295 @@
+name: One-shot apply surfaced hydrostatics calibration
+
+on:
+  push:
+    branches:
+      - fix/m5-surface-hydrostatics-calibration
+    paths:
+      - .github/workflows/one-shot-apply-surface-hydrostatics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace offset tuning with mass/displacement calibration
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, got {count}: {old[:120]!r}")
+              p.write_text(text.replace(old, new), encoding="utf-8")
+
+          # Preserve public-source figures, but publish a separate runtime hydrostatic mass contract.
+          replace_once(
+              "Game/Submarine/AnteyHandlingModel.h",
+              "// Public Project 949A figures are not perfectly uniform, so Deep Run fixes one documented canonical set:\n"
+              "// Apalkov/Deepstorm-style 14,700 t surfaced, 19,400 t submerged, 32 kn submerged and 15 kn surfaced.\n"
+              "// The 4,700 t difference is treated as main-ballast water, giving 31.97% reserve buoyancy relative to surfaced\n"
+              "// displacement. These are public-source gameplay authorities, not claims about classified loading conditions.\n"
+              "inline constexpr float AnteyPublicSurfaceDisplacementMassKg = 14'700'000.0F;\n"
+              "inline constexpr float AnteyPublicSubmergedDisplacementMassKg = 19'400'000.0F;\n"
+              "inline constexpr float AnteyMainBallastWaterCapacityKg =\n"
+              "    AnteyPublicSubmergedDisplacementMassKg - AnteyPublicSurfaceDisplacementMassKg;\n"
+              "inline constexpr float AnteyPublicReserveBuoyancyFraction =\n"
+              "    AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;",
+              "// Public Project 949A displacement figures are not perfectly uniform. Keep one documented source set as\n"
+              "// reference data, separate from the production-geometry hydrostatic tuning used by normal gameplay.\n"
+              "// Apalkov/Deepstorm-style values are 14,700 t surfaced and 19,400 t submerged; they remain public-reference\n"
+              "// facts and are not silently rewritten to make the rendered waterline fit.\n"
+              "inline constexpr float AnteyPublicSurfaceDisplacementMassKg = 14'700'000.0F;\n"
+              "inline constexpr float AnteyPublicSubmergedDisplacementMassKg = 19'400'000.0F;\n"
+              "inline constexpr float AnteyMainBallastWaterCapacityKg =\n"
+              "    AnteyPublicSubmergedDisplacementMassKg - AnteyPublicSurfaceDisplacementMassKg;\n"
+              "inline constexpr float AnteyPublicReserveBuoyancyFraction =\n"
+              "    AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;\n"
+              "\n"
+              "// GAME POLICY: runtime hydrostatic mass/displacement is calibrated against the accepted production LOD0\n"
+              "// surfaced geometry, with no buoyancy-point or render offset. Empty main ballast keeps the public 14,700 t\n"
+              "// surfaced mass. Fully flooded mass is 20,622.267 t; at 1025 kg/m^3 this is 20,119.285 m^3 of full\n"
+              "// displacement. The resulting level flat-water body-centre depth is ~1.85155 m: the deployed bow-plane\n"
+              "// lower edge is ~0.500 m above water while the highest propeller geometry remains ~0.877 m submerged.\n"
+              "inline constexpr float AnteyGameplaySurfaceMassKg = AnteyPublicSurfaceDisplacementMassKg;\n"
+              "inline constexpr float AnteyGameplayFullSubmergedMassKg = 20'622'267.0F;\n"
+              "inline constexpr float AnteyGameplayMainBallastWaterCapacityKg =\n"
+              "    AnteyGameplayFullSubmergedMassKg - AnteyGameplaySurfaceMassKg;\n"
+              "inline constexpr float AnteyGameplayReserveBuoyancyFraction =\n"
+              "    AnteyGameplayMainBallastWaterCapacityKg / AnteyGameplaySurfaceMassKg;"
+          )
+          replace_once(
+              "Game/Submarine/AnteyHandlingModel.h",
+              "// Compatibility name retained for existing acoustic/runtime code: fully submerged neutral mass is 19,400 t.\n"
+              "inline constexpr float AnteyCanonicalFullSubmergedMassKg = AnteyPublicSubmergedDisplacementMassKg;",
+              "// Compatibility name retained for existing runtime code; it now follows the calibrated physical gameplay mass.\n"
+              "inline constexpr float AnteyCanonicalFullSubmergedMassKg = AnteyGameplayFullSubmergedMassKg;"
+          )
+          replace_once(
+              "Game/Submarine/AnteyHandlingModel.h",
+              "static_assert(AnteyPublicSurfaceDisplacementMassKg == 14'700'000.0F);\n"
+              "static_assert(AnteyCanonicalFullSubmergedMassKg == 19'400'000.0F);\n"
+              "static_assert(AnteyMainBallastWaterCapacityKg == 4'700'000.0F);\n"
+              "static_assert(AnteyPublicReserveBuoyancyFraction > 0.319F && AnteyPublicReserveBuoyancyFraction < 0.321F);",
+              "static_assert(AnteyPublicSurfaceDisplacementMassKg == 14'700'000.0F);\n"
+              "static_assert(AnteyPublicSubmergedDisplacementMassKg == 19'400'000.0F);\n"
+              "static_assert(AnteyMainBallastWaterCapacityKg == 4'700'000.0F);\n"
+              "static_assert(AnteyPublicReserveBuoyancyFraction > 0.319F && AnteyPublicReserveBuoyancyFraction < 0.321F);\n"
+              "static_assert(AnteyGameplaySurfaceMassKg == 14'700'000.0F);\n"
+              "static_assert(AnteyGameplayFullSubmergedMassKg == 20'622'267.0F);\n"
+              "static_assert(AnteyGameplayMainBallastWaterCapacityKg == 5'922'267.0F);\n"
+              "static_assert(AnteyGameplayReserveBuoyancyFraction > 0.402F && AnteyGameplayReserveBuoyancyFraction < 0.404F);\n"
+              "static_assert(AnteyCanonicalFullSubmergedMassKg == AnteyGameplayFullSubmergedMassKg);"
+          )
+
+          # Ballast mass state must use the same gameplay mass that the buoyancy volume supports.
+          replace_once(
+              "Game/Submarine/AnteyBallastControl.h",
+              "// GAME POLICY around public Project 949A displacement values. Exact tank/pump/blow timing is not asserted.",
+              "// GAME POLICY around the calibrated runtime hydrostatic masses. Exact tank/pump/blow timing is not asserted."
+          )
+          replace_once(
+              "Game/Submarine/AnteyBallastControl.h",
+              "float maximumTrimMassKg = AnteyPublicSubmergedDisplacementMassKg * 0.015F;",
+              "float maximumTrimMassKg = AnteyGameplayFullSubmergedMassKg * 0.015F;"
+          )
+          replace_once(
+              "Game/Submarine/AnteyBallastControl.h",
+              "// 0 = public surfaced displacement (main ballast empty), 1 = public submerged displacement (main ballast full).",
+              "// 0 = calibrated gameplay surfaced mass (main ballast empty), 1 = calibrated full-submerged mass."
+          )
+          replace_once(
+              "Game/Submarine/AnteyBallastControl.h",
+              "    const float baseMassKg = AnteyPublicSurfaceDisplacementMassKg +\n"
+              "        AnteyMainBallastWaterCapacityKg * std::clamp(state.mainBallastFillFraction, 0.0F, 1.0F);\n"
+              "    return std::clamp(\n"
+              "        baseMassKg + state.trimMassDeltaKg,\n"
+              "        AnteyPublicSurfaceDisplacementMassKg,\n"
+              "        AnteyPublicSubmergedDisplacementMassKg + config.maximumTrimMassKg);",
+              "    const float baseMassKg = AnteyGameplaySurfaceMassKg +\n"
+              "        AnteyGameplayMainBallastWaterCapacityKg * std::clamp(state.mainBallastFillFraction, 0.0F, 1.0F);\n"
+              "    return std::clamp(\n"
+              "        baseMassKg + state.trimMassDeltaKg,\n"
+              "        AnteyGameplaySurfaceMassKg,\n"
+              "        AnteyGameplayFullSubmergedMassKg + config.maximumTrimMassKg);"
+          )
+
+          # Remove the special vertical offset entirely. Surface equilibrium is now only mass / displaced volume.
+          replace_once(
+              "Game/PhysicalPlayground.cpp",
+              "// One physical displacement model serves both surfaced and submerged states. Fully immersed displacement\n"
+              "// supports 19,400 t; empty main ballast leaves the public 14,700 t surfaced mass. The calibrated\n"
+              "// waterplane half-height plus the visual waterline offset yield a 1.742 m body-centre depth.\n"
+              "// The -0.50 m point-frame offset raises the surfaced hull by exactly 0.50 m while preserving the\n"
+              "// 19,400 t fully immersed displacement and the accepted waterplane stiffness/transient response.\n"
+              "constexpr float M2GameBuoyancyStabilityOffsetMeters = -0.50F;\n"
+              "constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;\n"
+              "constexpr float M5AnteySurfaceMassKg = Submarine::AnteyPublicSurfaceDisplacementMassKg;\n"
+              "constexpr float M5AnteySubmergedMassKg = Submarine::AnteyPublicSubmergedDisplacementMassKg;\n"
+              "constexpr float M5AnteyMainBallastCapacityKg = Submarine::AnteyMainBallastWaterCapacityKg;\n"
+              "constexpr float M5SurfaceEquilibriumSubmergedFraction = M5AnteySurfaceMassKg / M5AnteySubmergedMassKg;\n"
+              "constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =\n"
+              "    M2GameBuoyancyStabilityOffsetMeters +\n"
+              "    M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);\n"
+              "static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 1.73F &&\n"
+              "              M5SurfaceEquilibriumBodyCenterDepthMeters < 1.75F);",
+              "// One Archimedean displacement model serves surfaced and submerged states. There is deliberately no\n"
+              "// vertical buoyancy-point offset: the level surfaced waterline follows only rigid-body mass, full displaced\n"
+              "// volume and the accepted waterplane response. Full gameplay displacement supports 20,622.267 t while\n"
+              "// empty main ballast leaves 14,700 t, yielding ~1.85155 m body-centre depth in flat water.\n"
+              "constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;\n"
+              "constexpr float M5AnteySurfaceMassKg = Submarine::AnteyGameplaySurfaceMassKg;\n"
+              "constexpr float M5AnteySubmergedMassKg = Submarine::AnteyGameplayFullSubmergedMassKg;\n"
+              "constexpr float M5AnteyMainBallastCapacityKg = Submarine::AnteyGameplayMainBallastWaterCapacityKg;\n"
+              "constexpr float M5SurfaceEquilibriumSubmergedFraction = M5AnteySurfaceMassKg / M5AnteySubmergedMassKg;\n"
+              "constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =\n"
+              "    M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);\n"
+              "static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 1.8514F &&\n"
+              "              M5SurfaceEquilibriumBodyCenterDepthMeters < 1.8517F);"
+          )
+          replace_once(
+              "Game/PhysicalPlayground.cpp",
+              ".y = productionBuoyancy.centerOfBuoyancy.y + M2GameBuoyancyStabilityOffsetMeters,",
+              ".y = productionBuoyancy.centerOfBuoyancy.y,"
+          )
+
+          # Regression checks distinguish public-source numbers from calibrated runtime hydrostatics.
+          replace_once(
+              "Tests/PeriscopeBallastGameplayChecks.h",
+              "    const float reserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;\n"
+              "    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyPublicSubmergedDisplacementMassKg;\n"
+              "    const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);",
+              "    const float publicReserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;\n"
+              "    const float gameplayReserve = AnteyGameplayMainBallastWaterCapacityKg / AnteyGameplaySurfaceMassKg;\n"
+              "    const float surfacedFraction = AnteyGameplaySurfaceMassKg / AnteyGameplayFullSubmergedMassKg;\n"
+              "    const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);\n"
+              "    const float fullDisplacedVolume = AnteyGameplayFullSubmergedMassKg / SeaWaterDensity;"
+          )
+          replace_once(
+              "Tests/PeriscopeBallastGameplayChecks.h",
+              "        AnteyMainBallastWaterCapacityKg * 9.81F;",
+              "        AnteyGameplayMainBallastWaterCapacityKg * 9.81F;"
+          )
+          replace_once(
+              "Tests/PeriscopeBallastGameplayChecks.h",
+              "    if (std::abs(reserve - 0.32F) > 0.001F || std::abs(surfaceCenterDepth - 2.242268F) > 0.01F ||\n"
+              "        std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||\n"
+              "        std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F ||\n"
+              "        std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||\n"
+              "        std::abs(maximumBallastOnlyVertical - 7.0697F) > 0.03F)\n"
+              "        return false;",
+              "    if (std::abs(publicReserve - 0.3197279F) > 1.0e-4F ||\n"
+              "        std::abs(gameplayReserve - 0.4028753F) > 1.0e-4F ||\n"
+              "        std::abs(surfaceCenterDepth - 1.851549F) > 0.001F ||\n"
+              "        std::abs(fullDisplacedVolume - 20'119.285F) > 0.02F ||\n"
+              "        std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||\n"
+              "        std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F ||\n"
+              "        std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||\n"
+              "        std::abs(maximumBallastOnlyVertical - 7.9359F) > 0.03F)\n"
+              "        return false;"
+          )
+          replace_once(
+              "Tests/PeriscopeBallastGameplayChecks.h",
+              "    const AnteyBallastControlConfig ballastStateConfig{};\n"
+              "    const AnteyBallastState fullMainBallast{};",
+              "    const AnteyBallastControlConfig ballastStateConfig{};\n"
+              "    const AnteyBallastState emptyMainBallast{.mainBallastFillFraction = 0.0F, .trimMassDeltaKg = 0.0F};\n"
+              "    const AnteyBallastState fullMainBallast{};\n"
+              "    if (std::abs(AnteyPhysicalMassKg(ballastStateConfig, emptyMainBallast) - AnteyGameplaySurfaceMassKg) > 1.0F ||\n"
+              "        std::abs(AnteyPhysicalMassKg(ballastStateConfig, fullMainBallast) - AnteyGameplayFullSubmergedMassKg) > 1.0F)\n"
+              "        return false;"
+          )
+
+          replace_once(
+              "Tests/M5PlayerCombatInputChecks.h",
+              "    // Canonical Antey handling contract: 14,700 t surfaced + 4,700 t main-ballast water = 19,400 t\n"
+              "    // fully submerged gameplay mass, weaker astern drive, physical shaft braking through zero, and a\n"
+              "    // non-instantaneous 180-degree 2.5D facing transition.\n"
+              "    using namespace Game::Submarine;\n"
+              "    if (AnteyPublicSurfaceDisplacementMassKg != 14'700'000.0F ||\n"
+              "        AnteyCanonicalFullSubmergedMassKg != 19'400'000.0F ||\n"
+              "        AnteyMainBallastWaterCapacityKg != 4'700'000.0F ||\n"
+              "        std::abs(AnteyPublicReserveBuoyancyFraction - 0.3197279F) > 1.0e-4F ||",
+              "    // Public-source displacement remains distinct from the production-geometry hydrostatic calibration.\n"
+              "    // Normal gameplay uses 14,700 t surfaced and 20,622.267 t fully flooded, with no positional buoyancy offset.\n"
+              "    using namespace Game::Submarine;\n"
+              "    if (AnteyPublicSurfaceDisplacementMassKg != 14'700'000.0F ||\n"
+              "        AnteyPublicSubmergedDisplacementMassKg != 19'400'000.0F ||\n"
+              "        AnteyMainBallastWaterCapacityKg != 4'700'000.0F ||\n"
+              "        std::abs(AnteyPublicReserveBuoyancyFraction - 0.3197279F) > 1.0e-4F ||\n"
+              "        AnteyGameplaySurfaceMassKg != 14'700'000.0F ||\n"
+              "        AnteyGameplayFullSubmergedMassKg != 20'622'267.0F ||\n"
+              "        AnteyGameplayMainBallastWaterCapacityKg != 5'922'267.0F ||\n"
+              "        AnteyCanonicalFullSubmergedMassKg != AnteyGameplayFullSubmergedMassKg ||\n"
+              "        std::abs(AnteyGameplayReserveBuoyancyFraction - 0.4028753F) > 1.0e-4F ||"
+          )
+
+          # Document the new physical authority and explicitly record that there is no offset path.
+          replace_once(
+              "docs/development/periscope-ballast-gameplay.md",
+              "Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source gameplay canonical is 14,700 t surfaced and 19,400 t submerged; the 4,700 t difference is main-ballast water (~31.97% reserve buoyancy relative to surfaced displacement). Jolt rigid-body mass and inertia change with ballast fill. With main ballast empty, the calibrated waterplane settles the body reference at ~2.242 m below mean sea level in flat water; with main ballast full, 19,400 t is neutrally buoyant when fully submerged. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed only in the final near-surface band, while a dive command floods any partly empty main ballast.",
+              "Deep Run uses one Archimedean model across surfaced and submerged operation. The public-source reference set remains 14,700 t surfaced / 19,400 t submerged, but runtime hydrostatics are deliberately separated from those historical reference figures. Production gameplay keeps the 14,700 t empty-main-ballast mass and uses a calibrated 20,622.267 t fully flooded mass, so main-ballast capacity is 5,922.267 t (~40.29% of surfaced mass). At the authoritative 1025 kg/m^3 seawater density the full displaced volume is ~20,119.285 m^3. Jolt rigid-body mass and inertia change with ballast fill. With no buoyancy-point/render offset, empty main ballast settles the level body reference at ~1.85155 m below mean sea level in flat water; full main ballast is neutrally buoyant when fully submerged. In the accepted production LOD0 this places the deployed bow-plane lower edge ~0.500 m above water while the highest propeller geometry remains ~0.877 m below it. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed only in the final near-surface band, while a dive command floods any partly empty main ballast."
+          )
+          replace_once(
+              "docs/development/periscope-ballast-gameplay.md",
+              "The current model independently produces ~7.07 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory.",
+              "The current model independently produces ~7.94 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory."
+          )
+          replace_once(
+              "docs/development/periscope-ballast-gameplay.md",
+              "Main-ballast fill is physical mass state: empty corresponds to the public surfaced displacement and full corresponds to the public submerged displacement.",
+              "Main-ballast fill is physical mass state: empty is the 14,700 t gameplay surfaced mass and full is the calibrated 20,622.267 t gameplay full-submerged mass."
+          )
+          replace_once(
+              "docs/development/periscope-ballast-gameplay.md",
+              "- with full main ballast the fully immersed 19,400 t state is neutrally buoyant;\n"
+              "- with empty main ballast the 14,700 t state settles naturally at ~2.242 m body-reference depth in flat water;",
+              "- with full main ballast the fully immersed 20,622.267 t gameplay state is neutrally buoyant;\n"
+              "- with empty main ballast the 14,700 t state settles naturally at ~1.85155 m body-reference depth in flat water;\n"
+              "- no buoyancy-point, render, camera or body-position offset participates in surfaced equilibrium;"
+          )
+
+          replace_once(
+              "docs/design/antey-handling.md",
+              "Deep Run uses **24,000,000 kg** as the canonical fully-submerged gameplay rigid-body mass. This is an explicit open-source convention for the submerged game state, not a claim of access to classified hydrostatic documentation. The buoyancy system derives neutral displaced volume from this mass and authoritative seawater density, so changing the mass cannot silently leave a 12,000 t neutral-buoyancy model behind.",
+              "Deep Run keeps the public displacement figures as source-reference data, but the normal gameplay rigid body uses a production-geometry-calibrated **20,622,267 kg** fully-submerged mass while retaining **14,700,000 kg** with main ballast empty. This is explicit GAME POLICY, not a claim about classified loading conditions. At the authoritative 1025 kg/m^3 seawater density, the buoyancy system therefore uses ~**20,119.285 m^3** as full displaced volume. The calibration contains no positional buoyancy/render offset: the level flat-water equilibrium is set only by mass, displaced volume and the accepted waterplane response."
+          )
+
+          # Remove one-shot diagnostics from the production diff after using their measured LOD0 bounds.
+          for path in [
+              Path("Tools/Blender/audit_surface_hydrostatics.py"),
+              Path(".github/workflows/one-shot-surface-hydrostatics-audit.yml"),
+              Path(".github/workflows/one-shot-apply-surface-hydrostatics.yml"),
+          ]:
+              if path.exists():
+                  path.unlink()
+          PY
+
+      - name: Verify no offset tuning remains
+        shell: bash
+        run: |
+          if grep -R "M2GameBuoyancyStabilityOffsetMeters" -n Game Tests; then
+            echo "special buoyancy offset still present" >&2
+            exit 1
+          fi
+          git diff --check
+
+      - name: Commit calibrated hydrostatics
+        shell: bash
+        run: |
+          git config user.name "Deep Run automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(m5): calibrate surfaced hydrostatics by mass and displacement"
+          git push origin HEAD:fix/m5-surface-hydrostatics-calibration
