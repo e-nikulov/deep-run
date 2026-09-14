@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import bpy
 EXPECTED_BLACK = (0.001517635, 0.001517635, 0.001517635, 1.0)
 EXPECTED_RED = (0.068478170, 0.004776953, 0.003676507, 1.0)
 EXPECTED_SPLIT_Z = -0.65
+EXPECTED_LOWER_HULL_ROLE = "MAIN_HULL_LOWER"
 TOLERANCE = 2.0e-6
 
 
@@ -56,6 +56,8 @@ def main() -> None:
         raise RuntimeError("missing antey_visual_contract")
     if abs(float(contract.get("lowerHullSplitZM", 999.0)) - EXPECTED_SPLIT_Z) > TOLERANCE:
         raise RuntimeError("unexpected lower-hull split contract")
+    if str(contract.get("lowerHullRole", "")) != EXPECTED_LOWER_HULL_ROLE:
+        raise RuntimeError("unexpected lower-hull role contract")
     if not bool(contract.get("smoothShading", False)) or bool(contract.get("topologyMutation", True)):
         raise RuntimeError("visual contract must require smooth shading without topology mutation")
 
@@ -67,14 +69,20 @@ def main() -> None:
     flat = 0
     black_faces = 0
     red_faces = 0
-    mismatched_split_faces = 0
-    propeller_red_slots: list[str] = []
+    mismatched_paint_faces = 0
+    lower_hull_objects: list[str] = []
+    red_material_leaks: list[str] = []
+
     for obj in runtime:
         material_names = [material.name if material else "" for material in obj.data.materials]
-        is_propeller = any("Propeller" in name or "Propellers" in name for name in material_names) or \
-                       str(obj.get("source_first_role", "")).startswith("PROPELLER")
-        if is_propeller and "MAT_Antey_LowerHull" in material_names:
-            propeller_red_slots.append(obj.name)
+        role = str(obj.get("source_first_role", ""))
+        is_propeller = any("Propeller" in name or "Propellers" in name for name in material_names) or role.startswith("PROPELLER")
+        is_lower_hull = role == EXPECTED_LOWER_HULL_ROLE
+        if is_lower_hull:
+            lower_hull_objects.append(obj.name)
+        if not is_lower_hull and "MAT_Antey_LowerHull" in material_names:
+            red_material_leaks.append(obj.name)
+
         for polygon in obj.data.polygons:
             if polygon.use_smooth:
                 smooth += 1
@@ -82,24 +90,25 @@ def main() -> None:
                 flat += 1
             if is_propeller:
                 continue
-            world_z = float((obj.matrix_world @ polygon.center).z)
             name = material_names[polygon.material_index] if polygon.material_index < len(material_names) else ""
-            expected_red = world_z <= EXPECTED_SPLIT_Z
+            expected_name = "MAT_Antey_LowerHull" if is_lower_hull else "MAT_Antey_Hull"
             if name == "MAT_Antey_LowerHull":
                 red_faces += 1
             elif name == "MAT_Antey_Hull":
                 black_faces += 1
-            if expected_red != (name == "MAT_Antey_LowerHull"):
-                mismatched_split_faces += 1
+            if name != expected_name:
+                mismatched_paint_faces += 1
 
     if flat != 0:
         raise RuntimeError(f"runtime GLB source still contains flat-shaded polygons: {flat}")
+    if not lower_hull_objects:
+        raise RuntimeError(f"no {EXPECTED_LOWER_HULL_ROLE} runtime object")
     if red_faces <= 0 or black_faces <= 0:
         raise RuntimeError(f"missing paint regions black={black_faces} red={red_faces}")
-    if mismatched_split_faces != 0:
-        raise RuntimeError(f"paint split mismatches: {mismatched_split_faces}")
-    if propeller_red_slots:
-        raise RuntimeError(f"red lower-hull material leaked onto propellers: {propeller_red_slots}")
+    if mismatched_paint_faces != 0:
+        raise RuntimeError(f"role-based paint mismatches: {mismatched_paint_faces}")
+    if red_material_leaks:
+        raise RuntimeError(f"red lower-hull material leaked onto non-lower-hull objects: {red_material_leaks}")
 
     report = {
         "materials": {"technicalBlack": black_state, "antifoulingRed": red_state},
@@ -108,7 +117,9 @@ def main() -> None:
         "flatPolygons": flat,
         "blackFaces": black_faces,
         "redFaces": red_faces,
-        "mismatchedSplitFaces": mismatched_split_faces,
+        "lowerHullObjects": sorted(lower_hull_objects),
+        "mismatchedPaintFaces": mismatched_paint_faces,
+        "redMaterialLeaks": sorted(red_material_leaks),
         "status": "PASS",
     }
     output = options.output.resolve()

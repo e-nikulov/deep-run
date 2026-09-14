@@ -7,11 +7,11 @@ import sys
 from pathlib import Path
 
 import bpy
-from mathutils import Vector
 
 TECHNICAL_BLACK = (0.001517635, 0.001517635, 0.001517635, 1.0)
 ANTIFOULING_RED = (0.068478170, 0.004776953, 0.003676507, 1.0)
 LOWER_HULL_SPLIT_Z_M = -0.65
+LOWER_HULL_ROLE = "MAIN_HULL_LOWER"
 
 
 def args() -> argparse.Namespace:
@@ -68,6 +68,7 @@ def main() -> None:
         "smoothedPolygons": 0,
         "blackPolygons": 0,
         "redPolygons": 0,
+        "lowerHullMeshes": 0,
         "geometryVerticesBefore": 0,
         "geometryVerticesAfter": 0,
         "geometryPolygonsBefore": 0,
@@ -88,23 +89,25 @@ def main() -> None:
             totals["smoothedPolygons"] += 1
 
         material_names = {material.name for material in mesh.materials if material is not None}
-        is_propeller = any("Propeller" in name or "Propellers" in name for name in material_names) or \
-                       str(obj.get("source_first_role", "")).startswith("PROPELLER")
+        role = str(obj.get("source_first_role", ""))
+        is_propeller = any("Propeller" in name or "Propellers" in name for name in material_names) or role.startswith("PROPELLER")
+        is_lower_hull = role == LOWER_HULL_ROLE
         black_count = 0
         red_count = 0
+
         if not is_propeller:
+            # The antifouling coating belongs only to the authored lower main-hull partition. A simple world-Z
+            # test leaked red onto the ventral rudder, stern planes and low P-700 covers, which is visually wrong.
             mesh.materials.clear()
-            mesh.materials.append(black)
-            mesh.materials.append(red)
+            mesh.materials.append(red if is_lower_hull else black)
             totals["materializedMeshes"] += 1
+            if is_lower_hull:
+                totals["lowerHullMeshes"] += 1
+                red_count = len(mesh.polygons)
+            else:
+                black_count = len(mesh.polygons)
             for polygon in mesh.polygons:
-                world_center = obj.matrix_world @ polygon.center
-                if world_center.z <= LOWER_HULL_SPLIT_Z_M:
-                    polygon.material_index = 1
-                    red_count += 1
-                else:
-                    polygon.material_index = 0
-                    black_count += 1
+                polygon.material_index = 0
             totals["blackPolygons"] += black_count
             totals["redPolygons"] += red_count
 
@@ -117,13 +120,17 @@ def main() -> None:
             raise RuntimeError(f"visual repair changed topology for {obj.name}")
         object_records.append({
             "name": obj.name,
+            "role": role,
             "vertices": after_vertices,
             "polygons": after_polygons,
             "blackPolygons": black_count,
             "redPolygons": red_count,
             "propeller": is_propeller,
+            "lowerHull": is_lower_hull,
         })
 
+    if totals["lowerHullMeshes"] <= 0:
+        raise RuntimeError(f"no {LOWER_HULL_ROLE} runtime mesh found")
     if totals["redPolygons"] <= 0 or totals["blackPolygons"] <= 0:
         raise RuntimeError(f"paint split did not produce both hull colours: {totals}")
     if totals["geometryVerticesBefore"] != totals["geometryVerticesAfter"] or \
@@ -133,6 +140,7 @@ def main() -> None:
     bpy.context.scene["antey_visual_contract"] = {
         "upperHull": "TECHNICAL_BLACK_SRGB_050505",
         "lowerHull": "ANTIFOULING_RED_SRGB_4A0F0C",
+        "lowerHullRole": LOWER_HULL_ROLE,
         "lowerHullSplitZM": LOWER_HULL_SPLIT_Z_M,
         "smoothShading": True,
         "topologyMutation": False,
@@ -148,6 +156,7 @@ def main() -> None:
         "outputSha256": sha256(output),
         "technicalBlackLinear": TECHNICAL_BLACK,
         "antifoulingRedLinear": ANTIFOULING_RED,
+        "lowerHullRole": LOWER_HULL_ROLE,
         "lowerHullSplitZM": LOWER_HULL_SPLIT_Z_M,
         "totals": totals,
         "objects": object_records,
