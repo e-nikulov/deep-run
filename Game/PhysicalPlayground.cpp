@@ -114,7 +114,8 @@ constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
 static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.3463F &&
               M5SurfaceEquilibriumBodyCenterDepthMeters < 2.3467F);
 // Exact tank timing remains explicit GAME POLICY in the pure ballast-state controller. Main ballast is not
-// used for ordinary submerged depth changes; the controller only arms normal blowing in the final surface band.
+// used for ordinary submerged depth changes. Normal blowing starts in the final surface band, with a
+// deadlock fallback when held Surface has saturated low-speed trim and still requests maximum buoyancy.
 constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
 // Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
 constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
@@ -1164,6 +1165,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     primaryPeriscopeRequestedRaised_ = false;
     primaryPeriscopeDeploymentProgress_ = 0.0F;
     ballastState_ = {};
+    committedMainBallastFlowFractionPerSecond_ = 0.0F;
     committedDynamicMassKg_ = M5AnteySubmergedMassKg;
     committedForwardSpeedMetersPerSecond_ = 0.0F;
 
@@ -1392,6 +1394,10 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, expendedOrdnanceMassKg_, fixedDeltaSeconds);
     if (!nextBallastState)
         return std::unexpected("physical playground ballast-state advance failed: " + nextBallastState.error());
+    const float nextMainBallastFlowFractionPerSecond =
+        (nextBallastState->mainBallastFillFraction - ballastState_.mainBallastFillFraction) / fixedDeltaSeconds;
+    if (!std::isfinite(nextMainBallastFlowFractionPerSecond))
+        return std::unexpected("physical playground main-ballast flow is non-finite");
     const float nextDynamicMassKg =
         Submarine::AnteyPhysicalMassKg(M5AnteyBallastControl, *nextBallastState, expendedOrdnanceMassKg_);
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
@@ -1516,6 +1522,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
     ballastState_ = *nextBallastState;
+    committedMainBallastFlowFractionPerSecond_ = nextMainBallastFlowFractionPerSecond;
     committedDynamicMassKg_ = nextDynamicMassKg;
     committedForwardSpeedMetersPerSecond_ = sternControl->bodyForwardSpeedMetersPerSecond;
     consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
@@ -1663,6 +1670,7 @@ std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::Buil
         .forwardSpeedMetersPerSecond = committedForwardSpeedMetersPerSecond_,
         .throttleFraction = committedThrottleFraction_,
         .mainBallastFillFraction = ballastState_.mainBallastFillFraction,
+        .mainBallastFlowFractionPerSecond = committedMainBallastFlowFractionPerSecond_,
         .trimMassDeltaKg = ballastState_.trimMassDeltaKg,
         .expendedOrdnanceMassKg = expendedOrdnanceMassKg_,
         .weaponCompensationWaterMassKg = ballastState_.weaponCompensationWaterMassKg,

@@ -64,6 +64,8 @@ struct VesselPresentationTelemetry final
     float forwardSpeedMetersPerSecond = 0.0F;
     float throttleFraction = 0.0F;
     float mainBallastFillFraction = 1.0F;
+    // Negative = blowing (water leaving main ballast), positive = flooding.
+    float mainBallastFlowFractionPerSecond = 0.0F;
     float trimMassDeltaKg = 0.0F;
     float expendedOrdnanceMassKg = 0.0F;
     float weaponCompensationWaterMassKg = 0.0F;
@@ -492,6 +494,7 @@ private:
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
     Submarine::AnteyBallastState ballastState_{};
     float expendedOrdnanceMassKg_ = 0.0F;
+    float committedMainBallastFlowFractionPerSecond_ = 0.0F;
     float committedDynamicMassKg_ = 0.0F;
     float committedForwardSpeedMetersPerSecond_ = 0.0F;
 

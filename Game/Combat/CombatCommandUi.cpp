@@ -96,6 +96,28 @@ const char* BuoyancyTrimStateName(const VesselNavigationHudSnapshot& snapshot) n
     return "NEUTRAL / TRIMMED";
 }
 
+const char* MainBallastStateName(const VesselNavigationHudSnapshot& snapshot) noexcept
+{
+    constexpr float flowThreshold = 1.0e-4F;
+    if (snapshot.mainBallastFlowFractionPerSecond < -flowThreshold)
+    {
+        return "BLOWING";
+    }
+    if (snapshot.mainBallastFlowFractionPerSecond > flowThreshold)
+    {
+        return "FLOODING";
+    }
+    if (snapshot.mainBallastFillFraction <= 1.0e-3F)
+    {
+        return "EMPTY";
+    }
+    if (snapshot.mainBallastFillFraction >= 1.0F - 1.0e-3F)
+    {
+        return "FULL";
+    }
+    return "HOLDING";
+}
+
 std::optional<ImVec2> ProjectWorldToMainViewport(
     const Render::OrthographicCamera& camera,
     const Physics::PhysicsVector3& positionMeters)
@@ -598,8 +620,14 @@ void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot)
                 snapshot.forwardSpeedMetersPerSecond * 1.94384449F,
                 snapshot.forwardSpeedMetersPerSecond);
     ImGui::Text("Buoyancy / trim: %s", BuoyancyTrimStateName(snapshot));
-    ImGui::Text("Main ballast: %.0f%% | Trim: %+0.1f t",
-                snapshot.mainBallastFillFraction * 100.0F, snapshot.trimMassDeltaKg / 1000.0F);
+    ImGui::Text("Main ballast: %.0f%% / %s | Trim: %+0.1f t",
+                snapshot.mainBallastFillFraction * 100.0F,
+                MainBallastStateName(snapshot),
+                snapshot.trimMassDeltaKg / 1000.0F);
+    if (snapshot.mainBallastFlowFractionPerSecond < -1.0e-4F)
+    {
+        ImGui::TextUnformatted("Surface hold (W / LS UP): MAIN BALLAST BLOW");
+    }
     ImGui::Text("Physical mass: %.0f t", snapshot.dynamicMassKg / 1000.0F);
     ImGui::Text("Throttle: %+0.0f%%", snapshot.throttleFraction * 100.0F);
     ImGui::Text("Bow planes: %s", snapshot.bowPlanesDeployed ? "DEPLOYED / FIXED" : "STOWED");

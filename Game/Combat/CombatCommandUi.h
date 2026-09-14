@@ -39,6 +39,7 @@ struct VesselNavigationHudSnapshot final
     float forwardSpeedMetersPerSecond = 0.0F;
     float throttleFraction = 0.0F;
     float mainBallastFillFraction = 1.0F;
+    float mainBallastFlowFractionPerSecond = 0.0F;
     float trimMassDeltaKg = 0.0F;
     float dynamicMassKg = 0.0F;
     bool bowPlanesDeployed = true;
