@@ -485,8 +485,6 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedTogglePeriscopeSequence = 0;
         std::uint64_t consumedVisualIdentifySequence = 0;
         std::uint64_t consumedP700SalvoModeSequence = 0;
-        bool capturedInitial = false;
-        bool capturedLater = false;
         bool loggedHapticSubmissionFailure = false;
         bool loggedFirstAcousticObservation = false;
         bool loggedConfirmedAcousticTrack = false;
@@ -916,7 +914,7 @@ int main(const int argumentCount, char** argumentValues)
              &calmLaunchCameraAssist, &multiScaleCamera,
              &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
              &inputState, &frameCapture, &captureEnabled, &options,
-             &renderFrames, &capturedInitial, &capturedLater, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+             &renderFrames, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const auto& frameState = engineServices->CurrentFrame();
@@ -1225,32 +1223,6 @@ int main(const int argumentCount, char** argumentValues)
                                 engineServices->RequestShutdown();
                             }
                         }
-                    }
-                }
-
-                if (captureEnabled && !options.headless && !options.p700SmokeTest && !capturedInitial && renderFrames == 3)
-                {
-                    std::vector<std::byte> pixels;
-                    std::uint32_t width = 0;
-                    std::uint32_t height = 0;
-                    if (frameCapture.Capture(pixels, width, height))
-                    {
-                        const auto path = std::filesystem::path(
-                            combatPlayground.has_value() ? "m5-normal-local.bmp" : "m3_h1_frame_004.bmp");
-                        capturedInitial = WriteBmp(path, pixels, width, height);
-                        std::cout << "[Game] Captured initial visual frame to " << path.string() << '\n';
-                    }
-                }
-                if (captureEnabled && !options.headless && !options.p700SmokeTest && !capturedLater && renderFrames == 90)
-                {
-                    std::vector<std::byte> pixels;
-                    std::uint32_t width = 0;
-                    std::uint32_t height = 0;
-                    if (frameCapture.Capture(pixels, width, height))
-                    {
-                        const auto path = std::filesystem::path("m3_h1_frame_091.bmp");
-                        capturedLater = WriteBmp(path, pixels, width, height);
-                        std::cout << "[Game] Captured later visual frame to " << path.string() << '\n';
                     }
                 }
 
