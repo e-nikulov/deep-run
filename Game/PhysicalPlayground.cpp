@@ -197,7 +197,9 @@ Assets::ModelTransform PropellerPostTransform(const float radians) noexcept
 constexpr float SternPlaneHydrodynamicPresentationFraction(
     const float bodyForwardSpeedMetersPerSecond) noexcept
 {
-    const float forwardSpeed = bodyForwardSpeedMetersPerSecond < 0.0F`n        ? -bodyForwardSpeedMetersPerSecond`n        : bodyForwardSpeedMetersPerSecond;
+    const float forwardSpeed = bodyForwardSpeedMetersPerSecond < 0.0F
+        ? -bodyForwardSpeedMetersPerSecond
+        : bodyForwardSpeedMetersPerSecond;
     if (forwardSpeed <= M5LowSpeedBallastDepthControl.fullAuthorityBelowForwardSpeedMetersPerSecond)
         return 0.0F;
     if (forwardSpeed >= M5LowSpeedBallastDepthControl.zeroAuthorityAboveForwardSpeedMetersPerSecond)
