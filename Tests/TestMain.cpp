@@ -624,8 +624,10 @@ bool IG1CProductionBuoyancyLayoutIsBoundedAndGameTuned()
                  2.0F * definition->buoyancyProxy.localCenter.x) <= 1.0e-4F;
     const std::string source = ReadFile(std::filesystem::path(DEEPRUN_SOURCE_ROOT) / "Game/PhysicalPlayground.cpp");
     const bool productionSpatialPolicy = source.find("productionBuoyancy.halfExtents.x") != std::string::npos &&
-        source.find("M2GameBuoyancyStabilityOffsetMeters") != std::string::npos &&
-        source.find("M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter") != std::string::npos &&
+        source.find(".y = productionBuoyancy.centerOfBuoyancy.y,") != std::string::npos &&
+        source.find("M5AnteyFullDisplacementVolumeCubicMeters /") != std::string::npos &&
+        source.find("M2GameBuoyancyStabilityOffsetMeters") == std::string::npos &&
+        source.find("M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter") == std::string::npos &&
         source.find("17'400") == std::string::npos;
     return symmetric && productionSpatialPolicy;
 }

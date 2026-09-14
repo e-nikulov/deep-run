@@ -47,8 +47,8 @@ constexpr std::string_view M3SeabedSectionId = "m3_seabed_01";
 constexpr std::string_view M5PrimaryPeriscopeFunctionalRole = "PERISCOPE_PRIMARY";
 constexpr float M5PrimaryPeriscopeDeploymentSeconds = 2.5F; // explicit GAME POLICY, not hardware timing data
 
-// Fully-submerged Project 949A gameplay mass. The public-source basis and displacement-definition caveat live
-// in AnteyHandlingModel.h; collision/buoyancy proxy geometry remains spatial authority only.
+// Fully-submerged Project 949A gameplay mass. AnteyHandlingModel keeps public reference figures distinct
+// from the calibrated physical hydrostatic mass; collision/buoyancy proxy geometry remains spatial authority only.
 constexpr float M2GameAnteyMassTuningKg = Submarine::AnteyCanonicalFullSubmergedMassKg;
 
 // Game-owned M2 environment tuning (Slice D2). These are scenario values for this concrete playground, not
@@ -100,22 +100,35 @@ constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 // IG1-C Game policy: sample the production buoyancy BOX at four deterministic normalized longitudinal
 // positions. The fractions preserve the accepted M2 spacing while removing prototype/world-space metres.
 constexpr std::array<float, 4> M2BuoyancyLongitudinalFractions = {0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
-// One physical displacement model serves both surfaced and submerged states. Fully immersed displacement
-// supports 19,400 t; empty main ballast leaves the public 14,700 t surfaced mass. The calibrated
-// waterplane half-height plus the visual waterline offset yield a 1.742 m body-centre depth.
-// The -0.50 m point-frame offset raises the surfaced hull by exactly 0.50 m while preserving the
-// 19,400 t fully immersed displacement and the accepted waterplane stiffness/transient response.
-constexpr float M2GameBuoyancyStabilityOffsetMeters = -0.50F;
+// One physical displacement model serves both surfaced and submerged states. The public 14,700 t
+// surfaced mass is retained; the fully immersed gameplay displacement is calibrated to the production
+// waterline with no presentation or buoyancy-point offset. Canonical GLB inspection gives the lowest bow-plane
+// vertical point at +2.351550 m and the highest propeller point at +0.973073 m in body space. Therefore a
+// 1.851550 m flat-water body-centre depth leaves the bow planes 0.50 m above water and the propellers
+// approximately 0.878 m below water while the body remains level.
 constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;
 constexpr float M5AnteySurfaceMassKg = Submarine::AnteyPublicSurfaceDisplacementMassKg;
-constexpr float M5AnteySubmergedMassKg = Submarine::AnteyPublicSubmergedDisplacementMassKg;
+constexpr float M5AnteySubmergedMassKg = Submarine::AnteyGameplayFullSubmergedMassKg;
 constexpr float M5AnteyMainBallastCapacityKg = Submarine::AnteyMainBallastWaterCapacityKg;
+constexpr float M5AnteyFullDisplacementVolumeCubicMeters =
+    M5AnteySubmergedMassKg / M2SeaWaterDensityKgPerCubicMeter;
+constexpr float M5ProductionBowPlaneLowestVerticalMeters = 2.351550F;
+constexpr float M5ProductionPropellerHighestVerticalMeters = 0.973073F;
+constexpr float M5SurfaceTargetBowPlaneClearanceMeters = 0.50F;
 constexpr float M5SurfaceEquilibriumSubmergedFraction = M5AnteySurfaceMassKg / M5AnteySubmergedMassKg;
 constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
-    M2GameBuoyancyStabilityOffsetMeters +
     M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
-static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 1.73F &&
-              M5SurfaceEquilibriumBodyCenterDepthMeters < 1.75F);
+constexpr float M5SurfaceBowPlaneClearanceMeters =
+    M5ProductionBowPlaneLowestVerticalMeters - M5SurfaceEquilibriumBodyCenterDepthMeters;
+constexpr float M5SurfacePropellerSubmergenceMeters =
+    M5SurfaceEquilibriumBodyCenterDepthMeters - M5ProductionPropellerHighestVerticalMeters;
+static_assert(M5AnteyFullDisplacementVolumeCubicMeters > 20'119.0F &&
+              M5AnteyFullDisplacementVolumeCubicMeters < 20'120.0F);
+static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 1.84F &&
+              M5SurfaceEquilibriumBodyCenterDepthMeters < 1.86F);
+static_assert(M5SurfaceBowPlaneClearanceMeters > 0.49F &&
+              M5SurfaceBowPlaneClearanceMeters < 0.51F);
+static_assert(M5SurfacePropellerSubmergenceMeters > 0.87F);
 // Exact tank timing remains explicit GAME POLICY in the pure ballast-state controller. Main ballast is not
 // used for ordinary submerged depth changes; the controller only arms normal blowing in the final surface band.
 constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
@@ -344,13 +357,14 @@ Physics::PhysicsVector3 ShiftProductionPointToBodyLocal(
 }
 
 Marine::BuoyancyComponent BuildM2Buoyancy(
-    const Marine::WaterBody& water,
+    const Marine::WaterBody&,
     const Submarine::ProductionBuoyancyDefinition& productionBuoyancy,
     const Submarine::ProductionCollisionDefinition& collision)
 {
-    const float totalDisplacedVolume =
-        M5AnteySubmergedMassKg / water.Config().densityKgPerCubicMeter;
-    const float pointVolume = totalDisplacedVolume / static_cast<float>(M2BuoyancyLongitudinalFractions.size());
+    // Displaced volume is a physical property of the calibrated boat, not recomputed from the current
+    // water density. Density changes therefore correctly change buoyant force rather than silently resizing hull volume.
+    const float pointVolume = M5AnteyFullDisplacementVolumeCubicMeters /
+        static_cast<float>(M2BuoyancyLongitudinalFractions.size());
 
     Marine::BuoyancyComponent component;
     component.points.reserve(M2BuoyancyLongitudinalFractions.size());
@@ -358,7 +372,7 @@ Marine::BuoyancyComponent BuildM2Buoyancy(
     {
         const Assets::ModelVector3 sourcePoint{
             .x = productionBuoyancy.localCenter.x + fraction * productionBuoyancy.halfExtents.x,
-            .y = productionBuoyancy.centerOfBuoyancy.y + M2GameBuoyancyStabilityOffsetMeters,
+            .y = productionBuoyancy.centerOfBuoyancy.y,
             .z = productionBuoyancy.centerOfBuoyancy.z};
         component.points.push_back(Marine::BuoyancyPoint{
             .bodyLocalPositionMeters = {

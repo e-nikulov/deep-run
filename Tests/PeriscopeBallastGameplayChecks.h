@@ -22,9 +22,13 @@ namespace DeepRun::Tests
     constexpr float WeightNewtons = 100'000'000.0F;
     constexpr float SeaWaterDensity = 1025.0F;
     constexpr float SurfaceWaterplaneHalfHeight = 4.35F;
-    const float reserve = AnteyMainBallastWaterCapacityKg / AnteyPublicSurfaceDisplacementMassKg;
-    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyPublicSubmergedDisplacementMassKg;
+    constexpr float ProductionBowPlaneLowestVerticalMeters = 2.351550F;
+    constexpr float ProductionPropellerHighestVerticalMeters = 0.973073F;
+    const float reserve = AnteyGameplayReserveBuoyancyFraction;
+    const float surfacedFraction = AnteyPublicSurfaceDisplacementMassKg / AnteyGameplayFullSubmergedMassKg;
     const float surfaceCenterDepth = SurfaceWaterplaneHalfHeight * (2.0F * surfacedFraction - 1.0F);
+    const float bowPlaneClearance = ProductionBowPlaneLowestVerticalMeters - surfaceCenterDepth;
+    const float propellerSubmergence = surfaceCenterDepth - ProductionPropellerHighestVerticalMeters;
     const float submergedTerminal = std::sqrt(
         2.0F * AnteyGameplayPropulsion.maxForwardThrustNewtons / (SeaWaterDensity * 24.11986F));
     const float surfacedTerminal = std::sqrt(
@@ -36,11 +40,12 @@ namespace DeepRun::Tests
         AnteyMainBallastWaterCapacityKg * 9.81F;
     const float maximumBallastOnlyVertical = std::sqrt(
         2.0F * maximumPositiveBuoyancyNewtons / (SeaWaterDensity * 1800.0F));
-    if (std::abs(reserve - 0.32F) > 0.001F || std::abs(surfaceCenterDepth - 2.242268F) > 0.01F ||
+    if (std::abs(reserve - 0.402875F) > 0.001F || std::abs(surfaceCenterDepth - 1.851550F) > 0.01F ||
+        std::abs(bowPlaneClearance - 0.50F) > 0.01F || propellerSubmergence < 0.87F ||
         std::abs(submergedTerminal - AnteyPublicMaximumSubmergedSpeedMetersPerSecond) > 0.02F ||
         std::abs(surfacedTerminal - AnteyPublicMaximumSurfacedSpeedMetersPerSecond) > 0.02F ||
         std::abs(maximumHydrodynamicVertical - 6.9572F) > 0.03F ||
-        std::abs(maximumBallastOnlyVertical - 7.0697F) > 0.03F)
+        std::abs(maximumBallastOnlyVertical - 7.9359F) > 0.03F)
         return false;
     const AnteyBallastControlConfig ballastStateConfig{};
     const AnteyBallastState fullMainBallast{};
