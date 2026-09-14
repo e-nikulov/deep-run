@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/antey-pacific-visuals.yml
       - Tools/Blender/patch_antey_pacific_visuals.py
+      - Tools/Blender/patch_antey_pacific_followup.py
       - Tools/Blender/patch_antey_pacific_validation_contracts.py
       - Tools/Blender/repair_antey_pacific_visuals.py
       - Tools/Blender/validate_antey_pacific_visuals.py
@@ -36,6 +37,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           python Tools/Blender/patch_antey_pacific_visuals.py
           if ($LASTEXITCODE -ne 0) { throw 'Production visual source patch failed' }
+          python Tools/Blender/patch_antey_pacific_followup.py
+          if ($LASTEXITCODE -ne 0) { throw 'Production visual follow-up patch failed' }
           python Tools/Blender/patch_antey_pacific_validation_contracts.py
           if ($LASTEXITCODE -ne 0) { throw 'Production validation contract patch failed' }
           $physicalPlayground = 'Game/PhysicalPlayground.cpp'
@@ -47,6 +50,7 @@ jobs:
           [System.IO.File]::WriteAllText($physicalPlayground, $physicalPlaygroundText, [System.Text.UTF8Encoding]::new($false))
           python -m py_compile `
             Tools/Blender/patch_antey_pacific_visuals.py `
+            Tools/Blender/patch_antey_pacific_followup.py `
             Tools/Blender/patch_antey_pacific_validation_contracts.py `
             Tools/Blender/repair_antey_pacific_visuals.py `
             Tools/Blender/validate_antey_pacific_visuals.py `
@@ -214,15 +218,25 @@ jobs:
           if ((Get-FileHash 'Content/Weapons/P700/P700_Granit_GameReady.blend' -Algorithm SHA256).Hash -ne $env:P700_BLEND_SHA) { throw 'P700 BLEND changed' }
           if ((Get-FileHash 'Content/Weapons/P700/P700_Granit.glb' -Algorithm SHA256).Hash -ne $env:P700_GLB_SHA) { throw 'P700 GLB changed' }
 
-      - name: Build and test patched production path
+      - name: Configure patched production path
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           cmake --preset windows-debug
           if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+
+      - name: Build patched production path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           cmake --build --preset windows-debug --parallel
           if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
-          ctest --preset windows-debug
+
+      - name: Test patched production path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ctest --preset windows-debug --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
 
       - name: Commit regenerated production visuals
@@ -242,8 +256,10 @@ jobs:
             Content/submarines/Antey/Antey_GameReady.blend `
             Content/submarines/Antey/Antey.glb `
             Content/submarines/Antey/Antey.asset.json `
+            Content/submarines/Antey/Antey.authoring.json `
             Engine/Assets/submarines/Antey/Antey.glb `
-            Engine/Assets/submarines/Antey/Antey.asset.json
+            Engine/Assets/submarines/Antey/Antey.asset.json `
+            Engine/Assets/submarines/Antey/Antey.authoring.json
           git diff --cached --check
           if ($LASTEXITCODE -ne 0) { throw 'Generated diff whitespace validation failed' }
           git status --short
