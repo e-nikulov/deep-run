@@ -1,0 +1,246 @@
+name: Antey Pacific Production Visuals
+
+on:
+  push:
+    branches:
+      - fix/antey-pacific-visuals
+    paths:
+      - .github/workflows/antey-pacific-visuals.yml
+      - Tools/Blender/patch_antey_pacific_visuals.py
+      - Tools/Blender/repair_antey_pacific_visuals.py
+      - Tools/Blender/validate_antey_pacific_visuals.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: antey-pacific-visuals-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    steps:
+      - name: Checkout visual repair branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch production source and renderer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python Tools/Blender/patch_antey_pacific_visuals.py
+          if ($LASTEXITCODE -ne 0) { throw 'Production visual source patch failed' }
+          python -m py_compile `
+            Tools/Blender/patch_antey_pacific_visuals.py `
+            Tools/Blender/repair_antey_pacific_visuals.py `
+            Tools/Blender/validate_antey_pacific_visuals.py `
+            Tools/Blender/build_antey_source_first.py
+          git diff --check
+
+      - name: Capture immutable baselines
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = (Get-FileHash 'Content/submarines/Antey/Source/Antey_Source.blend' -Algorithm SHA256).Hash
+          $p700Blend = (Get-FileHash 'Content/Weapons/P700/P700_Granit_GameReady.blend' -Algorithm SHA256).Hash
+          $p700Glb = (Get-FileHash 'Content/Weapons/P700/P700_Granit.glb' -Algorithm SHA256).Hash
+          "SOURCE_SHA=$source" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "P700_BLEND_SHA=$p700Blend" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "P700_GLB_SHA=$p700Glb" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Download Blender 5.2.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'blender-5.2.1-windows-x64.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'blender-5.2.1'
+          curl.exe -L --fail --retry 4 --retry-delay 5 `
+            -o $zip `
+            https://download.blender.org/release/Blender5.2/blender-5.2.1-windows-x64.zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $blender = Get-ChildItem -Path $dir -Filter blender.exe -Recurse | Select-Object -First 1
+          if (-not $blender) { throw 'Blender 5.2.1 executable not found' }
+          "BLENDER_EXE=$($blender.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $blender.FullName --version
+
+      - name: Repair canonical GameReady visual presentation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path 'artifacts/antey-pacific' | Out-Null
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/repair_antey_pacific_visuals.py' `
+            -- `
+            --input 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --output 'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            --report 'artifacts/antey-pacific/repair.json'
+          if ($LASTEXITCODE -ne 0) { throw "Antey visual repair failed: $LASTEXITCODE" }
+          Get-Content -Raw 'artifacts/antey-pacific/repair.json'
+
+      - name: Validate smooth shading and production paint contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_pacific_visuals.py' `
+            -- `
+            --candidate 'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            --output 'artifacts/antey-pacific/visual-contract.json'
+          if ($LASTEXITCODE -ne 0) { throw "Antey visual contract failed: $LASTEXITCODE" }
+
+      - name: Source-first geometry regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_source_first.py' `
+            -- `
+            --candidate 'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            --output 'artifacts/antey-pacific/source-first.json'
+          if ($LASTEXITCODE -ne 0) { throw "Source-first regression failed: $LASTEXITCODE" }
+
+      - name: Mechanical regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_final_mechanical.py' `
+            -- `
+            --candidate 'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --output 'artifacts/antey-pacific/final-mechanical.json'
+          if ($LASTEXITCODE -ne 0) { throw "Mechanical regression failed: $LASTEXITCODE" }
+
+      - name: Stern and Ventral regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_exterior_continuity.py' `
+            -- `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --candidate 'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            --selected-geometry 'Content/submarines/Antey/selected_geometry.txt' `
+            --output 'artifacts/antey-pacific/exterior-continuity.json'
+          if ($LASTEXITCODE -ne 0) { throw "Exterior continuity regression failed: $LASTEXITCODE" }
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_antey_ventral_selected_geometry.py' `
+            -- `
+            --candidate 'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            --selection 'Content/submarines/Antey/selected_geometry_ventral.txt' `
+            --output 'artifacts/antey-pacific/ventral-selected-surface.json'
+          if ($LASTEXITCODE -ne 0) { throw "Ventral selected-surface regression failed: $LASTEXITCODE" }
+
+      - name: Promote visual candidate to GameReady
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Copy-Item -Force `
+            'artifacts/antey-pacific/Antey_PacificVisual_candidate.blend' `
+            'Content/submarines/Antey/Antey_GameReady.blend'
+
+      - name: Export fresh runtime GLB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --python 'Tools/Blender/export_runtime_glb.py' `
+            -- `
+            --output 'Content/submarines/Antey/Antey.glb' `
+            --lod 0 `
+            --animation-contract none
+          if ($LASTEXITCODE -ne 0) { throw "Runtime GLB export failed: $LASTEXITCODE" }
+
+      - name: Fresh-import runtime GLB validation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background `
+            --python 'Tools/Blender/validate_runtime_glb.py' `
+            -- `
+            --glb 'Content/submarines/Antey/Antey.glb' `
+            --output 'artifacts/antey-pacific/runtime-glb.json' `
+            --asset antey
+          if ($LASTEXITCODE -ne 0) { throw "Runtime GLB validation failed: $LASTEXITCODE" }
+
+      - name: Regenerate production sidecars and mirror runtime assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --python 'Tools/Blender/write_production_sidecars.py' `
+            -- `
+            --asset antey `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --glb 'Content/submarines/Antey/Antey.glb' `
+            --asset-json 'Content/submarines/Antey/Antey.asset.json' `
+            --authoring-json 'Content/submarines/Antey/Antey.authoring.json'
+          if ($LASTEXITCODE -ne 0) { throw "Sidecar regeneration failed: $LASTEXITCODE" }
+          Copy-Item -Force 'Content/submarines/Antey/Antey.glb' 'Engine/Assets/submarines/Antey/Antey.glb'
+          Copy-Item -Force 'Content/submarines/Antey/Antey.asset.json' 'Engine/Assets/submarines/Antey/Antey.asset.json'
+          Copy-Item -Force 'Content/submarines/Antey/Antey.authoring.json' 'Engine/Assets/submarines/Antey/Antey.authoring.json'
+
+      - name: Verify immutable source and P700
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((Get-FileHash 'Content/submarines/Antey/Source/Antey_Source.blend' -Algorithm SHA256).Hash -ne $env:SOURCE_SHA) { throw 'Immutable Antey source changed' }
+          if ((Get-FileHash 'Content/Weapons/P700/P700_Granit_GameReady.blend' -Algorithm SHA256).Hash -ne $env:P700_BLEND_SHA) { throw 'P700 BLEND changed' }
+          if ((Get-FileHash 'Content/Weapons/P700/P700_Granit.glb' -Algorithm SHA256).Hash -ne $env:P700_GLB_SHA) { throw 'P700 GLB changed' }
+
+      - name: Build and test patched production path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --preset windows-debug
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+          cmake --build --preset windows-debug --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          ctest --preset windows-debug
+          if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+
+      - name: Commit regenerated production visuals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add `
+            Tools/Blender/build_antey_source_first.py `
+            Shaders/Model.hlsl `
+            Shaders/PostProcess/ToneMap.hlsl `
+            Game/PhysicalPlayground.cpp `
+            Game/WaterPresentation.h `
+            Content/submarines/Antey/Antey_GameReady.blend `
+            Content/submarines/Antey/Antey.glb `
+            Content/submarines/Antey/Antey.asset.json `
+            Content/submarines/Antey/Antey.authoring.json `
+            Engine/Assets/submarines/Antey/Antey.glb `
+            Engine/Assets/submarines/Antey/Antey.asset.json `
+            Engine/Assets/submarines/Antey/Antey.authoring.json
+          git diff --cached --check
+          git status --short
+          if (git diff --cached --quiet) { throw 'No production visual changes were generated' }
+          git commit -m 'fix: smooth Antey and tune Pacific underwater visuals'
+          git push origin HEAD:fix/antey-pacific-visuals
+
+      - name: Upload visual repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: antey-pacific-production-visuals
+          if-no-files-found: warn
+          path: artifacts/antey-pacific/**
