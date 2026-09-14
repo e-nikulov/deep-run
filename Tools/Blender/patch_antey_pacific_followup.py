@@ -65,9 +65,29 @@ def patch_black_preserving_dither() -> None:
     )
 
 
+def patch_deep_water_gradient() -> None:
+    presentation = ROOT / "Game" / "Environment" / "ScalableEnvironmentPresentation.h"
+    replace_once(
+        presentation,
+        "    constexpr std::size_t BandCount = 32U;\n",
+        "    // ClearRect is currently the renderer-neutral fallback for this gradient. 32 discrete bands were\n"
+        "    // themselves visible as colour stairs even on a 10-bit display; 256 keeps each scene-linear step\n"
+        "    // below the presentation quantization scale without changing simulation or bathymetry authority.\n"
+        "    constexpr std::size_t BandCount = 256U;\n",
+    )
+
+    checks = ROOT / "Tests" / "M5ScalableEnvironmentPresentationChecks.h"
+    replace_once(
+        checks,
+        "abyssBands->size() != 32U",
+        "abyssBands->size() != 256U",
+    )
+
+
 def main() -> None:
     patch_source_first_builder()
     patch_black_preserving_dither()
+    patch_deep_water_gradient()
     print("Antey Pacific visual follow-up patch: PASS")
 
 
