@@ -75,8 +75,25 @@ namespace DeepRun::Tests
     const auto granitTooFast = at(
         P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 0.0F, 0.0F, KnotsToMetersPerSecond(5.1F));
     const auto granitSubmergedTarget = at(P700GranitEmploymentEnvelope, 40.0F, 120'000.0F, 30.0F, 0.0F, 0.0F);
-    return granitNominal.allowed && granitSurfaceLaunch.allowed && !granitTooDeep.allowed && !granitTooClose.allowed &&
-           !granitTooFar.allowed && !granitWrongSector.allowed && !granitTooFast.allowed && !granitSubmergedTarget.allowed &&
-           RunD2CombatKnowledgeSalvoChecks();
+    if (!granitNominal.allowed || !granitSurfaceLaunch.allowed || granitTooDeep.allowed || granitTooClose.allowed ||
+        granitTooFar.allowed || granitWrongSector.allowed || granitTooFast.allowed || granitSubmergedTarget.allowed)
+    {
+        return false;
+    }
+
+    // Normal-play scenario contract: the player starts at 50 m and the long-range surface combatant starts
+    // at 25 km. This keeps USET-80 deliberately outside its 18 km range while both 65-76A profiles and P-700
+    // are inside their range/depth envelopes. The check protects the intended weapon-selection teaching case.
+    const auto normalStartUset = at(Uset80EmploymentEnvelope, 50.0F, 25'000.0F, 2.0F, 0.0F, 0.0F);
+    const auto normalStart6576Fast = at(Type6576AFastEmploymentEnvelope, 50.0F, 25'000.0F, 2.0F, 0.0F, 0.0F);
+    const auto normalStart6576Economy = at(Type6576AEconomyEmploymentEnvelope, 50.0F, 25'000.0F, 2.0F, 0.0F, 0.0F);
+    const auto normalStartP700 = at(P700GranitEmploymentEnvelope, 50.0F, 25'000.0F, 2.0F, 0.0F, 0.0F);
+    if (normalStartUset.allowed || !normalStart6576Fast.allowed || !normalStart6576Economy.allowed ||
+        !normalStartP700.allowed)
+    {
+        return false;
+    }
+
+    return RunD2CombatKnowledgeSalvoChecks();
 }
 } // namespace DeepRun::Tests
