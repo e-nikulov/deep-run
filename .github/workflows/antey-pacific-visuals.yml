@@ -235,9 +235,16 @@ jobs:
       - name: Test patched production path
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          ctest --preset windows-debug --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+          $ErrorActionPreference = 'Continue'
+          $ctestLines = & ctest --preset windows-debug --output-on-failure 2>&1
+          $ctestExit = $LASTEXITCODE
+          $ctestLines | Set-Content -Path 'artifacts/antey-pacific/ctest-output.log' -Encoding utf8
+          $ctestLines | ForEach-Object { Write-Host $_ }
+          $lastTest = Get-Item 'out/build/windows-debug/Testing/Temporary/LastTest.log' -ErrorAction SilentlyContinue
+          if ($lastTest) {
+            Copy-Item -Force $lastTest.FullName 'artifacts/antey-pacific/LastTest.log'
+          }
+          if ($ctestExit -ne 0) { throw "CTest failed: $ctestExit" }
 
       - name: Commit regenerated production visuals
         shell: pwsh
