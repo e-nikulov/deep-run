@@ -125,18 +125,22 @@ add_custom_target(DeepRunShaders ALL
 )
 
 set(DEEPRUN_ANTEY_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Content/submarines/Antey")
-set(DEEPRUN_ANTEY_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/submarines/Antey")
+# Runtime promotion belongs in the build tree. Never generate/copy production assets into the source tree.
+set(DEEPRUN_ANTEY_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/RuntimeAssets/submarines/Antey")
 set(DEEPRUN_ANTEY_RUNTIME_FILES
     "${DEEPRUN_ANTEY_RUNTIME_DIR}/Antey.glb"
     "${DEEPRUN_ANTEY_RUNTIME_DIR}/Antey.asset.json"
     "${DEEPRUN_ANTEY_RUNTIME_DIR}/Antey.authoring.json"
 )
+set(DEEPRUN_ANTEY_RUNTIME_STAMP "${DEEPRUN_ANTEY_RUNTIME_DIR}/.staged")
 add_custom_command(
-    OUTPUT ${DEEPRUN_ANTEY_RUNTIME_FILES}
+    OUTPUT "${DEEPRUN_ANTEY_RUNTIME_STAMP}"
+    BYPRODUCTS ${DEEPRUN_ANTEY_RUNTIME_FILES}
     COMMAND ${CMAKE_COMMAND}
         -DDEEPRUN_ANTEY_SOURCE_DIR=${DEEPRUN_ANTEY_SOURCE_DIR}
         -DDEEPRUN_ANTEY_DESTINATION_DIR=${DEEPRUN_ANTEY_RUNTIME_DIR}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageAnteyRuntime.cmake"
+    COMMAND ${CMAKE_COMMAND} -E touch "${DEEPRUN_ANTEY_RUNTIME_STAMP}"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageAnteyRuntime.cmake"
         "${DEEPRUN_ANTEY_SOURCE_DIR}/Antey.glb"
@@ -144,21 +148,25 @@ add_custom_command(
         "${DEEPRUN_ANTEY_SOURCE_DIR}/Antey.authoring.json"
     VERBATIM
 )
-add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS ${DEEPRUN_ANTEY_RUNTIME_FILES})
+add_custom_target(DeepRunAnteyRuntimeAssets DEPENDS "${DEEPRUN_ANTEY_RUNTIME_STAMP}")
 
 set(DEEPRUN_P700_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Content/Weapons/P700")
-set(DEEPRUN_P700_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Engine/Assets/Weapons/P700")
+# Same rule for P-700: Content is canonical; generated runtime staging is build output only.
+set(DEEPRUN_P700_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/RuntimeAssets/Weapons/P700")
 set(DEEPRUN_P700_RUNTIME_FILES
     "${DEEPRUN_P700_RUNTIME_DIR}/P700_Granit.glb"
     "${DEEPRUN_P700_RUNTIME_DIR}/P700.asset.json"
     "${DEEPRUN_P700_RUNTIME_DIR}/P700.authoring.json"
 )
+set(DEEPRUN_P700_RUNTIME_STAMP "${DEEPRUN_P700_RUNTIME_DIR}/.staged")
 add_custom_command(
-    OUTPUT ${DEEPRUN_P700_RUNTIME_FILES}
+    OUTPUT "${DEEPRUN_P700_RUNTIME_STAMP}"
+    BYPRODUCTS ${DEEPRUN_P700_RUNTIME_FILES}
     COMMAND ${CMAKE_COMMAND}
         -DDEEPRUN_P700_SOURCE_DIR=${DEEPRUN_P700_SOURCE_DIR}
         -DDEEPRUN_P700_DESTINATION_DIR=${DEEPRUN_P700_RUNTIME_DIR}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageP700Runtime.cmake"
+    COMMAND ${CMAKE_COMMAND} -E touch "${DEEPRUN_P700_RUNTIME_STAMP}"
     DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageP700Runtime.cmake"
         "${DEEPRUN_P700_SOURCE_DIR}/P700_Granit.glb"
@@ -166,7 +174,7 @@ add_custom_command(
         "${DEEPRUN_P700_SOURCE_DIR}/P700.authoring.json"
     VERBATIM
 )
-add_custom_target(DeepRunP700RuntimeAssets DEPENDS ${DEEPRUN_P700_RUNTIME_FILES})
+add_custom_target(DeepRunP700RuntimeAssets DEPENDS "${DEEPRUN_P700_RUNTIME_STAMP}")
 
 add_library(DeepRunEngine STATIC
     Engine/Assets/AssetManager.cpp

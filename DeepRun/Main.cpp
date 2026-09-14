@@ -1048,11 +1048,18 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
                         return false;
                     }
-                    if (combatRendered->stats.drawCalls < 2U || combatRendered->stats.drawCalls > 20U ||
-                        combatRendered->stats.submittedPrimitives != combatRendered->stats.drawCalls ||
-                        combatRendered->stats.submittedIndices < 72U)
+                    // CombatPlaygroundView owns asset-specific draw validation. In normal gameplay D2 fog-of-war
+                    // may legitimately hide every hostile/civilian presentation before visual classification, so
+                    // zero combat draws is a valid frame. Keep only representation-independent accounting here.
+                    const bool noCombatDraws = combatRendered->stats.drawCalls == 0U;
+                    if (combatRendered->stats.submittedPrimitives != combatRendered->stats.drawCalls ||
+                        (noCombatDraws ? combatRendered->stats.submittedIndices != 0U
+                                       : combatRendered->stats.submittedIndices == 0U))
                     {
-                        std::cerr << "[Game][ERROR] M5 combat presentation draw statistics are invalid\n";
+                        std::cerr << "[Game][ERROR] M5 combat presentation draw accounting is invalid: drawCalls="
+                                  << combatRendered->stats.drawCalls
+                                  << ", submittedPrimitives=" << combatRendered->stats.submittedPrimitives
+                                  << ", submittedIndices=" << combatRendered->stats.submittedIndices << '\n';
                         return false;
                     }
                     if (!options.smokeTest && !options.p700SmokeTest && combatUiSnapshot.has_value())
