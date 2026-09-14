@@ -101,9 +101,11 @@ constexpr float M3SurfaceFloatBalanceRelativeTolerance = 1.0e-4F;
 // positions. The fractions preserve the accepted M2 spacing while removing prototype/world-space metres.
 constexpr std::array<float, 4> M2BuoyancyLongitudinalFractions = {0.5F, 1.0F / 6.0F, -1.0F / 6.0F, -0.5F};
 // One physical displacement model serves both surfaced and submerged states. Fully immersed displacement
-// supports 19,400 t; empty main ballast leaves the public 14,700 t surfaced mass. With the calibrated
-// waterplane half-height the resulting flat-water equilibrium is 2.242 m body-centre depth.
-constexpr float M2GameBuoyancyStabilityOffsetMeters = 0.0F;
+// supports 19,400 t; empty main ballast leaves the public 14,700 t surfaced mass. The calibrated
+// waterplane half-height plus the visual waterline offset yield a 1.742 m body-centre depth.
+// The -0.50 m point-frame offset raises the surfaced hull by exactly 0.50 m while preserving the
+// 19,400 t fully immersed displacement and the accepted waterplane stiffness/transient response.
+constexpr float M2GameBuoyancyStabilityOffsetMeters = -0.50F;
 constexpr float M2BuoyancySubmersionHalfHeightMeters = 4.35F;
 constexpr float M5AnteySurfaceMassKg = Submarine::AnteyPublicSurfaceDisplacementMassKg;
 constexpr float M5AnteySubmergedMassKg = Submarine::AnteyPublicSubmergedDisplacementMassKg;
@@ -112,8 +114,8 @@ constexpr float M5SurfaceEquilibriumSubmergedFraction = M5AnteySurfaceMassKg / M
 constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
     M2GameBuoyancyStabilityOffsetMeters +
     M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
-static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.23F &&
-              M5SurfaceEquilibriumBodyCenterDepthMeters < 2.25F);
+static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 1.73F &&
+              M5SurfaceEquilibriumBodyCenterDepthMeters < 1.75F);
 // Exact tank timing remains explicit GAME POLICY in the pure ballast-state controller. Main ballast is not
 // used for ordinary submerged depth changes; the controller only arms normal blowing in the final surface band.
 constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
