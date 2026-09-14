@@ -253,6 +253,8 @@ jobs:
             Shaders/PostProcess/ToneMap.hlsl `
             Game/PhysicalPlayground.cpp `
             Game/WaterPresentation.h `
+            Game/Environment/ScalableEnvironmentPresentation.h `
+            Tests/M5ScalableEnvironmentPresentationChecks.h `
             Content/submarines/Antey/Antey_GameReady.blend `
             Content/submarines/Antey/Antey.glb `
             Content/submarines/Antey/Antey.asset.json `
