@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Game/Submarine/AnteyAcousticModel.h"
+#include "Simulation/Acoustics/AcousticWorld.h"
 #include "Simulation/Weapons/WeaponEmploymentEnvelope.h"
 #include "Tests/D2CombatKnowledgeSalvoChecks.h"
 
@@ -90,6 +92,36 @@ namespace DeepRun::Tests
     const auto normalStartP700 = at(P700GranitEmploymentEnvelope, 50.0F, 25'000.0F, 2.0F, 0.0F, 0.0F);
     if (normalStartUset.allowed || !normalStart6576Fast.allowed || !normalStart6576Economy.allowed ||
         !normalStartP700.allowed)
+    {
+        return false;
+    }
+
+    // The far contact must still be a real passive-acoustic contact, not a presentation-only target marker.
+    // Preserve propagation delay: before the ~16.7 s one-way arrival there is no observation; after arrival the
+    // 25 km destroyer tuning is detectable, but passive evidence still carries no free range estimate.
+    const auto acousticWorld = Acoustics::AcousticWorld::Create({});
+    const Acoustics::AcousticSpectrum normalAmbientNoiseDb{.levelDb = {43.0F, 41.0F, 39.0F, 37.0F}};
+    const auto anteySnapshot = Game::Submarine::BuildAnteyAcousticSnapshot(
+        Game::Submarine::AnteyAcousticRuntimeState{
+            .bodyReferencePositionMeters = {0.0F, -50.0F, 0.0F},
+            .linearVelocityMetersPerSecond = {},
+            .shaftRpm = 0.0F,
+            .signedDepthMeters = 50.0F},
+        normalAmbientNoiseDb);
+    if (!acousticWorld || !anteySnapshot)
+    {
+        return false;
+    }
+    const Acoustics::AcousticEmission farDestroyerEmission{
+        .positionMeters = {25'000.0F, -2.0F, 0.0F},
+        .sourceLevelDb = {.levelDb = {145.0F, 141.0F, 136.0F, 130.0F}},
+        .emissionTimeSeconds = 0.0};
+    const auto beforeArrival = acousticWorld->CollectPassiveDirectObservation(
+        farDestroyerEmission, anteySnapshot->passiveReceiver, 16.0);
+    const auto afterArrival = acousticWorld->CollectPassiveDirectObservation(
+        farDestroyerEmission, anteySnapshot->passiveReceiver, 17.0);
+    if (!beforeArrival || beforeArrival->has_value() || !afterArrival || !afterArrival->has_value() ||
+        afterArrival->value().estimatedRangeMeters.has_value())
     {
         return false;
     }
