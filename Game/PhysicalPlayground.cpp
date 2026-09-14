@@ -194,6 +194,21 @@ Assets::ModelTransform PropellerPostTransform(const float radians) noexcept
     return transform;
 }
 
+constexpr float SternPlaneHydrodynamicPresentationFraction(
+    const float bodyForwardSpeedMetersPerSecond) noexcept
+{
+    const float forwardSpeed = std::abs(bodyForwardSpeedMetersPerSecond);
+    if (forwardSpeed <= M5LowSpeedBallastDepthControl.fullAuthorityBelowForwardSpeedMetersPerSecond)
+        return 0.0F;
+    if (forwardSpeed >= M5LowSpeedBallastDepthControl.zeroAuthorityAboveForwardSpeedMetersPerSecond)
+        return 1.0F;
+
+    const float span = M5LowSpeedBallastDepthControl.zeroAuthorityAboveForwardSpeedMetersPerSecond -
+                       M5LowSpeedBallastDepthControl.fullAuthorityBelowForwardSpeedMetersPerSecond;
+    return (forwardSpeed - M5LowSpeedBallastDepthControl.fullAuthorityBelowForwardSpeedMetersPerSecond) /
+           span;
+}
+
 constexpr float SternPlaneVisualRadians(const float committedDeflectionFraction) noexcept
 {
     const float normalized = M2MaximumPlaneDeflection > 0.0F
@@ -202,6 +217,11 @@ constexpr float SternPlaneVisualRadians(const float committedDeflectionFraction)
     return normalized * M5DepthPlaneVisualMaximumRadians;
 }
 
+static_assert(SternPlaneHydrodynamicPresentationFraction(0.0F) == 0.0F);
+static_assert(SternPlaneHydrodynamicPresentationFraction(
+                  M5LowSpeedBallastDepthControl.fullAuthorityBelowForwardSpeedMetersPerSecond) == 0.0F);
+static_assert(SternPlaneHydrodynamicPresentationFraction(
+                  M5LowSpeedBallastDepthControl.zeroAuthorityAboveForwardSpeedMetersPerSecond) == 1.0F);
 static_assert(SternPlaneVisualRadians(-M2MaximumPlaneDeflection) < 0.0F);
 static_assert(SternPlaneVisualRadians(M2MaximumPlaneDeflection) > 0.0F);
 
@@ -1750,13 +1770,17 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     surfaceFloatDraw.normalToWorld = *surfaceFloatNormal;
 
     // Production bow planes are deployment-only and therefore receive no rotation override. Stern planes
-    // alone articulate from committed simulation state. The primary periscope replaces its default stowed
-    // sail-device transform with the bounded deployment animation driven by gameplay periscope state.
+    // visually articulate only when longitudinal water flow gives them hydrodynamic authority. At low/zero
+    // speed the ballast/trim controller owns rise/sink motion, so the stern planes return to neutral instead
+    // of mirroring the Depth command while the boat is moving vertically in place. The crossover deliberately
+    // matches the existing low-speed ballast-authority blend and changes presentation only.
     std::vector<Render::ModelNodeTransformOverride> submarineNodeOverrides = submergedSailDeviceOverrides_;
     submarineNodeOverrides.reserve(
         submarineNodeOverrides.size() + depthPlaneMeshNodeIndices_[M2SternPlaneIndex].size());
+    const float sternPresentationDeflection = committedSternPlaneDeflection_ *
+        SternPlaneHydrodynamicPresentationFraction(committedForwardSpeedMetersPerSecond_);
     const Assets::ModelTransform sternPostTransform =
-        SternPlanePostTransform(committedSternPlaneDeflection_);
+        SternPlanePostTransform(sternPresentationDeflection);
     for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[M2SternPlaneIndex])
     {
         submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = sternPostTransform});
