@@ -17,7 +17,7 @@ The player must also make a tactically meaningful choice between remaining subme
 
 ## Physical ballast / hydrostatic authority
 
-Deep Run uses one Archimedean model across surfaced and submerged operation. The production player submarine is explicitly Project 949A `Antey` / Oscar II. Runtime hydrostatics now use the RussianShips Project 949A displacement pair directly: **14,820 t surfaced / 19,254 t submerged**. Deepstorm/Apalkov's 14,700 / 19,400 (24,000?) t and other conflicting public pairs remain reference/provenance data rather than a second physics authority. Main-ballast mass delta is **4,434 t** (~29.92% of surfaced displacement); at 1025 kg/m^3 the fixed full displaced volume is ~**18,784.390 m^3**. Jolt rigid-body mass and inertia change with ballast fill and with weapons physically leaving the boat. With no buoyancy-point/render/body offset and no visual waterline target, empty main ballast settles naturally at ~**2.34648 m** body-reference depth under the existing production waterplane response; full main ballast is neutrally buoyant when fully immersed. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed only in the final near-surface band, while a dive command floods any partly empty main ballast.
+Deep Run uses one Archimedean model across surfaced and submerged operation. The production player submarine is explicitly Project 949A `Antey` / Oscar II. Runtime hydrostatics now use the RussianShips Project 949A displacement pair directly: **14,820 t surfaced / 19,254 t submerged**. Deepstorm/Apalkov's 14,700 / 19,400 (24,000?) t and other conflicting public pairs remain reference/provenance data rather than a second physics authority. Main-ballast mass delta is **4,434 t** (~29.92% of surfaced displacement); at 1025 kg/m^3 the fixed full displaced volume is ~**18,784.390 m^3**. Jolt rigid-body mass and inertia change with ballast fill and with weapons physically leaving the boat. With no buoyancy-point/render/body offset and no visual waterline target, empty main ballast settles naturally at ~**2.34648 m** body-reference depth under the existing production waterplane response; full main ballast is neutrally buoyant when fully immersed. There is no surfaced-mode buoyancy switch and no reserve-compensation vertical force. In ordinary submerged manoeuvring the main ballast remains flooded: quiet depth changes use bounded trim-water mass at low speed and the stern planes at hydrodynamic speed. Normal main-ballast blowing is armed in the final near-surface band. To prevent a surface-command deadlock, continuing Surface also starts the blow if low-speed trim has actually reached its maximum-buoyancy limit and the controller still requests that same maximum; a normal deep ascent that is still making vertical progress therefore does not blow main ballast. A dive command floods any partly empty main ballast.
 
 Exact Project 949A flood/blow timing is not asserted from public data; the current 40 s full-range transition is explicit GAME POLICY. Small low-speed trim authority is represented as bounded equivalent water mass, not as a direct vertical force. Weapon launches reduce rigid-body mass by the expended P-700/torpedo round mass; dedicated compensation water restores that mass with a finite 2.8 t/s GAME-policy slew while keeping hull displaced volume fixed. Full-ahead propulsion and immersion-dependent quadratic drag are calibrated to the public 32 kn submerged / 15 kn surfaced canonical without hard velocity clamps. Public sources do not provide a trustworthy Project-949A-specific maximum vertical rate; generic open literature for nuclear submarines quotes roughly 6–9 m/s, so Deep Run does not label that range as an Antey-specific TTX. The current source-first 19,254 t model independently produces ~6.87 m/s as the still-water terminal rise under maximum positive buoyancy and ~6.96 m/s as the 32 kn / 25-degree full-command hydrodynamic trajectory.
 
@@ -32,7 +32,7 @@ At ordinary forward speed, only the stern horizontal planes provide hydrodynamic
 
 At low forward speed a Game-owned trim controller requests a bounded **equivalent water-mass change** rather than applying a vertical force. At higher speed that trim authority fades and the stern horizontal planes carry the manoeuvre. Main-ballast fill is physical mass state: with full configured combat load, empty is 14,820 t and full is the source-backed 19,254 t Project 949A submerged mass. Successful weapon launches subtract real ordnance mass until compensation water replaces it.
 
-- submerged surface intent -> reduce bounded trim-water mass; sustained intent in the final surface band may then blow main ballast;
+- submerged surface intent -> reduce bounded trim-water mass; sustained intent in the final surface band may then blow main ballast, and saturated/stalled maximum-buoyancy trim escalates to main-ballast blow even if the boat stalls just outside that band;
 - submerged dive intent -> increase bounded trim-water mass while the filled main ballast stays filled; from a surfaced/partly blown state the same intent floods main ballast;
 - neutral depth input -> trim target returns toward neutral and residual vertical motion is arrested by physical drag plus finite trim-mass correction;
 - low-speed trim authority fades continuously as forward speed rises;
@@ -48,7 +48,7 @@ This is a gameplay-level physical ballast model. It intentionally **does not** c
 - Jolt remains motion, mass and inertia authority;
 - WaterBody remains depth and displaced-water authority;
 - main-ballast/trim commands change physical rigid-body mass with finite GAME-policy rates;
-- ordinary deep/periscope-depth commands do not blow the main ballast tanks;
+- ordinary deep/periscope-depth commands do not blow the main ballast tanks while bounded trim still has effective authority; a held Surface command may escalate only after maximum-buoyancy trim is saturated and still demanded;
 - buoyancy is produced only by displaced water through `BuoyancySystem`;
 - with full main ballast the fully immersed 19,254 t Project 949A source state is neutrally buoyant;
 - with empty main ballast the 14,820 t Project 949A source state settles naturally at ~2.34648 m body-reference depth in flat water;
@@ -60,7 +60,9 @@ This is a gameplay-level physical ballast model. It intentionally **does not** c
 
 ### Navigation HUD contract
 
-The normal NAV HUD exposes the committed simulation state in player-readable terms, including actual axial speed, main-ballast fill percentage, signed trim-water mass and total physical mass, plus expended-ordnance / weapon-compensation water mass and the semantic trim state:
+The normal NAV HUD exposes the committed simulation state in player-readable terms, including actual axial speed, main-ballast fill percentage, live main-ballast state (`FULL`, `BLOWING`, `FLOODING`, `HOLDING`, `EMPTY`), signed trim-water mass and total physical mass, plus expended-ordnance / weapon-compensation water mass and the semantic trim state. While Surface is held and main ballast is actively blowing, the HUD explicitly shows `Surface hold (W / LS UP): MAIN BALLAST BLOW`.
+
+The semantic trim state remains:
 
 - `INCREASING BUOYANCY`;
 - `STABILIZING`;

@@ -13,8 +13,10 @@ namespace DeepRun::Game::Submarine
 // GAME POLICY around the calibrated runtime hydrostatic masses. Exact tank/pump/blow timing is not asserted.
 struct AnteyBallastControlConfig final
 {
-    // Main ballast stays flooded during ordinary submerged depth changes. A sustained surface command may
-    // begin normal blowing only in the final near-surface band; once partly blown, the operation may continue.
+    // Main ballast stays flooded during ordinary submerged depth changes. A sustained surface command begins
+    // normal blowing in the final near-surface band. Deadlock fallback: if low-speed trim is already at
+    // maximum buoyancy and the controller still requests that same maximum, continuing Surface also starts
+    // the blow. Once partly blown, the operation may continue while Surface remains commanded.
     float mainBallastBlowArmDepthMeters = 3.0F;
     float mainBallastFillRateFractionPerSecond = 0.025F; // empty -> full in 40 s at full Dive command
     float mainBallastBlowRateFractionPerSecond = 0.025F; // full -> empty in 40 s at full Surface command
@@ -86,6 +88,16 @@ struct AnteyBallastState final
     }
 
     AnteyBallastState next = current;
+    const float trimTargetKg = std::clamp(
+        requestedTrimMassDeltaKg,
+        -config.maximumTrimMassKg,
+        config.maximumTrimMassKg);
+    constexpr float TrimSaturationToleranceKg = 1.0F;
+    const bool surfaceCommandHeld = depthCommandFraction < -config.depthCommandDeadzone;
+    const bool surfaceTrimSaturated =
+        current.trimMassDeltaKg <= -config.maximumTrimMassKg + TrimSaturationToleranceKg &&
+        trimTargetKg <= -config.maximumTrimMassKg + TrimSaturationToleranceKg;
+
     if (depthCommandFraction > config.depthCommandDeadzone && current.mainBallastFillFraction < 1.0F)
     {
         next.mainBallastFillFraction = std::clamp(
@@ -94,9 +106,10 @@ struct AnteyBallastState final
             0.0F,
             1.0F);
     }
-    else if (depthCommandFraction < -config.depthCommandDeadzone &&
+    else if (surfaceCommandHeld &&
              (current.mainBallastFillFraction < 1.0F ||
-              signedDepthMeters <= config.mainBallastBlowArmDepthMeters))
+              signedDepthMeters <= config.mainBallastBlowArmDepthMeters ||
+              surfaceTrimSaturated))
     {
         next.mainBallastFillFraction = std::clamp(
             current.mainBallastFillFraction +
@@ -104,11 +117,6 @@ struct AnteyBallastState final
             0.0F,
             1.0F);
     }
-
-    const float trimTargetKg = std::clamp(
-        requestedTrimMassDeltaKg,
-        -config.maximumTrimMassKg,
-        config.maximumTrimMassKg);
     const float maximumTrimStepKg =
         (config.maximumTrimMassKg / config.trimFullRangeResponseSeconds) * fixedDeltaSeconds;
     const float trimDifferenceKg = trimTargetKg - current.trimMassDeltaKg;

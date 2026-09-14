@@ -58,12 +58,19 @@ namespace DeepRun::Tests
         ballastStateConfig, fullMainBallast, -1.0F, 100.0F, -100'000.0F, 0.0F, 1.0F);
     const auto nearSurfaceBallast = AdvanceAnteyBallastState(
         ballastStateConfig, fullMainBallast, -1.0F, 2.5F, -100'000.0F, 0.0F, 1.0F);
+    const AnteyBallastState saturatedSurfaceTrim{
+        .mainBallastFillFraction = 1.0F,
+        .trimMassDeltaKg = -ballastStateConfig.maximumTrimMassKg};
+    const auto stalledSurfaceBallast = AdvanceAnteyBallastState(
+        ballastStateConfig, saturatedSurfaceTrim, -1.0F, 4.2F,
+        -ballastStateConfig.maximumTrimMassKg, 0.0F, 1.0F);
     const AnteyBallastState partlyBlown{.mainBallastFillFraction = 0.5F, .trimMassDeltaKg = 0.0F};
     const auto diveFromSurfaceBallast = AdvanceAnteyBallastState(
         ballastStateConfig, partlyBlown, 1.0F, 2.0F, 100'000.0F, 0.0F, 1.0F);
-    if (!deepSurfaceBallast || !nearSurfaceBallast || !diveFromSurfaceBallast ||
+    if (!deepSurfaceBallast || !nearSurfaceBallast || !stalledSurfaceBallast || !diveFromSurfaceBallast ||
         std::abs(deepSurfaceBallast->mainBallastFillFraction - 1.0F) > 1.0e-6F ||
         !(nearSurfaceBallast->mainBallastFillFraction < 1.0F) ||
+        !(stalledSurfaceBallast->mainBallastFillFraction < 1.0F) ||
         !(diveFromSurfaceBallast->mainBallastFillFraction > partlyBlown.mainBallastFillFraction) ||
         !(deepSurfaceBallast->trimMassDeltaKg < 0.0F) ||
         std::abs(deepSurfaceBallast->trimMassDeltaKg) >= 100'000.0F)

@@ -1102,6 +1102,7 @@ int main(const int argumentCount, char** argumentValues)
                             .forwardSpeedMetersPerSecond = navigationTelemetry->forwardSpeedMetersPerSecond,
                             .throttleFraction = navigationTelemetry->throttleFraction,
                             .mainBallastFillFraction = navigationTelemetry->mainBallastFillFraction,
+                            .mainBallastFlowFractionPerSecond = navigationTelemetry->mainBallastFlowFractionPerSecond,
                             .trimMassDeltaKg = navigationTelemetry->trimMassDeltaKg,
                             .dynamicMassKg = navigationTelemetry->dynamicMassKg,
                             .bowPlanesDeployed = navigationTelemetry->bowPlanesDeployed,
