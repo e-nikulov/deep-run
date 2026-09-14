@@ -529,7 +529,9 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
     const ImU32 pingColor = IM_COL32(90, 210, 255, 210);
     const ImU32 echoColor = IM_COL32(255, 175, 90, 240);
 
-    // Submarine bearing convention: 0 degrees / bow is up, clockwise is starboard.
+    // Present the accepted bow-relative 2.5D acoustic bearing as a polar scope. The current simulation bearing
+    // lives in the XY gameplay plane, so 90/270 are intentionally not labelled STBD/PORT until a true XZ
+    // azimuth channel exists; doing so here would invent spatial information the Track does not own.
     const auto pointAt = [&center](const float bearingRadians, const float distancePixels) {
         return ImVec2(center.x + std::sin(bearingRadians) * distancePixels,
                       center.y - std::cos(bearingRadians) * distancePixels);
@@ -555,9 +557,9 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
     drawList->AddLine(pointAt(-0.5F * pi, 0.0F), pointAt(-0.5F * pi, radius), gridColor, 1.0F);
 
     drawList->AddText(ImVec2(center.x - 18.0F, center.y - radius - 18.0F), textColor, "0 BOW");
-    drawList->AddText(ImVec2(center.x + radius + 4.0F, center.y - 7.0F), textColor, "90 STBD");
+    drawList->AddText(ImVec2(center.x + radius + 4.0F, center.y - 7.0F), textColor, "90");
     drawList->AddText(ImVec2(center.x - 26.0F, center.y + radius + 3.0F), textColor, "180 AFT");
-    drawList->AddText(ImVec2(center.x - radius - 54.0F, center.y - 7.0F), textColor, "270 PORT");
+    drawList->AddText(ImVec2(center.x - radius - 28.0F, center.y - 7.0F), textColor, "270");
 
     const ImVec2 ownshipTriangle[3]{
         ImVec2(center.x, center.y - 8.0F),
