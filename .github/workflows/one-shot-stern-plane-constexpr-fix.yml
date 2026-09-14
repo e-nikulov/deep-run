@@ -1,0 +1,37 @@
+name: One-shot stern-plane constexpr fix
+
+on:
+  push:
+    branches:
+      - fix/stern-plane-zero-speed-presentation
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/stern-plane-zero-speed-presentation
+      - name: Patch MSVC constexpr compatibility
+        shell: pwsh
+        run: |
+          $path = 'Game/PhysicalPlayground.cpp'
+          $text = Get-Content -Raw $path
+          $old = '    const float forwardSpeed = std::abs(bodyForwardSpeedMetersPerSecond);'
+          $new = '    const float forwardSpeed = bodyForwardSpeedMetersPerSecond < 0.0F`n        ? -bodyForwardSpeedMetersPerSecond`n        : bodyForwardSpeedMetersPerSecond;'
+          if (-not $text.Contains($old)) { throw 'Expected stern-plane forward-speed expression not found' }
+          $text = $text.Replace($old, $new)
+          Set-Content -NoNewline -Path $path -Value $text
+          Remove-Item '.github/workflows/one-shot-stern-plane-constexpr-fix.yml'
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Game/PhysicalPlayground.cpp .github/workflows/one-shot-stern-plane-constexpr-fix.yml
+          git commit -m 'fix(m5): make stern-plane presentation blend constexpr-safe'
+          git push origin HEAD:fix/stern-plane-zero-speed-presentation
