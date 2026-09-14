@@ -12,6 +12,7 @@
 #include "Game/Weapons/P700CarrierLaunchContract.h"
 #include "Game/Weapons/P700LauncherInventory.h"
 #include "Game/Weapons/P700SalvoLaunchCoordinator.h"
+#include "Game/Weapons/AnteyTorpedoInventory.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Game/Weapons/PlayerTorpedoProfiles.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
@@ -512,6 +513,16 @@ public:
     {
         return p700LauncherInventory_;
     }
+    [[nodiscard]] std::size_t PlayerTorpedoRoundsRemaining(const Armament::PlayerWeaponType weapon) const noexcept
+    {
+        return playerTorpedoInventory_.LoadedCount(weapon);
+    }
+    [[nodiscard]] float PlayerExpendedOrdnanceMassKg() const noexcept
+    {
+        const std::size_t spentP700 = p700LauncherInventory_ ? p700LauncherInventory_->SpentCount() : 0U;
+        return playerTorpedoInventory_.ExpendedMassKg() +
+            static_cast<float>(spentP700) * Armament::P700GranitRoundMassKg;
+    }
     [[nodiscard]] Armament::PlayerWeaponType SelectedPlayerWeapon() const noexcept { return selectedPlayerWeapon_; }
     [[nodiscard]] const std::optional<Weapons::P700GranitRuntimeState>& PlayerP700() const noexcept
     {
@@ -728,9 +739,6 @@ private:
             return std::unexpected("M5-H destroyer TrackManager failed to advance");
         }
 
-        // Raising the production periscope is now a real information/exposure trade-off. Hostile visual watch
-        // sees only a small mast through an ordinary optical SensorObservation; it gets bearing/confidence but
-        // no authoritative player body/entity identity, no range shortcut and no magical classification.
         if (periscopeState_.raised)
         {
             const float surfaceLevelYMeters =
@@ -1139,9 +1147,6 @@ private:
             }
         }
 
-        // A miss that consumes propulsion/endurance is a resolved launch just like P-700 RangeExpired.
-        // Keep Impact state resident for the existing visual-acceptance contract, but never leave normal gameplay
-        // permanently stuck in WeaponPhase::Launched after a torpedo simply runs out of range or endurance.
         if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent &&
             (playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::RangeExpired ||
              playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::EnduranceExpired))
@@ -1165,9 +1170,6 @@ private:
         if (playerP700_)
         {
             const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), playerP700_->guidanceTrackId);
-
-            // Each airborne missile gets its own bounded sensor observation. Ground truth is consumed only
-            // inside ObserveP700SurfaceContact; cooperative guidance receives identity-free noisy estimates.
             std::vector<Weapons::P700SalvoObservation> cooperativeEvidence;
             const auto collectSeekerEvidence = [&](const Weapons::P700GranitRuntimeState& missile,
                                                    const std::uint64_t missileId) -> std::expected<void, std::string>
@@ -1627,6 +1629,11 @@ private:
         {
             return std::unexpected("selected player weapon is not a conventional torpedo profile");
         }
+        if (playerTorpedoInventory_.LoadedCount(selectedPlayerWeapon_) == 0U)
+        {
+            return Weapons::WeaponEmploymentAssessment{
+                .allowed = false, .reason = "selected torpedo inventory is exhausted"};
+        }
         if (!currentPlayerPhysicalProxy_.has_value() || !currentPlayerPhysicalProxy_->orientation.IsFinite() ||
             !playerSnapshot.emitter.positionMeters.IsFinite() ||
             !playerSnapshot.emitter.velocityMetersPerSecond.IsFinite() || !std::isfinite(playerSnapshot.signedDepthMeters))
@@ -1946,6 +1953,12 @@ private:
             .y = playerSnapshot.emitter.positionMeters.y +
                  std::sin(launchHeading) * M5CombatTorpedoLaunchClearanceMeters,
             .z = playerSnapshot.emitter.positionMeters.z};
+        auto nextTorpedoInventory = playerTorpedoInventory_;
+        const auto consumedRoundMass = nextTorpedoInventory.Consume(selectedPlayerWeapon_);
+        if (!consumedRoundMass)
+        {
+            return std::unexpected("M5-H torpedo inventory consumption failed: " + consumedRoundMass.error());
+        }
         const auto launched = Weapons::CreateLaunchedConventionalTorpedo(
             playerTorpedoDefinition_, playerCombat_.Weapon(), launchPosition, launchHeading,
             targetTrack, simulationTimeSeconds);
@@ -1953,6 +1966,8 @@ private:
         {
             return std::unexpected("M5-H torpedo runtime creation failed: " + launched.error());
         }
+        // Commit the staged inventory only after the weapon runtime is successfully materialized.
+        playerTorpedoInventory_ = nextTorpedoInventory;
         playerTorpedo_ = *launched;
         playerTorpedoLaunchPosition_ = launchPosition;
         playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
@@ -2645,6 +2660,7 @@ private:
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
     Weapons::P700GranitDefinition playerP700Definition_;
     Armament::PlayerWeaponType selectedPlayerWeapon_ = Armament::PlayerWeaponType::HeavyweightTorpedo;
+    Armament::AnteyTorpedoInventory playerTorpedoInventory_{};
     std::optional<Armament::P700CarrierLaunchContract> p700CarrierLaunchContract_{};
     std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
     std::optional<Weapons::P700GranitRuntimeState> playerP700_{};

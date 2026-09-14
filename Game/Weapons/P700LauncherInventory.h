@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Game/Submarine/ProductionAnteyAsset.h"
+#include "Game/Weapons/AnteyOrdnanceMass.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +16,7 @@
 
 namespace DeepRun::Game::Armament
 {
-inline constexpr std::size_t AnteyP700LauncherSlotCount = 24U;
+inline constexpr std::size_t AnteyP700LauncherSlotCount = AnteyConfiguredP700Rounds;
 
 enum class P700LauncherSlotState
 {

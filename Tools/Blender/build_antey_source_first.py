@@ -1283,7 +1283,8 @@ def add_compartment_and_mass_contract() -> None:
         mass_entries.append({"label": record["name"], "mass_kg": record["equipment_mass_kg"], "center": record["CENTER"], "basis": "COMPARTMENT_ROLE_WEIGHT"})
     mass_entries.extend([
         {"label": "P700_STOWED_24", "mass_kg": 168000.0, "center": [20.0, 0.0, 3.25], "basis": "CONFIGURED_STOWED_INVENTORY"},
-        {"label": "TORPEDO_STOWED_6", "mass_kg": 10800.0, "center": [68.4, 0.0, 1.9], "basis": "CONFIGURED_STOWED_INVENTORY"},
+        {"label": "CALIBRE533_STOWED_18", "mass_kg": 36000.0, "center": [68.4, 0.0, 1.9], "basis": "PROJECT_949A_SOURCE_COUNT_PLAYABLE_REPRESENTATIVE_MASS"},
+        {"label": "CALIBRE650_STOWED_10", "mass_kg": 45000.0, "center": [68.4, 0.0, 1.9], "basis": "PROJECT_949A_SOURCE_COUNT_PLAYABLE_REPRESENTATIVE_MASS"},
         {"label": "CREW_AND_STORES", "mass_kg": 18000.0, "center": [12.0, 0.0, 0.0], "basis": "TUNABLE_AUTHORING_DISTRIBUTION"},
     ])
     total_mass = sum(float(entry["mass_kg"]) for entry in mass_entries)

@@ -20,6 +20,7 @@
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VesselCommandState.h"
+#include "Game/Weapons/AnteyOrdnanceMass.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/ControlSurfaceComponent.h"
@@ -64,6 +65,8 @@ struct VesselPresentationTelemetry final
     float throttleFraction = 0.0F;
     float mainBallastFillFraction = 1.0F;
     float trimMassDeltaKg = 0.0F;
+    float expendedOrdnanceMassKg = 0.0F;
+    float weaponCompensationWaterMassKg = 0.0F;
     float dynamicMassKg = 0.0F;
     bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
@@ -147,6 +150,20 @@ public:
     // M5-I.2 live hazard bridge. The snapshot is a value copy of the already-authoritative production collision
     // body and proxy dimensions. Combat may use it for generic sweeps but cannot mutate physics through it.
     [[nodiscard]] std::expected<VesselPresentationTelemetry, std::string> BuildVesselPresentationTelemetry() const;
+
+    // Combat owns finite weapon inventory; physics owns mass. This bridge accepts only the monotonic cumulative
+    // mass of weapons that have actually left the production submarine. Compensation water remains physics state.
+    [[nodiscard]] std::expected<void, std::string> SetExpendedOrdnanceMassKg(const float massKg)
+    {
+        if (!std::isfinite(massKg) || massKg < 0.0F ||
+            massKg > Armament::AnteyConfiguredCombatOrdnanceMassKg + 0.5F ||
+            massKg + 0.5F < expendedOrdnanceMassKg_)
+        {
+            return std::unexpected("physical playground expended ordnance mass must be finite, bounded and monotonic");
+        }
+        expendedOrdnanceMassKg_ = massKg;
+        return {};
+    }
 
     [[nodiscard]] std::expected<Submarine::AnteyPhysicalCollisionProxySnapshot, std::string>
     BuildPhysicalCollisionProxySnapshot() const
@@ -474,6 +491,7 @@ private:
     bool primaryPeriscopeRequestedRaised_ = false;
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
     Submarine::AnteyBallastState ballastState_{};
+    float expendedOrdnanceMassKg_ = 0.0F;
     float committedDynamicMassKg_ = 0.0F;
     float committedForwardSpeedMetersPerSecond_ = 0.0F;
 
