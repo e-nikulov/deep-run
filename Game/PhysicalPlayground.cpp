@@ -466,7 +466,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     const float productionLengthMeters = visualBounds.maximum.x - visualBounds.minimum.x;
     if (productionLengthMeters < IG1BProductionLengthMinimumMeters ||
         productionLengthMeters > IG1BProductionLengthMaximumMeters || (*model)->nodes.empty() ||
-        (*model)->primitives.empty() || (*model)->materials.size() != 2U)
+        (*model)->primitives.empty() || (*model)->materials.size() != 3U)
     {
         return std::unexpected("physical playground production Antey visual contract validation failed");
     }
