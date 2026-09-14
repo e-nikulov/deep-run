@@ -7,7 +7,7 @@ from pathlib import Path
 
 import bpy
 
-EXPECTED_BLACK = (0.001517635, 0.001517635, 0.001517635, 1.0)
+EXPECTED_BLACK = (0.0, 0.0, 0.0, 1.0)
 EXPECTED_RED = (0.068478170, 0.004776953, 0.003676507, 1.0)
 EXPECTED_SPLIT_Z = -0.65
 EXPECTED_LOWER_HULL_ROLE = "MAIN_HULL_LOWER"
@@ -54,6 +54,8 @@ def main() -> None:
     contract = bpy.context.scene.get("antey_visual_contract")
     if not contract:
         raise RuntimeError("missing antey_visual_contract")
+    if str(contract.get("upperHull", "")) != "TECHNICAL_BLACK_SRGB_000000":
+        raise RuntimeError("upper hull must use exact #000000 technical-black albedo")
     if abs(float(contract.get("lowerHullSplitZM", 999.0)) - EXPECTED_SPLIT_Z) > TOLERANCE:
         raise RuntimeError("unexpected lower-hull split contract")
     if str(contract.get("lowerHullRole", "")) != EXPECTED_LOWER_HULL_ROLE:
