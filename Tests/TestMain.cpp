@@ -517,7 +517,7 @@ bool IG1BProductionVisualSelectionAndRuntimeGeometry()
     const auto production = assets.LoadModel(std::filesystem::path(lod0->assetId.Value()));
     const auto prototype = assets.LoadModel(CanonicalModelPath);
     if (!production || !prototype || production->Get()->id.Value() != AnteyModelPath || production->Get()->nodes.empty() ||
-        production->Get()->primitives.empty() || production->Get()->materials.size() != 2U)
+        production->Get()->primitives.empty() || production->Get()->materials.size() != 3U)
     {
         return false;
     }
@@ -7637,7 +7637,7 @@ bool D2PresentationColorsAreDistinct()
     }
     const float channelDifference = std::abs(above.r - below.r) + std::abs(above.g - below.g) +
                                     std::abs(above.b - below.b);
-    return channelDifference > 0.1F; // clearly different in scene-linear space, without asserting art direction
+    return channelDifference > 0.05F && below.g > above.g && below.b > above.b; // dark Pacific water stays visibly distinct
 }
 
 float M3AToneMapScalar(const float sceneLinear) noexcept

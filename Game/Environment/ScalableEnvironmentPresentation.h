@@ -269,7 +269,10 @@ BuildDeepWaterAbyssPresentationBands(const float gameplayBandBottomViewportY)
     // The former four broad rectangles read as a second flat seabed. Many shallow steps start at the exact
     // normal underwater clear colour and smoothly approach deep-ocean darkness. A future shader may replace
     // this renderer-neutral fallback without changing bathymetry or simulation authority.
-    constexpr std::size_t BandCount = 32U;
+    // ClearRect is currently the renderer-neutral fallback for this gradient. 32 discrete bands were
+    // themselves visible as colour stairs even on a 10-bit display; 256 keeps each scene-linear step
+    // below the presentation quantization scale without changing simulation or bathymetry authority.
+    constexpr std::size_t BandCount = 256U;
     constexpr Render::RgbaColor DeepAbyssColor{0.0008F, 0.0080F, 0.0220F, 1.0F};
     const Render::RgbaColor shallowColor = M2UnderwaterBackgroundColor;
     const float height = (1.0F - top) / static_cast<float>(BandCount);

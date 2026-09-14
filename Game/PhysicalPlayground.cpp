@@ -60,16 +60,21 @@ constexpr float M2InitialSubmarineDepthMeters = 100.0F;
 // M3-C presentation-only depth-light tuning. Game supplies the authoritative WaterBody surface value each
 // frame; the renderer receives only this small scene-linear snapshot. Red attenuates fastest, then green,
 // then blue. The restrained material-modulated deep ambient preserves terrain/rock readability without fog.
-constexpr std::array<float, 3> M3DepthAttenuationPerMeterRgb{0.012F, 0.006F, 0.003F};
-constexpr std::array<float, 3> M3DeepAmbientRgb{0.02F, 0.075F, 0.12F};
+// Effective open-ocean coefficients chosen to preserve the real spectral ordering while keeping
+// Deep Run readable: red disappears quickly, green follows, and blue survives deepest. NOAA's
+// qualitative photic/twilight boundary remains the reference, not a claim of one universal IOP set.
+constexpr std::array<float, 3> M3DepthAttenuationPerMeterRgb{0.045F, 0.020F, 0.010F};
+constexpr std::array<float, 3> M3DeepAmbientRgb{0.006F, 0.024F, 0.050F};
 
 // M3-C.1 fixed view-path presentation tuning. It deliberately approaches the existing scene-linear
 // underwater clear colour; it does not alter WaterBody, simulation visibility, or depth-light coefficients.
-constexpr float M3FogExtinctionPerMeter = 0.004F;
+constexpr float M3FogExtinctionPerMeter = 0.0035F;
 constexpr std::array<float, 3> M3FogColorRgb{
     M2UnderwaterBackgroundColor.r,
     M2UnderwaterBackgroundColor.g,
     M2UnderwaterBackgroundColor.b};
+constexpr std::array<float, 3> M3DeepFogColorRgb{0.0008F, 0.0060F, 0.0180F};
+constexpr float M3DeepFogReferenceDepthMeters = 700.0F;
 
 // M3-D fixed presentation tuning for the one canonical suspended-particulate field. These bounds cover the
 // 600 m side view with a small margin and remain wholly below the Game-owned WaterBody surface. This is not
@@ -1895,6 +1900,14 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     // M3-C/C.1 authority boundary: WaterBody remains in Game/Simulation. Game derives only the authoritative
     // surface Y, fixed presentation tuning, plus the orthographic camera-plane center and view direction. The
     // renderer receives no WaterBody, physics state, seabed authority, or gameplay visibility state.
+    const float cameraDepthMeters = (std::max)(water_->Config().surfaceLevelY - camera->position.y, 0.0F);
+    const float deepFogBlend = std::clamp(cameraDepthMeters / M3DeepFogReferenceDepthMeters, 0.0F, 1.0F);
+    const auto blendChannel = [deepFogBlend](const float shallow, const float deep) noexcept
+    { return shallow + (deep - shallow) * deepFogBlend; };
+    const std::array<float, 3> depthAwareFogColorRgb{
+        blendChannel(M3FogColorRgb[0], M3DeepFogColorRgb[0]),
+        blendChannel(M3FogColorRgb[1], M3DeepFogColorRgb[1]),
+        blendChannel(M3FogColorRgb[2], M3DeepFogColorRgb[2])};
     const Render::ScenePresentationParameters scenePresentation{
         .depthLighting = {
             .surfaceLevelYMeters = water_->Config().surfaceLevelY,
@@ -1903,7 +1916,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         .cameraPlaneCenterWorldPosition = {camera->position.x, camera->position.y, camera->position.z},
         .cameraViewDirection = {camera->viewDirection.x, camera->viewDirection.y, camera->viewDirection.z},
         .fogExtinctionPerMeter = M3FogExtinctionPerMeter,
-        .fogColorRgb = M3FogColorRgb};
+        .fogColorRgb = depthAwareFogColorRgb};
     if (const auto configured = renderer.SetScenePresentation(scenePresentation); !configured)
     {
         return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());

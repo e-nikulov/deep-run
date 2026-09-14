@@ -60,11 +60,16 @@ float4 PSMain(PixelInput input) : SV_TARGET
     const float diffuseAmount = saturate(dot(normal, toLight));
     const float directDiffuseScale = (1.0F - Ambient) * diffuseAmount * (1.0F - Metallic * 0.25F);
 
-    const float3 viewDirection = float3(0.0F, 0.0F, 1.0F);
+    // Orthographic production view direction is frame-owned. The old hard-coded +Z vector made the
+    // highlight move incorrectly as the combat camera changed orientation and exaggerated hull facets.
+    const float3 viewDirection = normalize(-CameraViewDirection);
     const float3 halfVector = normalize(toLight + viewDirection);
     const float specularPower = lerp(64.0F, 4.0F, saturate(Roughness));
     const float specularAmount = pow(saturate(dot(normal, halfVector)), specularPower);
-    const float3 specularColor = lerp(0.04F.xxx, BaseColor.rgb, saturate(Metallic));
+    const float3 specularF0 = lerp(0.04F.xxx, BaseColor.rgb, saturate(Metallic));
+    const float oneMinusNdotV = 1.0F - saturate(dot(normal, viewDirection));
+    const float fresnelWeight = oneMinusNdotV * oneMinusNdotV * oneMinusNdotV * oneMinusNdotV * oneMinusNdotV;
+    const float3 specularColor = specularF0 + (1.0F.xxx - specularF0) * fresnelWeight;
 
     // M3-C depth lighting uses only actual world Y and the Game-supplied authoritative water surface.
     // It is independent of camera distance and operates in scene-linear space before tone mapping/output.

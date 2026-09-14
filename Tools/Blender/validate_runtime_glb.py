@@ -129,7 +129,7 @@ def main() -> None:
     import_session_materials = sorted(material.name for material in bpy.data.materials)
     lod0_classification = None
     if options.asset == "antey":
-        expected_materials = ["MAT_Antey_Hull", "MAT_Antey_Propellers"]
+        expected_materials = ["MAT_Antey_Hull", "MAT_Antey_LowerHull", "MAT_Antey_Propellers"]
         if material_names != expected_materials:
             raise RuntimeError(f"Antey GLB material contract failed: {material_names}")
         base = [obj for obj in meshes if "SM_Antey_LOD0_" in obj.name]

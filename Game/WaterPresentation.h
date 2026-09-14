@@ -24,7 +24,9 @@ namespace DeepRun::Game
 // M3-A consumes scene-linear colour. These values are the linear equivalents of the prior SDR-authored
 // M2 colours, preserving the intended cross-section appearance through the renderer's one SDR encode.
 constexpr Render::RgbaColor M2AboveWaterBackgroundColor{0.00116099F, 0.00444609F, 0.00657139F, 1.0F};
-constexpr Render::RgbaColor M2UnderwaterBackgroundColor{0.00309598F, 0.03954624F, 0.11953843F, 1.0F};
+// Open-Pacific presentation base (approximately sRGB #062B46). Depth lighting and fog push this
+// progressively toward the deep-ocean floor instead of keeping one bright blue clear colour.
+constexpr Render::RgbaColor M2UnderwaterBackgroundColor{0.00182116F, 0.02415763F, 0.06124605F, 1.0F};
 
 // World placement of a body whose authoritative local reference point must sit at the given depth below the
 // water surface (M2 Slice D2). The reference-point Y is deliberately NOT used as a depth: only X/Z come from

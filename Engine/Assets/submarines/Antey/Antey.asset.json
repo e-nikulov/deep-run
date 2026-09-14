@@ -4,9 +4,9 @@
   "name": "Antey",
   "identity": "neutral Project 949A-inspired production asset",
   "blend": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Antey_GameReady.blend",
-  "blendSha256": "D340CDA311BB40C00777BD3829131CC6E51DDD0A41405463256F0E2DFBFA0B76",
+  "blendSha256": "6527239EB5D76895D22E98DC64AA9724D48DABE2F1F91EE033AB34CBF089A6F1",
   "glb": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Antey.glb",
-  "glbSha256": "74B5E90145D3447C8A185CA6C2BAEE549347DD4AC2E6F0ED329BA15A63F07C80",
+  "glbSha256": "D94CFD534E1F045E80E68965757A82E3EA743341498D92964353F8FF83DAC423",
   "source": "D:\\a\\deep-run\\deep-run\\Content\\submarines\\Antey\\Source\\Antey_Source.blend",
   "sourceSha256": "BCC3F34A23825F5DD3887ABF0C226BA8CCB0A1DF57DAC2B566407B46A68BAB3F",
   "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
@@ -43,6 +43,7 @@
   },
   "materials": [
     "MAT_Antey_Hull",
+    "MAT_Antey_LowerHull",
     "MAT_Antey_Propellers"
   ],
   "blenderVersion": "5.2.1 LTS",

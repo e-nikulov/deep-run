@@ -58,14 +58,34 @@ float3 MapSceneLinearToHdrScRgb(const float3 sceneLinear)
            (1.0F.xxx - (peakScRgb - 1.0F) / (nonNegative + (peakScRgb - 1.0F)));
 }
 
+float InterleavedGradientNoise(const float2 pixelPosition)
+{
+    // Deterministic screen-space dither. SceneColorHDR remains FP16; noise is introduced only at the
+    // final display conversion so smooth dark-water gradients do not quantize into visible bands.
+    return frac(52.9829189F * frac(dot(pixelPosition, float2(0.06711056F, 0.00583715F))));
+}
+
+float3 DitherForQuantization(const float3 value, const float quantizationSteps, const float2 pixelPosition)
+{
+    const float centeredNoise = InterleavedGradientNoise(pixelPosition) - 0.5F;
+    // Fade the dither in across the first code value. Exact black therefore remains exact black,
+    // while dark ocean gradients still receive enough decorrelation before display quantization.
+    const float3 ditherWeight = saturate(max(value, 0.0F.xxx) * quantizationSteps);
+    return value + (centeredNoise / quantizationSteps) * ditherWeight;
+}
+
 float4 PSMain(FullscreenPixelInput input) : SV_TARGET
 {
     const float4 scene = SceneColorHDR.Sample(SceneColorSampler, input.uv);
-    return float4(LinearToSrgb(ToneMapSceneLinear(scene.rgb)), scene.a);
+    const float3 encoded = LinearToSrgb(ToneMapSceneLinear(scene.rgb));
+    return float4(saturate(DitherForQuantization(encoded, 255.0F, input.position.xy)), scene.a);
 }
 
 float4 PSHdrScRgb(FullscreenPixelInput input) : SV_TARGET
 {
     const float4 scene = SceneColorHDR.Sample(SceneColorSampler, input.uv);
-    return float4(MapSceneLinearToHdrScRgb(scene.rgb), scene.a);
+    const float3 scRgb = MapSceneLinearToHdrScRgb(scene.rgb);
+    // The swap chain is FP16 scRGB, but common HDR scan-out is 10-bit. Half an LSB of static dither
+    // prevents the compositor/display quantization from exposing dark-ocean contour bands.
+    return float4(max(DitherForQuantization(scRgb, 1023.0F, input.position.xy), 0.0F.xxx), scene.a);
 }

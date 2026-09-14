@@ -79,7 +79,7 @@ namespace DeepRun::Tests
     const auto abyssBands = BuildDeepWaterAbyssPresentationBands(0.60F);
     const auto noAbyssBands = BuildDeepWaterAbyssPresentationBands(1.0F);
     const auto invalidAbyssBands = BuildDeepWaterAbyssPresentationBands((std::numeric_limits<float>::quiet_NaN)());
-    if (!abyssBands || abyssBands->size() != 32U || !noAbyssBands || !noAbyssBands->empty() ||
+    if (!abyssBands || abyssBands->size() != 256U || !noAbyssBands || !noAbyssBands->empty() ||
         invalidAbyssBands.has_value() || std::abs(abyssBands->front().viewport.top - 0.60F) > 0.0001F ||
         std::abs(abyssBands->back().viewport.bottom - 1.0F) > 0.0001F ||
         std::abs(abyssBands->front().color.r - M2UnderwaterBackgroundColor.r) > 0.0001F ||

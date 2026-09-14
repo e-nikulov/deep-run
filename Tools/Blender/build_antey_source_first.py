@@ -30,6 +30,11 @@ SOURCE_CENTER_X = (-0.8649876117706299 + 0.8413368463516235) * 0.5
 SOURCE_CENTER_Y = (-4.875378131866455 + 4.900454044342041) * 0.5
 PRODUCTION_LENGTH = 154.0
 PRODUCTION_BEAM = 18.2
+# Production material values are scene-linear. The upper hull is deliberately technical black:
+# shape readability comes from dielectric reflections and underwater lighting, not grey albedo.
+ANTEY_TECHNICAL_BLACK_LINEAR = (0.0, 0.0, 0.0, 1.0)  # exact sRGB/linear #000000 albedo
+ANTEY_ANTIFOULING_RED_LINEAR = (0.068478170, 0.004776953, 0.003676507, 1.0)  # sRGB #4A0F0C
+ANTEY_LOWER_HULL_SPLIT_Z_M = -0.65
 LONG_SCALE = PRODUCTION_LENGTH / SOURCE_LENGTH
 CROSS_SCALE = PRODUCTION_BEAM / SOURCE_BEAM
 MANUAL_RUDDER_TOLERANCE = 1.0e-5
@@ -99,15 +104,17 @@ def production_point(point: Vector) -> Vector:
                    point.z * CROSS_SCALE))
 
 
-def material(name: str, colour: tuple[float, float, float, float]) -> bpy.types.Material:
+def material(
+    name: str, colour: tuple[float, float, float, float], roughness: float = 0.72, metallic: float = 0.18
+) -> bpy.types.Material:
     result = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     result.diffuse_color = colour
     result.use_nodes = True
     principled = result.node_tree.nodes.get("Principled BSDF")
     if principled:
         principled.inputs["Base Color"].default_value = colour
-        principled.inputs["Roughness"].default_value = 0.72
-        principled.inputs["Metallic"].default_value = 0.18
+        principled.inputs["Roughness"].default_value = roughness
+        principled.inputs["Metallic"].default_value = metallic
     return result
 
 
@@ -184,9 +191,22 @@ def create_component(name: str, source_mesh: bpy.types.Mesh, indices: list[int],
     mesh = bpy.data.meshes.new(f"{name}_Mesh")
     mesh.from_pydata(vertices, [], polygons)
     mesh.update(calc_edges=True)
+    # Source-first partitioning recreated polygon objects but previously dropped the source smooth-shading
+    # state. That made curved hull stations render as visibly faceted flat polygons in the runtime GLB.
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.scene.collection.objects.link(obj)
-    obj.data.materials.append(prop_mat if role.startswith("PROPELLER") else hull_mat)
+    if role.startswith("PROPELLER"):
+        obj.data.materials.append(prop_mat)
+    elif role == "MAIN_HULL_LOWER":
+        lower_hull_mat = bpy.data.materials.get("MAT_Antey_LowerHull")
+        if lower_hull_mat is None:
+            raise RuntimeError("MAT_Antey_LowerHull must exist before lower-hull component creation")
+        obj.data.materials.append(lower_hull_mat)
+    else:
+        obj.data.materials.append(hull_mat)
+    mesh.update()
     obj["source_object"] = source_object
     obj["source_first_role"] = role
     obj["source_geometry"] = True
@@ -2302,8 +2322,9 @@ def build(source: Path, output: Path, inventory: Path | None, articulated: bool 
     bpy.context.scene["source_basis"] = "+Y longitudinal -> +X; +X transverse -> -Y; +Z -> +Z"
     bpy.context.scene["source_normalization"] = {"length_m": PRODUCTION_LENGTH, "beam_m": PRODUCTION_BEAM, "length_scale": LONG_SCALE, "cross_scale": CROSS_SCALE}
     bpy.context.scene["source_exterior_contract"] = {"source_polygon_count": source_polygon_count, "source_visible_exterior_faces": source_visible_exterior_faces, "source_intentional_degenerate_faces": source_intentional_degenerate_faces, "missing": 0, "unexplained": 0, "replacement_without_proof": 0, "status": "BUILT_PENDING_SOURCE_PARTITION_AUDIT"}
-    hull_mat = material("MAT_Antey_Hull", (0.23, 0.28, 0.31, 1.0))
-    prop_mat = material("MAT_Antey_Propellers", (0.36, 0.25, 0.10, 1.0))
+    hull_mat = material("MAT_Antey_Hull", ANTEY_TECHNICAL_BLACK_LINEAR, roughness=0.86, metallic=0.0)
+    material("MAT_Antey_LowerHull", ANTEY_ANTIFOULING_RED_LINEAR, roughness=0.82, metallic=0.0)
+    prop_mat = material("MAT_Antey_Propellers", (0.36, 0.25, 0.10, 1.0), roughness=0.72, metallic=0.18)
     lod0 = []
     inventory_items = []
     provenance: list[dict[str, object]] = []
