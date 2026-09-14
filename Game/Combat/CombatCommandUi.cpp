@@ -1,5 +1,6 @@
 #include "Game/Combat/CombatCommandUi.h"
 #include "Game/Weapons/P700LauncherInventory.h"
+#include "Simulation/Weapons/WeaponEmploymentEnvelope.h"
 
 #include <imgui.h>
 
@@ -70,6 +71,39 @@ const char* CameraBandName(const Camera::MultiScaleCameraBand band) noexcept
     case Camera::MultiScaleCameraBand::Strategic: return "STRATEGIC";
     }
     return "UNKNOWN";
+}
+
+const Weapons::WeaponEmploymentEnvelope* SelectedWeaponEmploymentEnvelope(
+    const Armament::PlayerWeaponType weapon) noexcept
+{
+    switch (weapon)
+    {
+    case Armament::PlayerWeaponType::HeavyweightTorpedo:
+        return &Weapons::Uset80EmploymentEnvelope;
+    case Armament::PlayerWeaponType::Type6576AFast:
+        return &Weapons::Type6576AFastEmploymentEnvelope;
+    case Armament::PlayerWeaponType::Type6576AEconomy:
+        return &Weapons::Type6576AEconomyEmploymentEnvelope;
+    case Armament::PlayerWeaponType::P700Granit:
+        return &Weapons::P700GranitEmploymentEnvelope;
+    }
+    return nullptr;
+}
+
+std::optional<float> SelectedTrackRangeMeters(const PlayerCombatPresentationSnapshot& snapshot) noexcept
+{
+    if (!snapshot.selectedTrackId)
+    {
+        return std::nullopt;
+    }
+    for (const auto& track : snapshot.sonar.tracks)
+    {
+        if (track.trackId == *snapshot.selectedTrackId)
+        {
+            return track.estimatedRangeMeters;
+        }
+    }
+    return std::nullopt;
 }
 
 // Depth-plane deflection is committed simulation state driven from the same canonical Depth command as the
@@ -182,7 +216,7 @@ void DrawCombatCommandUi(
             ImGuiCond_Always,
             ImVec2(1.0F, 0.0F));
     }
-    ImGui::SetNextWindowSize(ImVec2(370.0F, 0.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(390.0F, 0.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.82F);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize |
                                        ImGuiWindowFlags_NoCollapse |
@@ -207,16 +241,18 @@ void DrawCombatCommandUi(
     ImGui::Separator();
     if (!snapshot.selectedTrackId)
     {
-        ImGui::TextUnformatted("Selected track: NONE");
-        ImGui::TextUnformatted("Firing solution: NO TRACK");
+        ImGui::TextUnformatted("TARGET: ACQUIRING / NONE SELECTED");
+        ImGui::TextUnformatted("Y / Tab cycles perceived sonar contacts");
+        ImGui::TextUnformatted("Track quality: NO TRACK");
+        ImGui::TextUnformatted("Engagement range: NO TRACK");
         ImGui::TextUnformatted("Identification: NO TRACK");
     }
     else
     {
-        ImGui::Text("Selected track: #%llu", static_cast<unsigned long long>(*snapshot.selectedTrackId));
+        ImGui::Text("TARGET LOCK: #%llu", static_cast<unsigned long long>(*snapshot.selectedTrackId));
         if (!snapshot.selectedTrackPresent)
         {
-            ImGui::TextUnformatted("Track state: NOT PRESENT");
+            ImGui::TextUnformatted("Track state: NOT PRESENT - reacquiring next contact");
         }
         else
         {
@@ -242,7 +278,36 @@ void DrawCombatCommandUi(
             {
                 ImGui::TextUnformatted("Position solution: unavailable");
             }
-            ImGui::Text("Firing solution: %s", snapshot.selectedTrackWeaponQualified ? "QUALIFIED" : "INSUFFICIENT");
+
+            ImGui::Text("Track quality: %s", snapshot.selectedTrackWeaponQualified ? "WEAPON QUALITY" : "INSUFFICIENT");
+            const auto selectedRangeMeters = SelectedTrackRangeMeters(snapshot);
+            const auto* envelope = SelectedWeaponEmploymentEnvelope(snapshot.selectedWeapon);
+            if (!selectedRangeMeters)
+            {
+                ImGui::TextUnformatted("Engagement range: NEED RANGE - RB / Space active sonar");
+            }
+            else if (envelope == nullptr)
+            {
+                ImGui::Text("Engagement range: %.1f km", *selectedRangeMeters / 1000.0F);
+            }
+            else if (*selectedRangeMeters < envelope->minimumTargetRangeMeters)
+            {
+                ImGui::Text("Engagement range: %.1f km - INSIDE %.1f km MIN",
+                            *selectedRangeMeters / 1000.0F,
+                            envelope->minimumTargetRangeMeters / 1000.0F);
+            }
+            else if (*selectedRangeMeters > envelope->maximumTargetRangeMeters)
+            {
+                ImGui::Text("Engagement range: %.1f km - OUTSIDE %.1f km MAX",
+                            *selectedRangeMeters / 1000.0F,
+                            envelope->maximumTargetRangeMeters / 1000.0F);
+            }
+            else
+            {
+                ImGui::Text("Engagement range: %.1f km - IN RANGE",
+                            *selectedRangeMeters / 1000.0F);
+            }
+
             ImGui::Text("Optical detail: %s", OpticalDetailName(snapshot.selectedTrackOpticalIdentificationLevel));
             if (snapshot.selectedTrackVisuallyIdentified)
             {
@@ -327,14 +392,14 @@ void DrawCombatCommandUi(
     }
 
     ImGui::Separator();
-    ImGui::TextUnformatted("Y / Tab          Select contact");
+    ImGui::TextUnformatted("Y / Tab          Next target");
     ImGui::TextUnformatted("D-pad Up / P     Raise/lower periscope");
     ImGui::TextUnformatted("A / V            Visual identify");
     ImGui::TextUnformatted("D-pad L/R / Z/C  Select weapon");
     ImGui::TextUnformatted("D-pad Down / G    P-700 single/pair");
     ImGui::TextUnformatted("LT / R / RMB     Prepare weapon");
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
-    ImGui::TextUnformatted("RB / Space       Active sonar ping");
+    ImGui::TextUnformatted("RB / Space       Range target / active sonar");
     ImGui::TextUnformatted("X / F            Deploy decoy");
     ImGui::End();
 
@@ -410,7 +475,7 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
             ImGuiCond_Always,
             ImVec2(1.0F, 1.0F));
     }
-    ImGui::SetNextWindowSize(ImVec2(330.0F, 370.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(350.0F, 390.0F), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.88F);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse |
                                        ImGuiWindowFlags_NoSavedSettings |
@@ -437,7 +502,7 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
     }
 
     const ImVec2 available = ImGui::GetContentRegionAvail();
-    const float scopeSize = std::max(160.0F, std::min(available.x, available.y - 22.0F));
+    const float scopeSize = std::max(160.0F, std::min(available.x, available.y - 42.0F));
     const ImVec2 topLeft = ImGui::GetCursorScreenPos();
     const ImVec2 center(topLeft.x + scopeSize * 0.5F, topLeft.y + scopeSize * 0.5F);
     const float radius = scopeSize * 0.46F;
@@ -479,18 +544,19 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
         const ImU32 color = contact.selected ? selectedColor : contactColor;
         const float bearing = contact.relativeBearingRadians;
         const float uncertainty = std::min(contact.bearingUncertaintyRadians, 1.2F);
+        const float contactRadius = contact.estimatedRangeMeters
+            ? radius * std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F)
+            : radius;
+        const ImVec2 contactPoint = pointAt(bearing, contactRadius);
         if (!contact.estimatedRangeMeters)
         {
-            const ImVec2 bearingPoint = pointAt(bearing, radius);
-            drawList->AddLine(center, bearingPoint, color, contact.selected ? 2.0F : 1.0F);
+            drawList->AddLine(center, contactPoint, color, contact.selected ? 2.0F : 1.0F);
             drawList->AddLine(center, pointAt(bearing - uncertainty, radius), IM_COL32(105, 235, 190, 80), 1.0F);
             drawList->AddLine(center, pointAt(bearing + uncertainty, radius), IM_COL32(105, 235, 190, 80), 1.0F);
-            drawList->AddCircleFilled(bearingPoint, contact.selected ? 5.0F : 3.5F, color, 12);
+            drawList->AddCircleFilled(contactPoint, contact.selected ? 5.0F : 3.5F, color, 12);
         }
         else
         {
-            const float normalizedRange = std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F);
-            const ImVec2 contactPoint = pointAt(bearing, radius * normalizedRange);
             if (contact.positionUncertaintyMeters)
             {
                 const float uncertaintyPixels = std::clamp(
@@ -498,16 +564,24 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
                 drawList->AddCircle(contactPoint, uncertaintyPixels, IM_COL32(105, 235, 190, 100), 24, 1.0F);
             }
             drawList->AddCircleFilled(contactPoint, contact.selected ? 5.5F : 4.0F, color, 16);
-            drawList->AddLine(pointAt(bearing - uncertainty, radius * normalizedRange),
-                              pointAt(bearing + uncertainty, radius * normalizedRange),
+            drawList->AddLine(pointAt(bearing - uncertainty, contactRadius),
+                              pointAt(bearing + uncertainty, contactRadius),
                               IM_COL32(105, 235, 190, 100), 1.0F);
         }
 
-        const ImVec2 labelPoint = pointAt(
-            bearing,
-            contact.estimatedRangeMeters
-                ? radius * std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F)
-                : radius);
+        if (contact.selected)
+        {
+            drawList->AddCircle(contactPoint, 10.0F, selectedColor, 20, 2.0F);
+            drawList->AddLine(ImVec2(contactPoint.x - 14.0F, contactPoint.y),
+                              ImVec2(contactPoint.x - 7.0F, contactPoint.y), selectedColor, 2.0F);
+            drawList->AddLine(ImVec2(contactPoint.x + 7.0F, contactPoint.y),
+                              ImVec2(contactPoint.x + 14.0F, contactPoint.y), selectedColor, 2.0F);
+            drawList->AddLine(ImVec2(contactPoint.x, contactPoint.y - 14.0F),
+                              ImVec2(contactPoint.x, contactPoint.y - 7.0F), selectedColor, 2.0F);
+            drawList->AddLine(ImVec2(contactPoint.x, contactPoint.y + 7.0F),
+                              ImVec2(contactPoint.x, contactPoint.y + 14.0F), selectedColor, 2.0F);
+        }
+
         const char* knowledge = "BRG";
         switch (contact.knowledge)
         {
@@ -517,9 +591,10 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
         case ContactKnowledgeLevel::PositiveIdentification: knowledge = "ID"; break;
         case ContactKnowledgeLevel::Coasting: knowledge = "COAST"; break;
         }
-        const std::string label = "#" + std::to_string(static_cast<unsigned long long>(contact.trackId)) +
-                                  " " + knowledge;
-        drawList->AddText(ImVec2(labelPoint.x + 6.0F, labelPoint.y - 7.0F), color, label.c_str());
+        const std::string label = contact.selected
+            ? "TARGET #" + std::to_string(static_cast<unsigned long long>(contact.trackId)) + " " + knowledge
+            : "#" + std::to_string(static_cast<unsigned long long>(contact.trackId)) + " " + knowledge;
+        drawList->AddText(ImVec2(contactPoint.x + 8.0F, contactPoint.y - 9.0F), color, label.c_str());
     }
 
     if (snapshot.activePulse)
@@ -554,6 +629,7 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
                           ImVec2(echoPoint.x + 6.0F, echoPoint.y - 6.0F), echoColor, 2.0F);
     }
 
+    ImGui::TextUnformatted("Y / Tab cycles TARGET | amber reticle = selected | RB / Space = range");
     ImGui::TextUnformatted("BRG=line | AREA=estimated region | CLASS/ID=optical evidence | COAST=stale");
     ImGui::End();
 }
@@ -684,8 +760,8 @@ void DrawTacticalSituationOverlay(
             drawList->AddLine(ImVec2(track->x - 9.0F, track->y), ImVec2(track->x + 9.0F, track->y), trackColor, 1.0F);
             drawList->AddLine(ImVec2(track->x, track->y - 9.0F), ImVec2(track->x, track->y + 9.0F), trackColor, 1.0F);
             const std::string label = selectedTrackId
-                ? "TRK #" + std::to_string(static_cast<unsigned long long>(*selectedTrackId))
-                : std::string("TRK");
+                ? "TARGET #" + std::to_string(static_cast<unsigned long long>(*selectedTrackId))
+                : std::string("TARGET");
             drawList->AddText(ImVec2(track->x + 10.0F, track->y - 7.0F), labelColor, label.c_str());
         }
     }

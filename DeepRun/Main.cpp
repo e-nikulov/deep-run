@@ -35,6 +35,8 @@
 namespace
 {
 constexpr wchar_t GameWindowClassName[] = L"DeepRunEngineWindow";
+constexpr float NormalGameplayInitialDepthMeters = 50.0F;
+constexpr float NormalGameplayLongRangeCombatTargetMeters = 25'000.0F;
 
 struct FindContext final
 {
@@ -530,9 +532,14 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
+                const float initialDepthMeters = options.p700SmokeTest
+                    ? 30.0F
+                    : options.smokeTest || options.benchmarkM3
+                        ? 100.0F
+                        : NormalGameplayInitialDepthMeters;
                 const auto initialized = playground.Initialize(
                     engine.Assets(), *physics, *renderer, options.smokeTest || options.p700SmokeTest,
-                    options.p700SmokeTest ? 30.0F : 100.0F);
+                    initialDepthMeters);
                 if (!initialized)
                 {
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
@@ -585,10 +592,15 @@ int main(const int argumentCount, char** argumentValues)
                         }
                     }
 
+                    const float destroyerInitialXMeters = options.p700SmokeTest
+                        ? 20'100.0F
+                        : options.smokeTest
+                            ? DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters
+                            : NormalGameplayLongRangeCombatTargetMeters;
                     const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
                         *renderer,
                         engine.Assets(),
-                        options.p700SmokeTest ? 20'100.0F : DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters,
+                        destroyerInitialXMeters,
                         options.p700SmokeTest,
                         options.p700SmokeTest
                             ? 0.0F
@@ -741,6 +753,14 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::DeployDecoy,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::DeployDecoy,
                                 consumedDeployDecoySequence);
+                    }
+                    if (!options.smokeTest && !options.p700SmokeTest &&
+                        (!combatUiSnapshot.has_value() || !combatUiSnapshot->selectedTrackId.has_value() ||
+                         !combatUiSnapshot->selectedTrackPresent) &&
+                        playerCommandCount < playerCommands.size())
+                    {
+                        playerCommands[playerCommandCount++] = {
+                            .type = DeepRun::Game::Combat::PlayerCombatCommandType::SelectNextTrack};
                     }
 
                     const auto combatFrame = options.smokeTest
