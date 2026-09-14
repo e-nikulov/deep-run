@@ -38,6 +38,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Production visual source patch failed' }
           python Tools/Blender/patch_antey_pacific_validation_contracts.py
           if ($LASTEXITCODE -ne 0) { throw 'Production validation contract patch failed' }
+          $physicalPlayground = 'Game/PhysicalPlayground.cpp'
+          $physicalPlaygroundText = Get-Content -Raw $physicalPlayground
+          $unsafeMax = 'std::max(water_->Config().surfaceLevelY - camera->position.y, 0.0F)'
+          $safeMax = '(std::max)(water_->Config().surfaceLevelY - camera->position.y, 0.0F)'
+          if (-not $physicalPlaygroundText.Contains($unsafeMax)) { throw 'Expected Win32-unsafe std::max expression was not found' }
+          $physicalPlaygroundText = $physicalPlaygroundText.Replace($unsafeMax, $safeMax)
+          [System.IO.File]::WriteAllText($physicalPlayground, $physicalPlaygroundText, [System.Text.UTF8Encoding]::new($false))
           python -m py_compile `
             Tools/Blender/patch_antey_pacific_visuals.py `
             Tools/Blender/patch_antey_pacific_validation_contracts.py `
