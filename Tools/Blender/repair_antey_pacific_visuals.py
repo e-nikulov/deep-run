@@ -8,7 +8,7 @@ from pathlib import Path
 
 import bpy
 
-TECHNICAL_BLACK = (0.001517635, 0.001517635, 0.001517635, 1.0)
+TECHNICAL_BLACK = (0.0, 0.0, 0.0, 1.0)
 ANTIFOULING_RED = (0.068478170, 0.004776953, 0.003676507, 1.0)
 LOWER_HULL_SPLIT_Z_M = -0.65
 LOWER_HULL_ROLE = "MAIN_HULL_LOWER"
@@ -84,6 +84,10 @@ def main() -> None:
         totals["geometryVerticesBefore"] += before_vertices
         totals["geometryPolygonsBefore"] += before_polygons
 
+        # Source-first partitioning used to drop the source smooth-shading state. Re-applying smooth shading
+        # here preserves topology and silhouette while removing the polygon-facet lighting that was visible on
+        # the bow and side hull. Planar hard-surface faces remain planar; no subdivision or dimension change is
+        # introduced by this repair.
         for polygon in mesh.polygons:
             polygon.use_smooth = True
             totals["smoothedPolygons"] += 1
@@ -138,7 +142,7 @@ def main() -> None:
         raise RuntimeError("visual repair changed aggregate topology")
 
     bpy.context.scene["antey_visual_contract"] = {
-        "upperHull": "TECHNICAL_BLACK_SRGB_050505",
+        "upperHull": "TECHNICAL_BLACK_SRGB_000000",
         "lowerHull": "ANTIFOULING_RED_SRGB_4A0F0C",
         "lowerHullRole": LOWER_HULL_ROLE,
         "lowerHullSplitZM": LOWER_HULL_SPLIT_Z_M,
