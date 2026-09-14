@@ -13,6 +13,7 @@
 #include "Game/Weapons/P700LauncherInventory.h"
 #include "Game/Weapons/P700SalvoLaunchCoordinator.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
+#include "Game/Weapons/PlayerTorpedoProfiles.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
 #include "Simulation/Acoustics/AcousticEnvironment.h"
 #include "Simulation/Perception/SensorObservation.h"
@@ -216,30 +217,22 @@ public:
             return std::unexpected("M5-H destroyer creation failed: " + destroyer.error());
         }
 
-        const Weapons::WeaponDefinition playerWeapon{
-            .id = "m5.live-player-heavyweight",
-            .preparationSeconds = 1.0,
-            .targeting = Weapons::WeaponTargetingRequirements{
-                .minimumTrackConfidence = 0.65F,
-                .maximumBearingUncertaintyRadians = 0.10F,
-                .maximumPositionUncertaintyMeters = 150.0F,
-                .requiresEstimatedPosition = true,
-                .allowCoastingTrack = false}};
-        auto playerCombat = PlayerCombatCommandRuntime::Create(playerWeapon, simulationTimeSeconds);
+        const auto playerTorpedoProfile = Armament::MakePlayerTorpedoProfile(
+            Armament::PlayerWeaponType::HeavyweightTorpedo);
+        if (!playerTorpedoProfile)
+        {
+            (void)physicsWorld.DestroyBody(destroyer->body);
+            return std::unexpected("M5 player USET-80 profile creation failed");
+        }
+        const Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition =
+            playerTorpedoProfile->definition;
+        auto playerCombat = PlayerCombatCommandRuntime::Create(
+            playerTorpedoDefinition.weapon, simulationTimeSeconds);
         if (!playerCombat)
         {
             (void)physicsWorld.DestroyBody(destroyer->body);
             return std::unexpected("M5-H player commander runtime creation failed: " + playerCombat.error());
         }
-
-        const Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition{
-            .weapon = playerWeapon,
-            .underwaterSpeedMetersPerSecond = 55.0F,
-            .maximumTurnRateRadiansPerSecond = 0.45F,
-            .maximumVerticalCourseAngleRadians = M5CombatTorpedoMaximumVerticalCourseAngleRadians,
-            .collisionHalfExtentsMeters = {.x = 2.0F, .y = 0.25F, .z = 0.25F},
-            .directImpactDamage = 60.0F,
-            .explosionRadiusMeters = 8.0F};
         const Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition{
             .weapon = destroyerDefinition.weapon,
             .underwaterSpeedMetersPerSecond = 44.0F,
@@ -1028,7 +1021,7 @@ private:
                 {
                     const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
                         ? AssessPlayerP700Employment(playerSnapshot)
-                        : AssessPlayerUset80Employment(playerSnapshot);
+                        : AssessPlayerTorpedoEmployment(playerSnapshot);
                     if (!employment)
                     {
                         return std::unexpected("M5 weapon employment assessment failed: " + employment.error());
@@ -1144,6 +1137,28 @@ private:
                         return std::unexpected("civilian torpedo damage application failed: " + damaged.error());
                 }
             }
+        }
+
+        // A miss that consumes propulsion/endurance is a resolved launch just like P-700 RangeExpired.
+        // Keep Impact state resident for the existing visual-acceptance contract, but never leave normal gameplay
+        // permanently stuck in WeaponPhase::Launched after a torpedo simply runs out of range or endurance.
+        if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent &&
+            (playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::RangeExpired ||
+             playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::EnduranceExpired))
+        {
+            const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
+            if (!rearmed)
+                return std::unexpected("player torpedo range/endurance re-arm failed: " + rearmed.error());
+            playerTorpedo_.reset();
+            playerTorpedoLaunchPosition_.reset();
+            playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
+                .selectedTrackId = std::nullopt,
+                .lastUpdateTimeSeconds = simulationTimeSeconds};
+            pendingPlayerTorpedoSeekerEmissions_.clear();
+            nextPlayerTorpedoSeekerEmissionSampleTimeSeconds_ = simulationTimeSeconds;
+            playerTorpedoActivePulse_.reset();
+            playerTorpedoActiveReflector_.reset();
+            playerTorpedoActivePulseDeadlineSeconds_ = simulationTimeSeconds;
         }
 
         std::optional<Weapons::P700GranitImpact> p700Impact{};
@@ -1397,7 +1412,7 @@ private:
         {
             const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
                 ? AssessPlayerP700Employment(playerSnapshot)
-                : AssessPlayerUset80Employment(playerSnapshot);
+                : AssessPlayerTorpedoEmployment(playerSnapshot);
             playerCombatPresentation.canFireWeapon = employment.has_value() && employment->allowed;
         }
         ApplyIncomingThreatPresentation(playerCombatPresentation);
@@ -1484,13 +1499,30 @@ private:
                 .trackId = playerCombat_.SelectedTrackId(),
                 .message = "P-700 GRANIT is unavailable without a loaded production Antey launcher"};
         }
-        const Weapons::WeaponDefinition definition = next == Armament::PlayerWeaponType::P700Granit
-            ? playerP700Definition_.weapon
-            : playerTorpedoDefinition_.weapon;
+        std::optional<Weapons::ConventionalTorpedoDefinition> nextTorpedoDefinition{};
+        Weapons::WeaponDefinition definition{};
+        if (next == Armament::PlayerWeaponType::P700Granit)
+        {
+            definition = playerP700Definition_.weapon;
+        }
+        else
+        {
+            const auto profile = Armament::MakePlayerTorpedoProfile(next);
+            if (!profile || profile->employmentEnvelope == nullptr)
+            {
+                return std::unexpected("M5 Weapon Selector could not resolve the selected torpedo profile");
+            }
+            nextTorpedoDefinition = profile->definition;
+            definition = profile->definition.weapon;
+        }
         const auto reconfigured = playerCombat_.ReconfigureStoredWeapon(definition, simulationTimeSeconds);
         if (!reconfigured)
         {
             return std::unexpected("M5 Weapon Selector profile switch failed: " + reconfigured.error());
+        }
+        if (nextTorpedoDefinition)
+        {
+            playerTorpedoDefinition_ = *nextTorpedoDefinition;
         }
         selectedPlayerWeapon_ = next;
         return PlayerCombatCommandFeedback{
@@ -1586,9 +1618,15 @@ private:
                 .launcherHeadingRadians = launch->carrier.carrierHeadingRadians});
     }
 
-    [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerUset80Employment(
+    [[nodiscard]] std::expected<Weapons::WeaponEmploymentAssessment, std::string> AssessPlayerTorpedoEmployment(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot) const
     {
+        const Weapons::WeaponEmploymentEnvelope* employmentEnvelope =
+            Armament::PlayerTorpedoEmploymentEnvelope(selectedPlayerWeapon_);
+        if (employmentEnvelope == nullptr)
+        {
+            return std::unexpected("selected player weapon is not a conventional torpedo profile");
+        }
         if (!currentPlayerPhysicalProxy_.has_value() || !currentPlayerPhysicalProxy_->orientation.IsFinite() ||
             !playerSnapshot.emitter.positionMeters.IsFinite() ||
             !playerSnapshot.emitter.velocityMetersPerSecond.IsFinite() || !std::isfinite(playerSnapshot.signedDepthMeters))
@@ -1631,7 +1669,7 @@ private:
             0.0F, surfaceLevelMeters - selected->estimatedPositionMeters->y);
 
         return Weapons::EvaluateWeaponEmployment(
-            Weapons::Uset80EmploymentEnvelope,
+            *employmentEnvelope,
             Weapons::WeaponEmploymentContext{
                 .launchPositionMeters = playerSnapshot.emitter.positionMeters,
                 .perceivedTargetPositionMeters = *selected->estimatedPositionMeters,
@@ -1678,7 +1716,7 @@ private:
         }
         if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
         {
-            const auto employment = AssessPlayerUset80Employment(playerSnapshot);
+            const auto employment = AssessPlayerTorpedoEmployment(playerSnapshot);
             if (!employment)
             {
                 return std::unexpected("M5-H automated weapon employment assessment failed: " + employment.error());

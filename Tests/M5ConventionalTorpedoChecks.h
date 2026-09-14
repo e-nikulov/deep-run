@@ -128,6 +128,12 @@ namespace M5ConventionalTorpedoDetail
         return false;
     }
     invalidDefinition = definition;
+    invalidDefinition.maximumTravelDistanceMeters = 0.0F;
+    if (ValidateConventionalTorpedoDefinition(invalidDefinition))
+    {
+        return false;
+    }
+    invalidDefinition = definition;
     invalidDefinition.maximumVerticalCourseAngleRadians = 0.0F;
     if (ValidateConventionalTorpedoDefinition(invalidDefinition))
     {
@@ -204,6 +210,36 @@ namespace M5ConventionalTorpedoDetail
         shortTorpedo->movementDomain != MovementDomain::Spent || shortTorpedo->speedMetersPerSecond != 0.0F ||
         shortTorpedo->terminalReason != ConventionalTorpedoTerminalReason::EnduranceExpired ||
         shortTorpedo->impactedBody.has_value())
+    {
+        return false;
+    }
+
+    // Distance is authoritative independently of gameplay speed/time tuning. A step that would overshoot the
+    // budget is clamped exactly to the authored distance and terminates as RangeExpired without a fake impact.
+    auto shortRangeDefinition = definition;
+    shortRangeDefinition.maximumRunTimeSeconds = 100.0;
+    shortRangeDefinition.maximumTravelDistanceMeters = 30.0F;
+    auto shortRangeWeaponResult = CreateWeaponRuntime(shortRangeDefinition.weapon, 0.0);
+    if (!shortRangeWeaponResult)
+    {
+        return false;
+    }
+    auto shortRangeWeapon = *shortRangeWeaponResult;
+    if (!PrepareWeapon(shortRangeDefinition.weapon, shortRangeWeapon, 0.0) ||
+        !AssignWeaponTarget(shortRangeDefinition.weapon, shortRangeWeapon, initialTrack, 0.0) ||
+        !LaunchWeapon(shortRangeDefinition.weapon, shortRangeWeapon, 0.0))
+    {
+        return false;
+    }
+    auto shortRangeTorpedo = CreateLaunchedConventionalTorpedo(
+        shortRangeDefinition, shortRangeWeapon, {.x = 0.0F, .y = 0.0F, .z = 0.0F}, 0.0F, initialTrack, 0.0);
+    if (!shortRangeTorpedo || !UpdateConventionalTorpedoGuidance(
+            shortRangeDefinition, *shortRangeTorpedo, std::nullopt, 2.0) ||
+        shortRangeTorpedo->movementDomain != MovementDomain::Spent ||
+        shortRangeTorpedo->terminalReason != ConventionalTorpedoTerminalReason::RangeExpired ||
+        std::abs(shortRangeTorpedo->travelledDistanceMeters - 30.0F) > 0.001F ||
+        std::abs(shortRangeTorpedo->positionMeters.x - 30.0F) > 0.01F ||
+        shortRangeTorpedo->impactedBody.has_value())
     {
         return false;
     }

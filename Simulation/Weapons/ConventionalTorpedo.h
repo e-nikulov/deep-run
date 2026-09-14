@@ -24,6 +24,7 @@ enum class ConventionalTorpedoTerminalReason
     None,
     Impact,
     EnduranceExpired,
+    RangeExpired,
 };
 
 struct ConventionalTorpedoDefinition final
@@ -32,8 +33,11 @@ struct ConventionalTorpedoDefinition final
     float underwaterSpeedMetersPerSecond = 20.0F;
     float maximumTurnRateRadiansPerSecond = 0.25F;
     // GAME POLICY only: finite propulsion/energy endurance prevents a missed weapon from pursuing forever.
-    // This is not an exact endurance/range claim for any real torpedo.
+    // This is not an exact endurance/range claim for any real torpedo. Production weapon profiles must also
+    // author maximumTravelDistanceMeters from their canonical employment envelope so time tuning cannot shorten
+    // or silently extend real gameplay range.
     double maximumRunTimeSeconds = 300.0;
+    float maximumTravelDistanceMeters = 100'000.0F;
 
     // Gameplay-authored 2.5D depth-course limit. pi/2 preserves the pre-M5-C behaviour by default; concrete
     // scenarios may choose a smaller value to prevent a conventional underwater weapon from visually behaving
@@ -57,6 +61,7 @@ struct ConventionalTorpedoRuntimeState final
     Physics::PhysicsVector3 positionMeters{};
     float headingRadians = 0.0F;
     float speedMetersPerSecond = 0.0F;
+    float travelledDistanceMeters = 0.0F;
     double launchTimeSeconds = 0.0;
     double lastUpdateTimeSeconds = 0.0;
     ConventionalTorpedoTerminalReason terminalReason = ConventionalTorpedoTerminalReason::None;
@@ -123,6 +128,7 @@ struct ConventionalTorpedoImpact final
         definition.maximumTurnRateRadiansPerSecond <= 0.0F ||
         definition.maximumTurnRateRadiansPerSecond > 3.1415927F ||
         !std::isfinite(definition.maximumRunTimeSeconds) || definition.maximumRunTimeSeconds <= 0.0 ||
+        !std::isfinite(definition.maximumTravelDistanceMeters) || definition.maximumTravelDistanceMeters <= 0.0F ||
         !std::isfinite(definition.maximumVerticalCourseAngleRadians) ||
         definition.maximumVerticalCourseAngleRadians <= 0.0F ||
         definition.maximumVerticalCourseAngleRadians > 1.5707963F ||
@@ -177,6 +183,7 @@ struct ConventionalTorpedoImpact final
         .headingRadians = ClampConventionalTorpedoVerticalCourse(
             launchHeadingRadians, definition.maximumVerticalCourseAngleRadians),
         .speedMetersPerSecond = definition.underwaterSpeedMetersPerSecond,
+        .travelledDistanceMeters = 0.0F,
         .launchTimeSeconds = simulationTimeSeconds,
         .lastUpdateTimeSeconds = simulationTimeSeconds,
         .terminalReason = ConventionalTorpedoTerminalReason::None,
@@ -213,6 +220,29 @@ struct ConventionalTorpedoImpact final
     return true;
 }
 
+[[nodiscard]] inline float ConsumeConventionalTorpedoTravelBudget(
+    const ConventionalTorpedoDefinition& definition,
+    ConventionalTorpedoRuntimeState& state,
+    const float requestedDistanceMeters) noexcept
+{
+    if (!std::isfinite(requestedDistanceMeters) || requestedDistanceMeters <= 0.0F)
+    {
+        return 0.0F;
+    }
+    const float remainingDistanceMeters =
+        std::max(0.0F, definition.maximumTravelDistanceMeters - state.travelledDistanceMeters);
+    const float actualDistanceMeters = std::min(requestedDistanceMeters, remainingDistanceMeters);
+    state.travelledDistanceMeters += actualDistanceMeters;
+    if (state.travelledDistanceMeters + 1.0e-3F >= definition.maximumTravelDistanceMeters)
+    {
+        state.travelledDistanceMeters = definition.maximumTravelDistanceMeters;
+        state.speedMetersPerSecond = 0.0F;
+        state.movementDomain = MovementDomain::Spent;
+        state.terminalReason = ConventionalTorpedoTerminalReason::RangeExpired;
+    }
+    return actualDistanceMeters;
+}
+
 [[nodiscard]] inline std::expected<void, std::string> UpdateConventionalTorpedoGuidance(
     const ConventionalTorpedoDefinition& definition,
     ConventionalTorpedoRuntimeState& state,
@@ -237,6 +267,8 @@ struct ConventionalTorpedoImpact final
         state.movementDomain != MovementDomain::Underwater || state.impactedBody.has_value() ||
         !state.positionMeters.IsFinite() || !std::isfinite(state.headingRadians) ||
         !std::isfinite(state.speedMetersPerSecond) || state.speedMetersPerSecond <= 0.0F ||
+        !std::isfinite(state.travelledDistanceMeters) || state.travelledDistanceMeters < 0.0F ||
+        state.travelledDistanceMeters > definition.maximumTravelDistanceMeters + 1.0e-3F ||
         !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < state.lastUpdateTimeSeconds ||
         simulationTimeSeconds < state.weapon.lastUpdateTimeSeconds)
     {
@@ -279,7 +311,13 @@ struct ConventionalTorpedoImpact final
         }
     }
 
-    const float distanceMeters = state.speedMetersPerSecond * static_cast<float>(deltaSeconds);
+    const float requestedDistanceMeters = state.speedMetersPerSecond * static_cast<float>(deltaSeconds);
+    if (!std::isfinite(requestedDistanceMeters))
+    {
+        return std::unexpected("conventional torpedo requested travel distance is non-finite");
+    }
+    const float distanceMeters = ConsumeConventionalTorpedoTravelBudget(
+        definition, state, requestedDistanceMeters);
     state.positionMeters.x += static_cast<float>(std::cos(static_cast<double>(state.headingRadians))) * distanceMeters;
     state.positionMeters.y += static_cast<float>(std::sin(static_cast<double>(state.headingRadians))) * distanceMeters;
     state.lastUpdateTimeSeconds = simulationTimeSeconds;
@@ -305,6 +343,7 @@ AdvanceConventionalTorpedoWithCollision(
     }
 
     const Physics::PhysicsVector3 startPosition = state.positionMeters;
+    const float startingTravelledDistanceMeters = state.travelledDistanceMeters;
     ConventionalTorpedoRuntimeState candidate = state;
     const auto movement = UpdateConventionalTorpedoGuidance(definition, candidate, perceivedTrack, simulationTimeSeconds);
     if (!movement)
@@ -339,6 +378,8 @@ AdvanceConventionalTorpedoWithCollision(
     }
 
     const Physics::PhysicsSweepHit hit = **sweep;
+    candidate.travelledDistanceMeters = startingTravelledDistanceMeters +
+        (candidate.travelledDistanceMeters - startingTravelledDistanceMeters) * hit.fraction;
     candidate.positionMeters = hit.positionMeters;
     candidate.speedMetersPerSecond = 0.0F;
     candidate.movementDomain = MovementDomain::Spent;

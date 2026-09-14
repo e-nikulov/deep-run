@@ -359,6 +359,8 @@ struct TorpedoSeekerModeDecision final
         torpedo.movementDomain != MovementDomain::Underwater || torpedo.impactedBody.has_value() ||
         !torpedo.positionMeters.IsFinite() || !std::isfinite(torpedo.headingRadians) ||
         !std::isfinite(torpedo.speedMetersPerSecond) || torpedo.speedMetersPerSecond <= 0.0F ||
+        !std::isfinite(torpedo.travelledDistanceMeters) || torpedo.travelledDistanceMeters < 0.0F ||
+        torpedo.travelledDistanceMeters > definition.maximumTravelDistanceMeters + 1.0e-3F ||
         !IsValidTorpedoSeekerCue(seekerConfig, cue) ||
         !std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < torpedo.lastUpdateTimeSeconds ||
         simulationTimeSeconds < torpedo.weapon.lastUpdateTimeSeconds)
@@ -379,7 +381,13 @@ struct TorpedoSeekerModeDecision final
     torpedo.headingRadians = ClampConventionalTorpedoVerticalCourse(
         torpedo.headingRadians, definition.maximumVerticalCourseAngleRadians);
 
-    const float distanceMeters = torpedo.speedMetersPerSecond * static_cast<float>(deltaSeconds);
+    const float requestedDistanceMeters = torpedo.speedMetersPerSecond * static_cast<float>(deltaSeconds);
+    if (!std::isfinite(requestedDistanceMeters))
+    {
+        return std::unexpected("torpedo seeker requested travel distance is non-finite");
+    }
+    const float distanceMeters = ConsumeConventionalTorpedoTravelBudget(
+        definition, torpedo, requestedDistanceMeters);
     torpedo.positionMeters.x += static_cast<float>(std::cos(static_cast<double>(torpedo.headingRadians))) * distanceMeters;
     torpedo.positionMeters.y += static_cast<float>(std::sin(static_cast<double>(torpedo.headingRadians))) * distanceMeters;
     torpedo.lastUpdateTimeSeconds = simulationTimeSeconds;
@@ -406,6 +414,7 @@ AdvanceConventionalTorpedoWithSeekerCueAndCollision(
     }
 
     const Physics::PhysicsVector3 startPosition = torpedo.positionMeters;
+    const float startingTravelledDistanceMeters = torpedo.travelledDistanceMeters;
     ConventionalTorpedoRuntimeState candidate = torpedo;
     const auto movement = AdvanceConventionalTorpedoWithSeekerCue(
         definition, seekerConfig, candidate, cue, simulationTimeSeconds);
@@ -441,6 +450,8 @@ AdvanceConventionalTorpedoWithSeekerCueAndCollision(
     }
 
     const Physics::PhysicsSweepHit hit = **sweep;
+    candidate.travelledDistanceMeters = startingTravelledDistanceMeters +
+        (candidate.travelledDistanceMeters - startingTravelledDistanceMeters) * hit.fraction;
     candidate.positionMeters = hit.positionMeters;
     candidate.speedMetersPerSecond = 0.0F;
     candidate.movementDomain = MovementDomain::Spent;

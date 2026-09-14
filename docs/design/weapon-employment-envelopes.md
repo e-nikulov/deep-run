@@ -2,7 +2,7 @@
 
 Status: gameplay contract for M5/IG2. These limits are used to decide whether a weapon may leave the carrier. They are **not** a technical firing manual and do not claim access to classified fire-control data.
 
-Implementation status: the live M5 player USET-80 fire path is gated **before** the `WeaponRuntime` launch transition, and `canFireWeapon` in the HUD is masked by the same assessment. IG2 P-700 and any future selectable 65-76A profile must reuse this common evaluator before committing their own launch/hatch lifecycle. Direct-runtime regression fixtures bind an authoritative `PhysicsWorld` ownship proxy so tests exercise the same employment gate as windowed play.
+Implementation status: USET-80, 65-76A fast/economy and P-700 all use the common employment evaluator before launch, and `canFireWeapon` in the HUD is masked by the same assessment. The three torpedo choices are selectable runtime profiles, each with an authoritative travelled-distance budget equal to its canonical maximum range (18/50/100 km); their time limits are only larger failsafes. P-700 likewise carries a 550 km in-flight travel budget, so a legal launch cannot chase a moving Track indefinitely beyond the canonical range. Range exhaustion is terminal on every movement path, including torpedo seeker guidance and P-700 cruise/terminal flight, and must produce `RangeExpired` rather than a fabricated impact. Direct-runtime regression fixtures bind an authoritative `PhysicsWorld` ownship proxy so tests exercise the same employment gate as windowed play.
 
 The implementation deliberately separates three kinds of values:
 

@@ -312,7 +312,8 @@ namespace M5AcousticDecoyDetail
     const ConventionalTorpedoDefinition torpedoDefinition{
         .weapon = weaponDefinition,
         .underwaterSpeedMetersPerSecond = 20.0F,
-        .maximumTurnRateRadiansPerSecond = 0.25F};
+        .maximumTurnRateRadiansPerSecond = 0.25F,
+        .maximumTravelDistanceMeters = 25.0F};
     const auto launchTrack = MakeLaunchTrack();
     auto weaponRuntimeResult = CreateWeaponRuntime(weaponDefinition, 0.0);
     if (!weaponRuntimeResult)
@@ -353,7 +354,15 @@ namespace M5AcousticDecoyDetail
     if (!AdvanceConventionalTorpedoWithSeekerCue(torpedoDefinition, seekerConfig, torpedo, **cueResult, 1.0) ||
         !originalLaunchTrackId || torpedo.guidanceTrackId != originalLaunchTrackId ||
         seekerState.selectedTrackId == originalLaunchTrackId ||
-        std::abs(torpedo.headingRadians - 0.25F) > 0.001F || torpedo.positionMeters.y <= 0.0F)
+        std::abs(torpedo.headingRadians - 0.25F) > 0.001F || torpedo.positionMeters.y <= 0.0F ||
+        std::abs(torpedo.travelledDistanceMeters - 20.0F) > 0.001F)
+    {
+        return false;
+    }
+    if (!AdvanceConventionalTorpedoWithSeekerCue(torpedoDefinition, seekerConfig, torpedo, **cueResult, 2.0) ||
+        torpedo.movementDomain != MovementDomain::Spent ||
+        torpedo.terminalReason != ConventionalTorpedoTerminalReason::RangeExpired ||
+        std::abs(torpedo.travelledDistanceMeters - 25.0F) > 0.001F)
     {
         return false;
     }
