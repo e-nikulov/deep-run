@@ -1,6 +1,6 @@
 # M5-V2 — Player Navigation / Dive Controls / Sonar Visualization Closure
 
-Status: ACCEPTED / COMPLETE — final Debug/Release gate: CI `34712161730` (#488) on `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`.
+Status: ACCEPTED / COMPLETE — original final Debug/Release gate: CI `34712161730` (#488) on `851a922dd4a2f4055dba523d3dc1a7773dad4ed2`. The subsequent authentic 360-degree bearing-scope refinement passed the full Debug/Release gate in CI `34872089845` (#962) on `b19860191d5321c0a1dedf27c320ccf906e7dc52` without changing acoustic, perception or weapon authority.
 
 Base branch: `feature/m5-v2-player-navigation-sonar`
 
@@ -113,6 +113,20 @@ M5-V2 requires:
 - sonar visualization option demonstrably disables visuals without altering ranging behavior.
 
 Closure result: ACCEPTED. The retained camera/presentation baseline remains intact, the navigation/dive/sonar state is covered by the M5 regression suite, `Sonar visualization: On / Off` defaults to `On` and changes presentation only, and the final clean Debug/Release CI gate passed in run `34712161730` (#488). P-700 was then closed as a separate final M5 integration without changing these V2 authority boundaries.
+
+## Final sonar bearing-scope refinement
+
+The accepted sonar presentation was subsequently refined without widening M5 simulation scope. The passive receiver remains all-direction within the current 2.5D acoustic/gameplay plane; the HUD now presents that evidence as a full 360-degree bow-relative polar scope. `0° / BOW` is displayed at the top and `180° / AFT` at the bottom. `90°` and `270°` intentionally remain unlabeled by port/starboard because the current acoustic bearing is still an XY gameplay-plane bearing rather than a true horizontal XZ azimuth.
+
+Player-readable evidence is now explicit:
+
+- `PAS/BRG` means passive bearing-only evidence and never implies range;
+- `RNG/...` means the perceived Track owns a legitimate range/spatial estimate, regardless of which sensor supplied it;
+- an orange `ACTIVE ECHO` is the current measured active-sonar return and remains visually distinct from the fused Track;
+- the outgoing active transmission remains a directed sector and retains the existing hostile-exposure consequence;
+- no hard aft blind zone, classified MGK-540 directivity or fake omnidirectional active sweep is introduced.
+
+The refinement changed only sonar presentation/documentation and preserved `AcousticWorld`, `TrackManager`, combat authority and weapon guidance. Full Debug and Release configure/build/CTest, normal gameplay startup smoke, acoustic smoke and P-700 production-launch smoke all passed in CI `34872089845` (#962) on `b19860191d5321c0a1dedf27c320ccf906e7dc52`.
 
 ## Main asset sync / torpedo playground binding
 

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace DeepRun::Game::Combat
@@ -475,8 +476,8 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
             ImGuiCond_Always,
             ImVec2(1.0F, 1.0F));
     }
-    ImGui::SetNextWindowSize(ImVec2(350.0F, 390.0F), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowBgAlpha(0.88F);
+    ImGui::SetNextWindowSize(ImVec2(380.0F, 430.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.90F);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse |
                                        ImGuiWindowFlags_NoSavedSettings |
                                        ImGuiWindowFlags_NoNavInputs |
@@ -487,25 +488,27 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
         return;
     }
 
-    ImGui::Text("Range: %.1f km", snapshot.displayRangeMeters / 1000.0F);
+    ImGui::Text("PASSIVE 360 | Scale %.1f km", snapshot.displayRangeMeters / 1000.0F);
     ImGui::SameLine();
     ImGui::Text("Contacts: %d", static_cast<int>(snapshot.tracks.size()));
     if (snapshot.activePulse)
     {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("PING OUT");
+        ImGui::TextUnformatted("ACTIVE: DIRECTED PING OUT");
     }
     else if (snapshot.recentEcho)
     {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("ECHO");
+        ImGui::TextUnformatted("ACTIVE: ECHO RECEIVED");
+    }
+    else
+    {
+        ImGui::TextUnformatted("ACTIVE: STANDBY");
     }
 
     const ImVec2 available = ImGui::GetContentRegionAvail();
-    const float scopeSize = std::max(160.0F, std::min(available.x, available.y - 42.0F));
+    const float scopeSize = std::max(160.0F, std::min(available.x, available.y - 58.0F));
     const ImVec2 topLeft = ImGui::GetCursorScreenPos();
     const ImVec2 center(topLeft.x + scopeSize * 0.5F, topLeft.y + scopeSize * 0.5F);
-    const float radius = scopeSize * 0.46F;
+    const float radius = scopeSize * 0.42F;
     ImGui::InvisibleButton("##SONAR_SCOPE", ImVec2(scopeSize, scopeSize));
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     if (drawList == nullptr || snapshot.displayRangeMeters <= 0.0F)
@@ -514,59 +517,96 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
         return;
     }
 
+    constexpr float pi = 3.14159265358979323846F;
+    constexpr float degreesToRadians = pi / 180.0F;
     const ImU32 gridColor = IM_COL32(90, 135, 145, 120);
     const ImU32 textColor = IM_COL32(185, 225, 230, 220);
-    const ImU32 contactColor = IM_COL32(105, 235, 190, 235);
+    const ImU32 passiveColor = IM_COL32(105, 235, 190, 235);
+    const ImU32 passiveDimColor = IM_COL32(105, 235, 190, 80);
+    const ImU32 rangedColor = IM_COL32(115, 215, 245, 245);
+    const ImU32 rangedDimColor = IM_COL32(115, 215, 245, 100);
     const ImU32 selectedColor = IM_COL32(255, 220, 100, 255);
     const ImU32 pingColor = IM_COL32(90, 210, 255, 210);
     const ImU32 echoColor = IM_COL32(255, 175, 90, 240);
+
+    // Present the accepted bow-relative 2.5D acoustic bearing as a polar scope. The current simulation bearing
+    // lives in the XY gameplay plane, so 90/270 are intentionally not labelled STBD/PORT until a true XZ
+    // azimuth channel exists; doing so here would invent spatial information the Track does not own.
+    const auto pointAt = [&center](const float bearingRadians, const float distancePixels) {
+        return ImVec2(center.x + std::sin(bearingRadians) * distancePixels,
+                      center.y - std::cos(bearingRadians) * distancePixels);
+    };
+    const auto screenAngle = [](const float bearingRadians) {
+        constexpr float halfPi = 1.57079632679489661923F;
+        return bearingRadians - halfPi;
+    };
 
     for (int ring = 1; ring <= 4; ++ring)
     {
         drawList->AddCircle(center, radius * (static_cast<float>(ring) / 4.0F), gridColor, 64, 1.0F);
     }
-    drawList->AddLine(ImVec2(center.x - radius, center.y), ImVec2(center.x + radius, center.y), gridColor, 1.0F);
-    drawList->AddLine(ImVec2(center.x, center.y - radius), ImVec2(center.x, center.y + radius), gridColor, 1.0F);
-    drawList->AddTriangleFilled(
-        ImVec2(center.x + radius + 2.0F, center.y),
-        ImVec2(center.x + radius - 6.0F, center.y - 4.0F),
-        ImVec2(center.x + radius - 6.0F, center.y + 4.0F),
-        textColor);
-    drawList->AddText(ImVec2(center.x + radius - 18.0F, center.y + 7.0F), textColor, "BOW");
+    for (int tick = 0; tick < 12; ++tick)
+    {
+        const float bearing = static_cast<float>(tick) * 30.0F * degreesToRadians;
+        const float inner = radius - ((tick % 3) == 0 ? 8.0F : 4.0F);
+        drawList->AddLine(pointAt(bearing, inner), pointAt(bearing, radius + 1.0F), gridColor, 1.0F);
+    }
+    drawList->AddLine(pointAt(0.0F, 0.0F), pointAt(0.0F, radius), gridColor, 1.0F);
+    drawList->AddLine(pointAt(0.5F * pi, 0.0F), pointAt(0.5F * pi, radius), gridColor, 1.0F);
+    drawList->AddLine(pointAt(pi, 0.0F), pointAt(pi, radius), gridColor, 1.0F);
+    drawList->AddLine(pointAt(-0.5F * pi, 0.0F), pointAt(-0.5F * pi, radius), gridColor, 1.0F);
 
-    const auto pointAt = [&center](const float bearingRadians, const float distancePixels) {
-        return ImVec2(center.x + std::cos(bearingRadians) * distancePixels,
-                      center.y - std::sin(bearingRadians) * distancePixels);
-    };
+    drawList->AddText(ImVec2(center.x - 18.0F, center.y - radius - 18.0F), textColor, "0 BOW");
+    drawList->AddText(ImVec2(center.x + radius + 4.0F, center.y - 7.0F), textColor, "90");
+    drawList->AddText(ImVec2(center.x - 26.0F, center.y + radius + 3.0F), textColor, "180 AFT");
+    drawList->AddText(ImVec2(center.x - radius - 28.0F, center.y - 7.0F), textColor, "270");
+
+    const ImVec2 ownshipTriangle[3]{
+        ImVec2(center.x, center.y - 8.0F),
+        ImVec2(center.x - 5.0F, center.y + 6.0F),
+        ImVec2(center.x + 5.0F, center.y + 6.0F)};
+    drawList->AddConvexPolyFilled(ownshipTriangle, 3, textColor);
 
     for (const auto& contact : snapshot.tracks)
     {
-        const ImU32 color = contact.selected ? selectedColor : contactColor;
+        const bool ranged = contact.estimatedRangeMeters.has_value();
+        const ImU32 baseColor = ranged ? rangedColor : passiveColor;
+        const ImU32 dimColor = ranged ? rangedDimColor : passiveDimColor;
+        const ImU32 color = contact.selected ? selectedColor : baseColor;
         const float bearing = contact.relativeBearingRadians;
         const float uncertainty = std::min(contact.bearingUncertaintyRadians, 1.2F);
-        const float contactRadius = contact.estimatedRangeMeters
+        const float contactRadius = ranged
             ? radius * std::clamp(*contact.estimatedRangeMeters / snapshot.displayRangeMeters, 0.0F, 1.0F)
-            : radius;
+            : radius * 0.96F;
         const ImVec2 contactPoint = pointAt(bearing, contactRadius);
-        if (!contact.estimatedRangeMeters)
+
+        if (!ranged)
         {
-            drawList->AddLine(center, contactPoint, color, contact.selected ? 2.0F : 1.0F);
-            drawList->AddLine(center, pointAt(bearing - uncertainty, radius), IM_COL32(105, 235, 190, 80), 1.0F);
-            drawList->AddLine(center, pointAt(bearing + uncertainty, radius), IM_COL32(105, 235, 190, 80), 1.0F);
-            drawList->AddCircleFilled(contactPoint, contact.selected ? 5.0F : 3.5F, color, 12);
+            // Passive-only evidence is a bearing fan. The perimeter marker is deliberately hollow so the outer
+            // ring cannot be read as a fabricated target range.
+            const float fanInnerRadius = radius * 0.14F;
+            drawList->AddLine(pointAt(bearing, fanInnerRadius), contactPoint,
+                              color, contact.selected ? 2.0F : 1.0F);
+            drawList->AddLine(pointAt(bearing - uncertainty, fanInnerRadius),
+                              pointAt(bearing - uncertainty, contactRadius), dimColor, 1.0F);
+            drawList->AddLine(pointAt(bearing + uncertainty, fanInnerRadius),
+                              pointAt(bearing + uncertainty, contactRadius), dimColor, 1.0F);
+            drawList->AddCircle(contactPoint, contact.selected ? 5.5F : 4.0F,
+                                color, 12, contact.selected ? 2.0F : 1.5F);
         }
         else
         {
             if (contact.positionUncertaintyMeters)
             {
                 const float uncertaintyPixels = std::clamp(
-                    *contact.positionUncertaintyMeters / snapshot.displayRangeMeters * radius, 2.0F, radius * 0.25F);
-                drawList->AddCircle(contactPoint, uncertaintyPixels, IM_COL32(105, 235, 190, 100), 24, 1.0F);
+                    *contact.positionUncertaintyMeters / snapshot.displayRangeMeters * radius,
+                    2.0F,
+                    radius * 0.25F);
+                drawList->AddCircle(contactPoint, uncertaintyPixels, dimColor, 24, 1.0F);
             }
             drawList->AddCircleFilled(contactPoint, contact.selected ? 5.5F : 4.0F, color, 16);
             drawList->AddLine(pointAt(bearing - uncertainty, contactRadius),
-                              pointAt(bearing + uncertainty, contactRadius),
-                              IM_COL32(105, 235, 190, 100), 1.0F);
+                              pointAt(bearing + uncertainty, contactRadius), dimColor, 1.0F);
         }
 
         if (contact.selected)
@@ -591,9 +631,10 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
         case ContactKnowledgeLevel::PositiveIdentification: knowledge = "ID"; break;
         case ContactKnowledgeLevel::Coasting: knowledge = "COAST"; break;
         }
+        const std::string source = ranged ? "RNG" : "PAS";
         const std::string label = contact.selected
-            ? "TARGET #" + std::to_string(static_cast<unsigned long long>(contact.trackId)) + " " + knowledge
-            : "#" + std::to_string(static_cast<unsigned long long>(contact.trackId)) + " " + knowledge;
+            ? "TARGET #" + std::to_string(static_cast<unsigned long long>(contact.trackId)) + " " + source + "/" + knowledge
+            : "#" + std::to_string(static_cast<unsigned long long>(contact.trackId)) + " " + source + "/" + knowledge;
         drawList->AddText(ImVec2(contactPoint.x + 8.0F, contactPoint.y - 9.0F), color, label.c_str());
     }
 
@@ -608,7 +649,12 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
         if (waveRadius > 1.0F)
         {
             drawList->PathClear();
-            drawList->PathArcTo(center, waveRadius, -(bearing + halfAngle), -(bearing - halfAngle), 24);
+            drawList->PathArcTo(
+                center,
+                waveRadius,
+                screenAngle(bearing - halfAngle),
+                screenAngle(bearing + halfAngle),
+                24);
             drawList->PathStroke(pingColor, 0, 2.0F);
         }
     }
@@ -627,10 +673,11 @@ void DrawSonarScope(const SonarPresentationSnapshot& snapshot)
                           ImVec2(echoPoint.x + 6.0F, echoPoint.y + 6.0F), echoColor, 2.0F);
         drawList->AddLine(ImVec2(echoPoint.x - 6.0F, echoPoint.y + 6.0F),
                           ImVec2(echoPoint.x + 6.0F, echoPoint.y - 6.0F), echoColor, 2.0F);
+        drawList->AddText(ImVec2(echoPoint.x + 9.0F, echoPoint.y + 7.0F), echoColor, "ACTIVE ECHO");
     }
 
-    ImGui::TextUnformatted("Y / Tab cycles TARGET | amber reticle = selected | RB / Space = range");
-    ImGui::TextUnformatted("BRG=line | AREA=estimated region | CLASS/ID=optical evidence | COAST=stale");
+    ImGui::TextUnformatted("Y / Tab cycles TARGET | amber reticle = selected | RB / Space = active range");
+    ImGui::TextUnformatted("PAS=passive bearing | RNG=ranged/fused track | orange X=active echo");
     ImGui::End();
 }
 
