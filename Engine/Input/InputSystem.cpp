@@ -66,8 +66,8 @@ ControllerSemanticAxes SemanticAxesForGamepad(const GamepadState& gamepad) noexc
     const StickAxes camera = MapRadialStick(gamepad.rightX, gamepad.rightY, CameraStickDeadZone);
     result.cameraPanX = camera.x;
 
-    // M5-J5 gives LT/RT back to the canonical weapon semantics. In the current tactical-camera context,
-    // right-stick X pans and right-stick Y supplies controller zoom so camera control remains controller-complete.
+    // In the current tactical-camera context, right-stick X pans and right-stick Y supplies controller zoom.
+    // Weapon preparation is automatic; RT remains fire and LT is intentionally not a weapon-preparation action.
     result.cameraPanY = 0.0F;
     result.cameraZoom = -camera.y;
     return result;
@@ -81,9 +81,6 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
     }
 
     constexpr float TriggerActionThreshold = 0.50F;
-    const float leftTrigger = std::isfinite(gamepad.leftTrigger)
-                                  ? std::clamp(gamepad.leftTrigger, 0.0F, 1.0F)
-                                  : 0.0F;
     const float rightTrigger = std::isfinite(gamepad.rightTrigger)
                                    ? std::clamp(gamepad.rightTrigger, 0.0F, 1.0F)
                                    : 0.0F;
@@ -92,7 +89,6 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
         .selectContact = HasGamepadButton(gamepad, GamepadButton::Y),
         .previousWeapon = HasGamepadButton(gamepad, GamepadButton::DpadLeft),
         .nextWeapon = HasGamepadButton(gamepad, GamepadButton::DpadRight),
-        .prepareWeapon = leftTrigger >= TriggerActionThreshold,
         .fireWeapon = rightTrigger >= TriggerActionThreshold,
         .activeSonarPing = HasGamepadButton(gamepad, GamepadButton::RightShoulder),
         .deployDecoy = HasGamepadButton(gamepad, GamepadButton::X),
@@ -170,10 +166,6 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::C)
             {
                 nextWeaponKeyDown_ = true;
-            }
-            else if (event.key == Platform::Key::R)
-            {
-                prepareWeaponKeyDown_ = true;
             }
             else if (event.key == Platform::Key::Enter)
             {
@@ -265,10 +257,6 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::C)
             {
                 nextWeaponKeyDown_ = false;
-            }
-            else if (event.key == Platform::Key::R)
-            {
-                prepareWeaponKeyDown_ = false;
             }
             else if (event.key == Platform::Key::Enter)
             {
@@ -416,11 +404,6 @@ void InputSystem::RefreshSemanticActions() noexcept
     state_.SetActionDown(InputAction::SelectContact, selectContactKeyDown_ || controller.selectContact);
     state_.SetActionDown(InputAction::PreviousWeapon, previousWeaponKeyDown_ || controller.previousWeapon);
     state_.SetActionDown(InputAction::NextWeapon, nextWeaponKeyDown_ || controller.nextWeapon);
-    state_.SetActionDown(
-        InputAction::PrepareWeapon,
-        prepareWeaponKeyDown_ ||
-            state_.IsMouseButtonDown(static_cast<std::size_t>(Platform::MouseButton::Right)) ||
-            controller.prepareWeapon);
     state_.SetActionDown(
         InputAction::FireWeapon,
         fireWeaponKeyDown_ ||

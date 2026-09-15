@@ -21,7 +21,7 @@ class WindowsGamingInputGamepad;
 
 // Small pure controller boundary used by InputSystem and headless tests. Inputs are already normalized by
 // the platform backend; output follows canonical semantic signs. The current M5 tactical-camera context maps
-// right-stick X to horizontal pan and right-stick Y to continuous zoom; LT/RT remain weapon actions.
+// right-stick X to horizontal pan and right-stick Y to continuous zoom; RT fires and LT is unbound.
 struct ControllerSemanticAxes final
 {
     float throttle = 0.0F;
@@ -37,7 +37,6 @@ struct ControllerSemanticActions final
     bool selectContact = false;
     bool previousWeapon = false;
     bool nextWeapon = false;
-    bool prepareWeapon = false;
     bool fireWeapon = false;
     bool activeSonarPing = false;
     bool deployDecoy = false;
@@ -100,7 +99,6 @@ private:
     bool selectContactKeyDown_ = false;
     bool previousWeaponKeyDown_ = false;
     bool nextWeaponKeyDown_ = false;
-    bool prepareWeaponKeyDown_ = false;
     bool fireWeaponKeyDown_ = false;
     bool activeSonarPingKeyDown_ = false;
     bool deployDecoyKeyDown_ = false;

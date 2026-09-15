@@ -14,7 +14,6 @@ enum class InputAction
     SelectContact,
     PreviousWeapon,
     NextWeapon,
-    PrepareWeapon,
     FireWeapon,
     ActiveSonarPing,
     DeployDecoy,
