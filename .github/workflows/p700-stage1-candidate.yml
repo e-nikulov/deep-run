@@ -1,0 +1,78 @@
+name: P700 stage1 completion candidate
+
+on:
+  push:
+    branches:
+      - feature/p700-signature-launch-vfx
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: contains(github.event.head_commit.message, '[p700-stage1]')
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge latest main in workspace
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git config user.name "Deep Run CI"
+          git config user.email "ci@deeprun.invalid"
+          git merge --no-commit --no-ff origin/main
+          if ($LASTEXITCODE -ne 0) { throw "merge with latest main failed" }
+      - name: Apply P700 stage1 completion
+        shell: pwsh
+        run: python Tools/p700_stage1_completion.py
+      - name: Configure Release
+        shell: pwsh
+        run: cmake --preset windows-release
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel
+      - name: P700 regression
+        shell: pwsh
+        run: ctest --preset windows-release -R DeepRunP700LaunchVfxTests --output-on-failure
+      - name: Full regression
+        shell: pwsh
+        run: ctest --preset windows-release --output-on-failure
+      - name: P700 day showcase smoke
+        shell: pwsh
+        env:
+          DR_P700_SHOWCASE: DAY_CALM
+        run: |
+          .\build\windows-release\Release\DeepRun.exe --smoke-p700
+          if ($LASTEXITCODE -ne 0) { throw "P700 DAY_CALM showcase smoke failed" }
+      - name: Package candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p700-stage1-candidate
+          if-no-files-found: warn
+          path: |
+            m5-p700-acceptance.json
+            m5-p700-launch.bmp
+            m5-p700-water-exit.bmp
+            m5-p700-deploy.bmp
+            m5-p700-cruise-terminal.bmp
+            m5-p700-impact.bmp
+            Engine/Render/Camera.h
+            Engine/Render/Camera.cpp
+            Engine/Render/ViewPathFog.h
+            Engine/Render/ViewPathFog.cpp
+            Engine/Render/D3D12Renderer.cpp
+            Shaders/Model.hlsl
+            Game/PhysicalPlayground.h
+            Game/PhysicalPlayground.cpp
+            Game/Weapons/P700LaunchLightingPresentation.h
+            Game/Weapons/P700LaunchWeatherPresentation.h
+            Game/Combat/P700LaunchCameraPresentation.h
+            Game/Combat/P700VfxShowcase.h
+            Game/Combat/CombatPlaygroundView.h
+            Game/Combat/CombatPlaygroundWindowedComposition.h
+            Game/Combat/P700VisualAcceptance.h
+            DeepRun/Main.cpp
+            Tests/P700LaunchVfxTest.cpp
