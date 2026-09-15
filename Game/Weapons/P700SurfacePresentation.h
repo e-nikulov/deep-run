@@ -31,8 +31,10 @@ BuildP700SurfaceDisturbances(
         if (missile == nullptr || missile->phase == Weapons::P700GranitPhase::Stored ||
             missile->phase == Weapons::P700GranitPhase::Spent)
             continue;
-        if (!missile->positionMeters.IsFinite() || !std::isfinite(missile->surfaceLevelYMeters) ||
-            !std::isfinite(missile->phaseStartTimeSeconds) || simulationTimeSeconds < missile->phaseStartTimeSeconds)
+        if (!missile->positionMeters.IsFinite() || !missile->launchForwardUnitVector.IsFinite() ||
+            !std::isfinite(missile->surfaceLevelYMeters) || !std::isfinite(missile->speedMetersPerSecond) ||
+            missile->speedMetersPerSecond < 0.0F || !std::isfinite(missile->phaseStartTimeSeconds) ||
+            simulationTimeSeconds < missile->phaseStartTimeSeconds)
             return std::unexpected("P-700 surface presentation observed invalid missile state");
 
         if (missile->phase == Weapons::P700GranitPhase::UnderwaterLaunch)
@@ -58,10 +60,12 @@ BuildP700SurfaceDisturbances(
                 const float retainedBulge = tuning.preBreachBulgeMaximumMeters * (1.0F - normalizedAge);
                 const float collapsingShoulder = tuning.breachSurfaceCollapseMeters * std::sin(Pi * normalizedAge);
                 const float amplitude = retainedBulge - collapsingShoulder;
+                const float breachCenterX = missile->positionMeters.x -
+                    missile->launchForwardUnitVector.x * missile->speedMetersPerSecond * age;
                 if (std::abs(amplitude) > 0.01F)
                 {
                     candidates.push_back({
-                        .centerX = missile->positionMeters.x,
+                        .centerX = breachCenterX,
                         .radiusMeters = tuning.preBreachBulgeRadiusMeters +
                             tuning.breachSurfaceExpansionMetersPerSecond * age,
                         .verticalAmplitudeMeters = amplitude,

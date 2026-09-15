@@ -1,5 +1,6 @@
 #include "Game/Combat/P700VfxShowcase.h"
 #include "Game/Weapons/P700LaunchVfx.h"
+#include "Game/Weapons/P700LaunchAudioPresentation.h"
 #include "Game/Weapons/P700SurfacePresentation.h"
 
 #include <array>
@@ -176,6 +177,59 @@ using DeepRun::Weapons::P700GranitRuntimeState;
     return true;
 }
 
+[[nodiscard]] bool RunAudioMappingChecks()
+{
+    constexpr std::array<P700LaunchAudioEvent, 9> Events{
+        P700LaunchAudioEvent::LauncherOpen,
+        P700LaunchAudioEvent::UnderwaterIgnition,
+        P700LaunchAudioEvent::UnderwaterPass,
+        P700LaunchAudioEvent::SurfaceBreach,
+        P700LaunchAudioEvent::BoosterAir,
+        P700LaunchAudioEvent::WingDeploy,
+        P700LaunchAudioEvent::BoosterSeparate,
+        P700LaunchAudioEvent::TurbojetStart,
+        P700LaunchAudioEvent::Flyby};
+    const std::array<float, 3> listener{0.0F, -30.0F, 0.0F};
+    float underwaterCutoff = 0.0F;
+    float breachCutoff = 0.0F;
+    for (const auto event : Events)
+    {
+        const bool underwater = event == P700LaunchAudioEvent::LauncherOpen ||
+            event == P700LaunchAudioEvent::UnderwaterIgnition || event == P700LaunchAudioEvent::UnderwaterPass;
+        const DeepRun::Game::Armament::P700LaunchAudioHook hook{
+            .event = event,
+            .launchSeed = 0x700700ULL,
+            .worldPositionMeters = {15.0F, underwater ? -25.0F : 0.0F, 0.0F},
+            .underwater = underwater};
+        const auto request = DeepRun::Game::Armament::BuildP700LaunchAudioOneShotRequest(hook, listener);
+        if (!request || !request->has_value() ||
+            !DeepRun::Audio::ValidateProceduralNoiseOneShotRequest(**request, 48'000U))
+        {
+            std::cerr << "P-700 launch audio event did not map to valid generic synthesis controls\n";
+            return false;
+        }
+        if (event == P700LaunchAudioEvent::UnderwaterIgnition) underwaterCutoff = (**request).lowPassCutoffHz;
+        if (event == P700LaunchAudioEvent::SurfaceBreach) breachCutoff = (**request).lowPassCutoffHz;
+    }
+    if (!(underwaterCutoff > 0.0F && breachCutoff > underwaterCutoff))
+    {
+        std::cerr << "P-700 underwater launch audio is not spectrally restrained relative to breach\n";
+        return false;
+    }
+    const DeepRun::Game::Armament::P700LaunchAudioHook distant{
+        .event = P700LaunchAudioEvent::Flyby,
+        .launchSeed = 99U,
+        .worldPositionMeters = {10'000.0F, 0.0F, 0.0F},
+        .underwater = false};
+    const auto culled = DeepRun::Game::Armament::BuildP700LaunchAudioOneShotRequest(distant, listener);
+    if (!culled || culled->has_value())
+    {
+        std::cerr << "P-700 launch audio did not cull an inaudible distant one-shot\n";
+        return false;
+    }
+    return true;
+}
+
 [[nodiscard]] bool RunSurfaceDisturbanceChecks()
 {
     const auto tuning = DeepRun::Game::Armament::DefaultP700LaunchVfxTuning();
@@ -191,12 +245,18 @@ using DeepRun::Weapons::P700GranitRuntimeState;
         return false;
     }
 
+    const float breachCenterX = missile.positionMeters.x;
     missile.phase = P700GranitPhase::WaterExit;
     missile.positionMeters.y = 0.2F;
     missile.phaseStartTimeSeconds = 1.20;
+    missile.speedMetersPerSecond = 100.0F;
+    const float waterExitAgeSeconds = 0.50F;
+    missile.positionMeters.x = breachCenterX +
+        missile.launchForwardUnitVector.x * missile.speedMetersPerSecond * waterExitAgeSeconds;
     const auto relaxation = DeepRun::Game::Armament::BuildP700SurfaceDisturbances(
         std::span<const P700GranitRuntimeState* const>(&pointer, 1U), tuning, 1.70);
     if (!relaxation || relaxation->empty() ||
+        std::abs(relaxation->front().centerX - breachCenterX) > 1.0e-3F ||
         relaxation->front().radiusMeters <= preBreach->front().radiusMeters)
     {
         std::cerr << "P-700 breach did not transition into an expanding surface relaxation\n";
@@ -328,7 +388,8 @@ using DeepRun::Weapons::P700GranitRuntimeState;
 
 int main()
 {
-    if (!RunDataDrivenChecks() || !RunLifecycleChecks() || !RunSurfaceDisturbanceChecks() ||
+    if (!RunDataDrivenChecks() || !RunLifecycleChecks() || !RunAudioMappingChecks() ||
+        !RunSurfaceDisturbanceChecks() ||
         !RunSalvoBudgetCheck(1U) ||
         !RunSalvoBudgetCheck(2U) || !RunSalvoBudgetCheck(6U) || !RunSalvoBudgetCheck(24U) ||
         !RunCpuPresentationBenchmark() || !RunShowcaseChecks())
