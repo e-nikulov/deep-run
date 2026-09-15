@@ -29,7 +29,6 @@
   "mistDensity": 0.62,
   "waterSheetCount": 54,
   "waterSheetLifetimeSeconds": 1.15,
-
   "foamCount": 150,
   "foamLifetimeSeconds": 8.0,
   "foamRadiusMeters": 11.0,
