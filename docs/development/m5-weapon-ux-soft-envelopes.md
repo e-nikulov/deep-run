@@ -2,7 +2,7 @@
 
 ## Player interaction contract
 
-Weapon selection is always available. Selecting another weapon immediately changes the selected fire-control profile and automatically starts that weapon's preparation timer. The player does not issue a separate `Prepare Weapon` command.
+Weapon selection is always available. Selecting another weapon immediately changes the selected fire-control profile and automatically starts that weapon's preparation timer. The player does not issue a separate `Prepare Weapon` command. The obsolete keyboard/mouse/controller preparation input has been removed as well, so there is no hidden second preparation step in the input layer.
 
 A projectile that has already been launched owns an independent runtime and continues its flight after the player changes the selected weapon. Its launch-time weapon definition is captured with the projectile, so changing the selected torpedo profile cannot mutate the in-flight weapon's kinematics, identity or endurance. Resolution of that old projectile must not reset or cancel the newly selected weapon's preparation/readiness state. A torpedo impact remains observable through its authoritative impact frame, then the spent projectile is cleared on the following fixed step; range/endurance expiry clears immediately.
 
