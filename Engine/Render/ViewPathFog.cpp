@@ -49,10 +49,32 @@ std::expected<void, std::string> ValidateScenePresentationParameters(
     for (const float color : parameters.fogColorRgb)
     {
         if (!std::isfinite(color) || color < 0.0F)
-        {
             return std::unexpected("scene presentation fog color must be finite and non-negative");
-        }
     }
+    if (!std::isfinite(parameters.atmosphereExtinctionPerMeter) ||
+        parameters.atmosphereExtinctionPerMeter < 0.0F)
+        return std::unexpected("scene presentation atmosphere extinction must be finite and non-negative");
+    for (const float color : parameters.atmosphereFogColorRgb)
+    {
+        if (!std::isfinite(color) || color < 0.0F)
+            return std::unexpected("scene presentation atmosphere color must be finite and non-negative");
+    }
+    const auto normalized = [](const float value) noexcept
+    {
+        return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
+    };
+    if (!normalized(parameters.cloudCoverFraction) ||
+        !normalized(parameters.precipitationFraction) ||
+        !normalized(parameters.sunTransmittance) ||
+        !normalized(parameters.skyLuminanceMultiplier) ||
+        !normalized(parameters.horizonHazeFraction) ||
+        !std::isfinite(parameters.cloudAdvection) ||
+        !normalized(parameters.atmosphereBoundaryViewportY) ||
+        !normalized(parameters.cloudPatternOffset) ||
+        !normalized(parameters.lightningFlashIntensity) ||
+        !normalized(parameters.lightningViewportX) ||
+        !normalized(parameters.lightningPatternOffset))
+        return std::unexpected("scene presentation atmosphere controls are invalid");
     return {};
 }
 

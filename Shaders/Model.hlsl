@@ -24,6 +24,20 @@ cbuffer ScenePresentationConstants : register(b1)
     float3 CameraViewDirection;
     float ScenePresentationPadding1;
     float3 FogColorRgb;
+    float AtmosphereExtinctionPerMeter;
+    float3 AtmosphereFogColorRgb;
+    float CloudCoverFraction;
+    float PrecipitationFraction;
+    float SunTransmittance;
+    float SkyLuminanceMultiplier;
+    float HorizonHazeFraction;
+    float CloudAdvection;
+    float AtmosphereBoundaryViewportY;
+    float PresentationTimeSeconds;
+    float CloudPatternOffset;
+    float LightningFlashIntensity;
+    float LightningViewportX;
+    float LightningPatternOffset;
     float ScenePresentationPadding2;
 };
 
@@ -101,6 +115,21 @@ float4 PSMain(PixelInput input) : SV_TARGET
         submergedPathLength = rayOriginBelow ? rayT * crossingT : rayT * (1.0F - crossingT);
     }
     const float fogTransmission = exp(-FogExtinctionPerMeter * submergedPathLength);
-    const float3 linearColor = depthLitColor * fogTransmission + FogColorRgb * (1.0F - fogTransmission);
+    const float3 waterVeiledColor = depthLitColor * fogTransmission + FogColorRgb * (1.0F - fogTransmission);
+
+    const bool rayOriginAbove = rayOrigin.y >= SurfaceLevelYMeters;
+    const bool fragmentAbove = input.worldPosition.y >= SurfaceLevelYMeters;
+    float atmosphericPathLength = 0.0F;
+    if (rayT > 0.0F && rayOriginAbove && fragmentAbove)
+        atmosphericPathLength = rayT;
+    else if (rayT > 0.0F && rayOriginAbove != fragmentAbove)
+    {
+        const float crossingT = saturate(
+            (SurfaceLevelYMeters - rayOrigin.y) / (input.worldPosition.y - rayOrigin.y));
+        atmosphericPathLength = rayOriginAbove ? rayT * crossingT : rayT * (1.0F - crossingT);
+    }
+    const float atmosphereTransmission = exp(-AtmosphereExtinctionPerMeter * atmosphericPathLength);
+    const float3 linearColor =
+        waterVeiledColor * atmosphereTransmission + AtmosphereFogColorRgb * (1.0F - atmosphereTransmission);
     return float4(linearColor, BaseColor.a);
 }

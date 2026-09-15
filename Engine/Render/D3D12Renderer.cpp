@@ -135,13 +135,27 @@ struct ScenePresentationConstants final
     std::array<float, 3> cameraViewDirection{};
     float padding1 = 0.0F;
     std::array<float, 3> fogColorRgb{};
+    float atmosphereExtinctionPerMeter = 0.0F;
+    std::array<float, 3> atmosphereFogColorRgb{};
+    float cloudCoverFraction = 0.0F;
+    float precipitationFraction = 0.0F;
+    float sunTransmittance = 1.0F;
+    float skyLuminanceMultiplier = 1.0F;
+    float horizonHazeFraction = 0.0F;
+    float cloudAdvection = 0.0F;
+    float atmosphereBoundaryViewportY = 0.0F;
+    float presentationTimeSeconds = 0.0F;
+    float cloudPatternOffset = 0.0F;
+    float lightningFlashIntensity = 0.0F;
+    float lightningViewportX = 0.5F;
+    float lightningPatternOffset = 0.0F;
     float padding2 = 0.0F;
 };
 
-static_assert(sizeof(ScenePresentationConstants) == 80U);
+static_assert(sizeof(ScenePresentationConstants) == 144U);
 constexpr UINT ScenePresentationConstantBufferBytes = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr UINT ModelRootSignatureDwordCost =
-    sizeof(DrawRootConstants) / sizeof(std::uint32_t) + 2U; // b0 root constants + one b1 root CBV descriptor.
+    sizeof(DrawRootConstants) / sizeof(std::uint32_t) + 2U;
 static_assert(ModelRootSignatureDwordCost == 58U);
 static_assert(ModelRootSignatureDwordCost < D3D12_MAX_ROOT_COST);
 
@@ -1135,11 +1149,17 @@ public:
         sceneColorRange.BaseShaderRegister = 0;
         sceneColorRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER sceneColorParameter{};
+        std::array<D3D12_ROOT_PARAMETER, 2> rootParameters{};
+        D3D12_ROOT_PARAMETER& sceneColorParameter = rootParameters[0];
         sceneColorParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         sceneColorParameter.DescriptorTable.NumDescriptorRanges = 1;
         sceneColorParameter.DescriptorTable.pDescriptorRanges = &sceneColorRange;
         sceneColorParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        D3D12_ROOT_PARAMETER& scenePresentationParameter = rootParameters[1];
+        scenePresentationParameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        scenePresentationParameter.Descriptor.ShaderRegister = 1;
+        scenePresentationParameter.Descriptor.RegisterSpace = 0;
+        scenePresentationParameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_STATIC_SAMPLER_DESC sceneColorSampler{};
         sceneColorSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -1155,8 +1175,8 @@ public:
         sceneColorSampler.MaxLOD = D3D12_FLOAT32_MAX;
 
         D3D12_ROOT_SIGNATURE_DESC rootDescription{};
-        rootDescription.NumParameters = 1;
-        rootDescription.pParameters = &sceneColorParameter;
+        rootDescription.NumParameters = static_cast<UINT>(rootParameters.size());
+        rootDescription.pParameters = rootParameters.data();
         rootDescription.NumStaticSamplers = 1;
         rootDescription.pStaticSamplers = &sceneColorSampler;
         rootDescription.Flags = D3D12_ROOT_SIGNATURE_FLAG_DENY_VERTEX_SHADER_ROOT_ACCESS |
@@ -1631,7 +1651,21 @@ public:
             .fogExtinctionPerMeter = parameters.fogExtinctionPerMeter,
             .cameraPlaneCenterWorldPosition = parameters.cameraPlaneCenterWorldPosition,
             .cameraViewDirection = normalizedViewDirection,
-            .fogColorRgb = parameters.fogColorRgb};
+            .fogColorRgb = parameters.fogColorRgb,
+            .atmosphereExtinctionPerMeter = parameters.atmosphereExtinctionPerMeter,
+            .atmosphereFogColorRgb = parameters.atmosphereFogColorRgb,
+            .cloudCoverFraction = parameters.cloudCoverFraction,
+            .precipitationFraction = parameters.precipitationFraction,
+            .sunTransmittance = parameters.sunTransmittance,
+            .skyLuminanceMultiplier = parameters.skyLuminanceMultiplier,
+            .horizonHazeFraction = parameters.horizonHazeFraction,
+            .cloudAdvection = parameters.cloudAdvection,
+            .atmosphereBoundaryViewportY = parameters.atmosphereBoundaryViewportY,
+            .presentationTimeSeconds = presentationTimeSeconds,
+            .cloudPatternOffset = parameters.cloudPatternOffset,
+            .lightningFlashIntensity = parameters.lightningFlashIntensity,
+            .lightningViewportX = parameters.lightningViewportX,
+            .lightningPatternOffset = parameters.lightningPatternOffset};
         std::memcpy(scenePresentationUploads[frameIndex].mapped, &constants, sizeof(constants));
         scenePresentationConfigured = true;
         return {};
@@ -2155,6 +2189,8 @@ public:
         commandList->SetGraphicsRootSignature(outputRootSignature.Get());
         commandList->SetPipelineState(outputPipeline.Get());
         commandList->SetGraphicsRootDescriptorTable(0, sceneColorSrvGpuHandle);
+        commandList->SetGraphicsRootConstantBufferView(
+            1, scenePresentationUploads[frameIndex].resource->GetGPUVirtualAddress());
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         commandList->DrawInstanced(3, 1, 0, 0);
         sceneColorOutputPending = false;

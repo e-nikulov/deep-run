@@ -15,6 +15,8 @@
 #include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/Environment/ScalableEnvironmentPresentation.h"
+#include "Game/Environment/ThunderstormPresentation.h"
+#include "Game/Environment/WeatherPresentation.h"
 #include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
@@ -2066,9 +2068,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
 
-    // M3-C/C.1 authority boundary: WaterBody remains in Game/Simulation. Game derives only the authoritative
-    // surface Y, fixed presentation tuning, plus the orthographic camera-plane center and view direction. The
-    // renderer receives no WaterBody, physics state, seabed authority, or gameplay visibility state.
+    const auto waterlineViewportY = ProjectWorldSurfaceToViewportY(*camera, water_->Config().surfaceLevelY);
+    if (!waterlineViewportY)
+        return std::unexpected("physical playground waterline projection failed: " + waterlineViewportY.error());
+
+    WeatherPresentationParameters weatherPresentation{};
+    ThunderstormPresentationSample thunderstormPresentation{};
+    if (freePresentationCameraFraming_)
+    {
+        if (!weather_.has_value())
+            return std::unexpected("physical playground W1 weather authority is unavailable");
+        weatherPresentation = EvaluateWeatherPresentation(*weather_);
+        if (!ValidWeatherPresentationParameters(weatherPresentation))
+            return std::unexpected("physical playground W1-F weather presentation is invalid");
+        thunderstormPresentation = EvaluateThunderstormPresentation(*weather_, presentationTimeSeconds);
+    }
+
     const float cameraDepthMeters = (std::max)(water_->Config().surfaceLevelY - camera->position.y, 0.0F);
     const float deepFogBlend = std::clamp(cameraDepthMeters / M3DeepFogReferenceDepthMeters, 0.0F, 1.0F);
     const auto blendChannel = [deepFogBlend](const float shallow, const float deep) noexcept
@@ -2085,21 +2100,28 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         .cameraPlaneCenterWorldPosition = {camera->position.x, camera->position.y, camera->position.z},
         .cameraViewDirection = {camera->viewDirection.x, camera->viewDirection.y, camera->viewDirection.z},
         .fogExtinctionPerMeter = M3FogExtinctionPerMeter,
-        .fogColorRgb = depthAwareFogColorRgb};
+        .fogColorRgb = depthAwareFogColorRgb,
+        .atmosphereExtinctionPerMeter = weatherPresentation.atmosphereExtinctionPerMeter,
+        .atmosphereFogColorRgb = weatherPresentation.atmosphereFogColorRgb,
+        .cloudCoverFraction = weatherPresentation.cloudCoverFraction,
+        .precipitationFraction = weatherPresentation.precipitationFraction,
+        .sunTransmittance = weatherPresentation.sunTransmittance,
+        .skyLuminanceMultiplier = weatherPresentation.skyLuminanceMultiplier,
+        .horizonHazeFraction = weatherPresentation.horizonHazeFraction,
+        .cloudAdvection = weatherPresentation.cloudAdvection,
+        .atmosphereBoundaryViewportY = freePresentationCameraFraming_
+            ? std::clamp(*waterlineViewportY, 0.0F, 1.0F)
+            : 0.0F,
+        .cloudPatternOffset = weatherPresentation.cloudPatternOffset,
+        .lightningFlashIntensity = thunderstormPresentation.flashIntensity,
+        .lightningViewportX = thunderstormPresentation.lightningViewportX,
+        .lightningPatternOffset = thunderstormPresentation.lightningPatternOffset};
     if (const auto configured = renderer.SetScenePresentation(scenePresentation); !configured)
-    {
         return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());
-    }
 
-    // Legacy M2/M3 benchmark presentation keeps its original dark above-water clear. M5 free-presentation
-    // gameplay uses a deterministic DAY baseline instead: a scene-linear sky gradient plus a small sun cue.
-    // This is presentation-only and intentionally not a time-of-day simulation; future weather/day-night work
-    // may replace it without touching WaterBody or combat authority.
-    const auto waterlineViewportY = ProjectWorldSurfaceToViewportY(*camera, water_->Config().surfaceLevelY);
-    if (!waterlineViewportY)
-    {
-        return std::unexpected("physical playground waterline projection failed: " + waterlineViewportY.error());
-    }
+    // W1-F/W1-G are presentation-only: legacy benchmark framing remains neutral; free gameplay reconstructs
+    // cloud/haze/precipitation/lightning from the same WeatherState already used by ocean and sensor composition.
+    // Thunder remains a semantic delayed cue in Game and is not owned by this render path.
 
     if (freePresentationCameraFraming_)
     {
