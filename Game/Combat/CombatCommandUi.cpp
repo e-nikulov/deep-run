@@ -234,6 +234,19 @@ void DrawCombatCommandUi(
     ImGui::Text("P-700 loaded: %zu / %zu", snapshot.p700LoadedCount, Armament::AnteyP700LauncherSlotCount);
     ImGui::Text("P-700 salvo: %s (G / D-pad Down)",
         snapshot.p700SalvoMode == Weapons::P700SalvoMode::Pair ? "PAIR x2 / cooperative" : "SINGLE x1 / economical");
+    if (snapshot.p700NextLaunchReadySeconds > 0.0)
+        ImGui::Text("Next P-700 hatch sequence: %.1f s", snapshot.p700NextLaunchReadySeconds);
+    if (snapshot.activeP700FloodProgress && *snapshot.activeP700FloodProgress < 1.0F)
+        ImGui::Text("P-700 launcher flooding: %.0f%%", *snapshot.activeP700FloodProgress * 100.0F);
+    if (snapshot.selectedWeapon != Armament::PlayerWeaponType::P700Granit)
+    {
+        ImGui::Text("Torpedo ammo: %zu | ready tubes: %zu / %zu",
+                    snapshot.torpedoRoundsRemaining, snapshot.torpedoReadyTubeCount, snapshot.torpedoTubeCount);
+        if (snapshot.torpedoNextTubeReadySeconds)
+            ImGui::Text("Next compatible tube reload: %.1f s", *snapshot.torpedoNextTubeReadySeconds);
+    }
+    ImGui::Text("In flight: torpedoes %zu | P-700 %zu",
+                snapshot.playerTorpedoesInFlight, snapshot.playerP700InFlight);
     if (snapshot.weaponTargetTrackId)
     {
         ImGui::Text("Weapon track: #%llu", static_cast<unsigned long long>(*snapshot.weaponTargetTrackId));

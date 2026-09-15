@@ -70,6 +70,9 @@ struct P700GranitDefinition final
     float terminalSpeedMetersPerSecond = 750.0F;
     float maximumAirborneTurnRateRadiansPerSecond = 0.35F;
     double launcherHatchOpeningSeconds = 0.75;
+    // GAME POLICY duration: open sources confirm a wet launch with the launcher flooded before ejection,
+    // but do not provide a dependable public cycle time for SM-225A. Keep the timing explicit/tunable.
+    double launcherFloodingSeconds = 2.0;
     double waterExitTransitionSeconds = 0.50;
     double postExitTransitionSeconds = 0.60;
     double deploymentSeconds = 1.50;
@@ -103,6 +106,7 @@ struct P700GranitRuntimeState final
     float speedMetersPerSecond = 0.0F;
     float travelledDistanceMeters = 0.0F;
     float hatchOpenProgress = 0.0F;
+    float launcherFloodProgress = 0.0F;
     float postExitTransitionProgress = 0.0F;
     float deploymentProgress = 0.0F;
     bool launchBoosterActive = false;
@@ -235,6 +239,7 @@ struct P700GranitImpact final
         definition.maximumAirborneTurnRateRadiansPerSecond <= 0.0F ||
         definition.maximumAirborneTurnRateRadiansPerSecond > 3.14159265358979323846F ||
         !std::isfinite(definition.launcherHatchOpeningSeconds) || definition.launcherHatchOpeningSeconds <= 0.0 ||
+        !std::isfinite(definition.launcherFloodingSeconds) || definition.launcherFloodingSeconds <= 0.0 ||
         !std::isfinite(definition.waterExitTransitionSeconds) || definition.waterExitTransitionSeconds <= 0.0 ||
         !std::isfinite(definition.postExitTransitionSeconds) || definition.postExitTransitionSeconds <= 0.0 ||
         !std::isfinite(definition.deploymentSeconds) || definition.deploymentSeconds <= 0.0 ||
@@ -337,6 +342,7 @@ struct P700GranitImpact final
     state.speedMetersPerSecond = 0.0F;
     state.travelledDistanceMeters = 0.0F;
     state.hatchOpenProgress = 0.0F;
+    state.launcherFloodProgress = 0.0F;
     state.postExitTransitionProgress = 0.0F;
     state.deploymentProgress = 0.0F;
     state.launchBoosterActive = false;
@@ -401,6 +407,8 @@ struct P700GranitImpact final
         !std::isfinite(state.travelledDistanceMeters) || state.travelledDistanceMeters < 0.0F ||
         state.travelledDistanceMeters > definition.maximumTravelDistanceMeters + 1.0e-3F ||
         !std::isfinite(state.hatchOpenProgress) || state.hatchOpenProgress < 0.0F || state.hatchOpenProgress > 1.0F ||
+        !std::isfinite(state.launcherFloodProgress) || state.launcherFloodProgress < 0.0F ||
+        state.launcherFloodProgress > 1.0F ||
         !std::isfinite(state.postExitTransitionProgress) || state.postExitTransitionProgress < 0.0F ||
         state.postExitTransitionProgress > 1.0F || !std::isfinite(state.deploymentProgress) ||
         state.deploymentProgress < 0.0F || state.deploymentProgress > 1.0F ||
@@ -542,20 +550,26 @@ struct P700GranitImpact final
                 state.postExitTransitionProgress != 0.0F || state.launchBoosterActive || state.mainEngineActive ||
                 !state.launchBoosterAttached || !state.noseProtectionCapAttached)
             {
-                return std::unexpected("P-700 hatch-opening component contract is invalid");
+                return std::unexpected("P-700 hatch/flood preparation component contract is invalid");
             }
             const double elapsed = cursorTime - state.phaseStartTimeSeconds;
-            const double phaseRemaining = std::max(0.0, definition.launcherHatchOpeningSeconds - elapsed);
+            const double totalPreparationSeconds =
+                definition.launcherHatchOpeningSeconds + definition.launcherFloodingSeconds;
+            const double phaseRemaining = std::max(0.0, totalPreparationSeconds - elapsed);
             const double stepSeconds = std::min(remainingSeconds, phaseRemaining);
             cursorTime += stepSeconds;
             remainingSeconds -= stepSeconds;
             state.lastUpdateTimeSeconds = cursorTime;
+            const double totalElapsed = cursorTime - state.phaseStartTimeSeconds;
             state.hatchOpenProgress = std::clamp(
-                static_cast<float>((cursorTime - state.phaseStartTimeSeconds) / definition.launcherHatchOpeningSeconds),
-                0.0F, 1.0F);
+                static_cast<float>(totalElapsed / definition.launcherHatchOpeningSeconds), 0.0F, 1.0F);
+            const double floodElapsed = std::max(0.0, totalElapsed - definition.launcherHatchOpeningSeconds);
+            state.launcherFloodProgress = std::clamp(
+                static_cast<float>(floodElapsed / definition.launcherFloodingSeconds), 0.0F, 1.0F);
             if (phaseRemaining <= stepSeconds + 1.0e-9)
             {
                 state.hatchOpenProgress = 1.0F;
+                state.launcherFloodProgress = 1.0F;
                 state.launchBoosterActive = true;
                 state.phase = state.positionMeters.y < state.surfaceLevelYMeters - 0.05F
                     ? P700GranitPhase::UnderwaterLaunch
@@ -572,7 +586,8 @@ struct P700GranitImpact final
         if (state.phase == P700GranitPhase::UnderwaterLaunch)
         {
             if (state.deploymentProgress != 0.0F || state.hatchOpenProgress != 1.0F ||
-                state.postExitTransitionProgress != 0.0F || state.launchForwardUnitVector.y <= 0.0F ||
+                state.launcherFloodProgress != 1.0F || state.postExitTransitionProgress != 0.0F ||
+                state.launchForwardUnitVector.y <= 0.0F ||
                 !state.launchBoosterActive || !state.launchBoosterAttached || !state.noseProtectionCapAttached ||
                 state.mainEngineActive)
             {
@@ -608,7 +623,8 @@ struct P700GranitImpact final
         if (state.phase == P700GranitPhase::WaterExit)
         {
             if (state.deploymentProgress != 0.0F || state.hatchOpenProgress != 1.0F ||
-                state.postExitTransitionProgress != 0.0F || !state.launchBoosterActive ||
+                state.launcherFloodProgress != 1.0F || state.postExitTransitionProgress != 0.0F ||
+                !state.launchBoosterActive ||
                 !state.launchBoosterAttached || !state.noseProtectionCapAttached || state.mainEngineActive)
             {
                 return std::unexpected("P-700 must remain booster-driven and stowed through WaterExit");

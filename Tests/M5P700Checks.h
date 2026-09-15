@@ -32,6 +32,7 @@ namespace M5P700Detail
         .terminalSpeedMetersPerSecond = 750.0F,
         .maximumAirborneTurnRateRadiansPerSecond = 0.35F,
         .launcherHatchOpeningSeconds = 0.75,
+        .launcherFloodingSeconds = 2.0,
         .waterExitTransitionSeconds = 0.50,
         .postExitTransitionSeconds = 0.60,
         .deploymentSeconds = 1.50,
@@ -227,8 +228,9 @@ namespace M5P700Detail
     const auto launch = LaunchP700Granit(
         definition, runtime, targetTrack, SubmergedCarrier(), 0.0);
     if (!launch || !launch->allowed || runtime.phase != P700GranitPhase::HatchOpening ||
-        runtime.deploymentProgress != 0.0F || runtime.guidanceTrackId != targetTrack.trackId ||
-        runtime.launchBoosterActive || !runtime.launchBoosterAttached || !runtime.noseProtectionCapAttached)
+        runtime.deploymentProgress != 0.0F || runtime.launcherFloodProgress != 0.0F ||
+        runtime.guidanceTrackId != targetTrack.trackId || runtime.launchBoosterActive ||
+        !runtime.launchBoosterAttached || !runtime.noseProtectionCapAttached)
     {
         return fail("submerged launch must begin with the selected launcher hatch opening");
     }
@@ -243,13 +245,24 @@ namespace M5P700Detail
     }
 
     lifecycleTimeSeconds = 1.00;
+    const auto flooding = AdvanceP700GranitWithCollision(
+        definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
+    if (!flooding || *flooding || runtime.phase != P700GranitPhase::HatchOpening ||
+        runtime.hatchOpenProgress != 1.0F || runtime.launcherFloodProgress <= 0.0F ||
+        runtime.launcherFloodProgress >= 1.0F || runtime.launchBoosterActive || runtime.positionMeters.y != -30.0F)
+    {
+        return fail("opened P-700 launcher must flood before booster ignition or missile motion");
+    }
+
+    lifecycleTimeSeconds = definition.launcherHatchOpeningSeconds + definition.launcherFloodingSeconds + 0.10;
     const auto underwater = AdvanceP700GranitWithCollision(
         definition, runtime, targetTrack, physicsWorld, lifecycleTimeSeconds, carrierBody);
     if (!underwater || *underwater || runtime.phase != P700GranitPhase::UnderwaterLaunch ||
-        runtime.hatchOpenProgress != 1.0F || !runtime.launchBoosterActive ||
-        runtime.deploymentProgress != 0.0F || runtime.positionMeters.y >= runtime.surfaceLevelYMeters)
+        runtime.hatchOpenProgress != 1.0F || runtime.launcherFloodProgress != 1.0F ||
+        !runtime.launchBoosterActive || runtime.deploymentProgress != 0.0F ||
+        runtime.positionMeters.y >= runtime.surfaceLevelYMeters)
     {
-        return fail("underwater exit must use the attached launch booster and stay folded");
+        return fail("underwater exit must begin only after the launcher is fully flooded");
     }
 
     const auto advanceUntilPhase = [&](const P700GranitPhase expectedPhase, const double deadlineSeconds)
@@ -267,7 +280,7 @@ namespace M5P700Detail
         return runtime.phase == expectedPhase;
     };
 
-    if (!advanceUntilPhase(P700GranitPhase::WaterExit, 3.0) ||
+    if (!advanceUntilPhase(P700GranitPhase::WaterExit, 5.0) ||
         runtime.deploymentProgress != 0.0F ||
         runtime.positionMeters.y < runtime.surfaceLevelYMeters - 0.001F ||
         !runtime.launchBoosterActive || !runtime.launchBoosterAttached || !runtime.noseProtectionCapAttached)

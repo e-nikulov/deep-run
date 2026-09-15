@@ -23,3 +23,10 @@ Deep Run permits P-700 launch only from a submerged Antey. The current gameplay 
 ## Regression coverage
 
 M5 player-controlled combat checks cover automatic initial preparation, fire after readiness, and changing the selected weapon while a previously launched torpedo remains in flight. P-700 acceptance automation follows the same contract and no longer depends on a manual preparation command. The legacy automated M5 combat composition remains a deterministic one-shot acceptance scenario, so automatic re-arm after its resolved test round cannot trigger an unintended second player launch.
+
+
+## Launcher-cycle resource contract
+
+Project 949A gameplay now separates ammunition from launcher readiness. The accepted topology is four 533 mm bow torpedo tubes and two 650 mm bow torpedo tubes, with the existing 18-round 533 mm and 10-round 650 mm ammunition pools. All six tubes begin loaded. Firing consumes a round and makes only that physical tube unavailable while it reloads; the other loaded tubes may continue firing. Open references describe automated rapid loading and the ability to expend the torpedo load within several minutes but do not expose a dependable per-tube cycle time, so Deep Run uses explicit GAME POLICY reloads of 45 s for 533 mm and 60 s for 650 mm tubes.
+
+The 24 P-700 missiles remain dedicated one-shot launcher inventory rather than a reloadable magazine. Single mode advances across the 12 paired hatch groups before revisiting the second missile under a half-used hatch; Pair mode commits both loaded missiles under one paired hatch. A launch sequence is hatch opening -> launcher flooding -> booster ejection. Flooding is explicit because the real system is publicly described as a wet launch; its 2.0 s duration and the 5.0 s minimum interval between player salvo commits are GAME POLICY pacing values, not claimed classified SM-225A timings. Already launched torpedoes and Granits keep independent flight runtimes, so launcher readiness rather than flight duration controls follow-on shots.

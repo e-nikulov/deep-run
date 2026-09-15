@@ -51,6 +51,14 @@ struct PlayerCombatPresentationSnapshot final
 {
     Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
     std::size_t p700LoadedCount = 0U;
+    double p700NextLaunchReadySeconds = 0.0;
+    std::optional<float> activeP700FloodProgress{};
+    std::size_t torpedoRoundsRemaining = 0U;
+    std::size_t torpedoReadyTubeCount = 0U;
+    std::size_t torpedoTubeCount = 0U;
+    std::optional<double> torpedoNextTubeReadySeconds{};
+    std::size_t playerTorpedoesInFlight = 0U;
+    std::size_t playerP700InFlight = 0U;
     Weapons::P700SalvoMode p700SalvoMode = Weapons::P700SalvoMode::Single;
     Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;
     std::optional<std::uint64_t> weaponTargetTrackId{};

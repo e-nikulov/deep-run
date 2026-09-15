@@ -30,6 +30,7 @@ struct CombatPlaygroundP700Presentation final
     Physics::PhysicsVector3 positionMeters{};
     float headingRadians = 0.0F;
     float hatchOpenProgress = 0.0F;
+    float launcherFloodProgress = 0.0F;
     float postExitTransitionProgress = 0.0F;
     float deploymentProgress = 0.0F;
     bool launchBoosterActive = false;
@@ -66,6 +67,7 @@ struct CombatPlaygroundPresentationSnapshot final
     bool destroyerDestroyed = false;
     bool destroyerVisible = true;
     std::optional<CombatPlaygroundTorpedoPresentation> playerTorpedo{};
+    std::vector<CombatPlaygroundTorpedoPresentation> additionalPlayerTorpedoes{};
     std::optional<CombatPlaygroundTorpedoPresentation> destroyerTorpedo{};
     std::optional<CombatPlaygroundP700Presentation> playerP700{};
     std::vector<CombatPlaygroundP700Presentation> playerP700Wingmen{};
@@ -146,6 +148,15 @@ BuildCombatPlaygroundPresentationSnapshot(
             .headingRadians = torpedo->headingRadians,
             .movementDomain = torpedo->movementDomain};
     }
+    for (const auto& torpedo : runtime.AdditionalPlayerTorpedoes())
+    {
+        if (!torpedo.positionMeters.IsFinite() || !std::isfinite(torpedo.headingRadians))
+            return std::unexpected("additional player torpedo presentation state is invalid");
+        snapshot.additionalPlayerTorpedoes.push_back(CombatPlaygroundTorpedoPresentation{
+            .positionMeters = torpedo.positionMeters,
+            .headingRadians = torpedo.headingRadians,
+            .movementDomain = torpedo.movementDomain});
+    }
 
     if (const auto& torpedo = runtime.DestroyerTorpedo(); torpedo.has_value())
     {
@@ -165,7 +176,8 @@ BuildCombatPlaygroundPresentationSnapshot(
     {
         if (!p700->positionMeters.IsFinite() || !std::isfinite(p700->headingRadians) ||
             !std::isfinite(p700->hatchOpenProgress) || p700->hatchOpenProgress < 0.0F || p700->hatchOpenProgress > 1.0F ||
-            !std::isfinite(p700->postExitTransitionProgress) || p700->postExitTransitionProgress < 0.0F ||
+            !std::isfinite(p700->launcherFloodProgress) || p700->launcherFloodProgress < 0.0F ||
+            p700->launcherFloodProgress > 1.0F || !std::isfinite(p700->postExitTransitionProgress) || p700->postExitTransitionProgress < 0.0F ||
             p700->postExitTransitionProgress > 1.0F || !std::isfinite(p700->deploymentProgress) ||
             p700->deploymentProgress < 0.0F || p700->deploymentProgress > 1.0F)
         {
@@ -175,6 +187,7 @@ BuildCombatPlaygroundPresentationSnapshot(
             .positionMeters = p700->positionMeters,
             .headingRadians = p700->headingRadians,
             .hatchOpenProgress = p700->hatchOpenProgress,
+            .launcherFloodProgress = p700->launcherFloodProgress,
             .postExitTransitionProgress = p700->postExitTransitionProgress,
             .deploymentProgress = p700->deploymentProgress,
             .launchBoosterActive = p700->launchBoosterActive,
@@ -195,6 +208,24 @@ BuildCombatPlaygroundPresentationSnapshot(
         snapshot.playerP700Wingmen.push_back(CombatPlaygroundP700Presentation{
             .positionMeters = p700.positionMeters, .headingRadians = p700.headingRadians,
             .hatchOpenProgress = p700.hatchOpenProgress,
+            .launcherFloodProgress = p700.launcherFloodProgress,
+            .postExitTransitionProgress = p700.postExitTransitionProgress,
+            .deploymentProgress = p700.deploymentProgress,
+            .launchBoosterActive = p700.launchBoosterActive, .launchBoosterAttached = p700.launchBoosterAttached,
+            .noseProtectionCapAttached = p700.noseProtectionCapAttached, .mainEngineActive = p700.mainEngineActive,
+            .terminalOutcome = p700.terminalOutcome, .phase = p700.phase});
+    }
+    for (const auto& p700 : runtime.AdditionalPlayerP700Missiles())
+    {
+        if (p700.phase == Weapons::P700GranitPhase::Stored || p700.phase == Weapons::P700GranitPhase::Spent)
+            continue;
+        if (!p700.positionMeters.IsFinite() || !std::isfinite(p700.headingRadians) ||
+            !std::isfinite(p700.hatchOpenProgress) || !std::isfinite(p700.launcherFloodProgress) ||
+            !std::isfinite(p700.postExitTransitionProgress) || !std::isfinite(p700.deploymentProgress))
+            return std::unexpected("ripple P-700 presentation state is invalid");
+        snapshot.playerP700Wingmen.push_back(CombatPlaygroundP700Presentation{
+            .positionMeters = p700.positionMeters, .headingRadians = p700.headingRadians,
+            .hatchOpenProgress = p700.hatchOpenProgress, .launcherFloodProgress = p700.launcherFloodProgress,
             .postExitTransitionProgress = p700.postExitTransitionProgress,
             .deploymentProgress = p700.deploymentProgress,
             .launchBoosterActive = p700.launchBoosterActive, .launchBoosterAttached = p700.launchBoosterAttached,
@@ -501,6 +532,21 @@ BuildCombatPlaygroundPresentationDraws(const CombatPlaygroundPresentationSnapsho
         {
             return std::unexpected(draw.error());
         }
+        draws.push_back(std::move(*draw));
+    }
+
+    for (const auto& torpedo : snapshot.additionalPlayerTorpedoes)
+    {
+        if (torpedo.movementDomain != Weapons::MovementDomain::Underwater)
+            continue;
+        const auto transform = PoseScaleTransform(
+            torpedo.positionMeters, Weapons::WeaponHeadingQuaternion(torpedo.headingRadians),
+            {.x = 1.0F, .y = 1.0F, .z = 1.0F});
+        if (!transform) return std::unexpected(transform.error());
+        auto draw = MakeDraw(
+            CombatPlaygroundPresentationElement::PlayerTorpedo, *transform,
+            Material("M5PlayerTorpedoRipple", {1.0F, 0.96F, 0.56F, 1.0F}, 0.08F, 0.24F));
+        if (!draw) return std::unexpected(draw.error());
         draws.push_back(std::move(*draw));
     }
 

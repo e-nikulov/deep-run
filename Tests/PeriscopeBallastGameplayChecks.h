@@ -7,6 +7,7 @@
 #include "Game/Submarine/AnteyHandlingModel.h"
 #include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Game/Weapons/AnteyTorpedoInventory.h"
+#include "Game/Weapons/AnteyTorpedoTubeBank.h"
 #include "Simulation/Perception/TrackManager.h"
 
 #include <cmath>
@@ -105,6 +106,28 @@ namespace DeepRun::Tests
         torpedoes.LoadedCount(Game::Armament::PlayerWeaponType::HeavyweightTorpedo) != 17U ||
         torpedoes.LoadedCount(Game::Armament::PlayerWeaponType::Type6576AFast) != 9U ||
         std::abs(torpedoes.ExpendedMassKg() - 6'500.0F) > 1.0F)
+        return false;
+
+    Game::Armament::AnteyTorpedoTubeBank tubeBank{};
+    if (tubeBank.ReadyTubeCount(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, 0.0) != 4U ||
+        tubeBank.ReadyTubeCount(Game::Armament::PlayerWeaponType::Type6576AFast, 0.0) != 2U)
+        return false;
+    for (std::size_t shot = 0U; shot < 4U; ++shot)
+    {
+        if (!tubeBank.CommitLaunch(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, static_cast<double>(shot)))
+            return false;
+    }
+    if (tubeBank.ReadyTubeCount(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, 3.0) != 0U ||
+        tubeBank.CommitLaunch(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, 3.1) ||
+        !tubeBank.SecondsUntilNextReadyTube(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, 3.1) ||
+        *tubeBank.SecondsUntilNextReadyTube(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, 3.1) < 41.8 ||
+        tubeBank.ReadyTubeCount(Game::Armament::PlayerWeaponType::HeavyweightTorpedo, 45.0) != 1U)
+        return false;
+    if (!tubeBank.CommitLaunch(Game::Armament::PlayerWeaponType::Type6576AFast, 5.0) ||
+        !tubeBank.CommitLaunch(Game::Armament::PlayerWeaponType::Type6576AEconomy, 6.0) ||
+        tubeBank.ReadyTubeCount(Game::Armament::PlayerWeaponType::Type6576AFast, 6.0) != 0U ||
+        tubeBank.CommitLaunch(Game::Armament::PlayerWeaponType::Type6576AFast, 7.0) ||
+        tubeBank.ReadyTubeCount(Game::Armament::PlayerWeaponType::Type6576AFast, 65.0) != 1U)
         return false;
 
     const VariableBallastDepthControlConfig ballast{};
