@@ -19,3 +19,7 @@ Depth, carrier speed, launcher sector, target-domain constraints, inventory, tra
 ## P-700 carrier-depth contract
 
 Deep Run permits P-700 launch only from a submerged Antey. The current gameplay envelope is 10–50 m launch depth. The lower bound is a conservative presentation/gameplay policy to prevent a visually surfaced boat from launching; the 50 m maximum remains the existing submerged launch limit.
+
+## Regression coverage
+
+M5 player-controlled combat checks cover automatic initial preparation, fire after readiness, and changing the selected weapon while a previously launched torpedo remains in flight. P-700 acceptance automation follows the same contract and no longer depends on a manual preparation command.
