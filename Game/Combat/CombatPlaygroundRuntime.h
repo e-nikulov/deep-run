@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/AnteyElectronicCombatRuntime.h"
 #include "Game/Combat/CombatKnowledge.h"
 #include "Game/Combat/P700SeekerObservation.h"
 #include "Game/Combat/PeriscopeCombatRuntime.h"
@@ -119,10 +120,10 @@ public:
         }
         const auto playerTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
             .observationsToConfirm = 1U,
-            .coastAfterSeconds = 5.0,
-            .lostAfterSeconds = 20.0,
-            .confidenceDecayPerSecond = 0.02F,
-            .bearingUncertaintyGrowthRadiansPerSecond = 0.01F,
+            .coastAfterSeconds = 30.0,
+            .lostAfterSeconds = 90.0,
+            .confidenceDecayPerSecond = 0.005F,
+            .bearingUncertaintyGrowthRadiansPerSecond = 0.005F,
             .positionUncertaintyGrowthMetersPerSecond = 5.0F,
             .maximumTracks = 8U});
         const auto destroyerTracks = Perception::TrackManager::Create(Perception::TrackManagerConfig{
@@ -258,8 +259,8 @@ public:
                 .preparationSeconds = 1.0,
                 .targeting = Weapons::WeaponTargetingRequirements{
                     .minimumTrackConfidence = 0.65F,
-                    .maximumBearingUncertaintyRadians = 0.12F,
-                    .maximumPositionUncertaintyMeters = 500.0F,
+                    .maximumBearingUncertaintyRadians = 0.20F,
+                    .maximumPositionUncertaintyMeters = 20'000.0F,
                     .requiresEstimatedPosition = true,
                     .allowCoastingTrack = false}}};
         if (!Weapons::ValidateP700GranitDefinition(playerP700Definition))
@@ -612,6 +613,7 @@ private:
           nextActivePulseTimeSeconds_(simulationTimeSeconds),
           nextDestroyerActivePulseTimeSeconds_(simulationTimeSeconds),
           lastUpdateTimeSeconds_(simulationTimeSeconds),
+          electronics_(simulationTimeSeconds),
           p700AcceptanceMode_(p700AcceptanceMode)
     {
     }
@@ -731,6 +733,13 @@ private:
         const std::vector<SurfaceContactSensorTruth> surfaceTruths =
             BuildSurfaceContactTruths(*destroyerAcoustics, civilianEmitter);
 
+        const auto electronicFrame = electronics_.Advance(
+            playerSnapshot, surfaceTruths, playerTracks_, destroyerTracks_,
+            destroyerAcoustics->passiveReceiver.positionMeters, simulationTimeSeconds);
+        if (!electronicFrame)
+            return std::unexpected("Antey electronic combat advance failed: " + electronicFrame.error());
+        bool integratedPlayerEvidence = electronicFrame->integratedPlayerEvidence;
+
         const double passiveDistance = Distance(
             playerSnapshot.emitter.positionMeters,
             destroyerAcoustics->passiveReceiver.positionMeters);
@@ -779,6 +788,22 @@ private:
                 return std::unexpected("destroyer visual-watch periscope detection failed: " + mastObserved.error());
             if (mastObserved->has_value() && !destroyerTracks_.IntegrateObservation(**mastObserved))
                 return std::unexpected("destroyer visual-watch evidence failed perception integration");
+        }
+
+        if (electronics_.AnyAuxiliaryMastDeployed() && !periscopeState_.raised)
+        {
+            const float surfaceLevelYMeters =
+                playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
+            const PeriscopeState exposedAuxiliaryMast{.raised = true, .viewBearingRadians = 0.0F};
+            const auto mastObserved = ObserveExposedPeriscopeMast(
+                ExposedPeriscopeMastDetectionConfig{}, exposedAuxiliaryMast,
+                playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,
+                surfaceLevelYMeters, destroyerAcoustics->passiveReceiver.positionMeters,
+                simulationTimeSeconds, periscopeOpticalConditions_);
+            if (!mastObserved)
+                return std::unexpected("destroyer visual-watch auxiliary mast detection failed: " + mastObserved.error());
+            if (mastObserved->has_value() && !destroyerTracks_.IntegrateObservation(**mastObserved))
+                return std::unexpected("auxiliary mast visual exposure failed hostile Track integration");
         }
 
         if (!destroyerActivePulse_ && simulationTimeSeconds >= nextDestroyerActivePulseTimeSeconds_)
@@ -854,12 +879,11 @@ private:
             }
         }
 
-        bool integratedPlayerEvidence = false;
         const auto destroyerPassive = IntegratePlayerPassiveEmitter(
             destroyerAcoustics->emitter, playerSnapshot.passiveReceiver, simulationTimeSeconds, "destroyer");
         if (!destroyerPassive)
             return std::unexpected(destroyerPassive.error());
-        integratedPlayerEvidence = *destroyerPassive;
+        integratedPlayerEvidence = integratedPlayerEvidence || *destroyerPassive;
         if (civilianEmitter)
         {
             const auto civilianPassive = IntegratePlayerPassiveEmitter(
@@ -951,6 +975,38 @@ private:
         {
             for (const PlayerCombatCommand command : commands)
             {
+                if (command.type == PlayerCombatCommandType::CycleElectronicSuite)
+                {
+                    electronics_.CycleSelectedSystem();
+                    lastCombatCommand_ = PlayerCombatCommandFeedback{
+                        .command = command.type, .accepted = true, .trackId = playerCombat_.SelectedTrackId(),
+                        .message = "electronic suite selected: " +
+                            std::string(AnteyElectronicSystemName(electronics_.SelectedSystem()))};
+                    continue;
+                }
+                if (command.type == PlayerCombatCommandType::OperateElectronicSuite)
+                {
+                    if (electronics_.SelectedSystem() == AnteyElectronicSystem::Pzns10AttackPeriscope)
+                    {
+                        auto feedback = TogglePeriscopeForSelectedTrack(
+                            periscopeState_, playerTracks_, playerCombat_.SelectedTrackId(),
+                            playerSnapshot.signedDepthMeters);
+                        feedback.command = command.type;
+                        feedback.message = "PZNS-10S / " + feedback.message;
+                        lastCombatCommand_ = std::move(feedback);
+                        continue;
+                    }
+                    const bool mastAvailable = AnteyElectronicMastsAvailable(
+                        electronics_.Config(), playerSnapshot.signedDepthMeters);
+                    const auto operated = electronics_.OperateSelectedSystem(
+                        playerSnapshot.signedDepthMeters, simulationTimeSeconds);
+                    if (!operated)
+                        return std::unexpected("electronic-suite command failed: " + operated.error());
+                    lastCombatCommand_ = PlayerCombatCommandFeedback{
+                        .command = command.type, .accepted = mastAvailable,
+                        .trackId = playerCombat_.SelectedTrackId(), .message = *operated};
+                    continue;
+                }
                 if (command.type == PlayerCombatCommandType::PreviousWeapon ||
                     command.type == PlayerCombatCommandType::NextWeapon)
                 {
@@ -1034,22 +1090,38 @@ private:
                     }
                     const float surfaceLevelYMeters =
                         playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
-                    const auto feedback = VisualIdentifySelectedTrack(
-                        periscopeState_,
-                        playerTracks_,
-                        playerCombat_.SelectedTrackId(),
-                        playerSnapshot.emitter.positionMeters,
-                        playerSnapshot.signedDepthMeters,
-                        surfaceLevelYMeters,
-                        PeriscopeTargetTruth{
-                            .positionMeters = truth->emitter.positionMeters,
-                            .visualClassification = truth->visualClassification,
-                            .visibleHeightAboveSurfaceMeters = truth->visibleHeightAboveSurfaceMeters},
-                        simulationTimeSeconds,
-                        periscopeOpticalConditions_);
+                    const PeriscopeTargetTruth opticalTruth{
+                        .positionMeters = truth->emitter.positionMeters,
+                        .visualClassification = truth->visualClassification,
+                        .visibleHeightAboveSurfaceMeters = truth->visibleHeightAboveSurfaceMeters};
+                    std::expected<PlayerCombatCommandFeedback, std::string> feedback =
+                        PlayerCombatCommandFeedback{
+                            .command = PlayerCombatCommandType::VisualIdentify,
+                            .accepted = false,
+                            .trackId = playerCombat_.SelectedTrackId(),
+                            .message = "visual identification requires PZNS-10S or SIGNAL-3 to be raised"};
+                    if (periscopeState_.raised)
+                    {
+                        feedback = VisualIdentifySelectedTrack(
+                            periscopeState_, playerTracks_, playerCombat_.SelectedTrackId(),
+                            playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,
+                            surfaceLevelYMeters, opticalTruth, simulationTimeSeconds, periscopeOpticalConditions_);
+                    }
+                    else if (electronics_.Signal3Raised())
+                    {
+                        PeriscopeState signal3{
+                            .raised = true,
+                            .viewBearingRadians = selectedTrack->estimatedBearingRadians};
+                        feedback = VisualIdentifySelectedTrackWithConfig(
+                            Signal3NavigationPeriscopeConfig(), signal3, playerTracks_, playerCombat_.SelectedTrackId(),
+                            playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,
+                            surfaceLevelYMeters, opticalTruth, simulationTimeSeconds, periscopeOpticalConditions_);
+                        if (feedback)
+                            feedback->message = "SIGNAL-3 / " + feedback->message;
+                    }
                     if (!feedback)
                     {
-                        return std::unexpected("periscope visual-identification command failed: " + feedback.error());
+                        return std::unexpected("optical visual-identification command failed: " + feedback.error());
                     }
                     lastCombatCommand_ = *feedback;
                     continue;
@@ -1675,6 +1747,38 @@ private:
             !activePulse_.has_value() && simulationTimeSeconds + 1.0e-9 >= nextActivePulseTimeSeconds_;
         playerCombatPresentation.activeSonarPulsePending = activePulse_.has_value();
         ApplyPeriscopePresentation(playerCombatPresentation, periscopeState_, playerSnapshot.signedDepthMeters);
+        if (electronics_.Signal3Raised() &&
+            AnteyElectronicMastsAvailable(electronics_.Config(), playerSnapshot.signedDepthMeters) &&
+            selectedPlayerTrack.has_value() &&
+            selectedPlayerTrack->lifecycle != Perception::TrackLifecycleState::Lost)
+        {
+            playerCombatPresentation.canVisualIdentify = true;
+        }
+        const auto& electronicState = electronics_.State();
+        playerCombatPresentation.selectedElectronicSystem = electronicState.selectedSystem;
+        playerCombatPresentation.electronicSystemDeployed = electronicState.deployed;
+        playerCombatPresentation.electronicSystemDeployed[AnteyElectronicSystemIndex(
+            AnteyElectronicSystem::Pzns10AttackPeriscope)] = periscopeState_.raised;
+        playerCombatPresentation.radianTransmitting = electronicState.radianTransmitting;
+        playerCombatPresentation.radioTransmitting = electronics_.RadioTransmitting(simulationTimeSeconds);
+        playerCombatPresentation.rkpCompressorRequested = electronics_.RkpRequested();
+        playerCombatPresentation.navigationErrorMeters = electronicState.navigationErrorMeters;
+        playerCombatPresentation.externalTargetReportSource = electronicState.lastReceivedReportSource;
+        if (electronicState.lastReceivedReportSource)
+        {
+            const auto issueTime = *electronicState.lastReceivedReportSource == ExternalTargetReportSource::Tu95Rts
+                ? electronicState.lastMrsc2ReportIssueTimeSeconds
+                : electronicState.lastSelenaReportIssueTimeSeconds;
+            if (issueTime)
+            {
+                const float reportAge = static_cast<float>((std::max)(0.0, simulationTimeSeconds - *issueTime));
+                playerCombatPresentation.externalTargetReportAgeSeconds = reportAge;
+                if (electronicState.lastReceivedReportUncertaintyMeters)
+                    playerCombatPresentation.externalTargetReportUncertaintyMeters =
+                        *electronicState.lastReceivedReportUncertaintyMeters +
+                        reportAge * electronics_.Config().externalReportUncertaintyGrowthMetersPerSecond;
+            }
+        }
 
         float sonarOwnshipHeadingRadians = 0.0F;
         if (currentPlayerPhysicalProxy_.has_value())
@@ -2900,6 +3004,7 @@ private:
     Perception::TrackManager incomingThreatTracks_;
     PeriscopeState periscopeState_{};
     PeriscopeOpticalConditions periscopeOpticalConditions_{};
+    AnteyElectronicCombatRuntime electronics_{};
     std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
     double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;
     Weapons::TorpedoSeekerConfig playerTorpedoSeekerConfig_{

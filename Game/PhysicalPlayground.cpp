@@ -122,6 +122,7 @@ static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.3463F &&
 // used for ordinary submerged depth changes. Normal blowing starts in the final surface band, with a
 // deadlock fallback when held Surface has saturated low-speed trim and still requests maximum buoyancy.
 constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
+constexpr Submarine::AnteyHighPressureAirConfig M5AnteyHighPressureAir{};
 // Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
 constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
 constexpr float M5SurfacedLongitudinalEffectiveAreaSquareMeters = 109.77216F;
@@ -479,6 +480,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     }
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides;
     submergedSailDeviceOverrides.reserve(productionDefinition->retractableSailDevices.size());
+    std::vector<RetractableSystemPresentationBinding> retractableSystemPresentationBindings;
+    retractableSystemPresentationBindings.reserve(productionDefinition->retractableSailDevices.size());
     std::optional<std::size_t> primaryPeriscopeNodeIndex;
     Assets::ModelTransform primaryPeriscopeStowedTransform{};
     Assets::ModelTransform primaryPeriscopeDeployedTransform{};
@@ -496,6 +499,16 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         }
         submergedSailDeviceOverrides.push_back(
             {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
+        if (!device.systemRoles.empty() && device.functionalRole != M5PrimaryPeriscopeFunctionalRole)
+        {
+            RetractableSystemPresentationBinding presentationBinding{
+                .nodeIndex = *meshNodeIndex,
+                .stowedTransform = device.stowedLocalPostTransform,
+                .deployedTransform = device.deployedLocalPostTransform};
+            for (const std::string& systemRole : device.systemRoles)
+                presentationBinding.systemRequests.emplace_back(systemRole, false);
+            retractableSystemPresentationBindings.push_back(std::move(presentationBinding));
+        }
         if (device.functionalRole == M5PrimaryPeriscopeFunctionalRole)
         {
             if (primaryPeriscopeNodeIndex.has_value())
@@ -1186,12 +1199,15 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     modelToBody_ = TranslationTransform(
         {-collisionCenter.x, -collisionCenter.y, -collisionCenter.z});
     submergedSailDeviceOverrides_ = std::move(submergedSailDeviceOverrides);
+    retractableSystemPresentationBindings_ = std::move(retractableSystemPresentationBindings);
     primaryPeriscopeNodeIndex_ = primaryPeriscopeNodeIndex;
     primaryPeriscopeStowedTransform_ = primaryPeriscopeStowedTransform;
     primaryPeriscopeDeployedTransform_ = primaryPeriscopeDeployedTransform;
     primaryPeriscopeRequestedRaised_ = false;
     primaryPeriscopeDeploymentProgress_ = 0.0F;
     ballastState_ = {};
+    highPressureAirState_ = {};
+    rkpCompressorRequested_ = false;
     committedMainBallastFlowFractionPerSecond_ = 0.0F;
     committedDynamicMassKg_ = M5AnteySubmergedMassKg;
     committedForwardSpeedMetersPerSecond_ = 0.0F;
@@ -1416,15 +1432,23 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     // Convert the controller request to a desired equivalent trim-water mass. The pure state controller then
     // applies finite actuator slew and decides whether main-ballast flooding/blowing is operationally allowed.
     const float requestedTrimMassDeltaKg = -variableBallast->forceNewtons.y / *gravityMagnitude;
+    const float mainBallastBlowAuthority = Submarine::AnteyMainBallastBlowAuthorityFraction(
+        M5AnteyHighPressureAir, highPressureAirState_);
     const auto nextBallastState = Submarine::AdvanceAnteyBallastState(
         M5AnteyBallastControl, ballastState_, command.depthCommandFraction,
-        bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, expendedOrdnanceMassKg_, fixedDeltaSeconds);
+        bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, expendedOrdnanceMassKg_, fixedDeltaSeconds,
+        mainBallastBlowAuthority);
     if (!nextBallastState)
         return std::unexpected("physical playground ballast-state advance failed: " + nextBallastState.error());
     const float nextMainBallastFlowFractionPerSecond =
         (nextBallastState->mainBallastFillFraction - ballastState_.mainBallastFillFraction) / fixedDeltaSeconds;
     if (!std::isfinite(nextMainBallastFlowFractionPerSecond))
         return std::unexpected("physical playground main-ballast flow is non-finite");
+    const auto nextHighPressureAirState = Submarine::AdvanceAnteyHighPressureAir(
+        M5AnteyHighPressureAir, highPressureAirState_, rkpCompressorRequested_,
+        bodyWaterSample->signedDepthMeters, nextMainBallastFlowFractionPerSecond, fixedDeltaSeconds);
+    if (!nextHighPressureAirState)
+        return std::unexpected("physical playground high-pressure-air advance failed: " + nextHighPressureAirState.error());
     const float nextDynamicMassKg =
         Submarine::AnteyPhysicalMassKg(M5AnteyBallastControl, *nextBallastState, expendedOrdnanceMassKg_);
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
@@ -1537,8 +1561,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
             "physical playground stern control-surface force application failed: " + controlForceError.message);
     }
 
-    // Presentation animation follows committed gameplay periscope state but never feeds physics/sensors.
+    // Presentation animation follows committed gameplay mast state but never feeds physics/sensors.
     const float periscopeStep = fixedDeltaSeconds / M5PrimaryPeriscopeDeploymentSeconds;
+    for (auto& binding : retractableSystemPresentationBindings_)
+    {
+        const bool requestedRaised = std::ranges::any_of(
+            binding.systemRequests, [](const auto& request) { return request.second; });
+        binding.deploymentProgress = std::clamp(
+            binding.deploymentProgress + (requestedRaised ? periscopeStep : -periscopeStep), 0.0F, 1.0F);
+    }
+
     if (primaryPeriscopeRequestedRaised_)
         primaryPeriscopeDeploymentProgress_ = std::clamp(primaryPeriscopeDeploymentProgress_ + periscopeStep, 0.0F, 1.0F);
     else
@@ -1549,6 +1581,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
     ballastState_ = *nextBallastState;
+    highPressureAirState_ = *nextHighPressureAirState;
     committedMainBallastFlowFractionPerSecond_ = nextMainBallastFlowFractionPerSecond;
     committedDynamicMassKg_ = nextDynamicMassKg;
     committedForwardSpeedMetersPerSecond_ = sternControl->bodyForwardSpeedMetersPerSecond;
@@ -1702,6 +1735,8 @@ std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::Buil
         .expendedOrdnanceMassKg = expendedOrdnanceMassKg_,
         .weaponCompensationWaterMassKg = ballastState_.weaponCompensationWaterMassKg,
         .dynamicMassKg = committedDynamicMassKg_,
+        .highPressureAirFraction = highPressureAirState_.pressureFraction,
+        .rkpCompressorRunning = highPressureAirState_.rkpCompressorRunning,
         .bowPlanesDeployed = true,
         .sternPlaneDeflectionFraction = committedSternPlaneDeflection_};
 }
@@ -1791,6 +1826,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[M2SternPlaneIndex])
     {
         submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = sternPostTransform});
+    }
+    for (const auto& binding : retractableSystemPresentationBindings_)
+    {
+        Assets::ModelTransform transform = binding.stowedTransform;
+        for (std::size_t element = 0; element < transform.values.size(); ++element)
+        {
+            transform.values[element] = binding.stowedTransform.values[element] +
+                (binding.deployedTransform.values[element] - binding.stowedTransform.values[element]) *
+                    binding.deploymentProgress;
+        }
+        const auto existing = std::ranges::find_if(submarineNodeOverrides, [&](const auto& value) {
+            return value.nodeIndex == binding.nodeIndex;
+        });
+        if (existing == submarineNodeOverrides.end())
+            return std::unexpected("physical playground retractable-system stowed override disappeared");
+        existing->nodeLocalPostTransform = transform;
     }
     if (primaryPeriscopeNodeIndex_.has_value())
     {

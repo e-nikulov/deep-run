@@ -20,6 +20,8 @@ enum class InputAction
     TogglePeriscope,
     VisualIdentify,
     ToggleP700SalvoMode,
+    CycleElectronicSuite,
+    OperateElectronicSuite,
     Count,
 };
 

@@ -415,6 +415,19 @@ deeprun_set_project_warnings(DeepRunM5WeaponRuntimeTests)
 target_link_libraries(DeepRunM5WeaponRuntimeTests PRIVATE DeepRunEngine)
 add_test(NAME DeepRunM5WeaponRuntimeTests COMMAND DeepRunM5WeaponRuntimeTests)
 
+# Antey electronic-suite perception/resources are headless gameplay contracts.
+add_executable(DeepRunAnteyElectronicSuiteTests
+    Tests/AnteyElectronicSuiteTest.cpp
+)
+target_compile_features(DeepRunAnteyElectronicSuiteTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunAnteyElectronicSuiteTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+deeprun_set_project_warnings(DeepRunAnteyElectronicSuiteTests)
+target_link_libraries(DeepRunAnteyElectronicSuiteTests PRIVATE DeepRunEngine)
+add_test(NAME DeepRunAnteyElectronicSuiteTests COMMAND DeepRunAnteyElectronicSuiteTests)
+
 # M5 P-700 production content gate. It loads only the staged hash-validated package and verifies
 # the bounded P700_Deploy metadata, the eight-object LOD0 partition and six fixed-hinge surfaces.
 add_executable(DeepRunP700ProductionAssetTests

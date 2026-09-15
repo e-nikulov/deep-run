@@ -60,6 +60,13 @@ struct Track final
     ContactClassification classification = ContactClassification::Unknown;
     bool visuallyIdentified = false;
     OpticalIdentificationLevel opticalIdentificationLevel = OpticalIdentificationLevel::None;
+    bool hasPassiveAcousticEvidence = false;
+    bool hasActiveAcousticEvidence = false;
+    bool hasOpticalEvidence = false;
+    bool hasElectronicSupportEvidence = false;
+    bool hasSurfaceRadarEvidence = false;
+    bool hasExternalReportEvidence = false;
+    std::optional<float> externalReportAgeSeconds{};
 };
 
 struct TrackManagerConfig final
@@ -108,6 +115,9 @@ public:
              (!std::isfinite(*observation.estimatedRangeMeters) || *observation.estimatedRangeMeters < 0.0F)) ||
             (observation.rangeUncertaintyMeters &&
              (!std::isfinite(*observation.rangeUncertaintyMeters) || *observation.rangeUncertaintyMeters < 0.0F)) ||
+            (observation.sourceAgeSeconds &&
+             (observation.modality != SensorModality::ExternalReport || !std::isfinite(*observation.sourceAgeSeconds) ||
+              *observation.sourceAgeSeconds < 0.0F)) ||
             (hasOpticalDetail && observation.modality != SensorModality::Optical) ||
             (observation.classificationEvidence.has_value() &&
              (observation.modality != SensorModality::Optical || !typeResolved)) ||
@@ -186,6 +196,11 @@ public:
                 record.track.positionUncertaintyMeters = *record.positionUncertaintyAtEstimateMeters +
                     config_.positionUncertaintyGrowthMetersPerSecond * static_cast<float>(positionAgeSeconds);
             }
+            if (record.externalReportAgeAtObservationSeconds && record.externalReportObservationTimeSeconds)
+            {
+                record.track.externalReportAgeSeconds = *record.externalReportAgeAtObservationSeconds +
+                    static_cast<float>(currentTimeSeconds_ - *record.externalReportObservationTimeSeconds);
+            }
 
             if (ageSeconds >= config_.coastAfterSeconds)
             {
@@ -238,6 +253,8 @@ private:
         float bearingUncertaintyAtLastObservation = 0.0F;
         std::optional<float> positionUncertaintyAtEstimateMeters{};
         std::optional<double> positionEstimateTimeSeconds{};
+        std::optional<float> externalReportAgeAtObservationSeconds{};
+        std::optional<double> externalReportObservationTimeSeconds{};
     };
 
     explicit TrackManager(TrackManagerConfig config)
@@ -328,11 +345,26 @@ private:
                 .lastObservationTimeSeconds = observation.observationTimeSeconds,
                 .classification = classification,
                 .visuallyIdentified = visuallyIdentified,
-                .opticalIdentificationLevel = opticalLevel},
+                .opticalIdentificationLevel = opticalLevel,
+                .hasPassiveAcousticEvidence = observation.modality == SensorModality::PassiveAcoustic,
+                .hasActiveAcousticEvidence = observation.modality == SensorModality::ActiveAcoustic,
+                .hasOpticalEvidence = observation.modality == SensorModality::Optical,
+                .hasElectronicSupportEvidence = observation.modality == SensorModality::ElectronicSupport,
+                .hasSurfaceRadarEvidence = observation.modality == SensorModality::SurfaceRadar,
+                .hasExternalReportEvidence = observation.modality == SensorModality::ExternalReport,
+                .externalReportAgeSeconds = observation.modality == SensorModality::ExternalReport
+                    ? std::optional<float>{observation.sourceAgeSeconds.value_or(0.0F)}
+                    : std::nullopt},
             .confidenceAtLastObservation = observation.confidence,
             .bearingUncertaintyAtLastObservation = observation.bearingUncertaintyRadians,
             .positionUncertaintyAtEstimateMeters = std::nullopt,
-            .positionEstimateTimeSeconds = std::nullopt};
+            .positionEstimateTimeSeconds = std::nullopt,
+            .externalReportAgeAtObservationSeconds = observation.modality == SensorModality::ExternalReport
+                ? std::optional<float>{observation.sourceAgeSeconds.value_or(0.0F)}
+                : std::nullopt,
+            .externalReportObservationTimeSeconds = observation.modality == SensorModality::ExternalReport
+                ? std::optional<double>{observation.observationTimeSeconds}
+                : std::nullopt};
 
         if (const auto spatial = MakeSpatialEstimate(observation))
         {
@@ -390,6 +422,25 @@ private:
                 record.track.classification = *observation.classificationEvidence;
                 record.track.visuallyIdentified = true;
             }
+        }
+
+        record.track.hasPassiveAcousticEvidence = record.track.hasPassiveAcousticEvidence ||
+            observation.modality == SensorModality::PassiveAcoustic;
+        record.track.hasActiveAcousticEvidence = record.track.hasActiveAcousticEvidence ||
+            observation.modality == SensorModality::ActiveAcoustic;
+        record.track.hasOpticalEvidence = record.track.hasOpticalEvidence ||
+            observation.modality == SensorModality::Optical;
+        record.track.hasElectronicSupportEvidence = record.track.hasElectronicSupportEvidence ||
+            observation.modality == SensorModality::ElectronicSupport;
+        record.track.hasSurfaceRadarEvidence = record.track.hasSurfaceRadarEvidence ||
+            observation.modality == SensorModality::SurfaceRadar;
+        record.track.hasExternalReportEvidence = record.track.hasExternalReportEvidence ||
+            observation.modality == SensorModality::ExternalReport;
+        if (observation.modality == SensorModality::ExternalReport)
+        {
+            record.externalReportAgeAtObservationSeconds = observation.sourceAgeSeconds.value_or(0.0F);
+            record.externalReportObservationTimeSeconds = observation.observationTimeSeconds;
+            record.track.externalReportAgeSeconds = observation.sourceAgeSeconds.value_or(0.0F);
         }
 
         record.confidenceAtLastObservation = fusedConfidence;

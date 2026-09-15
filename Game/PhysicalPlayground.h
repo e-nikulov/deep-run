@@ -19,6 +19,7 @@
 #include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
+#include "Game/Submarine/AnteyHighPressureAir.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Game/Weapons/AnteyOrdnanceMass.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
@@ -38,6 +39,8 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace DeepRun::Assets
@@ -70,6 +73,8 @@ struct VesselPresentationTelemetry final
     float expendedOrdnanceMassKg = 0.0F;
     float weaponCompensationWaterMassKg = 0.0F;
     float dynamicMassKg = 0.0F;
+    float highPressureAirFraction = 1.0F;
+    bool rkpCompressorRunning = false;
     bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };
@@ -165,6 +170,11 @@ public:
         }
         expendedOrdnanceMassKg_ = massKg;
         return {};
+    }
+
+    void SetRkpCompressorRequested(const bool requested) noexcept
+    {
+        rkpCompressorRequested_ = requested;
     }
 
     [[nodiscard]] std::expected<Submarine::AnteyPhysicalCollisionProxySnapshot, std::string>
@@ -275,6 +285,24 @@ public:
     [[nodiscard]] float PeriscopeDeploymentProgress() const noexcept
     {
         return primaryPeriscopeDeploymentProgress_;
+    }
+
+    [[nodiscard]] std::expected<void, std::string> SetRetractableSystemPresentation(
+        const std::string_view systemRole, const bool raised)
+    {
+        for (auto& binding : retractableSystemPresentationBindings_)
+        {
+            for (auto& request : binding.systemRequests)
+            {
+                if (request.first == systemRole)
+                {
+                    request.second = raised;
+                    return {};
+                }
+            }
+        }
+        return std::unexpected("production retractable-system presentation binding is unavailable: " +
+                               std::string(systemRole));
     }
 
     // Presentation-only bridge from the P-700 lifecycle.
@@ -487,12 +515,23 @@ private:
     // IG1-B.1 fixed submerged presentation state. These per-node post transforms are built from opaque
     // IG1 production bindings once at initialization and never mutate ModelAsset or physics.
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides_;
+    struct RetractableSystemPresentationBinding final
+    {
+        std::size_t nodeIndex = 0U;
+        std::vector<std::pair<std::string, bool>> systemRequests;
+        Assets::ModelTransform stowedTransform{};
+        Assets::ModelTransform deployedTransform{};
+        float deploymentProgress = 0.0F;
+    };
+    std::vector<RetractableSystemPresentationBinding> retractableSystemPresentationBindings_;
     std::optional<std::size_t> primaryPeriscopeNodeIndex_{};
     Assets::ModelTransform primaryPeriscopeStowedTransform_{};
     Assets::ModelTransform primaryPeriscopeDeployedTransform_{};
     bool primaryPeriscopeRequestedRaised_ = false;
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
     Submarine::AnteyBallastState ballastState_{};
+    Submarine::AnteyHighPressureAirState highPressureAirState_{};
+    bool rkpCompressorRequested_ = false;
     float expendedOrdnanceMassKg_ = 0.0F;
     float committedMainBallastFlowFractionPerSecond_ = 0.0F;
     float committedDynamicMassKg_ = 0.0F;

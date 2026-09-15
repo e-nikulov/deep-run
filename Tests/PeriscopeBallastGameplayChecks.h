@@ -295,17 +295,26 @@ namespace DeepRun::Tests
         periscopeOwnship,
         10.0F,
         0.0F,
-        {.x = 3'000.0F, .y = 0.0F, .z = 0.0F},
+        {.x = 1'500.0F, .y = 0.0F, .z = 0.0F},
         0.97);
+    const auto distantMast = ObserveExposedPeriscopeMast(
+        ExposedPeriscopeMastDetectionConfig{},
+        raisedPeriscope,
+        periscopeOwnship,
+        10.0F,
+        0.0F,
+        {.x = 3'000.0F, .y = 0.0F, .z = 0.0F},
+        0.975);
     const auto stowedMast = ObserveExposedPeriscopeMast(
         ExposedPeriscopeMastDetectionConfig{},
         PeriscopeState{},
         periscopeOwnship,
         10.0F,
         0.0F,
-        {.x = 3'000.0F, .y = 0.0F, .z = 0.0F},
+        {.x = 1'500.0F, .y = 0.0F, .z = 0.0F},
         0.98);
-    if (!exposedMast || !exposedMast->has_value() || !stowedMast || stowedMast->has_value() ||
+    if (!exposedMast || !exposedMast->has_value() || !distantMast || distantMast->has_value() ||
+        !stowedMast || stowedMast->has_value() ||
         (*exposedMast)->modality != Perception::SensorModality::Optical ||
         (*exposedMast)->estimatedRangeMeters.has_value() || (*exposedMast)->classificationEvidence.has_value() ||
         (*exposedMast)->opticalIdentificationLevel != Perception::OpticalIdentificationLevel::Detected)

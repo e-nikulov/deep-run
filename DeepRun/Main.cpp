@@ -490,6 +490,8 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedTogglePeriscopeSequence = 0;
         std::uint64_t consumedVisualIdentifySequence = 0;
         std::uint64_t consumedP700SalvoModeSequence = 0;
+        std::uint64_t consumedCycleElectronicSuiteSequence = 0;
+        std::uint64_t consumedOperateElectronicSuiteSequence = 0;
         bool loggedHapticSubmissionFailure = false;
         bool loggedFirstAcousticObservation = false;
         bool loggedConfirmedAcousticTrack = false;
@@ -624,6 +626,7 @@ int main(const int argumentCount, char** argumentValues)
              &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &consumedTogglePeriscopeSequence, &consumedVisualIdentifySequence, &consumedP700SalvoModeSequence,
+             &consumedCycleElectronicSuiteSequence, &consumedOperateElectronicSuiteSequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
@@ -709,7 +712,7 @@ int main(const int argumentCount, char** argumentValues)
                     }
                     currentOwnshipNavigationPositionMeters = playerCollisionProxy->positionMeters;
 
-                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 10> playerCommands{};
+                    std::array<DeepRun::Game::Combat::PlayerCombatCommand, 12> playerCommands{};
                     std::size_t playerCommandCount = 0;
                     if (!options.smokeTest && inputState != nullptr)
                     {
@@ -753,6 +756,12 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::DeployDecoy,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::DeployDecoy,
                                 consumedDeployDecoySequence);
+                        consume(*inputState, DeepRun::Input::InputAction::CycleElectronicSuite,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::CycleElectronicSuite,
+                                consumedCycleElectronicSuiteSequence);
+                        consume(*inputState, DeepRun::Input::InputAction::OperateElectronicSuite,
+                                DeepRun::Game::Combat::PlayerCombatCommandType::OperateElectronicSuite,
+                                consumedOperateElectronicSuiteSequence);
                     }
                     if (!options.smokeTest && !options.p700SmokeTest &&
                         (!combatUiSnapshot.has_value() || !combatUiSnapshot->selectedTrackId.has_value() ||
@@ -782,6 +791,32 @@ int main(const int argumentCount, char** argumentValues)
                         return false;
                     }
                     combatUiSnapshot = combatFrame->playerCombat;
+                    playground.SetRkpCompressorRequested(combatFrame->playerCombat.rkpCompressorRequested);
+                    const auto physicalTelemetry = playground.BuildVesselPresentationTelemetry();
+                    if (!physicalTelemetry)
+                    {
+                        std::cerr << "[Game][ERROR] electronics physical telemetry failed: "
+                                  << physicalTelemetry.error() << '\n';
+                        return false;
+                    }
+                    combatUiSnapshot->highPressureAirFraction = physicalTelemetry->highPressureAirFraction;
+                    combatUiSnapshot->rkpCompressorRunning = physicalTelemetry->rkpCompressorRunning;
+                    for (std::size_t systemIndex = 0;
+                         systemIndex < DeepRun::Game::Combat::AnteyElectronicSystemCount; ++systemIndex)
+                    {
+                        const auto system = static_cast<DeepRun::Game::Combat::AnteyElectronicSystem>(systemIndex);
+                        if (system == DeepRun::Game::Combat::AnteyElectronicSystem::Pzns10AttackPeriscope)
+                            continue;
+                        const auto mastPresentation = playground.SetRetractableSystemPresentation(
+                            DeepRun::Game::Combat::AnteyElectronicSystemProductionRoleId(system),
+                            combatFrame->playerCombat.electronicSystemDeployed[systemIndex]);
+                        if (!mastPresentation)
+                        {
+                            std::cerr << "[Game][ERROR] production electronics mast presentation failed: "
+                                      << mastPresentation.error() << '\n';
+                            return false;
+                        }
+                    }
                     const auto periscopePresentation =
                         playground.SetPeriscopePresentation(combatFrame->playerCombat.periscopeRaised);
                     if (!periscopePresentation)
@@ -1125,6 +1160,8 @@ int main(const int argumentCount, char** argumentValues)
                             .mainBallastFlowFractionPerSecond = navigationTelemetry->mainBallastFlowFractionPerSecond,
                             .trimMassDeltaKg = navigationTelemetry->trimMassDeltaKg,
                             .dynamicMassKg = navigationTelemetry->dynamicMassKg,
+                            .highPressureAirFraction = navigationTelemetry->highPressureAirFraction,
+                            .rkpCompressorRunning = navigationTelemetry->rkpCompressorRunning,
                             .bowPlanesDeployed = navigationTelemetry->bowPlanesDeployed,
                             .sternPlaneDeflectionFraction = navigationTelemetry->sternPlaneDeflectionFraction});
 

@@ -94,7 +94,9 @@ ControllerSemanticActions SemanticActionsForGamepad(const GamepadState& gamepad)
         .deployDecoy = HasGamepadButton(gamepad, GamepadButton::X),
         .togglePeriscope = HasGamepadButton(gamepad, GamepadButton::DpadUp),
         .visualIdentify = HasGamepadButton(gamepad, GamepadButton::A),
-        .toggleP700SalvoMode = HasGamepadButton(gamepad, GamepadButton::DpadDown)};
+        .toggleP700SalvoMode = HasGamepadButton(gamepad, GamepadButton::DpadDown),
+        .cycleElectronicSuite = HasGamepadButton(gamepad, GamepadButton::LeftShoulder),
+        .operateElectronicSuite = HasGamepadButton(gamepad, GamepadButton::B)};
 }
 
 float ResolveSemanticAxis(
@@ -191,6 +193,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             {
                 toggleP700SalvoModeKeyDown_ = true;
             }
+            else if (event.key == Platform::Key::R)
+            {
+                cycleElectronicSuiteKeyDown_ = true;
+            }
+            else if (event.key == Platform::Key::Equals)
+            {
+                operateElectronicSuiteKeyDown_ = true;
+            }
             else if (event.key == Platform::Key::A)
             {
                 throttleAsternKeyDown_ = true;
@@ -281,6 +291,14 @@ void InputSystem::ProcessEvents(const std::span<const Platform::WindowEvent> eve
             else if (event.key == Platform::Key::G)
             {
                 toggleP700SalvoModeKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::R)
+            {
+                cycleElectronicSuiteKeyDown_ = false;
+            }
+            else if (event.key == Platform::Key::Equals)
+            {
+                operateElectronicSuiteKeyDown_ = false;
             }
             else if (event.key == Platform::Key::A)
             {
@@ -416,6 +434,8 @@ void InputSystem::RefreshSemanticActions() noexcept
     state_.SetActionDown(InputAction::TogglePeriscope, togglePeriscopeKeyDown_ || controller.togglePeriscope);
     state_.SetActionDown(InputAction::VisualIdentify, visualIdentifyKeyDown_ || controller.visualIdentify);
     state_.SetActionDown(InputAction::ToggleP700SalvoMode, toggleP700SalvoModeKeyDown_ || controller.toggleP700SalvoMode);
+    state_.SetActionDown(InputAction::CycleElectronicSuite, cycleElectronicSuiteKeyDown_ || controller.cycleElectronicSuite);
+    state_.SetActionDown(InputAction::OperateElectronicSuite, operateElectronicSuiteKeyDown_ || controller.operateElectronicSuite);
 }
 
 bool InputSystem::WasPressed(const InputAction action) const noexcept

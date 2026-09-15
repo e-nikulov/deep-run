@@ -50,7 +50,8 @@ struct AnteyBallastState final
     const float signedDepthMeters,
     const float requestedTrimMassDeltaKg,
     const float requestedWeaponCompensationWaterMassKg,
-    const float fixedDeltaSeconds)
+    const float fixedDeltaSeconds,
+    const float mainBallastBlowAuthorityFraction = 1.0F)
 {
     const bool validConfig =
         std::isfinite(config.mainBallastBlowArmDepthMeters) && config.mainBallastBlowArmDepthMeters >= 0.0F &&
@@ -82,7 +83,9 @@ struct AnteyBallastState final
         !std::isfinite(signedDepthMeters) || !std::isfinite(requestedTrimMassDeltaKg) ||
         !std::isfinite(requestedWeaponCompensationWaterMassKg) || requestedWeaponCompensationWaterMassKg < 0.0F ||
         requestedWeaponCompensationWaterMassKg > config.maximumWeaponCompensationWaterMassKg ||
-        !std::isfinite(fixedDeltaSeconds) || fixedDeltaSeconds <= 0.0F)
+        !std::isfinite(fixedDeltaSeconds) || fixedDeltaSeconds <= 0.0F ||
+        !std::isfinite(mainBallastBlowAuthorityFraction) || mainBallastBlowAuthorityFraction < 0.0F ||
+        mainBallastBlowAuthorityFraction > 1.0F)
     {
         return std::unexpected("Antey ballast control input is invalid");
     }
@@ -113,7 +116,8 @@ struct AnteyBallastState final
     {
         next.mainBallastFillFraction = std::clamp(
             current.mainBallastFillFraction +
-                depthCommandFraction * config.mainBallastBlowRateFractionPerSecond * fixedDeltaSeconds,
+                depthCommandFraction * config.mainBallastBlowRateFractionPerSecond *
+                    mainBallastBlowAuthorityFraction * fixedDeltaSeconds,
             0.0F,
             1.0F);
     }

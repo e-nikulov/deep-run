@@ -42,6 +42,8 @@ struct VesselNavigationHudSnapshot final
     float mainBallastFlowFractionPerSecond = 0.0F;
     float trimMassDeltaKg = 0.0F;
     float dynamicMassKg = 0.0F;
+    float highPressureAirFraction = 1.0F;
+    bool rkpCompressorRunning = false;
     bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };

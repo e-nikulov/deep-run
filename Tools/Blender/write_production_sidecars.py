@@ -18,12 +18,21 @@ from artifact_provenance import require_path_suffix
 
 
 MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
-# Reviewed production-device identity from the accepted GLB + public 949A retractable-device layout.
-# Private node names stop here; runtime consumes only semantic functional roles.
-ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES = {
-    "SM_Antey_LOD0_SailDevice_11": "PERISCOPE_PRIMARY",
-    "SM_Antey_LOD0_SailDevice_17": "PERISCOPE_SECONDARY",
-}
+# Canonical retractable-device identity is maintained in Antey.electronics.json.
+# Private node names stop in authoring metadata; runtime consumes semantic system roles.
+ANTEY_PRIMARY_PERISCOPE_SYSTEM = "PZNS10S_ATTACK_PERISCOPE"
+ANTEY_SECONDARY_PERISCOPE_SYSTEM = "SIGNAL3_NAV_PERISCOPE"
+
+def antey_retractable_system_roles() -> dict[str, list[str]]:
+    contract_path = Path(__file__).resolve().parents[2] / "Content/submarines/Antey/Antey.electronics.json"
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    result: dict[str, list[str]] = {}
+    for system in contract.get("systems", []):
+        node = system.get("nodeReference")
+        if node is None:
+            continue
+        result.setdefault(str(node), []).append(str(system["systemId"]))
+    return result
 
 
 def args() -> argparse.Namespace:
@@ -106,6 +115,7 @@ def retractable_sail_devices(
         raise RuntimeError("No LOD0 source-first sail devices were found")
 
     retractable = []
+    system_roles_by_node = antey_retractable_system_roles()
     for obj in sail_devices:
         deployment = obj.get("DEVICE_DEPLOYMENT")
         if deployment not in ("RETRACTABLE", "STATIC"):
@@ -122,12 +132,19 @@ def retractable_sail_devices(
         # retract through the existing continuous sail/hull volume, not by hiding.
         clearance = 0.02
         stowed_top = sail_maximum.z - clearance
+        system_roles = list(system_roles_by_node.get(obj.name, []))
+        functional_role = (
+            "PERISCOPE_PRIMARY" if ANTEY_PRIMARY_PERISCOPE_SYSTEM in system_roles else
+            "PERISCOPE_SECONDARY" if ANTEY_SECONDARY_PERISCOPE_SYSTEM in system_roles else
+            "OTHER_RETRACTABLE"
+        )
         retractable.append(
             {
                 "semanticId": f"sail.retractable.{len(retractable) + 1:02d}",
                 "nodeReference": obj.name,
                 "classification": "RETRACTABLE",
-                "functionalRole": ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES.get(obj.name, "OTHER_RETRACTABLE"),
+                "functionalRole": functional_role,
+                "systemRoles": system_roles,
                 "defaultState": "STOWED",
                 "deployedLocalPostTransform": identity_matrix_values(),
                 "stowedLocalPostTransform": source_translation_matrix(stowed_top - device_maximum.z),
@@ -141,8 +158,8 @@ def retractable_sail_devices(
     if not retractable:
         raise RuntimeError("No explicitly retractable LOD0 sail devices were found")
     roles = [item["functionalRole"] for item in retractable]
-    if roles.count("PERISCOPE_PRIMARY") != 1 or roles.count("PERISCOPE_SECONDARY") != 1:
-        raise RuntimeError("Antey production sidecar must expose exactly one primary and one secondary periscope")
+    if roles.count("PERISCOPE_PRIMARY") != 1 or roles.count("PERISCOPE_SECONDARY") > 1:
+        raise RuntimeError("Antey production sidecar must expose one PZNS-10S primary and at most one mapped SIGNAL-3 secondary")
     return retractable
 
 

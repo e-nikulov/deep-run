@@ -246,11 +246,13 @@ ObserveThroughPeriscope(
 
 struct ExposedPeriscopeMastDetectionConfig final
 {
-    // GAME POLICY for a small exposed mast observed from a surface combatant. This is deliberately much shorter
-    // than the player's deliberate high-power periscope target-detection envelope and is not a historical spec.
-    float maximumDetectionRangeMeters = 8'000.0F;
-    float bearingUncertaintyRadians = 1.0F * PeriscopePi / 180.0F;
-    float minimumConfidence = 0.58F;
+    // GAME POLICY for naked-eye / ordinary optical-watch detection of a tiny exposed mast in open sea.
+    // Visual detection is intentionally a close-range event; the meaningful long-range penalty for RADIAN/radio
+    // use comes from hostile ESM, not from granting surface ships implausible long-range eyesight. Weather, glare
+    // and sea-state obscuration reduce this already-short envelope further. These are gameplay values, not TTX.
+    float maximumDetectionRangeMeters = 2'500.0F;
+    float bearingUncertaintyRadians = 2.5F * PeriscopePi / 180.0F;
+    float minimumConfidence = 0.30F;
 };
 
 [[nodiscard]] inline std::expected<std::optional<Perception::SensorObservation>, std::string>
