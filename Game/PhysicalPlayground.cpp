@@ -122,6 +122,7 @@ static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.3463F &&
 // used for ordinary submerged depth changes. Normal blowing starts in the final surface band, with a
 // deadlock fallback when held Surface has saturated low-speed trim and still requests maximum buoyancy.
 constexpr Submarine::AnteyBallastControlConfig M5AnteyBallastControl{};
+constexpr Submarine::AnteyHighPressureAirConfig M5AnteyHighPressureAir{};
 // Effective Cd*A calibrated with AnteyGameplayPropulsion: terminal full ahead is 32 kn submerged / 15 kn surfaced.
 constexpr float M5SubmergedLongitudinalEffectiveAreaSquareMeters = 24.11986F;
 constexpr float M5SurfacedLongitudinalEffectiveAreaSquareMeters = 109.77216F;
@@ -1192,6 +1193,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     primaryPeriscopeRequestedRaised_ = false;
     primaryPeriscopeDeploymentProgress_ = 0.0F;
     ballastState_ = {};
+    highPressureAirState_ = {};
+    rkpCompressorRequested_ = false;
     committedMainBallastFlowFractionPerSecond_ = 0.0F;
     committedDynamicMassKg_ = M5AnteySubmergedMassKg;
     committedForwardSpeedMetersPerSecond_ = 0.0F;
@@ -1416,15 +1419,23 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     // Convert the controller request to a desired equivalent trim-water mass. The pure state controller then
     // applies finite actuator slew and decides whether main-ballast flooding/blowing is operationally allowed.
     const float requestedTrimMassDeltaKg = -variableBallast->forceNewtons.y / *gravityMagnitude;
+    const float mainBallastBlowAuthority = Submarine::AnteyMainBallastBlowAuthorityFraction(
+        M5AnteyHighPressureAir, highPressureAirState_);
     const auto nextBallastState = Submarine::AdvanceAnteyBallastState(
         M5AnteyBallastControl, ballastState_, command.depthCommandFraction,
-        bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, expendedOrdnanceMassKg_, fixedDeltaSeconds);
+        bodyWaterSample->signedDepthMeters, requestedTrimMassDeltaKg, expendedOrdnanceMassKg_, fixedDeltaSeconds,
+        mainBallastBlowAuthority);
     if (!nextBallastState)
         return std::unexpected("physical playground ballast-state advance failed: " + nextBallastState.error());
     const float nextMainBallastFlowFractionPerSecond =
         (nextBallastState->mainBallastFillFraction - ballastState_.mainBallastFillFraction) / fixedDeltaSeconds;
     if (!std::isfinite(nextMainBallastFlowFractionPerSecond))
         return std::unexpected("physical playground main-ballast flow is non-finite");
+    const auto nextHighPressureAirState = Submarine::AdvanceAnteyHighPressureAir(
+        M5AnteyHighPressureAir, highPressureAirState_, rkpCompressorRequested_,
+        bodyWaterSample->signedDepthMeters, nextMainBallastFlowFractionPerSecond, fixedDeltaSeconds);
+    if (!nextHighPressureAirState)
+        return std::unexpected("physical playground high-pressure-air advance failed: " + nextHighPressureAirState.error());
     const float nextDynamicMassKg =
         Submarine::AnteyPhysicalMassKg(M5AnteyBallastControl, *nextBallastState, expendedOrdnanceMassKg_);
     // Validate every remaining derived output before applying any tick output. Thrust and both H1 surfaces
@@ -1549,6 +1560,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
     ballastState_ = *nextBallastState;
+    highPressureAirState_ = *nextHighPressureAirState;
     committedMainBallastFlowFractionPerSecond_ = nextMainBallastFlowFractionPerSecond;
     committedDynamicMassKg_ = nextDynamicMassKg;
     committedForwardSpeedMetersPerSecond_ = sternControl->bodyForwardSpeedMetersPerSecond;
@@ -1702,6 +1714,8 @@ std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::Buil
         .expendedOrdnanceMassKg = expendedOrdnanceMassKg_,
         .weaponCompensationWaterMassKg = ballastState_.weaponCompensationWaterMassKg,
         .dynamicMassKg = committedDynamicMassKg_,
+        .highPressureAirFraction = highPressureAirState_.pressureFraction,
+        .rkpCompressorRunning = highPressureAirState_.rkpCompressorRunning,
         .bowPlanesDeployed = true,
         .sternPlaneDeflectionFraction = committedSternPlaneDeflection_};
 }

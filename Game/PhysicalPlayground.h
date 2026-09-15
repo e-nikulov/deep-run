@@ -19,6 +19,7 @@
 #include "Game/Submarine/AnteyBallastControl.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Submarine/AnteyHandlingModel.h"
+#include "Game/Submarine/AnteyHighPressureAir.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Game/Weapons/AnteyOrdnanceMass.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
@@ -70,6 +71,8 @@ struct VesselPresentationTelemetry final
     float expendedOrdnanceMassKg = 0.0F;
     float weaponCompensationWaterMassKg = 0.0F;
     float dynamicMassKg = 0.0F;
+    float highPressureAirFraction = 1.0F;
+    bool rkpCompressorRunning = false;
     bool bowPlanesDeployed = true;
     float sternPlaneDeflectionFraction = 0.0F;
 };
@@ -165,6 +168,11 @@ public:
         }
         expendedOrdnanceMassKg_ = massKg;
         return {};
+    }
+
+    void SetRkpCompressorRequested(const bool requested) noexcept
+    {
+        rkpCompressorRequested_ = requested;
     }
 
     [[nodiscard]] std::expected<Submarine::AnteyPhysicalCollisionProxySnapshot, std::string>
@@ -493,6 +501,8 @@ private:
     bool primaryPeriscopeRequestedRaised_ = false;
     float primaryPeriscopeDeploymentProgress_ = 0.0F;
     Submarine::AnteyBallastState ballastState_{};
+    Submarine::AnteyHighPressureAirState highPressureAirState_{};
+    bool rkpCompressorRequested_ = false;
     float expendedOrdnanceMassKg_ = 0.0F;
     float committedMainBallastFlowFractionPerSecond_ = 0.0F;
     float committedDynamicMassKg_ = 0.0F;
