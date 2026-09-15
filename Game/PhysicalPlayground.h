@@ -482,7 +482,8 @@ private:
     // production proxy geometry supplies spatial layout, not displaced volume or mass.
     Marine::BuoyancyComponent buoyancy_;
     Marine::BuoyancyComponent surfaceFloatBuoyancy_;
-    // Pre-reserved at initialization; CalculateWaveSurface reuses this storage in every fixed tick.
+    // W1-C and M3-F reuse caller-owned result storage in every fixed tick; neither surface calculation allocates.
+    Marine::BuoyancyResult surfaceVesselBuoyancyResult_;
     Marine::BuoyancyResult surfaceFloatBuoyancyResult_;
     Marine::HydroDragComponent hydroDrag_;
     Marine::PropulsionComponent propulsion_;

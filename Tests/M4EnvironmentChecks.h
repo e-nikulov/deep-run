@@ -3,6 +3,7 @@
 #include "Simulation/Acoustics/AcousticEnvironment.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
 #include "Tests/W1SpectralOceanChecks.h"
+#include "Tests/W1SurfaceVesselDynamicsChecks.h"
 #include "Tests/W1WeatherSeaStateChecks.h"
 
 namespace DeepRun::Tests
@@ -102,6 +103,6 @@ namespace M4EnvironmentDetail
     const auto invalidResult = world->CollectPassiveDirectObservation(
         loudSameLayerEmission, sameLayerReceiver, 10.0, invalidModifiers);
     return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers &&
-           RunW1WeatherSeaStateChecks() && RunW1SpectralOceanChecks();
+           RunW1WeatherSeaStateChecks() && RunW1SpectralOceanChecks() && RunW1SurfaceVesselDynamicsChecks();
 }
 }

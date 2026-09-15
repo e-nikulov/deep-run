@@ -1,49 +1,4 @@
-from pathlib import Path
-
-root = Path(__file__).resolve().parents[1]
-
-
-def replace_once(path: Path, old: str, new: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    count = text.count(old)
-    if count != 1:
-        raise RuntimeError(f"{path}: expected exactly one match, found {count}")
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-
-header = root / "Game" / "PhysicalPlayground.h"
-replace_once(
-    header,
-    """    Marine::BuoyancyComponent buoyancy_;\n    Marine::BuoyancyComponent surfaceFloatBuoyancy_;\n    // Pre-reserved at initialization; CalculateWaveSurface reuses this storage in every fixed tick.\n    Marine::BuoyancyResult surfaceFloatBuoyancyResult_;\n""",
-    """    Marine::BuoyancyComponent buoyancy_;\n    Marine::BuoyancyComponent surfaceFloatBuoyancy_;\n    // W1-C and M3-F reuse caller-owned result storage in every fixed tick; neither surface calculation allocates.\n    Marine::BuoyancyResult surfaceVesselBuoyancyResult_;\n    Marine::BuoyancyResult surfaceFloatBuoyancyResult_;\n""",
-)
-
-cpp = root / "Game" / "PhysicalPlayground.cpp"
-replace_once(
-    cpp,
-    """    buoyancy_ = std::move(buoyancy);\n    surfaceFloatBuoyancy_ = surfaceFloatBuoyancy;\n    surfaceFloatBuoyancyResult_.points.reserve(surfaceFloatBuoyancy_.points.size());\n""",
-    """    buoyancy_ = std::move(buoyancy);\n    surfaceVesselBuoyancyResult_.points.reserve(buoyancy_.points.size());\n    surfaceFloatBuoyancy_ = surfaceFloatBuoyancy;\n    surfaceFloatBuoyancyResult_.points.reserve(surfaceFloatBuoyancy_.points.size());\n""",
-)
-replace_once(
-    cpp,
-    """    const auto buoyancyResult = Marine::BuoyancySystem::Calculate(\n        *water_,\n        buoyancy_,\n        Marine::BuoyancyPose{\n            .worldPositionMeters = state->position,\n            .worldOrientation = state->orientation},\n        *gravityMagnitude);\n    if (!buoyancyResult)\n    {\n        return std::unexpected(\"physical playground buoyancy calculation failed: \" + buoyancyResult.error().message);\n    }\n\n    // M3-F is the sole opt-in physical consumer. This uses the Engine-owned beginning-of-step SimulationTime\n    // supplied by Game composition; the submarine's Calculate() above remains flat/reference-plane only.\n""",
-    """    // W1-C production surface-vessel response: every longitudinal point samples the same authoritative\n    // spectrum that Render consumes, but hydrostatic force remains vertical. Local crest/trough differences\n    // therefore create heave and pitch without turning a steep wave normal into horizontal propulsion.\n    const auto vesselBuoyancyCalculated = Marine::BuoyancySystem::CalculateWaveHydrostatic(\n        *water_,\n        buoyancy_,\n        Marine::BuoyancyPose{\n            .worldPositionMeters = state->position,\n            .worldOrientation = state->orientation},\n        *gravityMagnitude,\n        simulationTimeSeconds,\n        surfaceVesselBuoyancyResult_);\n    if (!vesselBuoyancyCalculated)\n    {\n        return std::unexpected(\"physical playground W1-C vessel wave hydrostatics failed: \" +\n                               vesselBuoyancyCalculated.error().message);\n    }\n    const Marine::BuoyancyResult* buoyancyResult = &surfaceVesselBuoyancyResult_;\n\n    // M3-F retains its accepted small-float surface-normal response independently from W1-C vessel hydrostatics.\n""",
-)
-
-m4 = root / "Tests" / "M4EnvironmentChecks.h"
-replace_once(
-    m4,
-    '#include "Tests/W1SpectralOceanChecks.h"\n#include "Tests/W1WeatherSeaStateChecks.h"\n',
-    '#include "Tests/W1SpectralOceanChecks.h"\n#include "Tests/W1SurfaceVesselDynamicsChecks.h"\n#include "Tests/W1WeatherSeaStateChecks.h"\n',
-)
-replace_once(
-    m4,
-    """    return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers &&\n           RunW1WeatherSeaStateChecks() && RunW1SpectralOceanChecks();\n""",
-    """    return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers &&\n           RunW1WeatherSeaStateChecks() && RunW1SpectralOceanChecks() && RunW1SurfaceVesselDynamicsChecks();\n""",
-)
-
-test = root / "Tests" / "W1SurfaceVesselDynamicsChecks.h"
-test.write_text(r'''#pragma once
+#pragma once
 
 #include "Simulation/Environment/WeatherSeaState.h"
 #include "Simulation/Marine/BuoyancySystem.h"
@@ -189,6 +144,3 @@ namespace W1SurfaceVesselDynamicsDetail
     return !invalidTime && invalidTime.error().code == Marine::BuoyancyErrorCode::InvalidSimulationTime;
 }
 }
-''', encoding="utf-8")
-
-print("W1-C surface-vessel integration patch prepared: PASS")

@@ -1211,6 +1211,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     physics_ = &physics;
     water_ = *water;
     buoyancy_ = std::move(buoyancy);
+    surfaceVesselBuoyancyResult_.points.reserve(buoyancy_.points.size());
     surfaceFloatBuoyancy_ = surfaceFloatBuoyancy;
     surfaceFloatBuoyancyResult_.points.reserve(surfaceFloatBuoyancy_.points.size());
     hydroDrag_ = BuildM2HydroDrag();
@@ -1360,20 +1361,26 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         return std::unexpected("physical playground fixed gravity validation failed: " + gravityMagnitude.error());
     }
 
-    const auto buoyancyResult = Marine::BuoyancySystem::Calculate(
+    // W1-C production surface-vessel response: every longitudinal point samples the same authoritative
+    // spectrum that Render consumes, but hydrostatic force remains vertical. Local crest/trough differences
+    // therefore create heave and pitch without turning a steep wave normal into horizontal propulsion.
+    const auto vesselBuoyancyCalculated = Marine::BuoyancySystem::CalculateWaveHydrostatic(
         *water_,
         buoyancy_,
         Marine::BuoyancyPose{
             .worldPositionMeters = state->position,
             .worldOrientation = state->orientation},
-        *gravityMagnitude);
-    if (!buoyancyResult)
+        *gravityMagnitude,
+        simulationTimeSeconds,
+        surfaceVesselBuoyancyResult_);
+    if (!vesselBuoyancyCalculated)
     {
-        return std::unexpected("physical playground buoyancy calculation failed: " + buoyancyResult.error().message);
+        return std::unexpected("physical playground W1-C vessel wave hydrostatics failed: " +
+                               vesselBuoyancyCalculated.error().message);
     }
+    const Marine::BuoyancyResult* buoyancyResult = &surfaceVesselBuoyancyResult_;
 
-    // M3-F is the sole opt-in physical consumer. This uses the Engine-owned beginning-of-step SimulationTime
-    // supplied by Game composition; the submarine's Calculate() above remains flat/reference-plane only.
+    // M3-F retains its accepted small-float surface-normal response independently from W1-C vessel hydrostatics.
     const auto surfaceFloatCalculated = Marine::BuoyancySystem::CalculateWaveSurface(
         *water_,
         surfaceFloatBuoyancy_,
