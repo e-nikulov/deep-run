@@ -1,15 +1,15 @@
 cbuffer TransientVfxConstants : register(b0)
 {
     column_major float4x4 ViewProjection;
-    float4 OriginAge;              // xyz origin, age seconds
-    float4 DirectionLifetime;      // xyz normalized direction, lifetime seconds
-    float4 VelocityTurbulence;     // xyz base velocity, turbulence
-    float4 ExtentKind;             // xyz spatial extent, primitive enum
-    float4 SizeOpacityEmissive;    // min size, max size, opacity, emissive intensity
-    float4 ColorUnderwater;        // linear RGB, underwater flag
-    float4 SurfaceAbsorptionR;     // surface Y, absorption RGB
-    float4 CameraGravity;          // camera width, height, gravity, reserved
-    float4 SeedSpawnWind;          // seed bit pattern, spawn radius, wind speed, wind direction radians
+    float4 OriginAge;
+    float4 DirectionLifetime;
+    float4 VelocityTurbulence;
+    float4 ExtentKind;
+    float4 SizeOpacityEmissive;
+    float4 ColorUnderwater;
+    float4 SurfaceAbsorptionR;
+    float4 CameraGravity;
+    float4 SeedSpawnWind;
 };
 
 struct PixelInput
@@ -73,7 +73,7 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     float sizeMeters = lerp(SizeOpacityEmissive.x, SizeOpacityEmissive.y, r3);
     float alphaScale = 1.0F - normalizedAge;
 
-    if (kind <= 2u) // three bubble scales
+    if (kind <= 2u)
     {
         center -= direction * (r0 * ExtentKind.x);
         center += side * signed1 * (spawnRadius + ExtentKind.y * (0.15F + 0.85F * r3));
@@ -84,7 +84,7 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         sizeMeters *= 1.0F + normalizedAge * (kind == 2u ? 1.10F : 0.45F);
         alphaScale = saturate(1.0F - normalizedAge * 0.82F);
     }
-    else if (kind == 3u) // ballistic heavy droplet
+    else if (kind == 3u)
     {
         const float cone = lerp(0.25F, 1.0F, r2);
         float3 velocity = VelocityTurbulence.xyz;
@@ -96,7 +96,7 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         center.y -= 0.5F * CameraGravity.z * delayedAge * delayedAge;
         alphaScale = saturate(1.0F - normalizedAge * normalizedAge);
     }
-    else if (kind == 4u) // fine mist / aerosol
+    else if (kind == 4u)
     {
         const float expansion = (0.25F + 0.75F * normalizedAge);
         center += side * signed0 * ExtentKind.x * expansion;
@@ -106,7 +106,7 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         sizeMeters *= 1.0F + 1.8F * normalizedAge;
         alphaScale = saturate((1.0F - normalizedAge) * 0.72F);
     }
-    else if (kind == 5u) // long-lived foam footprint
+    else if (kind == 5u)
     {
         const float angle = r0 * 6.28318530718F;
         const float radial = sqrt(r1);
@@ -117,7 +117,7 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         sizeMeters *= 1.0F + normalizedAge * 0.75F;
         alphaScale = saturate(0.85F - normalizedAge * 0.65F);
     }
-    else if (kind == 6u || kind == 7u) // hot core / turbulent airborne exhaust
+    else if (kind == 6u || kind == 7u)
     {
         const float axial = r0 * ExtentKind.x;
         const float radial = (0.10F + axial / max(ExtentKind.x, 0.001F)) * ExtentKind.y;
@@ -130,7 +130,7 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         alphaScale = kind == 6u ? saturate(1.0F - normalizedAge * 0.35F)
                                 : saturate(0.85F - normalizedAge * 0.60F);
     }
-    else if (kind == 8u) // water sheets stripped from the missile body
+    else if (kind == 8u)
     {
         center += side * signed0 * ExtentKind.x;
         center += direction * (signed1 * ExtentKind.z);
@@ -139,7 +139,23 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
         sizeMeters *= 1.0F + 2.4F * normalizedAge;
         alphaScale = saturate((1.0F - normalizedAge) * 0.88F);
     }
-    else // disturbed suspended particulates
+    else if (kind == 9u)
+    {
+        // Directional breach crown: an elliptical annulus biased in the missile travel direction, with
+        // ballistic rise/collapse. It deliberately avoids a symmetric vertical geyser.
+        const float angle = r0 * 6.28318530718F;
+        const float radial = lerp(0.55F, 1.0F, r1);
+        const float forwardBias = 0.35F + 0.65F * saturate(dot(direction, float3(1.0F, 0.0F, 0.0F)) * 0.5F + 0.5F);
+        center += side * cos(angle) * radial * ExtentKind.x;
+        center += depthSide * sin(angle) * radial * ExtentKind.z;
+        center += direction * (signed1 * ExtentKind.x * 0.35F + ExtentKind.x * forwardBias * normalizedAge * 0.42F);
+        center.y = SurfaceAbsorptionR.x + ExtentKind.y * (0.18F + 1.05F * r2) * sin(saturate(normalizedAge) * 3.14159265F);
+        center.y -= 0.45F * CameraGravity.z * delayedAge * delayedAge;
+        center += wind * delayedAge * 0.08F;
+        sizeMeters *= lerp(0.75F, 1.65F, normalizedAge);
+        alphaScale = saturate((1.0F - normalizedAge) * 0.92F);
+    }
+    else
     {
         center -= direction * r0 * ExtentKind.x;
         center += side * signed0 * ExtentKind.y;
@@ -174,16 +190,10 @@ float4 PSMain(PixelInput input) : SV_TARGET
 {
     float radial = saturate(1.0F - dot(input.corner, input.corner));
     const uint kind = (uint)round(ExtentKind.w);
-    if (kind == 8u)
-    {
-        // Sheet water is stretched and irregular rather than a circular bubble sprite.
+    if (kind == 8u || kind == 9u)
         radial = saturate(1.0F - (input.corner.x * input.corner.x * 0.35F + input.corner.y * input.corner.y));
-    }
     else if (kind == 3u)
-    {
-        // Heavy droplets retain a smaller hard core for readable HDR highlights.
         radial = saturate(1.0F - dot(input.corner, input.corner) * 1.35F);
-    }
     const float alpha = input.colorOpacity.a * radial * radial;
     clip(alpha - 0.008F);
     return float4(input.colorOpacity.rgb, alpha);
