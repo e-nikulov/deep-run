@@ -113,10 +113,15 @@ public:
         return WeatherState(config);
     }
 
-    // Convenience scenario seed for a fully developed open-sea wind state. The Beaufort wind speeds and
-    // probable wave heights mirror the Met Office table. Peak period and directional spread are deliberately
+    // Convenience scenario seed for a fully developed open-sea wind state. The Beaufort sustained-wind and
+    // probable wave-height values mirror the Met Office open-sea table. Peak period and directional spread are
     // Deep Run spectral seed values rather than claims that Beaufort uniquely determines a spectrum.
-    // Missions remain free to author young/limited-fetch seas and independent swell through Create().
+    //
+    // Cloud, rain, visibility, lightning and gust progression below are intentionally DEEP RUN GAME POLICY,
+    // not part of the Beaufort definition. They provide a coherent default maritime-weather experience when a
+    // mission asks only for a Beaufort force: B0 remains glassy/clear, while gale and storm presets no longer
+    // combine severe seas with a clear blue sky. Missions that need a dry gale, fog bank, tropical squall,
+    // independent swell, or other meteorology remain free to author exact values through Create().
     [[nodiscard]] static std::expected<WeatherState, WeatherStateError> FullyDevelopedBeaufort(
         const std::uint8_t force,
         const float travelDirectionDegrees,
@@ -135,6 +140,21 @@ public:
         constexpr std::array<float, 13> ProbableMaximumWaveHeightMeters{
             0.0F, 0.1F, 0.3F, 1.0F, 1.5F, 2.5F, 4.0F, 5.5F, 7.5F, 10.0F, 12.5F, 16.0F, 0.0F};
 
+        // Default maritime atmosphere/gust progression used only when the caller supplies no richer weather
+        // authoring than a Beaufort force. These values are presentation/gameplay policy, deliberately smooth
+        // and monotonic so changing force in visual acceptance produces an immediately readable weather state.
+        constexpr std::array<float, 13> GustMetersPerSecond{
+            0.0F, 2.0F, 4.0F, 6.0F, 9.0F, 13.0F, 16.0F, 20.0F, 24.0F, 29.0F, 34.0F, 39.0F, 45.0F};
+        constexpr std::array<float, 13> CloudCoverFraction{
+            0.00F, 0.03F, 0.06F, 0.10F, 0.18F, 0.32F, 0.52F, 0.74F, 0.92F, 0.97F, 0.99F, 1.00F, 1.00F};
+        constexpr std::array<float, 13> RainRateMillimetersPerHour{
+            0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.2F, 0.8F, 3.0F, 8.0F, 14.0F, 24.0F, 36.0F, 50.0F};
+        constexpr std::array<float, 13> VisibilityMeters{
+            100000.0F, 100000.0F, 95000.0F, 90000.0F, 80000.0F, 65000.0F, 50000.0F,
+            30000.0F, 15000.0F, 10000.0F, 6000.0F, 3500.0F, 2000.0F};
+        constexpr std::array<float, 13> LightningRatePerMinute{
+            0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.10F, 0.50F, 0.80F, 1.20F, 1.80F, 2.40F};
+
         const std::size_t index = force;
         const float windSpeed = MeanWindMetersPerSecond[index];
         const float waveHeight = ProbableWaveHeightMeters[index];
@@ -144,7 +164,7 @@ public:
         return Create(WeatherStateConfig{
             .beaufortForce = force,
             .windSpeedMetersPerSecond = windSpeed,
-            .windGustSpeedMetersPerSecond = windSpeed,
+            .windGustSpeedMetersPerSecond = GustMetersPerSecond[index],
             .windDirectionDegrees = travelDirectionDegrees,
             .windSea = WindSeaState{
                 .significantWaveHeightMeters = waveHeight,
@@ -153,10 +173,10 @@ public:
                 .meanDirectionDegrees = travelDirectionDegrees,
                 .directionalSpreadDegrees = spread},
             .swell = {},
-            .rainRateMillimetersPerHour = 0.0F,
-            .meteorologicalVisibilityMeters = 100000.0F,
-            .cloudCoverFraction = 0.0F,
-            .lightningRatePerMinute = 0.0F,
+            .rainRateMillimetersPerHour = RainRateMillimetersPerHour[index],
+            .meteorologicalVisibilityMeters = VisibilityMeters[index],
+            .cloudCoverFraction = CloudCoverFraction[index],
+            .lightningRatePerMinute = LightningRatePerMinute[index],
             .weatherSeed = weatherSeed});
     }
 
