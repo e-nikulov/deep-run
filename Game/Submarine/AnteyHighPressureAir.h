@@ -77,8 +77,10 @@ struct AnteyHighPressureAirState final
 
     // Negative main-ballast flow means water is leaving the tank: that is the only operation which consumes
     // this normalized HP-air resource. Flooding and low-speed trim-water motion do not consume it here.
+    // Parenthesized std::max avoids collision with the Win32 max macro in translation units that include this
+    // gameplay header after Windows SDK headers.
     const float blownMainBallastFraction =
-        std::max(0.0F, -mainBallastFlowFractionPerSecond) * fixedDeltaSeconds;
+        (std::max)(0.0F, -mainBallastFlowFractionPerSecond) * fixedDeltaSeconds;
     next.pressureFraction -= blownMainBallastFraction * config.fullMainBallastBlowAirCostFraction;
 
     if (next.rkpCompressorRunning)
