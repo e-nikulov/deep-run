@@ -89,6 +89,8 @@ struct P700LaunchVfxTuning final
 
     float breachPreReactionDepthMeters = 6.5F;
     float splashRadiusMeters = 8.5F;
+    std::uint32_t waterCrownCount = 84U;
+    float waterCrownLifetimeSeconds = 1.45F;
     std::uint32_t dropletCount = 220U;
     std::array<float, 2> dropletSizeMeters{0.035F, 0.18F};
     float dropletLifetimeSeconds = 2.2F;
