@@ -1,0 +1,126 @@
+name: Fix SIGNAL-3 Gameplay Closure
+
+on:
+  push:
+    branches: [feature/antey-electronic-intelligence-suite]
+    paths: [.github/workflows/fix-signal3-gameplay-closure.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-test-commit:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch SIGNAL-3 runtime closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one patch marker, got {count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          # SIGNAL-3 is now production-mapped to SailDevice11; remove the stale unresolved guard.
+          path = 'Game/Combat/AnteyElectronicCombatRuntime.h'
+          replace_once(path,
+          '''    [[nodiscard]] std::expected<std::string, std::string> OperateSelectedSystem(\n        const float ownshipDepthMeters,\n        const double simulationTimeSeconds)\n    {\n        // SIGNAL-3 has a gameplay optics profile, but the production SailDevice node is intentionally unresolved.\n        // Do not create a virtual mast that can see while no physical presentation binding exists.\n        if (state_.selectedSystem == AnteyElectronicSystem::Signal3NavigationPeriscope)\n            return std::string("SIGNAL-3 unavailable: production SailDevice mapping is not confirmed yet");\n        return OperateAnteyElectronicSystem(config_, state_, ownshipDepthMeters, simulationTimeSeconds);\n    }''',
+          '''    [[nodiscard]] std::expected<std::string, std::string> OperateSelectedSystem(\n        const float ownshipDepthMeters,\n        const double simulationTimeSeconds)\n    {\n        return OperateAnteyElectronicSystem(config_, state_, ownshipDepthMeters, simulationTimeSeconds);\n    }''')
+          replace_once(path,
+          '''    [[nodiscard]] bool RkpRequested() const noexcept\n    {\n        return AnteyElectronicSystemDeployed(state_, AnteyElectronicSystem::RkpCompressorIntake);\n    }\n\n    [[nodiscard]] bool RadioTransmitting''',
+          '''    [[nodiscard]] bool RkpRequested() const noexcept\n    {\n        return AnteyElectronicSystemDeployed(state_, AnteyElectronicSystem::RkpCompressorIntake);\n    }\n\n    [[nodiscard]] bool Signal3Raised() const noexcept\n    {\n        return AnteyElectronicSystemDeployed(state_, AnteyElectronicSystem::Signal3NavigationPeriscope);\n    }\n\n    [[nodiscard]] bool RadioTransmitting''')
+
+          # Make optical-identification logic reusable by the distinct SIGNAL-3 optics profile.
+          path = 'Game/Combat/PeriscopeCombatRuntime.h'
+          replace_once(path,
+          '''[[nodiscard]] inline std::expected<PlayerCombatCommandFeedback, std::string> VisualIdentifySelectedTrack(\n    PeriscopeState& periscope,''',
+          '''[[nodiscard]] inline std::expected<PlayerCombatCommandFeedback, std::string> VisualIdentifySelectedTrackWithConfig(\n    const PeriscopeObservationConfig& config,\n    PeriscopeState& periscope,''')
+          replace_once(path,
+          '''    const auto observation = ObserveThroughPeriscope(\n        PeriscopeObservationConfig{},\n        periscope,''',
+          '''    const auto observation = ObserveThroughPeriscope(\n        config,\n        periscope,''')
+          replace_once(path,
+          '''            .message = ownshipDepthMeters > PeriscopeObservationConfig{}.maximumOperatingDepthMeters\n                ? "visual identification unavailable: ownship is too deep"''',
+          '''            .message = ownshipDepthMeters > config.maximumOperatingDepthMeters\n                ? "visual identification unavailable: ownship is too deep"''')
+          replace_once(path,
+          '''inline void ApplyPeriscopePresentation(\n''',
+          '''[[nodiscard]] inline std::expected<PlayerCombatCommandFeedback, std::string> VisualIdentifySelectedTrack(\n    PeriscopeState& periscope,\n    Perception::TrackManager& tracks,\n    const std::optional<std::uint64_t> selectedTrackId,\n    const Physics::PhysicsVector3& ownshipPositionMeters,\n    const float ownshipDepthMeters,\n    const float surfaceLevelYMeters,\n    const PeriscopeTargetTruth& targetTruth,\n    const double simulationTimeSeconds,\n    const PeriscopeOpticalConditions& opticalConditions = {})\n{\n    return VisualIdentifySelectedTrackWithConfig(\n        PeriscopeObservationConfig{}, periscope, tracks, selectedTrackId, ownshipPositionMeters,\n        ownshipDepthMeters, surfaceLevelYMeters, targetTruth, simulationTimeSeconds, opticalConditions);\n}\n\ninline void ApplyPeriscopePresentation(\n''')
+
+          # Player command path: SIGNAL-3 is a real secondary optical mast, not an unavailable placeholder.
+          path = 'Game/Combat/CombatPlaygroundRuntime.h'
+          replace_once(path,
+          '''                    const bool unresolvedSignal3 =\n                        electronics_.SelectedSystem() == AnteyElectronicSystem::Signal3NavigationPeriscope;\n                    lastCombatCommand_ = PlayerCombatCommandFeedback{\n                        .command = command.type, .accepted = mastAvailable && !unresolvedSignal3,\n                        .trackId = playerCombat_.SelectedTrackId(), .message = *operated};''',
+          '''                    lastCombatCommand_ = PlayerCombatCommandFeedback{\n                        .command = command.type, .accepted = mastAvailable,\n                        .trackId = playerCombat_.SelectedTrackId(), .message = *operated};''')
+
+          replace_once(path,
+          '''                    const auto feedback = VisualIdentifySelectedTrack(\n                        periscopeState_,\n                        playerTracks_,\n                        playerCombat_.SelectedTrackId(),\n                        playerSnapshot.emitter.positionMeters,\n                        playerSnapshot.signedDepthMeters,\n                        surfaceLevelYMeters,\n                        PeriscopeTargetTruth{\n                            .positionMeters = truth->emitter.positionMeters,\n                            .visualClassification = truth->visualClassification,\n                            .visibleHeightAboveSurfaceMeters = truth->visibleHeightAboveSurfaceMeters},\n                        simulationTimeSeconds,\n                        periscopeOpticalConditions_);\n                    if (!feedback)\n                    {\n                        return std::unexpected("periscope visual-identification command failed: " + feedback.error());\n                    }\n                    lastCombatCommand_ = *feedback;\n                    continue;''',
+          '''                    const PeriscopeTargetTruth opticalTruth{\n                        .positionMeters = truth->emitter.positionMeters,\n                        .visualClassification = truth->visualClassification,\n                        .visibleHeightAboveSurfaceMeters = truth->visibleHeightAboveSurfaceMeters};\n                    std::expected<PlayerCombatCommandFeedback, std::string> feedback =\n                        PlayerCombatCommandFeedback{\n                            .command = PlayerCombatCommandType::VisualIdentify,\n                            .accepted = false,\n                            .trackId = playerCombat_.SelectedTrackId(),\n                            .message = "visual identification requires PZNS-10S or SIGNAL-3 to be raised"};\n                    if (periscopeState_.raised)\n                    {\n                        feedback = VisualIdentifySelectedTrack(\n                            periscopeState_, playerTracks_, playerCombat_.SelectedTrackId(),\n                            playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,\n                            surfaceLevelYMeters, opticalTruth, simulationTimeSeconds, periscopeOpticalConditions_);\n                    }\n                    else if (electronics_.Signal3Raised())\n                    {\n                        PeriscopeState signal3{\n                            .raised = true,\n                            .viewBearingRadians = selectedTrack->estimatedBearingRadians};\n                        feedback = VisualIdentifySelectedTrackWithConfig(\n                            Signal3NavigationPeriscopeConfig(), signal3, playerTracks_, playerCombat_.SelectedTrackId(),\n                            playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,\n                            surfaceLevelYMeters, opticalTruth, simulationTimeSeconds, periscopeOpticalConditions_);\n                        if (feedback)\n                            feedback->message = "SIGNAL-3 / " + feedback->message;\n                    }\n                    if (!feedback)\n                    {\n                        return std::unexpected("optical visual-identification command failed: " + feedback.error());\n                    }\n                    lastCombatCommand_ = *feedback;\n                    continue;''')
+
+          replace_once(path,
+          '''        ApplyPeriscopePresentation(playerCombatPresentation, periscopeState_, playerSnapshot.signedDepthMeters);\n        const auto& electronicState = electronics_.State();''',
+          '''        ApplyPeriscopePresentation(playerCombatPresentation, periscopeState_, playerSnapshot.signedDepthMeters);\n        if (electronics_.Signal3Raised() &&\n            AnteyElectronicMastsAvailable(electronics_.Config(), playerSnapshot.signedDepthMeters) &&\n            selectedPlayerTrack.has_value() &&\n            selectedPlayerTrack->lifecycle != Perception::TrackLifecycleState::Lost)\n        {\n            playerCombatPresentation.canVisualIdentify = true;\n        }\n        const auto& electronicState = electronics_.State();''')
+
+          # Route SIGNAL-3 semantic deployment to its now-confirmed SailDevice11 presentation binding.
+          path = 'DeepRun/Main.cpp'
+          replace_once(path,
+          '''                        if (system == DeepRun::Game::Combat::AnteyElectronicSystem::Pzns10AttackPeriscope ||\n                            system == DeepRun::Game::Combat::AnteyElectronicSystem::Signal3NavigationPeriscope)\n                            continue;''',
+          '''                        if (system == DeepRun::Game::Combat::AnteyElectronicSystem::Pzns10AttackPeriscope)\n                            continue;''')
+
+          # Focused regression: the combat wrapper must now allow SIGNAL-3 to raise/stow normally.
+          path = 'Tests/AnteyElectronicSuiteTest.cpp'
+          replace_once(path,
+          '''#include "Game/Combat/AnteyElectronicSuite.h"''',
+          '''#include "Game/Combat/AnteyElectronicCombatRuntime.h"\n#include "Game/Combat/AnteyElectronicSuite.h"''')
+          replace_once(path,
+          '''    const auto navScope = Signal3NavigationPeriscopeConfig();\n    Require(navScope.viewHalfAngleRadians > PeriscopeObservationConfig{}.viewHalfAngleRadians &&\n            navScope.maximumTypeRecognitionRangeMeters < PeriscopeObservationConfig{}.maximumTypeRecognitionRangeMeters,\n            "SIGNAL-3 gameplay optic should be wider but weaker than the attack optic");\n\n    Input::GamepadState controls{};''',
+          '''    const auto navScope = Signal3NavigationPeriscopeConfig();\n    Require(navScope.viewHalfAngleRadians > PeriscopeObservationConfig{}.viewHalfAngleRadians &&\n            navScope.maximumTypeRecognitionRangeMeters < PeriscopeObservationConfig{}.maximumTypeRecognitionRangeMeters,\n            "SIGNAL-3 gameplay optic should be wider but weaker than the attack optic");\n\n    AnteyElectronicCombatRuntime electronics{200.0};\n    for (std::size_t index = 0; index < AnteyElectronicSystemCount &&\n         electronics.SelectedSystem() != AnteyElectronicSystem::Signal3NavigationPeriscope; ++index)\n        electronics.CycleSelectedSystem();\n    Require(electronics.SelectedSystem() == AnteyElectronicSystem::Signal3NavigationPeriscope,\n            "electronic-suite selection should reach SIGNAL-3");\n    const auto signal3Raised = electronics.OperateSelectedSystem(10.0F, 200.0);\n    Require(signal3Raised.has_value() && electronics.Signal3Raised(),\n            "confirmed SailDevice11 SIGNAL-3 must raise inside the mast operating zone");\n    const auto signal3Stowed = electronics.OperateSelectedSystem(10.0F, 200.0);\n    Require(signal3Stowed.has_value() && !electronics.Signal3Raised(),\n            "SIGNAL-3 second operation should stow the mast");\n\n    Input::GamepadState controls{};''')
+
+          git diff --check
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\patch_signal3.py"
+          python "$env:RUNNER_TEMP\patch_signal3.py"
+          if ($LASTEXITCODE -ne 0) { throw 'SIGNAL-3 closure patch failed' }
+          git diff --check
+
+      - name: Configure and build focused targets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --preset windows-debug
+          cmake --build --preset windows-debug --target DeepRun DeepRunAnteyElectronicSuiteTests DeepRunTests
+
+      - name: Run focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ctest --preset windows-debug -R "DeepRunAnteyElectronicSuiteTests|DeepRunTests" --output-on-failure
+
+      - name: Normal gameplay startup smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:DR_NO_CAPTURE='1'
+          & 'build/windows-debug/bin/Debug/DeepRun.exe' --windowed-smoke
+          if ($LASTEXITCODE -ne 0) { throw "normal gameplay startup smoke failed: $LASTEXITCODE" }
+
+      - name: Commit SIGNAL-3 gameplay closure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Force '.github/workflows/fix-signal3-gameplay-closure.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: close SIGNAL-3 gameplay integration'
+          git push origin HEAD:feature/antey-electronic-intelligence-suite
