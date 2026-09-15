@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Engine/Render/ViewPathFog.h"
 #include "Game/Environment/ThunderstormPresentation.h"
 
 #include <cmath>
@@ -145,6 +146,25 @@ namespace DeepRun::Tests
     if (!tracker.Advance(*storm, 1.0).empty())
         return false;
     if (!tracker.Advance(*calm, 2.0).empty())
+        return false;
+
+    Render::ScenePresentationParameters renderPresentation{
+        .depthLighting = {},
+        .cameraPlaneCenterWorldPosition = {0.0F, 0.0F, 0.0F},
+        .cameraViewDirection = {0.0F, 0.0F, 1.0F},
+        .fogExtinctionPerMeter = 0.0F,
+        .fogColorRgb = {0.0F, 0.0F, 0.0F},
+        .lightningFlashIntensity = 1.0F,
+        .lightningViewportX = 0.5F,
+        .lightningPatternOffset = 0.5F};
+    if (!Render::ValidateScenePresentationParameters(renderPresentation))
+        return false;
+    renderPresentation.lightningFlashIntensity = 1.01F;
+    if (Render::ValidateScenePresentationParameters(renderPresentation))
+        return false;
+    renderPresentation.lightningFlashIntensity = 0.5F;
+    renderPresentation.lightningViewportX = -0.01F;
+    if (Render::ValidateScenePresentationParameters(renderPresentation))
         return false;
 
     return true;
