@@ -52,7 +52,9 @@ std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
     {
         return std::unexpected("Gerstner surface sample count is outside the bounded range");
     }
-    if (parameters.activeComponentCount == 0U || parameters.activeComponentCount > parameters.components.size())
+    // Zero active components is the explicit flat-water contract used by WaterBody when waves are disabled
+    // (including Beaufort 0). The same mesh/pipeline remains active; only vertex displacement is zero.
+    if (parameters.activeComponentCount > parameters.components.size())
     {
         return std::unexpected("Gerstner surface active component count is outside the bounded range");
     }
