@@ -22,8 +22,21 @@ jobs:
           git fetch origin main
           git config user.name "Deep Run CI"
           git config user.email "ci@deeprun.invalid"
+          $ErrorActionPreference = 'Continue'
           git merge --no-commit --no-ff origin/main
-          if ($LASTEXITCODE -ne 0) { throw "merge with latest main failed" }
+          $conflicts = @(git diff --name-only --diff-filter=U)
+          if ($conflicts.Count -gt 0) {
+            if ($conflicts.Count -ne 1 -or $conflicts[0] -ne 'DeepRun/Main.cpp') {
+              $conflicts | ForEach-Object { Write-Host "Unexpected merge conflict: $_" }
+              throw "unexpected merge conflicts with latest main"
+            }
+            python Tools/p700_resolve_main_merge.py
+            if ($LASTEXITCODE -ne 0) { throw "P700/W1 Main.cpp merge resolution failed" }
+            git add DeepRun/Main.cpp
+          }
+          $remaining = @(git diff --name-only --diff-filter=U)
+          if ($remaining.Count -ne 0) { throw "unresolved merge conflicts remain" }
+          $ErrorActionPreference = 'Stop'
       - name: Apply P700 stage1 completion
         shell: pwsh
         run: python Tools/p700_stage1_completion.py
