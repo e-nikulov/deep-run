@@ -465,6 +465,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
         std::unordered_set<std::size_t> sailDeviceBindingIndices;
         std::size_t primaryPeriscopeCount = 0U;
         std::size_t secondaryPeriscopeCount = 0U;
+        std::unordered_set<std::string> electronicSystemRolesSeen;
         for (const Json& device : retractableSailDevices)
         {
             const std::string privateNodeReference = device.at("nodeReference").get<std::string>();
@@ -480,6 +481,29 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             Require(functionalRole == "OTHER_RETRACTABLE" || functionalRole == "PERISCOPE_PRIMARY" ||
                         functionalRole == "PERISCOPE_SECONDARY",
                     "Antey retractable sail-device functional role is unexpected");
+            const Json& sourceSystemRoles = device.at("systemRoles");
+            Require(sourceSystemRoles.is_array(), "Antey retractable sail-device systemRoles must be an array");
+            std::vector<std::string> systemRoles;
+            for (const Json& roleValue : sourceSystemRoles)
+            {
+                const std::string role = roleValue.get<std::string>();
+                const bool knownRole =
+                    role == "SYNTHESIS_SATNAV" || role == "ZONA_RDF_ESM" || role == "ANIS_RADIO" ||
+                    role == "MRSC2_TARGETING" || role == "RADIAN_SURFACE_RADAR" ||
+                    role == "KORA_MOLNIYA_M" || role == "RKP_COMPRESSOR_INTAKE" ||
+                    role == "SELENA_KORALL" || role == "SIGNAL3_NAV_PERISCOPE" ||
+                    role == "PZNS10S_ATTACK_PERISCOPE";
+                Require(knownRole, "Antey retractable sail-device system role is unexpected");
+                Require(electronicSystemRolesSeen.insert(role).second,
+                        "Antey electronic system role must bind to only one physical sail device");
+                systemRoles.push_back(role);
+            }
+            const bool hasPzns10s = std::ranges::find(systemRoles, "PZNS10S_ATTACK_PERISCOPE") != systemRoles.end();
+            const bool hasSignal3 = std::ranges::find(systemRoles, "SIGNAL3_NAV_PERISCOPE") != systemRoles.end();
+            Require((functionalRole == "PERISCOPE_PRIMARY") == hasPzns10s,
+                    "Antey primary periscope role must correspond to PZNS-10S");
+            Require((functionalRole == "PERISCOPE_SECONDARY") == hasSignal3,
+                    "Antey secondary periscope role must correspond to SIGNAL-3 when mapped");
             primaryPeriscopeCount += functionalRole == "PERISCOPE_PRIMARY" ? 1U : 0U;
             secondaryPeriscopeCount += functionalRole == "PERISCOPE_SECONDARY" ? 1U : 0U;
             Require(sailDeviceSemanticIds.insert(semanticId).second,
@@ -491,6 +515,7 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
             definition.retractableSailDevices.push_back({
                 .semanticId = std::move(semanticId),
                 .functionalRole = functionalRole,
+                .systemRoles = std::move(systemRoles),
                 .presentationNodeBindingIndex = bindingIndex,
                 .deployedLocalPostTransform = ReadTransform(
                     device.at("deployedLocalPostTransform"), "sail-device deployed transform"),
@@ -499,8 +524,18 @@ std::expected<ProductionSubmarineAssetDefinition, std::string> LoadProductionAnt
                 .defaultState = RetractableSailDeviceState::Stowed,
                 .stowedSailEnvelopeMaximumY = ConvertAnteyAuthoringVector(sourceEnvelopeTop).y});
         }
-        Require(primaryPeriscopeCount == 1U && secondaryPeriscopeCount == 1U,
-                "Antey must expose exactly one primary and one secondary production periscope role");
+        Require(primaryPeriscopeCount == 1U && secondaryPeriscopeCount <= 1U,
+                "Antey must expose exactly one PZNS-10S primary periscope and at most one mapped SIGNAL-3 secondary");
+        Require(electronicSystemRolesSeen.contains("SYNTHESIS_SATNAV") &&
+                    electronicSystemRolesSeen.contains("ZONA_RDF_ESM") &&
+                    electronicSystemRolesSeen.contains("ANIS_RADIO") &&
+                    electronicSystemRolesSeen.contains("MRSC2_TARGETING") &&
+                    electronicSystemRolesSeen.contains("RADIAN_SURFACE_RADAR") &&
+                    electronicSystemRolesSeen.contains("KORA_MOLNIYA_M") &&
+                    electronicSystemRolesSeen.contains("RKP_COMPRESSOR_INTAKE") &&
+                    electronicSystemRolesSeen.contains("SELENA_KORALL") &&
+                    electronicSystemRolesSeen.contains("PZNS10S_ATTACK_PERISCOPE"),
+                "Antey electronics mapping is missing one or more confirmed production bindings");
 
         const Json& torpedoes = authoring.at("torpedoTubes");
         Require(torpedoes.is_array() && torpedoes.size() == 6U, "Antey must have six torpedo records");
