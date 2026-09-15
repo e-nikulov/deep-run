@@ -1,0 +1,71 @@
+name: P700 render boundary repair
+
+on:
+  push:
+    branches:
+      - feature/p700-signature-launch-vfx
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'Add one-shot P-700 render boundary repair'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/p700-signature-launch-vfx
+      - name: Generalize transient VFX renderer API
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def edit(path, replacements):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              for old, new, expected in replacements:
+                  actual = text.count(old)
+                  if actual != expected:
+                      raise SystemExit(f'{path}: expected {expected} occurrences of {old!r}, found {actual}')
+                  text = text.replace(old, new)
+              p.write_text(text, encoding='utf-8')
+
+          edit('Engine/Render/TransientVfx.h', [
+              ('WaterSheet', 'RibbonSheet', 1),
+              ('WaterCrown', 'RadialCrown', 1),
+              ('bool underwater = false;', 'bool applyDepthAttenuation = false;', 1),
+          ])
+
+          edit('Engine/Render/TransientVfx.cpp', [
+              ('colorUnderwater', 'colorMedium', 2),
+              ('emitter.underwater ? 1.0F : 0.0F', 'emitter.applyDepthAttenuation ? 1.0F : 0.0F', 1),
+          ])
+
+          edit('Game/Weapons/P700LaunchVfx.cpp', [
+              ('TransientVfxPrimitive::WaterSheet', 'TransientVfxPrimitive::RibbonSheet', 1),
+              ('TransientVfxPrimitive::WaterCrown', 'TransientVfxPrimitive::RadialCrown', 1),
+              ('.underwater = true;', '.applyDepthAttenuation = true;', 5),
+          ])
+
+          edit('Tests/P700LaunchVfxTest.cpp', [
+              ('TransientVfxPrimitive::WaterSheet', 'TransientVfxPrimitive::RibbonSheet', 1),
+              ('TransientVfxPrimitive::WaterCrown', 'TransientVfxPrimitive::RadialCrown', 1),
+          ])
+
+          edit('Shaders/Particles/TransientVfx.hlsl', [
+              ('ColorUnderwater', 'ColorMedium', 3),
+          ])
+      - name: Commit architecture repair
+        shell: bash
+        run: |
+          git config user.name "Deep Run CI Repair"
+          git config user.email "actions@users.noreply.github.com"
+          git add Engine/Render/TransientVfx.h Engine/Render/TransientVfx.cpp Game/Weapons/P700LaunchVfx.cpp Tests/P700LaunchVfxTest.cpp Shaders/Particles/TransientVfx.hlsl
+          git diff --cached --check
+          if git grep -niE 'water|ocean|sealevel|submarinedepth|buoyancy|physicsworld|engine/physics' -- Engine/Render/TransientVfx.h Engine/Render/TransientVfx.cpp; then
+            echo 'Engine/Render transient VFX still contains forbidden domain vocabulary'
+            exit 1
+          fi
+          git commit -m "Keep transient VFX renderer domain-neutral"
+          git push origin HEAD:feature/p700-signature-launch-vfx
