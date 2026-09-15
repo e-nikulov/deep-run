@@ -21,4 +21,22 @@ if text.count(old_capture) != 1:
     raise SystemExit(f"fixed-update showcase capture anchor count={text.count(old_capture)}")
 text = text.replace(old_capture, new_capture, 1)
 path.write_text(text, encoding="utf-8")
-print("P-700 stage1 v3 ownership/capture fixes applied")
+
+# W1 uses Win32 headers and a typed RgbaColor. Keep the presentation patch compatible with both contracts.
+physical_path = Path("Game/PhysicalPlayground.cpp")
+physical = physical_path.read_text(encoding="utf-8")
+physical = physical.replace(
+    "weatherPresentation.skyLuminanceMultiplier *= std::max(0.035F, presentationDaylightFraction_);",
+    "weatherPresentation.skyLuminanceMultiplier *= (std::max)(0.035F, presentationDaylightFraction_);", 1)
+old_sky = '''            auto skyColor = band.color;\n            for (std::size_t channel = 0U; channel < 3U; ++channel)\n                skyColor[channel] *= 0.035F + 0.965F * presentationDaylightFraction_;'''
+new_sky = '''            auto skyColor = band.color;\n            const float skyScale = 0.035F + 0.965F * presentationDaylightFraction_;\n            skyColor.r *= skyScale;\n            skyColor.g *= skyScale;\n            skyColor.b *= skyScale;'''
+if physical.count(old_sky) != 1:
+    raise SystemExit(f"W1 typed sky color anchor count={physical.count(old_sky)}")
+physical = physical.replace(old_sky, new_sky, 1)
+old_sun = '''            auto sunColor = strip.color;\n            for (std::size_t channel = 0U; channel < 3U; ++channel)\n                sunColor[channel] *= presentationDaylightFraction_;'''
+new_sun = '''            auto sunColor = strip.color;\n            sunColor.r *= presentationDaylightFraction_;\n            sunColor.g *= presentationDaylightFraction_;\n            sunColor.b *= presentationDaylightFraction_;'''
+if physical.count(old_sun) != 1:
+    raise SystemExit(f"W1 typed sun color anchor count={physical.count(old_sun)}")
+physical = physical.replace(old_sun, new_sun, 1)
+physical_path.write_text(physical, encoding="utf-8")
+print("P-700 stage1 v3 ownership/capture/W1 API fixes applied")
