@@ -1223,6 +1223,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     physics_ = &physics;
     water_ = *water;
     weather_ = *weather;
+    thunderstormCueTracker_.Reset();
     buoyancy_ = std::move(buoyancy);
     surfaceVesselBuoyancyResult_.points.reserve(buoyancy_.points.size());
     surfaceImpactPointStates_.assign(buoyancy_.points.size(), {});

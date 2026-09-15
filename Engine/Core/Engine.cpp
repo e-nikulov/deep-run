@@ -222,6 +222,13 @@ public:
 
         timer.Tick();
 
+        // Reclaim completed generic procedural one-shot voices once per presentation frame. Audio remains
+        // presentation-only and cannot affect fixed SimulationTime or physics.
+        if (audioReady && audio)
+        {
+            audio->Update();
+        }
+
         // Age only effects inherited from the previous application frame. Current fixed ticks run below and
         // may replace/refresh effects at their full requested lifetime before this frame's backend output.
         // This presentation-time operation runs exactly once regardless of the number of fixed steps.
@@ -643,6 +650,16 @@ const Input::InputState* Engine::InputState() const noexcept
 std::expected<void, std::string> Engine::SubmitHapticEffect(const Input::HapticEffectRequest& request)
 {
     return impl_->hapticMixer.Submit(request);
+}
+
+std::expected<void, std::string> Engine::SubmitProceduralAudioOneShot(
+    const Audio::ProceduralNoiseOneShotRequest& request)
+{
+    if (!impl_->audio || !impl_->audioReady)
+    {
+        return std::unexpected("procedural audio submission requires an initialized windowed audio engine");
+    }
+    return impl_->audio->SubmitProceduralOneShot(request);
 }
 
 int Engine::ExitCode() const noexcept
