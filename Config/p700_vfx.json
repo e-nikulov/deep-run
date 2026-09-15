@@ -1,0 +1,57 @@
+{
+  "lodDistancesMeters": [260.0, 900.0, 3000.0],
+  "lodParticleScales": [1.0, 0.58, 0.24, 0.075],
+
+  "bubbleMicroCount": 320,
+  "bubbleMesoCount": 96,
+  "bubbleMacroCount": 28,
+  "bubbleLifetimeSeconds": 4.8,
+  "bubbleMicroSizeMeters": [0.025, 0.085],
+  "bubbleMesoSizeMeters": [0.12, 0.42],
+  "bubbleMacroSizeMeters": [0.55, 1.85],
+  "underwaterTrailRadiusMeters": 2.8,
+  "underwaterTurbulence": 5.5,
+
+  "underwaterCoreLengthMeters": 1.8,
+  "underwaterCoreRadiusMeters": 0.38,
+  "underwaterEmissiveIntensity": 7.5,
+  "underwaterCoreParticleCount": 56,
+
+  "breachPreReactionDepthMeters": 6.5,
+  "splashRadiusMeters": 8.5,
+  "dropletCount": 220,
+  "dropletSizeMeters": [0.035, 0.18],
+  "dropletLifetimeSeconds": 2.2,
+  "mistCount": 110,
+  "mistLifetimeSeconds": 2.8,
+  "mistDensity": 0.62,
+  "waterSheetCount": 54,
+  "waterSheetLifetimeSeconds": 1.15,
+
+  "foamCount": 150,
+  "foamLifetimeSeconds": 8.0,
+  "foamRadiusMeters": 11.0,
+
+  "airborneCoreCount": 72,
+  "airbornePlumeCount": 150,
+  "airborneCoreLengthMeters": 3.2,
+  "airbornePlumeLengthMeters": 11.0,
+  "airborneEmissiveIntensity": 10.0,
+  "airbornePlumeLifetimeSeconds": 0.9,
+
+  "cruiseExhaustCount": 48,
+  "cruiseExhaustLengthMeters": 4.5,
+  "cruiseExhaustOpacity": 0.20,
+  "cruiseExhaustLifetimeSeconds": 0.55,
+
+  "condensationHumidityThreshold": 0.82,
+  "condensationMistCount": 42,
+  "condensationLifetimeSeconds": 0.45,
+
+  "cameraImpulseAmplitudeAtTenMeters": 0.085,
+  "cameraImpulseFrequencyHz": 7.0,
+  "cameraImpulseDurationSeconds": 0.42,
+  "cameraImpulseMaximumDistanceMeters": 180.0,
+
+  "maximumTrackedLaunches": 32
+}
