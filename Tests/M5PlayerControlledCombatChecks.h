@@ -73,6 +73,12 @@ namespace DeepRun::Tests
     double commandTimeSeconds = 0.0;
     bool sawPassiveBearingOnlyTrack = false;
 
+    // Normal play auto-prepares the initially selected weapon immediately; there is no player Prepare step.
+    if (runtime.PlayerCombat().Weapon().phase != Weapons::WeaponPhase::Preparing)
+    {
+        return false;
+    }
+
     // Normal play must not auto-range. Wait only for the continuous passive destroyer contact and require that
     // it remains bearing-only and therefore insufficient for the position-requiring heavyweight weapon.
     for (int tick = 0; tick <= 180; ++tick)
@@ -102,7 +108,7 @@ namespace DeepRun::Tests
             break;
         }
     }
-    if (!sawPassiveBearingOnlyTrack || runtime.PlayerCombat().Weapon().phase != Weapons::WeaponPhase::Stored)
+    if (!sawPassiveBearingOnlyTrack || runtime.PlayerCombat().Weapon().phase == Weapons::WeaponPhase::Stored)
     {
         return false;
     }
@@ -201,71 +207,14 @@ namespace DeepRun::Tests
             break;
         }
     }
-    if (!sawQualifiedSpatialTrack || runtime.PlayerCombat().Weapon().phase != Weapons::WeaponPhase::Stored)
+    if (!sawQualifiedSpatialTrack || runtime.PlayerCombat().Weapon().phase != Weapons::WeaponPhase::Ready)
     {
         return false;
     }
 
-    // Fire without readiness remains a normal commander rejection even after a valid ranged solution exists.
+    // Once both automatic readiness and a qualified Track exist, Fire is immediately available.
     const std::array fire{
         PlayerCombatCommand{.type = PlayerCombatCommandType::FireWeapon}};
-    commandTimeSeconds += fixedDeltaSeconds;
-    const auto rejectedFire = runtime.AdvancePlayerControlled(playerSnapshot, fire, commandTimeSeconds);
-    if (!rejectedFire || !rejectedFire->playerCombat.lastCommand || rejectedFire->playerCombat.lastCommand->accepted ||
-        runtime.PlayerTorpedo() || runtime.PlayerCombat().Weapon().targetTrackId)
-    {
-        return false;
-    }
-    physicsWorld.Step(fixedDeltaSeconds);
-
-    const std::array prepare{
-        PlayerCombatCommand{.type = PlayerCombatCommandType::PrepareWeapon}};
-    commandTimeSeconds += fixedDeltaSeconds;
-    const auto preparing = runtime.AdvancePlayerControlled(playerSnapshot, prepare, commandTimeSeconds);
-    if (!preparing || preparing->playerCombat.weaponPhase != Weapons::WeaponPhase::Preparing ||
-        !preparing->playerCombat.selectedTrackId || preparing->playerCombat.canFireWeapon ||
-        !preparing->playerCombat.lastCommand || !preparing->playerCombat.lastCommand->accepted ||
-        preparing->playerCombat.lastCommand->command != PlayerCombatCommandType::PrepareWeapon || runtime.PlayerTorpedo())
-    {
-        return false;
-    }
-    physicsWorld.Step(fixedDeltaSeconds);
-
-    commandTimeSeconds += fixedDeltaSeconds;
-    const auto earlyFire = runtime.AdvancePlayerControlled(playerSnapshot, fire, commandTimeSeconds);
-    if (!earlyFire || !earlyFire->playerCombat.lastCommand || earlyFire->playerCombat.lastCommand->accepted ||
-        earlyFire->playerCombat.weaponPhase != Weapons::WeaponPhase::Preparing ||
-        runtime.PlayerCombat().Weapon().targetTrackId || runtime.PlayerTorpedo())
-    {
-        return false;
-    }
-    physicsWorld.Step(fixedDeltaSeconds);
-
-    bool sawReady = false;
-    for (int tick = 0; tick < 90; ++tick)
-    {
-        commandTimeSeconds += fixedDeltaSeconds;
-        const auto frame = runtime.AdvancePlayerControlled(playerSnapshot, {}, commandTimeSeconds);
-        if (!frame || runtime.PlayerTorpedo())
-        {
-            return false;
-        }
-        physicsWorld.Step(fixedDeltaSeconds);
-        if (frame->playerCombat.weaponPhase == Weapons::WeaponPhase::Ready)
-        {
-            if (!frame->playerCombat.canFireWeapon || !frame->playerCombat.selectedTrackWeaponQualified)
-            {
-                return false;
-            }
-            sawReady = true;
-            break;
-        }
-    }
-    if (!sawReady)
-    {
-        return false;
-    }
-
     commandTimeSeconds += fixedDeltaSeconds;
     const auto launched = runtime.AdvancePlayerControlled(playerSnapshot, fire, commandTimeSeconds);
     if (!launched || !launched->playerCombat.lastCommand || !launched->playerCombat.lastCommand->accepted ||
@@ -279,6 +228,24 @@ namespace DeepRun::Tests
     }
     if (runtime.PlayerTorpedo()->guidanceTrackId != *launched->playerCombat.selectedTrackId ||
         runtime.PlayerTorpedo()->impactedBody)
+    {
+        return false;
+    }
+
+    // Weapon selection remains legal while the previously launched torpedo is still in flight. The projectile
+    // keeps its independent runtime while the newly selected profile starts automatic preparation immediately.
+    const auto launchedWeapon = runtime.SelectedPlayerWeapon();
+    const auto launchedTorpedoTrackId = runtime.PlayerTorpedo()->guidanceTrackId;
+    const std::array nextWeapon{
+        PlayerCombatCommand{.type = PlayerCombatCommandType::NextWeapon}};
+    physicsWorld.Step(fixedDeltaSeconds);
+    commandTimeSeconds += fixedDeltaSeconds;
+    const auto switched = runtime.AdvancePlayerControlled(playerSnapshot, nextWeapon, commandTimeSeconds);
+    if (!switched || !switched->playerCombat.lastCommand || !switched->playerCombat.lastCommand->accepted ||
+        switched->playerCombat.lastCommand->command != PlayerCombatCommandType::NextWeapon ||
+        runtime.SelectedPlayerWeapon() == launchedWeapon || !runtime.PlayerTorpedo() ||
+        runtime.PlayerTorpedo()->guidanceTrackId != launchedTorpedoTrackId ||
+        runtime.PlayerCombat().Weapon().phase == Weapons::WeaponPhase::Stored)
     {
         return false;
     }
