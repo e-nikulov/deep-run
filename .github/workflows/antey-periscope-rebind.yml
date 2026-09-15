@@ -1,0 +1,142 @@
+name: Antey Periscope Rebind
+
+on:
+  push:
+    branches:
+      - fix/periscope-saildevice11
+    paths:
+      - .github/workflows/antey-periscope-rebind.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: antey-periscope-rebind-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebind:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Correct primary periscope identity and documentation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          writer = Path('Tools/Blender/write_production_sidecars.py')
+          text = writer.read_text(encoding='utf-8')
+          old = '    "SM_Antey_LOD0_SailDevice_08": "PERISCOPE_PRIMARY",'
+          new = '    "SM_Antey_LOD0_SailDevice_11": "PERISCOPE_PRIMARY",'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one old primary periscope binding, found {text.count(old)}')
+          text = text.replace(old, new)
+          writer.write_text(text, encoding='utf-8')
+
+          gameplay = Path('docs/development/periscope-ballast-gameplay.md')
+          text = gameplay.read_text(encoding='utf-8')
+          if text.count('`SailDevice_08` as the gameplay primary periscope') != 1:
+              raise SystemExit('periscope gameplay documentation binding was not found exactly once')
+          text = text.replace('`SailDevice_08` as the gameplay primary periscope', '`SailDevice_11` as the gameplay primary periscope')
+          gameplay.write_text(text, encoding='utf-8')
+
+          playground = Path('docs/development/m5-combat-playground.md')
+          text = playground.read_text(encoding='utf-8')
+          old = '(`sail.retractable.03`, production `SailDevice_08`)'
+          new = '(`sail.retractable.06`, production `SailDevice_11`)'
+          if text.count(old) != 1:
+              raise SystemExit(f'M5 playground primary periscope binding was not found exactly once: {text.count(old)}')
+          text = text.replace(old, new)
+          playground.write_text(text, encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\patch_periscope.py"
+          python "$env:RUNNER_TEMP\patch_periscope.py"
+          if ($LASTEXITCODE -ne 0) { throw 'Primary periscope source/doc patch failed' }
+          python -m py_compile Tools/Blender/write_production_sidecars.py
+          git diff --check
+
+      - name: Download Blender 5.2.1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'blender-5.2.1-windows-x64.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'blender-5.2.1'
+          curl.exe -L --fail --retry 4 --retry-delay 5 `
+            -o $zip `
+            https://download.blender.org/release/Blender5.2/blender-5.2.1-windows-x64.zip
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $blender = Get-ChildItem -Path $dir -Filter blender.exe -Recurse | Select-Object -First 1
+          if (-not $blender) { throw 'Blender 5.2.1 executable not found' }
+          "BLENDER_EXE=$($blender.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $blender.FullName --version
+
+      - name: Regenerate canonical Antey sidecars
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & $env:BLENDER_EXE `
+            --background 'Content/submarines/Antey/Antey_GameReady.blend' `
+            --python 'Tools/Blender/write_production_sidecars.py' `
+            -- `
+            --asset antey `
+            --source 'Content/submarines/Antey/Source/Antey_Source.blend' `
+            --glb 'Content/submarines/Antey/Antey.glb' `
+            --asset-json 'Content/submarines/Antey/Antey.asset.json' `
+            --authoring-json 'Content/submarines/Antey/Antey.authoring.json'
+          if ($LASTEXITCODE -ne 0) { throw "Sidecar regeneration failed: $LASTEXITCODE" }
+          Copy-Item -Force 'Content/submarines/Antey/Antey.asset.json' 'Engine/Assets/submarines/Antey/Antey.asset.json'
+          Copy-Item -Force 'Content/submarines/Antey/Antey.authoring.json' 'Engine/Assets/submarines/Antey/Antey.authoring.json'
+
+      - name: Validate corrected production binding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          import json
+          from pathlib import Path
+
+          paths = [
+              Path('Content/submarines/Antey/Antey.authoring.json'),
+              Path('Engine/Assets/submarines/Antey/Antey.authoring.json'),
+          ]
+          for path in paths:
+              data = json.loads(path.read_text(encoding='utf-8-sig'))
+              devices = {item['nodeReference']: item for item in data['retractableSailDevices']}
+              assert devices['SM_Antey_LOD0_SailDevice_11']['semanticId'] == 'sail.retractable.06'
+              assert devices['SM_Antey_LOD0_SailDevice_11']['functionalRole'] == 'PERISCOPE_PRIMARY'
+              assert devices['SM_Antey_LOD0_SailDevice_08']['functionalRole'] == 'OTHER_RETRACTABLE'
+              assert devices['SM_Antey_LOD0_SailDevice_17']['functionalRole'] == 'PERISCOPE_SECONDARY'
+              roles = [item['functionalRole'] for item in data['retractableSailDevices']]
+              assert roles.count('PERISCOPE_PRIMARY') == 1
+              assert roles.count('PERISCOPE_SECONDARY') == 1
+          assert paths[0].read_bytes() == paths[1].read_bytes()
+
+          writer = Path('Tools/Blender/write_production_sidecars.py').read_text(encoding='utf-8-sig')
+          assert '"SM_Antey_LOD0_SailDevice_11": "PERISCOPE_PRIMARY"' in writer
+          assert '"SM_Antey_LOD0_SailDevice_08": "PERISCOPE_PRIMARY"' not in writer
+          print('ANTEY_PERISCOPE_REBIND_OK primary=SailDevice_11 semantic=sail.retractable.06')
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\validate_periscope.py"
+          python "$env:RUNNER_TEMP\validate_periscope.py"
+          if ($LASTEXITCODE -ne 0) { throw 'Primary periscope validation failed' }
+          git diff --check
+
+      - name: Commit corrected production binding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Force '.github/workflows/antey-periscope-rebind.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git status --short
+          if (git diff --cached --quiet) { throw 'No periscope binding changes were generated' }
+          git commit -m 'fix: bind Antey primary periscope to SailDevice11'
+          git push origin HEAD:fix/periscope-saildevice11
