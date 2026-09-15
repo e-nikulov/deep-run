@@ -5,7 +5,7 @@
   "notes": [
     "Diagram positions are gameplay/content semantics; private SailDevice node names remain inside the production authoring boundary.",
     "One physical retractable device may carry more than one functional system.",
-    "SIGNAL-3 remains intentionally unbound until its SailDevice node is explicitly confirmed."
+    "SailDevice11 is the confirmed SIGNAL-3 navigation periscope; SailDevice10 is the confirmed PZNS-10S attack periscope."
   ],
   "systems": [
     {
@@ -72,8 +72,8 @@
       "diagramNumber": 9,
       "systemId": "SIGNAL3_NAV_PERISCOPE",
       "displayNameRu": "Сигнал-3",
-      "nodeReference": null,
-      "mappingStatus": "UNRESOLVED"
+      "nodeReference": "SM_Antey_LOD0_SailDevice_11",
+      "mappingStatus": "MANUAL_CONFIRMED"
     },
     {
       "diagramNumber": 10,
