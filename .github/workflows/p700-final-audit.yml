@@ -1,0 +1,49 @@
+name: P700 final audit workspace
+
+on:
+  push:
+    branches:
+      - feature/p700-signature-launch-vfx
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: contains(github.event.head_commit.message, '[p700-final-audit]')
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Merge latest main in workspace
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git config user.name "Deep Run CI"
+          git config user.email "ci@deeprun.invalid"
+          $ErrorActionPreference = 'Continue'
+          git merge --no-commit --no-ff origin/main
+          $code = $LASTEXITCODE
+          Write-Host "MERGE_EXIT=$code"
+          git status --short
+          $conflicts = @(git diff --name-only --diff-filter=U)
+          if ($conflicts.Count -gt 0) {
+            Write-Host "CONFLICTS_BEGIN"
+            $conflicts | ForEach-Object { Write-Host $_ }
+            Write-Host "CONFLICTS_END"
+          }
+          exit 0
+      - name: Package merge workspace metadata
+        shell: pwsh
+        run: |
+          git status --porcelain=v1 > p700-merge-status.txt
+          git diff --name-only --diff-filter=U > p700-merge-conflicts.txt
+          git diff --stat > p700-merge-stat.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p700-final-audit
+          path: |
+            p700-merge-status.txt
+            p700-merge-conflicts.txt
+            p700-merge-stat.txt
