@@ -1,0 +1,122 @@
+name: Finalize Antey Electronics
+
+on:
+  push:
+    branches: [feature/antey-electronic-intelligence-suite]
+    paths: [.github/workflows/finalize-antey-electronics.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply final gameplay closures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python Tools/fix_signal3_gameplay_closure.py
+          python Tools/apply_antey_device_control_hud_patch.py
+          @'
+          from pathlib import Path
+          p = Path('Game/Combat/AnteyElectronicCombatRuntime.h')
+          text = p.read_text(encoding='utf-8')
+          old = '''        const bool radioTransmitting = RadioTransmitting(simulationTimeSeconds);\n        if (state_.radianTransmitting || radioTransmitting)\n        {'''
+          new = '''        const bool radioTransmitting = RadioTransmitting(simulationTimeSeconds);\n        const float emissionDx = playerSnapshot.emitter.positionMeters.x - hostileElectronicSupportReceiverPositionMeters.x;\n        const float emissionDy = playerSnapshot.emitter.positionMeters.y - hostileElectronicSupportReceiverPositionMeters.y;\n        const float emissionDistanceMeters = std::hypot(emissionDx, emissionDy);\n        if ((state_.radianTransmitting || radioTransmitting) &&\n            emissionDistanceMeters <= config_.radioExposureMaximumRangeMeters)\n        {'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one RF exposure marker, got {text.count(old)}')
+          p.write_text(text.replace(old, new), encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\final_rf_gate.py"
+          python "$env:RUNNER_TEMP\final_rf_gate.py"
+          git diff --check
+
+      - name: Restore permanent electronics sync workflow
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          name: Sync Antey Electronics
+
+          on:
+            push:
+              branches:
+                - feature/antey-electronic-intelligence-suite
+              paths:
+                - Content/submarines/Antey/Antey.electronics.json
+                - Tools/sync_antey_electronics_contract.py
+                - .github/workflows/sync-antey-electronics.yml
+            workflow_dispatch:
+
+          permissions:
+            contents: write
+
+          jobs:
+            sync:
+              runs-on: windows-2025-vs2026
+              timeout-minutes: 10
+              steps:
+                - uses: actions/checkout@v4
+                  with:
+                    fetch-depth: 0
+
+                - name: Sync production authoring mappings
+                  shell: pwsh
+                  run: python Tools/sync_antey_electronics_contract.py
+
+                - name: Commit synced sidecars and docs
+                  shell: pwsh
+                  run: |
+                    git config user.name "github-actions[bot]"
+                    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                    git add Content/submarines/Antey/Antey.authoring.json Engine/Assets/submarines/Antey/Antey.authoring.json docs/development/periscope-ballast-gameplay.md
+                    git diff --cached --check
+                    if (git diff --cached --quiet) { exit 0 }
+                    git commit -m "content: sync Antey electronic system bindings"
+                    git push origin HEAD:feature/antey-electronic-intelligence-suite
+          '@ | Set-Content -Encoding utf8 '.github/workflows/sync-antey-electronics.yml'
+
+      - name: Build final focused targets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --preset windows-debug
+          cmake --build --preset windows-debug --target DeepRun DeepRunTests DeepRunAnteyElectronicSuiteTests
+
+      - name: Run final focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ctest --preset windows-debug -R "DeepRunTests|DeepRunAnteyElectronicSuiteTests" --output-on-failure
+
+      - name: Remove one-shot scaffolding and commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $remove = @(
+            '.github/workflows/finalize-antey-electronics.yml',
+            '.github/workflows/add-antey-device-control-hud-v2.yml',
+            '.github/workflows/add-antey-device-control-hud.yml',
+            '.github/workflows/antey-sail-device-audit.yml',
+            '.github/workflows/apply-antey-electronics-gameplay.yml',
+            '.github/workflows/apply-antey-electronics-runtime-contract.yml',
+            '.github/workflows/fix-signal3-gameplay-closure.yml',
+            'Tools/apply_antey_device_control_hud_patch.py',
+            'Tools/apply_antey_electronics_gameplay_integration.py',
+            'Tools/apply_antey_electronics_runtime_contract.py',
+            'Tools/fix_signal3_gameplay_closure.py',
+            'Tools/run_antey_electronics_gameplay_integration.py'
+          )
+          foreach ($path in $remove) { if (Test-Path $path) { Remove-Item -Force $path } }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: finalize Antey electronic suite gameplay'
+          git push origin HEAD:feature/antey-electronic-intelligence-suite
