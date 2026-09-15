@@ -63,6 +63,40 @@ Key TranslateKey(const WPARAM virtualKey)
     default: return Key::Unknown;
     }
 }
+
+[[nodiscard]] bool IsMouseInputMessage(const UINT message) noexcept
+{
+    switch (message)
+    {
+    case WM_MOUSEMOVE:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+        return true;
+    default:
+        return false;
+    }
+}
+
+[[nodiscard]] bool IsKeyboardInputMessage(const UINT message) noexcept
+{
+    switch (message)
+    {
+    case WM_KEYDOWN:
+    case WM_KEYUP:
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+    case WM_CHAR:
+        return true;
+    default:
+        return false;
+    }
+}
 }
 
 class Window::Impl final
@@ -157,9 +191,17 @@ public:
             SetWindowLongPtrW(handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
         }
 
-        if (ImGui::GetCurrentContext() != nullptr && ImGui_ImplWin32_WndProcHandler(handle, message, wParam, lParam))
+        if (ImGui::GetCurrentContext() != nullptr)
         {
-            return 1;
+            const LRESULT imguiResult = ImGui_ImplWin32_WndProcHandler(handle, message, wParam, lParam);
+            const ImGuiIO& io = ImGui::GetIO();
+            const bool capturedByImGui =
+                (io.WantCaptureMouse && IsMouseInputMessage(message)) ||
+                (io.WantCaptureKeyboard && IsKeyboardInputMessage(message));
+            if (imguiResult != 0 || capturedByImGui)
+            {
+                return imguiResult != 0 ? imguiResult : 1;
+            }
         }
 
         if (window == nullptr)

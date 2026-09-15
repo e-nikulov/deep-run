@@ -310,18 +310,22 @@ public:
             }
         }
 
+        // D-pad directions belong exclusively to combat semantics. LB is intentionally reserved here as the
+        // controller time-compression selector so periscope/P-700 commands cannot change player-time pacing.
         const std::uint16_t currentButtons = input->State().Gamepad().buttons;
         const std::uint16_t risingButtons = static_cast<std::uint16_t>(
             currentButtons & static_cast<std::uint16_t>(~previousTimeCompressionGamepadButtons));
-        const std::uint16_t dpadUp = static_cast<std::uint16_t>(Input::GamepadButton::DpadUp);
-        const std::uint16_t dpadDown = static_cast<std::uint16_t>(Input::GamepadButton::DpadDown);
-        if ((risingButtons & dpadUp) != 0U)
+        const std::uint16_t leftShoulder = static_cast<std::uint16_t>(Input::GamepadButton::LeftShoulder);
+        if ((risingButtons & leftShoulder) != 0U)
         {
-            timeCompression.IncreaseRequestedRate();
-        }
-        if ((risingButtons & dpadDown) != 0U)
-        {
-            timeCompression.DecreaseRequestedRate();
+            if (timeCompression.RequestedRate() == TimeCompressionRate::X8)
+            {
+                static_cast<void>(timeCompression.SetRequestedRate(TimeCompressionRate::X1));
+            }
+            else
+            {
+                timeCompression.IncreaseRequestedRate();
+            }
         }
         previousTimeCompressionGamepadButtons = currentButtons;
 
@@ -334,17 +338,24 @@ public:
             static_cast<void>(timeCompression.TightenMaximumRate(TimeCompressionRate::X1));
         }
 
-        if (timeCompression.RequestedRate() != previousRequestedRate)
+        LogTimeCompressionChange(previousRequestedRate);
+    }
+
+    void LogTimeCompressionChange(const TimeCompressionRate previousRequestedRate)
+    {
+        if (timeCompression.RequestedRate() == previousRequestedRate)
         {
-            std::ostringstream message;
-            message << "Time compression requested " << TimeCompressionLabel(timeCompression.RequestedRate())
-                    << ", effective " << TimeCompressionLabel(timeCompression.EffectiveRate());
-            if (timeCompression.EffectiveRate() != timeCompression.RequestedRate())
-            {
-                message << " (safety cap " << TimeCompressionLabel(timeCompression.MaximumRate()) << ')';
-            }
-            core.Log().Info(Diagnostics::LogCategory::Core, message.str());
+            return;
         }
+
+        std::ostringstream message;
+        message << "Time compression requested " << TimeCompressionLabel(timeCompression.RequestedRate())
+                << ", effective " << TimeCompressionLabel(timeCompression.EffectiveRate());
+        if (timeCompression.EffectiveRate() != timeCompression.RequestedRate())
+        {
+            message << " (safety cap " << TimeCompressionLabel(timeCompression.MaximumRate()) << ')';
+        }
+        core.Log().Info(Diagnostics::LogCategory::Core, message.str());
     }
 
     bool RunFixedStep(
@@ -382,7 +393,7 @@ public:
         }
 
         debugOverlay->BeginFrame();
-        debugOverlay->Draw({
+        const Diagnostics::DebugControlRequest debugControl = debugOverlay->Draw({
             .framesPerSecond = timer.FramesPerSecond(),
             .frameMilliseconds = timer.FrameMilliseconds(),
             .elapsedSeconds = timer.ElapsedSeconds(),
@@ -397,6 +408,29 @@ public:
             .physicsReady = physics->IsInitialized(),
             .audioReady = audioReady,
             .controllerConnected = input->IsControllerConnected()});
+
+        if (debugControl.requestedTimeCompression.has_value())
+        {
+            const TimeCompressionRate previousRequestedRate = timeCompression.RequestedRate();
+            const double selectedMultiplier = *debugControl.requestedTimeCompression;
+            if (selectedMultiplier == 1.0)
+            {
+                static_cast<void>(timeCompression.SetRequestedRate(TimeCompressionRate::X1));
+            }
+            else if (selectedMultiplier == 2.0)
+            {
+                static_cast<void>(timeCompression.SetRequestedRate(TimeCompressionRate::X2));
+            }
+            else if (selectedMultiplier == 4.0)
+            {
+                static_cast<void>(timeCompression.SetRequestedRate(TimeCompressionRate::X4));
+            }
+            else if (selectedMultiplier == 8.0)
+            {
+                static_cast<void>(timeCompression.SetRequestedRate(TimeCompressionRate::X8));
+            }
+            LogTimeCompressionChange(previousRequestedRate);
+        }
 
         renderer->BeginFrame();
         // The renderer receives the existing elapsed frame clock as PresentationTime. This is deliberately

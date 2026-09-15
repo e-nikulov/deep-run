@@ -33,6 +33,40 @@ void ConfigureHdrDebugUi(const float referenceWhiteScale)
         color.z = SrgbToLinear(color.z) * referenceWhiteScale;
     }
 }
+
+void DrawTimeCompressionSelector(const DebugStatus& status, DebugControlRequest& request)
+{
+    ImGui::Separator();
+    ImGui::TextUnformatted("TIME COMPRESSION");
+
+    constexpr double rates[]{1.0, 2.0, 4.0, 8.0};
+    constexpr const char* labels[]{"1x", "2x", "4x", "8x"};
+    for (int index = 0; index < 4; ++index)
+    {
+        if (index > 0)
+        {
+            ImGui::SameLine();
+        }
+        const bool selected = status.requestedTimeCompression == rates[index];
+        if (ImGui::RadioButton(labels[index], selected))
+        {
+            request.requestedTimeCompression = rates[index];
+        }
+    }
+
+    if (status.requestedTimeCompression != status.effectiveTimeCompression)
+    {
+        ImGui::Text("Requested %.0fx -> effective %.0fx (cap %.0fx)",
+                    status.requestedTimeCompression,
+                    status.effectiveTimeCompression,
+                    status.maximumTimeCompression);
+    }
+    else
+    {
+        ImGui::Text("Effective: %.0fx", status.effectiveTimeCompression);
+    }
+    ImGui::TextUnformatted("Keyboard: - / =   Controller: LB cycles");
+}
 }
 
 class DebugOverlay::Impl final
@@ -117,11 +151,12 @@ void DebugOverlay::BeginFrame()
     ImGui::NewFrame();
 }
 
-void DebugOverlay::Draw(const DebugStatus& status)
+DebugControlRequest DebugOverlay::Draw(const DebugStatus& status)
 {
+    DebugControlRequest request{};
     if (!impl_->visible)
     {
-        return;
+        return request;
     }
 
     ImGui::SetNextWindowPos(ImVec2(16.0F, 16.0F), ImGuiCond_FirstUseEver);
@@ -131,13 +166,8 @@ void DebugOverlay::Draw(const DebugStatus& status)
     ImGui::Text("Frame time: %.2f ms", status.frameMilliseconds);
     ImGui::Text("Elapsed: %.2f s", status.elapsedSeconds);
     ImGui::Text("Simulation: %.2f s", status.simulationTimeSeconds);
-    ImGui::Text("Time: %.0fx", status.effectiveTimeCompression);
-    if (status.requestedTimeCompression != status.effectiveTimeCompression)
-    {
-        ImGui::Text("Requested: %.0fx / cap %.0fx",
-                    status.requestedTimeCompression,
-                    status.maximumTimeCompression);
-    }
+    DrawTimeCompressionSelector(status, request);
+    ImGui::Separator();
     ImGui::Text("Frame: %llu", static_cast<unsigned long long>(status.frameIndex));
     ImGui::Text("Entities: %zu", status.entityCount);
     ImGui::Text("Resources: %zu", status.resourceCount);
@@ -147,6 +177,7 @@ void DebugOverlay::Draw(const DebugStatus& status)
     ImGui::Text("Audio: %s", status.audioReady ? "OK" : "ERROR");
     ImGui::Text("Controller: %s", status.controllerConnected ? "connected" : "disconnected");
     ImGui::End();
+    return request;
 }
 
 void DebugOverlay::Render(ID3D12GraphicsCommandList* commandList)
