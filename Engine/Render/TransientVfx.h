@@ -26,6 +26,7 @@ enum class TransientVfxPrimitive : std::uint32_t
     ExhaustCore,
     ExhaustTurbulent,
     WaterSheet,
+    WaterCrown,
     Particulate,
 };
 
