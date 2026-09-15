@@ -107,8 +107,6 @@ struct SplitMix64 final
         const double angularFrequency = directionSign * TwoPi / period;
         const double phase = random.Unit() * TwoPi;
 
-        // The bounded Gerstner horizontal term is deliberately restrained. Every component is independently
-        // capped so the total conservative foldover sum remains below 0.42 even in Beaufort-12 seas.
         const double perComponentSlopeBudget = MaximumConservativeFoldoverSlope /
                                                static_cast<double>(WaterWaveComponentCapacity);
         const double safeSteepness = amplitude * waveNumber > 0.0
@@ -128,9 +126,6 @@ struct SplitMix64 final
 }
 } // namespace ProductionOceanDetail
 
-// W1-B deterministic production spectrum. The component amplitudes preserve the W1-A significant-wave-height
-// energy exactly: Hs = 4 * sqrt(sum(a_i^2 / 2)). Period jitter and phases come only from weatherSeed, making
-// replay/capture deterministic. Independent swell and local wind-sea retain independent peak periods/directions.
 [[nodiscard]] inline std::expected<std::optional<WaterWaveFieldDefinition>, std::string>
 BuildProductionOceanWaveField(const Environment::WeatherState& weather)
 {
@@ -152,7 +147,8 @@ BuildProductionOceanWaveField(const Environment::WeatherState& weather)
     }
 
     WaterWaveFieldDefinition output{};
-    SplitMix64 random{config.weatherSeed ^ 0x5731425F4F434541ULL}; // "W1B_OCEA"
+    output.activeComponentCount = WaterWaveComponentCapacity;
+    SplitMix64 random{config.weatherSeed ^ 0x5731425F4F434541ULL};
     const bool hasWindSea = config.windSea.significantWaveHeightMeters >= MinimumRenderableHsMeters;
     const bool hasSwell = config.swell.significantWaveHeightMeters >= MinimumRenderableHsMeters;
 
@@ -215,8 +211,10 @@ BuildProductionOceanWaveField(const Environment::WeatherState& weather)
     const WaterWaveFieldDefinition& field) noexcept
 {
     double variance = 0.0;
-    for (const WaterWaveComponent& component : field.components)
+    const std::size_t count = (std::min)(field.activeComponentCount, field.components.size());
+    for (std::size_t index = 0U; index < count; ++index)
     {
+        const WaterWaveComponent& component = field.components[index];
         variance += 0.5 * static_cast<double>(component.amplitudeMeters) * component.amplitudeMeters;
     }
     return static_cast<float>(4.0 * std::sqrt((std::max)(0.0, variance)));
