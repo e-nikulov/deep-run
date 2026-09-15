@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 struct ID3D12GraphicsCommandList;
 
@@ -38,6 +39,11 @@ struct DebugStatus
     bool controllerConnected = false;
 };
 
+struct DebugControlRequest final
+{
+    std::optional<double> requestedTimeCompression{};
+};
+
 class DebugOverlay final
 {
 public:
@@ -50,7 +56,7 @@ public:
     [[nodiscard]] bool Initialize(Platform::Window& window, Render::D3D12Renderer& renderer);
     void Toggle() noexcept;
     void BeginFrame();
-    void Draw(const DebugStatus& status);
+    [[nodiscard]] DebugControlRequest Draw(const DebugStatus& status);
     void Render(ID3D12GraphicsCommandList* commandList);
     [[nodiscard]] bool IsInitialized() const noexcept;
 
