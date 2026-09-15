@@ -1096,6 +1096,10 @@ private:
         std::optional<Weapons::ConventionalTorpedoImpact> impact{};
         if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
+            if (!playerTorpedoInFlightDefinition_)
+            {
+                return std::unexpected("M5-E.1 live torpedo lost its launch-time definition snapshot");
+            }
             const auto seekerDecision = AdvancePlayerTorpedoSeeker(
                 *destroyerAcoustics, civilianEmitter, surfaceTruths, simulationTimeSeconds);
             if (!seekerDecision)
@@ -1114,14 +1118,14 @@ private:
 
             const auto advanced = seekerDecision->guidanceCue
                 ? Weapons::AdvanceConventionalTorpedoWithSeekerCueAndCollision(
-                    playerTorpedoDefinition_,
+                    *playerTorpedoInFlightDefinition_,
                     playerTorpedoSeekerConfig_,
                     *playerTorpedo_,
                     *seekerDecision->guidanceCue,
                     *physicsWorld_,
                     simulationTimeSeconds)
                 : Weapons::AdvanceConventionalTorpedoWithCollision(
-                    playerTorpedoDefinition_, *playerTorpedo_, guidanceTrack, *physicsWorld_, simulationTimeSeconds);
+                    *playerTorpedoInFlightDefinition_, *playerTorpedo_, guidanceTrack, *physicsWorld_, simulationTimeSeconds);
             if (!advanced)
             {
                 return std::unexpected("M5-E.1 torpedo fixed-step advance failed: " + advanced.error());
@@ -1150,14 +1154,15 @@ private:
             }
         }
 
-        if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent &&
-            (playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::RangeExpired ||
-             playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::EnduranceExpired))
+        if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent)
         {
+            // Impact, endurance and range expiry all resolve the launched projectile. CompleteResolvedLaunch()
+            // intentionally no-ops when the player already selected/prepared a different weapon.
             const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
             if (!rearmed)
-                return std::unexpected("player torpedo range/endurance re-arm failed: " + rearmed.error());
+                return std::unexpected("player torpedo resolution re-arm failed: " + rearmed.error());
             playerTorpedo_.reset();
+            playerTorpedoInFlightDefinition_.reset();
             playerTorpedoLaunchPosition_.reset();
             playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
                 .selectedTrackId = std::nullopt,
@@ -1982,6 +1987,7 @@ private:
         }
         // Commit the staged inventory only after the weapon runtime is successfully materialized.
         playerTorpedoInventory_ = nextTorpedoInventory;
+        playerTorpedoInFlightDefinition_ = playerTorpedoDefinition_;
         playerTorpedo_ = *launched;
         playerTorpedoLaunchPosition_ = launchPosition;
         playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
@@ -2676,6 +2682,9 @@ private:
     std::optional<Physics::PhysicsVector3> destroyerTorpedoLaunchPosition_{};
     float destroyerTorpedoForwardSign_ = -1.0F;
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
+    // The selected torpedo profile may change while an already-launched weapon is still running.
+    // Keep the launch-time definition with that projectile so selection cannot mutate its kinematics/identity.
+    std::optional<Weapons::ConventionalTorpedoDefinition> playerTorpedoInFlightDefinition_{};
     Weapons::P700GranitDefinition playerP700Definition_;
     Armament::PlayerWeaponType selectedPlayerWeapon_ = Armament::PlayerWeaponType::HeavyweightTorpedo;
     Armament::AnteyTorpedoInventory playerTorpedoInventory_{};
