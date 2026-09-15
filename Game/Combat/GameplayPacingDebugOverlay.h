@@ -35,7 +35,7 @@ inline void DrawPacingMilestone(const char* label, const std::optional<double>& 
 // nothing. Normal play gets the overlay as part of the existing debug HUD composition.
 inline void DrawGameplayPacingDebugOverlay(const GameplayPacingMetricsSnapshot& snapshot)
 {
-    if (!Detail::HasGameplayPacingDebugData(snapshot))
+    if (!Detail::HasGameplayPacingDebugData(snapshot) || ImGui::GetCurrentContext() == nullptr)
     {
         return;
     }
