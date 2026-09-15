@@ -25,8 +25,8 @@ enum class TransientVfxPrimitive : std::uint32_t
     Foam,
     ExhaustCore,
     ExhaustTurbulent,
-    WaterSheet,
-    WaterCrown,
+    RibbonSheet,
+    RadialCrown,
     Particulate,
 };
 
@@ -63,7 +63,7 @@ struct TransientVfxEmitter final
     float gravityMetersPerSecondSquared = 9.81F;
     float windSpeedMetersPerSecond = 0.0F;
     float windDirectionRadians = 0.0F;
-    bool underwater = false;
+    bool applyDepthAttenuation = false;
 };
 
 struct TransientVfxDrawStats final

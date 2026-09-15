@@ -132,9 +132,9 @@ using DeepRun::Weapons::P700GranitRuntimeState;
     missile.phaseStartTimeSeconds = 1.20;
     missile.launchBoosterActive = true;
     auto breach = vfx.BuildFrame(std::span<const P700GranitRuntimeState* const>(&pointer, 1U), camera, environment, 1.24);
-    if (!breach || !HasPrimitive(*breach, TransientVfxPrimitive::WaterCrown) ||
+    if (!breach || !HasPrimitive(*breach, TransientVfxPrimitive::RadialCrown) ||
         !HasPrimitive(*breach, TransientVfxPrimitive::Droplet) ||
-        !HasPrimitive(*breach, TransientVfxPrimitive::WaterSheet) ||
+        !HasPrimitive(*breach, TransientVfxPrimitive::RibbonSheet) ||
         !HasPrimitive(*breach, TransientVfxPrimitive::Mist) ||
         !HasPrimitive(*breach, TransientVfxPrimitive::Foam) ||
         !HasAudio(*breach, P700LaunchAudioEvent::SurfaceBreach) ||

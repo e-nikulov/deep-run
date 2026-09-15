@@ -6,7 +6,7 @@ cbuffer TransientVfxConstants : register(b0)
     float4 VelocityTurbulence;
     float4 ExtentKind;
     float4 SizeOpacityEmissive;
-    float4 ColorUnderwater;
+    float4 ColorMedium;
     float4 SurfaceAbsorptionR;
     float4 CameraGravity;
     float4 SeedSpawnWind;
@@ -173,8 +173,8 @@ PixelInput VSMain(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
     clipCenter.xy += corner * ndcDiameter * 0.5F * clipCenter.w;
 
     const float depthMeters = max(SurfaceAbsorptionR.x - center.y, 0.0F);
-    float3 color = ColorUnderwater.rgb;
-    if (ColorUnderwater.w > 0.5F)
+    float3 color = ColorMedium.rgb;
+    if (ColorMedium.w > 0.5F)
         color *= exp(-SurfaceAbsorptionR.yzw * depthMeters);
     color *= 1.0F + SizeOpacityEmissive.w;
 

@@ -62,7 +62,7 @@ struct TransientVfxDrawConstants final
     std::array<float, 4> velocityTurbulence{};
     std::array<float, 4> extentKind{};
     std::array<float, 4> sizeOpacityEmissive{};
-    std::array<float, 4> colorUnderwater{};
+    std::array<float, 4> colorMedium{};
     std::array<float, 4> surfaceAbsorptionR{};
     std::array<float, 4> cameraGravity{};
     std::array<float, 4> seedSpawnWind{};
@@ -248,7 +248,7 @@ public:
                 .velocityTurbulence = {emitter.baseVelocityMetersPerSecond[0], emitter.baseVelocityMetersPerSecond[1], emitter.baseVelocityMetersPerSecond[2], emitter.turbulence},
                 .extentKind = {emitter.extentMeters[0], emitter.extentMeters[1], emitter.extentMeters[2], static_cast<float>(emitter.primitive)},
                 .sizeOpacityEmissive = {emitter.minimumSizeMeters, emitter.maximumSizeMeters, emitter.opacity, emitter.emissiveIntensity},
-                .colorUnderwater = {emitter.linearColor[0], emitter.linearColor[1], emitter.linearColor[2], emitter.underwater ? 1.0F : 0.0F},
+                .colorMedium = {emitter.linearColor[0], emitter.linearColor[1], emitter.linearColor[2], emitter.applyDepthAttenuation ? 1.0F : 0.0F},
                 .surfaceAbsorptionR = {depthLighting.surfaceLevelYMeters, depthLighting.attenuationPerMeterRgb[0], depthLighting.attenuationPerMeterRgb[1], depthLighting.attenuationPerMeterRgb[2]},
                 .cameraGravity = {camera.width, camera.height, emitter.gravityMetersPerSecondSquared, 0.0F},
                 .seedSpawnWind = {std::bit_cast<float>(emitter.seed), emitter.spawnRadiusMeters, emitter.windSpeedMetersPerSecond, emitter.windDirectionRadians}};

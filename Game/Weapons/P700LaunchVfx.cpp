@@ -428,7 +428,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
             prepare.maximumSizeMeters = 0.09F;
             prepare.opacity = 0.35F * missile.launcherFloodProgress;
             prepare.turbulence = 1.6F;
-            prepare.underwater = true;
+            prepare.applyDepthAttenuation = true;
             prepare.linearColor = {0.58F, 0.78F, 0.90F};
             append(prepare);
         }
@@ -458,7 +458,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
                 bubbles.opacity = opacity;
                 bubbles.turbulence = tuning_.underwaterTurbulence;
                 bubbles.spawnRadiusMeters = tuning_.underwaterTrailRadiusMeters * 0.25F;
-                bubbles.underwater = true;
+                bubbles.applyDepthAttenuation = true;
                 bubbles.linearColor = {0.70F, 0.86F, 0.94F};
                 append(bubbles);
             };
@@ -482,7 +482,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
             core.opacity = 0.78F;
             core.emissiveIntensity = tuning_.underwaterEmissiveIntensity;
             core.turbulence = 4.0F;
-            core.underwater = true;
+            core.applyDepthAttenuation = true;
             core.linearColor = {2.6F, 1.55F, 0.72F};
             append(core);
 
@@ -494,7 +494,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
             particulate.maximumSizeMeters = 0.075F;
             particulate.opacity = 0.26F;
             particulate.turbulence = 6.0F;
-            particulate.underwater = true;
+            particulate.applyDepthAttenuation = true;
             particulate.linearColor = {0.34F, 0.48F, 0.52F};
             append(particulate);
 
@@ -510,7 +510,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
                 aeration.maximumSizeMeters = 0.95F;
                 aeration.opacity = 0.42F * reaction;
                 aeration.turbulence = 7.0F;
-                aeration.underwater = true;
+                aeration.applyDepthAttenuation = true;
                 aeration.linearColor = {0.72F, 0.88F, 0.96F};
                 append(aeration);
             }
@@ -535,7 +535,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
             const float breachAge = static_cast<float>(simulationTimeSeconds - record.breachTimeSeconds);
             if (breachAge < tuning_.waterCrownLifetimeSeconds)
             {
-                auto crown = emitterBase(Render::TransientVfxPrimitive::WaterCrown, Render::TransientVfxBlendMode::Alpha,
+                auto crown = emitterBase(Render::TransientVfxPrimitive::RadialCrown, Render::TransientVfxBlendMode::Alpha,
                     ScaledCount(tuning_.waterCrownCount, lodScale, salvoScale), breachAge,
                     tuning_.waterCrownLifetimeSeconds);
                 crown.originWorldMeters = record.breachPosition;
@@ -569,7 +569,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
             }
             if (breachAge < tuning_.waterSheetLifetimeSeconds)
             {
-                auto sheets = emitterBase(Render::TransientVfxPrimitive::WaterSheet, Render::TransientVfxBlendMode::Alpha,
+                auto sheets = emitterBase(Render::TransientVfxPrimitive::RibbonSheet, Render::TransientVfxBlendMode::Alpha,
                     ScaledCount(tuning_.waterSheetCount, lodScale, salvoScale), breachAge, tuning_.waterSheetLifetimeSeconds);
                 sheets.originWorldMeters = AddScaled(record.breachPosition, record.launchDirection, 2.0F);
                 sheets.directionWorldUnit = record.launchDirection;
