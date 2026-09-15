@@ -107,6 +107,27 @@ std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
     return {};
 }
 
+std::expected<void, std::string> ValidateGerstnerSurfaceTransientDisturbances(
+    const std::span<const GerstnerSurfaceTransientDisturbance> disturbances)
+{
+    if (disturbances.size() > GerstnerSurfaceTransientDisturbanceCapacity)
+        return std::unexpected("Gerstner transient disturbance count exceeds the bounded capacity");
+    for (const auto& disturbance : disturbances)
+    {
+        if (!std::isfinite(disturbance.centerX) || std::abs(disturbance.centerX) > 1.0e6F ||
+            !std::isfinite(disturbance.radiusMeters) || disturbance.radiusMeters <= 0.0F ||
+            disturbance.radiusMeters > 128.0F ||
+            !std::isfinite(disturbance.verticalAmplitudeMeters) ||
+            std::abs(disturbance.verticalAmplitudeMeters) > 4.0F ||
+            !std::isfinite(disturbance.profileExponent) || disturbance.profileExponent < 1.0F ||
+            disturbance.profileExponent > 8.0F)
+        {
+            return std::unexpected("Gerstner transient disturbance is outside the restrained presentation range");
+        }
+    }
+    return {};
+}
+
 std::expected<float, std::string> MaximumGerstnerCombinedVerticalAmplitudeMeters(
     const GerstnerSurfacePresentationParameters& parameters)
 {

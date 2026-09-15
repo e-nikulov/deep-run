@@ -7,6 +7,7 @@
 #include "Game/Combat/CivilianVesselPresentation.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
 #include "Game/Weapons/P700LaunchVfx.h"
+#include "Game/Weapons/P700SurfacePresentation.h"
 #include "Game/Weapons/ProductionP700Asset.h"
 
 #include <algorithm>
@@ -122,6 +123,17 @@ public:
     void SetP700VfxEnvironment(const Armament::P700LaunchVfxEnvironment& environment) noexcept
     {
         p700VfxEnvironment_ = environment;
+    }
+
+    [[nodiscard]] std::expected<std::vector<Render::GerstnerSurfaceTransientDisturbance>, std::string>
+    BuildP700SurfaceDisturbances(const CombatPlaygroundRuntime& runtime, const double simulationTimeSeconds) const
+    {
+        std::vector<const Weapons::P700GranitRuntimeState*> missiles;
+        missiles.reserve(1U + runtime.PlayerP700Wingmen().size() + runtime.AdditionalPlayerP700Missiles().size());
+        if (const auto& leader = runtime.PlayerP700(); leader) missiles.push_back(&*leader);
+        for (const auto& wingman : runtime.PlayerP700Wingmen()) missiles.push_back(&wingman);
+        for (const auto& ripple : runtime.AdditionalPlayerP700Missiles()) missiles.push_back(&ripple);
+        return Armament::BuildP700SurfaceDisturbances(missiles, p700VfxSystem_.Tuning(), simulationTimeSeconds);
     }
 
     [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(

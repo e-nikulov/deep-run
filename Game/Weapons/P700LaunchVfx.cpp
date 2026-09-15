@@ -135,11 +135,13 @@ std::expected<void, std::string> ValidateP700LaunchVfxTuning(const P700LaunchVfx
         t.mistCount == 0U || t.waterSheetCount == 0U || t.foamCount == 0U || t.airborneCoreCount == 0U ||
         t.airbornePlumeCount == 0U || t.cruiseExhaustCount == 0U || t.maximumTrackedLaunches < 2U)
         return std::unexpected("P-700 VFX particle counts/tracked-launch capacity must be non-zero");
-    const std::array<float, 22> scalars{
+    const std::array<float, 28> scalars{
         t.bubbleLifetimeSeconds, t.underwaterTrailRadiusMeters, t.underwaterTurbulence,
         t.underwaterCoreLengthMeters, t.underwaterCoreRadiusMeters, t.underwaterEmissiveIntensity,
         t.breachPreReactionDepthMeters, t.splashRadiusMeters, t.waterCrownLifetimeSeconds,
         t.dropletLifetimeSeconds, t.mistLifetimeSeconds, t.mistDensity, t.waterSheetLifetimeSeconds,
+        t.preBreachBulgeMaximumMeters, t.preBreachBulgeRadiusMeters, t.breachSurfaceRelaxationSeconds,
+        t.breachSurfaceCollapseMeters, t.breachSurfaceExpansionMetersPerSecond, t.surfaceDisturbanceProfileExponent,
         t.foamLifetimeSeconds, t.foamRadiusMeters, t.airborneCoreLengthMeters, t.airbornePlumeLengthMeters,
         t.airborneEmissiveIntensity, t.airbornePlumeLifetimeSeconds, t.cruiseExhaustLengthMeters,
         t.cruiseExhaustLifetimeSeconds, t.condensationLifetimeSeconds};
@@ -196,6 +198,12 @@ std::expected<P700LaunchVfxTuning, std::string> LoadP700LaunchVfxTuning(const st
         ReadIfPresent(root, "mistDensity", t.mistDensity);
         ReadIfPresent(root, "waterSheetCount", t.waterSheetCount);
         ReadIfPresent(root, "waterSheetLifetimeSeconds", t.waterSheetLifetimeSeconds);
+        ReadIfPresent(root, "preBreachBulgeMaximumMeters", t.preBreachBulgeMaximumMeters);
+        ReadIfPresent(root, "preBreachBulgeRadiusMeters", t.preBreachBulgeRadiusMeters);
+        ReadIfPresent(root, "breachSurfaceRelaxationSeconds", t.breachSurfaceRelaxationSeconds);
+        ReadIfPresent(root, "breachSurfaceCollapseMeters", t.breachSurfaceCollapseMeters);
+        ReadIfPresent(root, "breachSurfaceExpansionMetersPerSecond", t.breachSurfaceExpansionMetersPerSecond);
+        ReadIfPresent(root, "surfaceDisturbanceProfileExponent", t.surfaceDisturbanceProfileExponent);
         ReadIfPresent(root, "foamCount", t.foamCount);
         ReadIfPresent(root, "foamLifetimeSeconds", t.foamLifetimeSeconds);
         ReadIfPresent(root, "foamRadiusMeters", t.foamRadiusMeters);

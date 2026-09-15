@@ -218,10 +218,13 @@ struct GerstnerDrawConstants final
     std::array<float, 4> wave4{};
     std::array<float, 4> wave5{};
     std::array<float, 4> wave6{};
-    std::array<float, 4> horizontalSteepness0{};
-    std::array<float, 4> horizontalSteepness1{};
-    std::array<float, 4> deepFillColor{};
-    std::array<float, 4> surfaceTintColor{};
+    std::uint32_t packedSteepness0 = 0U;
+    std::uint32_t packedSteepness1AndCount = 0U;
+    std::uint32_t packedDeepFillRgb = 0U;
+    std::uint32_t packedSurfaceTintRgb = 0U;
+    std::array<float, 4> disturbance0{};
+    std::array<float, 4> disturbance1{};
+    std::array<float, 4> disturbance2{};
 };
 
 static_assert(sizeof(GerstnerDrawConstants) == sizeof(std::uint32_t) * 64U);
@@ -1941,7 +1944,8 @@ public:
     }
 
     std::expected<GerstnerSurfaceDrawStats, std::string> DrawGerstnerSurface(
-        const OrthographicCamera& camera, const double simulationTimeSeconds)
+        const OrthographicCamera& camera, const double simulationTimeSeconds,
+        const std::span<const GerstnerSurfaceTransientDisturbance> disturbances)
     {
         if (!std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0 ||
             simulationTimeSeconds > (std::numeric_limits<float>::max)())
@@ -1962,6 +1966,8 @@ public:
         {
             return std::unexpected("Gerstner surface draw received invalid camera projection data");
         }
+        if (const auto valid = ValidateGerstnerSurfaceTransientDisturbances(disturbances); !valid)
+            return std::unexpected(valid.error());
 
         const GerstnerSurfacePresentationParameters& parameters = gerstnerSurface.parameters;
         const auto asConstants = [](const GerstnerWaveComponent& component)
@@ -1972,6 +1978,35 @@ public:
                 component.angularFrequencyRadiansPerSecond,
                 component.phaseOffsetRadians};
         };
+        const auto packNormalizedByte = [](const float value) noexcept -> std::uint32_t
+        {
+            return static_cast<std::uint32_t>(std::lround(std::clamp(value, 0.0F, 1.0F) * 255.0F));
+        };
+        const auto packRgb10 = [](const std::array<float, 3>& rgb) noexcept -> std::uint32_t
+        {
+            const auto channel = [](const float value) noexcept -> std::uint32_t
+            {
+                return static_cast<std::uint32_t>(std::lround(std::clamp(value, 0.0F, 1.0F) * 1023.0F));
+            };
+            return channel(rgb[0]) | (channel(rgb[1]) << 10U) | (channel(rgb[2]) << 20U);
+        };
+        const auto disturbanceConstants = [&disturbances](const std::size_t index) noexcept
+        {
+            if (index >= disturbances.size()) return std::array<float, 4>{};
+            const auto& value = disturbances[index];
+            return std::array<float, 4>{
+                value.centerX, value.radiusMeters, value.verticalAmplitudeMeters, value.profileExponent};
+        };
+        const std::uint32_t packedSteepness0 =
+            packNormalizedByte(parameters.components[0].horizontalSteepness) |
+            (packNormalizedByte(parameters.components[1].horizontalSteepness) << 8U) |
+            (packNormalizedByte(parameters.components[2].horizontalSteepness) << 16U) |
+            (packNormalizedByte(parameters.components[3].horizontalSteepness) << 24U);
+        const std::uint32_t packedSteepness1AndCount =
+            packNormalizedByte(parameters.components[4].horizontalSteepness) |
+            (packNormalizedByte(parameters.components[5].horizontalSteepness) << 8U) |
+            (packNormalizedByte(parameters.components[6].horizontalSteepness) << 16U) |
+            (static_cast<std::uint32_t>(parameters.activeComponentCount) << 24U);
         const float authoredSpanMeters = parameters.maximumX - parameters.minimumX;
         const float horizontalScale = (std::max)(1.0F, camera.width * 1.05F / authoredSpanMeters);
         const GerstnerDrawConstants constants{
@@ -1986,20 +2021,13 @@ public:
             .wave4 = asConstants(parameters.components[4]),
             .wave5 = asConstants(parameters.components[5]),
             .wave6 = asConstants(parameters.components[6]),
-            .horizontalSteepness0 = {
-                parameters.components[0].horizontalSteepness,
-                parameters.components[1].horizontalSteepness,
-                parameters.components[2].horizontalSteepness,
-                parameters.components[3].horizontalSteepness},
-            .horizontalSteepness1 = {
-                parameters.components[4].horizontalSteepness,
-                parameters.components[5].horizontalSteepness,
-                parameters.components[6].horizontalSteepness,
-                static_cast<float>(parameters.activeComponentCount)},
-            .deepFillColor = {
-                parameters.deepFillRgb[0], parameters.deepFillRgb[1], parameters.deepFillRgb[2], 1.0F},
-            .surfaceTintColor = {
-                parameters.surfaceTintRgb[0], parameters.surfaceTintRgb[1], parameters.surfaceTintRgb[2], 1.0F}};
+            .packedSteepness0 = packedSteepness0,
+            .packedSteepness1AndCount = packedSteepness1AndCount,
+            .packedDeepFillRgb = packRgb10(parameters.deepFillRgb),
+            .packedSurfaceTintRgb = packRgb10(parameters.surfaceTintRgb),
+            .disturbance0 = disturbanceConstants(0U),
+            .disturbance1 = disturbanceConstants(1U),
+            .disturbance2 = disturbanceConstants(2U)};
         commandList->SetGraphicsRootSignature(gerstnerSurfaceRootSignature.Get());
         commandList->SetPipelineState(gerstnerSurfacePipeline.Get());
         commandList->SetGraphicsRoot32BitConstants(
@@ -2484,9 +2512,10 @@ std::expected<void, std::string> D3D12Renderer::ConfigureGerstnerSurface(
 }
 
 std::expected<GerstnerSurfaceDrawStats, std::string> D3D12Renderer::DrawGerstnerSurface(
-    const OrthographicCamera& camera, const double simulationTimeSeconds)
+    const OrthographicCamera& camera, const double simulationTimeSeconds,
+    const std::span<const GerstnerSurfaceTransientDisturbance> disturbances)
 {
-    return impl_->DrawGerstnerSurface(camera, simulationTimeSeconds);
+    return impl_->DrawGerstnerSurface(camera, simulationTimeSeconds, disturbances);
 }
 
 void D3D12Renderer::SetPresentationTime(const float elapsedSeconds) noexcept

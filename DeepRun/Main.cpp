@@ -1100,7 +1100,22 @@ int main(const int argumentCount, char** argumentValues)
                     }
                 }
 
-                const auto rendered = playground.Render(renderer, simulationTimeSeconds, presentationTimeSeconds);
+                std::vector<DeepRun::Render::GerstnerSurfaceTransientDisturbance> p700SurfaceDisturbances;
+                if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
+                {
+                    const auto disturbances = combatPlayground->BuildP700SurfaceDisturbances(simulationTimeSeconds);
+                    if (!disturbances)
+                    {
+                        std::cerr << "[Game][ERROR] P-700 surface disturbance composition failed: "
+                                  << disturbances.error() << '\n';
+                        return false;
+                    }
+                    p700SurfaceDisturbances = *disturbances;
+                }
+                const auto rendered = playground.Render(
+                    renderer, simulationTimeSeconds, presentationTimeSeconds,
+                    std::span<const DeepRun::Render::GerstnerSurfaceTransientDisturbance>(
+                        p700SurfaceDisturbances.data(), p700SurfaceDisturbances.size()));
                 if (!rendered)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';

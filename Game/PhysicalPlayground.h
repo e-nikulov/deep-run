@@ -451,7 +451,8 @@ public:
     [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
         Render::D3D12Renderer& renderer,
         double simulationTimeSeconds,
-        double presentationTimeSeconds) const;
+        double presentationTimeSeconds,
+        std::span<const Render::GerstnerSurfaceTransientDisturbance> surfaceDisturbances = {}) const;
 
     [[nodiscard]] Render::GpuModelHandle SubmarineModel() const noexcept;
 

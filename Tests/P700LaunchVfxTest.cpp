@@ -1,5 +1,6 @@
 #include "Game/Combat/P700VfxShowcase.h"
 #include "Game/Weapons/P700LaunchVfx.h"
+#include "Game/Weapons/P700SurfacePresentation.h"
 
 #include <array>
 #include <chrono>
@@ -175,6 +176,50 @@ using DeepRun::Weapons::P700GranitRuntimeState;
     return true;
 }
 
+[[nodiscard]] bool RunSurfaceDisturbanceChecks()
+{
+    const auto tuning = DeepRun::Game::Armament::DefaultP700LaunchVfxTuning();
+    auto missile = MakeMissile(404U, P700GranitPhase::UnderwaterLaunch, 12.0F, -2.0F, 1.0);
+    const P700GranitRuntimeState* pointer = &missile;
+    const auto preBreach = DeepRun::Game::Armament::BuildP700SurfaceDisturbances(
+        std::span<const P700GranitRuntimeState* const>(&pointer, 1U), tuning, 1.10);
+    if (!preBreach || preBreach->size() != 1U || preBreach->front().verticalAmplitudeMeters <= 0.0F ||
+        preBreach->front().centerX != missile.positionMeters.x ||
+        !DeepRun::Render::ValidateGerstnerSurfaceTransientDisturbances(*preBreach))
+    {
+        std::cerr << "P-700 pre-breach state did not produce a bounded positive surface bulge\n";
+        return false;
+    }
+
+    missile.phase = P700GranitPhase::WaterExit;
+    missile.positionMeters.y = 0.2F;
+    missile.phaseStartTimeSeconds = 1.20;
+    const auto relaxation = DeepRun::Game::Armament::BuildP700SurfaceDisturbances(
+        std::span<const P700GranitRuntimeState* const>(&pointer, 1U), tuning, 1.70);
+    if (!relaxation || relaxation->empty() ||
+        relaxation->front().radiusMeters <= preBreach->front().radiusMeters)
+    {
+        std::cerr << "P-700 breach did not transition into an expanding surface relaxation\n";
+        return false;
+    }
+
+    std::array<P700GranitRuntimeState, 6> salvo{};
+    std::array<const P700GranitRuntimeState*, 6> pointers{};
+    for (std::size_t index = 0; index < salvo.size(); ++index)
+    {
+        salvo[index] = MakeMissile(500U + index, P700GranitPhase::UnderwaterLaunch,
+                                   static_cast<float>(index) * 2.15F, -1.5F, 1.0);
+        pointers[index] = &salvo[index];
+    }
+    const auto boundedSalvo = DeepRun::Game::Armament::BuildP700SurfaceDisturbances(pointers, tuning, 1.10);
+    if (!boundedSalvo || boundedSalvo->size() != DeepRun::Render::GerstnerSurfaceTransientDisturbanceCapacity)
+    {
+        std::cerr << "P-700 surface disturbance salvo did not enforce the three-impulse GPU bound\n";
+        return false;
+    }
+    return true;
+}
+
 [[nodiscard]] bool RunSalvoBudgetCheck(const std::size_t missileCount)
 {
     P700LaunchVfxSystem vfx{};
@@ -283,7 +328,8 @@ using DeepRun::Weapons::P700GranitRuntimeState;
 
 int main()
 {
-    if (!RunDataDrivenChecks() || !RunLifecycleChecks() || !RunSalvoBudgetCheck(1U) ||
+    if (!RunDataDrivenChecks() || !RunLifecycleChecks() || !RunSurfaceDisturbanceChecks() ||
+        !RunSalvoBudgetCheck(1U) ||
         !RunSalvoBudgetCheck(2U) || !RunSalvoBudgetCheck(6U) || !RunSalvoBudgetCheck(24U) ||
         !RunCpuPresentationBenchmark() || !RunShowcaseChecks())
     {

@@ -100,6 +100,13 @@ struct P700LaunchVfxTuning final
     std::uint32_t waterSheetCount = 54U;
     float waterSheetLifetimeSeconds = 1.15F;
 
+    float preBreachBulgeMaximumMeters = 1.8F;
+    float preBreachBulgeRadiusMeters = 8.5F;
+    float breachSurfaceRelaxationSeconds = 1.4F;
+    float breachSurfaceCollapseMeters = 0.55F;
+    float breachSurfaceExpansionMetersPerSecond = 4.0F;
+    float surfaceDisturbanceProfileExponent = 2.1F;
+
     std::uint32_t foamCount = 150U;
     float foamLifetimeSeconds = 8.0F;
     float foamRadiusMeters = 11.0F;
