@@ -124,11 +124,11 @@ namespace M5P700Detail
     }
     const auto tooFarLaunch = LaunchP700Granit(
         definition, *tooFarRuntime, tooFarTrack, SubmergedCarrier(), 0.0);
-    if (!tooFarLaunch || tooFarLaunch->allowed ||
-        tooFarLaunch->reason.find("maximum range") == std::string::npos ||
-        tooFarRuntime->phase != P700GranitPhase::Stored)
+    if (!tooFarLaunch || !tooFarLaunch->allowed || tooFarLaunch->rangeOptimal ||
+        tooFarLaunch->reason.find("nominal weapon endurance") == std::string::npos ||
+        tooFarRuntime->phase != P700GranitPhase::HatchOpening)
     {
-        return fail("550 km maximum-range employment gate");
+        return fail("beyond-550-km launch must be allowed but flagged non-optimal");
     }
 
     auto tooCloseRuntime = CreateP700GranitRuntime(definition, 0.0);
@@ -138,11 +138,11 @@ namespace M5P700Detail
     }
     const auto tooCloseLaunch = LaunchP700Granit(
         definition, *tooCloseRuntime, tooCloseTrack, SubmergedCarrier(), 0.0);
-    if (!tooCloseLaunch || tooCloseLaunch->allowed ||
-        tooCloseLaunch->reason.find("minimum range") == std::string::npos ||
-        tooCloseRuntime->phase != P700GranitPhase::Stored)
+    if (!tooCloseLaunch || !tooCloseLaunch->allowed || tooCloseLaunch->rangeOptimal ||
+        tooCloseLaunch->reason.find("optimal weapon range") == std::string::npos ||
+        tooCloseRuntime->phase != P700GranitPhase::HatchOpening)
     {
-        return fail("20 km minimum-range employment gate");
+        return fail("inside-20-km launch must be allowed but flagged non-optimal");
     }
 
     auto excessiveDepthRuntime = CreateP700GranitRuntime(definition, 0.0);
@@ -174,10 +174,11 @@ namespace M5P700Detail
     surfaceCarrier.launchDepthMeters = 0.0F;
     const auto surfaceLaunch = LaunchP700Granit(
         definition, *surfaceRuntime, targetTrack, surfaceCarrier, 0.0);
-    if (!surfaceLaunch || !surfaceLaunch->allowed || surfaceRuntime->phase != P700GranitPhase::HatchOpening ||
-        surfaceRuntime->deploymentProgress != 0.0F || surfaceRuntime->hatchOpenProgress != 0.0F)
+    if (!surfaceLaunch || surfaceLaunch->allowed ||
+        surfaceLaunch->reason.find("shallower") == std::string::npos ||
+        surfaceRuntime->phase != P700GranitPhase::Stored)
     {
-        return fail("surface launch must still open the selected launcher hatch before booster ignition");
+        return fail("P-700 surface launch must be rejected by the submerged-only carrier contract");
     }
 
     const Physics::PhysicsBodyHandle carrierBody = physicsWorld.CreateStaticBoxBody(

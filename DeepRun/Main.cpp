@@ -480,7 +480,6 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedSelectContactSequence = 0;
         std::uint64_t consumedPreviousWeaponSequence = 0;
         std::uint64_t consumedNextWeaponSequence = 0;
-        std::uint64_t consumedPrepareWeaponSequence = 0;
         std::uint64_t consumedFireWeaponSequence = 0;
         std::uint64_t consumedActiveSonarPingSequence = 0;
         std::uint64_t consumedDeployDecoySequence = 0;
@@ -618,7 +617,7 @@ int main(const int argumentCount, char** argumentValues)
              &combatAcceptance, &p700Acceptance, &p700LifecycleLogged, &combatUiSnapshot,
              &currentOwnshipNavigationPositionMeters, &inputState, &engineServices,
              &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
-             &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
+             &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &consumedTogglePeriscopeSequence, &consumedVisualIdentifySequence, &consumedP700SalvoModeSequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
@@ -741,9 +740,6 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::NextWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::NextWeapon,
                                 consumedNextWeaponSequence);
-                        consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,
-                                DeepRun::Game::Combat::PlayerCombatCommandType::PrepareWeapon,
-                                consumedPrepareWeaponSequence);
                         consume(*inputState, DeepRun::Input::InputAction::FireWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::FireWeapon,
                                 consumedFireWeaponSequence);

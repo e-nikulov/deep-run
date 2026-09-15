@@ -293,15 +293,24 @@ void DrawCombatCommandUi(
             }
             else if (*selectedRangeMeters < envelope->minimumTargetRangeMeters)
             {
-                ImGui::Text("Engagement range: %.1f km - INSIDE %.1f km MIN",
-                            *selectedRangeMeters / 1000.0F,
-                            envelope->minimumTargetRangeMeters / 1000.0F);
+                ImGui::TextColored(
+                    ImVec4(1.0F, 0.72F, 0.20F, 1.0F),
+                    "Engagement range: %.1f km - NON-OPTIMAL / TOO CLOSE (%.1f km)",
+                    *selectedRangeMeters / 1000.0F,
+                    envelope->minimumTargetRangeMeters / 1000.0F);
+                if (snapshot.selectedWeapon == Armament::PlayerWeaponType::P700Granit)
+                    ImGui::TextWrapped("FIRE ALLOWED: short flight profile gives ship defenses a better intercept opportunity.");
+                else
+                    ImGui::TextWrapped("FIRE ALLOWED: compressed straight-run/seeker geometry increases acquisition or overshoot risk.");
             }
             else if (*selectedRangeMeters > envelope->maximumTargetRangeMeters)
             {
-                ImGui::Text("Engagement range: %.1f km - OUTSIDE %.1f km MAX",
-                            *selectedRangeMeters / 1000.0F,
-                            envelope->maximumTargetRangeMeters / 1000.0F);
+                ImGui::TextColored(
+                    ImVec4(1.0F, 0.72F, 0.20F, 1.0F),
+                    "Engagement range: %.1f km - NON-OPTIMAL / BEYOND %.1f km NOMINAL",
+                    *selectedRangeMeters / 1000.0F,
+                    envelope->maximumTargetRangeMeters / 1000.0F);
+                ImGui::TextWrapped("FIRE ALLOWED: weapon may exhaust its travel/endurance budget before intercept and be lost.");
             }
             else
             {
@@ -373,7 +382,6 @@ void DrawCombatCommandUi(
     }
 
     ImGui::Separator();
-    ImGui::Text("Prepare available: %s", snapshot.canPrepareWeapon ? "YES" : "NO");
     ImGui::Text("Fire available: %s", snapshot.canFireWeapon ? "YES" : "NO");
     ImGui::Text("Active sonar: %s",
                 snapshot.activeSonarPulsePending ? "PING OUT" : (snapshot.canActiveSonarPing ? "READY" : "UNAVAILABLE"));
@@ -398,7 +406,6 @@ void DrawCombatCommandUi(
     ImGui::TextUnformatted("A / V            Visual identify");
     ImGui::TextUnformatted("D-pad L/R / Z/C  Select weapon");
     ImGui::TextUnformatted("D-pad Down / G    P-700 single/pair");
-    ImGui::TextUnformatted("LT / R / RMB     Prepare weapon");
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
     ImGui::TextUnformatted("RB / Space       Range target / active sonar");
     ImGui::TextUnformatted("X / F            Deploy decoy");

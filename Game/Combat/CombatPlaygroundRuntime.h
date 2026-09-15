@@ -234,6 +234,12 @@ public:
             (void)physicsWorld.DestroyBody(destroyer->body);
             return std::unexpected("M5-H player commander runtime creation failed: " + playerCombat.error());
         }
+        const auto initialPreparation = playerCombat->BeginAutomaticPreparation(simulationTimeSeconds);
+        if (!initialPreparation)
+        {
+            (void)physicsWorld.DestroyBody(destroyer->body);
+            return std::unexpected("player automatic weapon preparation failed: " + initialPreparation.error());
+        }
         const Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition{
             .weapon = destroyerDefinition.weapon,
             .underwaterSpeedMetersPerSecond = 44.0F,
@@ -1221,10 +1227,27 @@ private:
                 if (truth && truth->kind == SurfaceContactTruthKind::CivilianVessel)
                     actualTargetHasTerminalDefense = false;
             }
-            const std::optional<Weapons::P700TerminalDefenseProfile> targetDefense =
-                p700AcceptanceMode_ || !actualTargetHasTerminalDefense
-                    ? std::nullopt
-                    : std::optional<Weapons::P700TerminalDefenseProfile>{Weapons::P700TerminalDefenseProfile{}};
+            std::optional<Weapons::P700TerminalDefenseProfile> targetDefense{};
+            if (!p700AcceptanceMode_ && actualTargetHasTerminalDefense)
+            {
+                Weapons::P700TerminalDefenseProfile defense{};
+                if (playerP700LaunchRangeMeters_ &&
+                    *playerP700LaunchRangeMeters_ < Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters)
+                {
+                    // GAME POLICY: a deliberately too-close Granit shot gets less time/distance to establish its
+                    // preferred flight profile, giving a defended combatant a better terminal interception window.
+                    const float minimumRange = Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters;
+                    const float shortfall = std::clamp(
+                        (minimumRange - *playerP700LaunchRangeMeters_) / minimumRange, 0.0F, 1.0F);
+                    defense.hardKillProbability = std::clamp(
+                        defense.hardKillProbability + 0.30F * shortfall, 0.0F, 1.0F);
+                    defense.maneuverDefeatProbability = std::clamp(
+                        defense.maneuverDefeatProbability + 0.10F * shortfall, 0.0F, 1.0F);
+                    defense.seekerFailureProbability = std::clamp(
+                        defense.seekerFailureProbability + 0.05F * shortfall, 0.0F, 1.0F);
+                }
+                targetDefense = defense;
+            }
 
             const auto applyP700Impact = [&](const Weapons::P700GranitImpact& hit) -> std::expected<void, std::string>
             {
@@ -1271,6 +1294,7 @@ private:
                 if (!rearmed) return std::unexpected("P-700 commander re-arm failed: " + rearmed.error());
                 playerP700_.reset();
                 playerP700Wingmen_.clear();
+                playerP700LaunchRangeMeters_.reset();
                 playerP700LaunchSlotIndex_.reset();
                 playerP700LaunchSlotIndices_.clear();
             }
@@ -1482,14 +1506,6 @@ private:
         {
             return std::unexpected("M5 Weapon Selector received a non-selector command");
         }
-        if (playerCombat_.Weapon().phase != Weapons::WeaponPhase::Stored || playerTorpedo_ || playerP700_)
-        {
-            return PlayerCombatCommandFeedback{
-                .command = command.type,
-                .accepted = false,
-                .trackId = playerCombat_.SelectedTrackId(),
-                .message = "weapon selection is available only while the current weapon is Stored"};
-        }
         const int direction = command.type == PlayerCombatCommandType::PreviousWeapon ? -1 : 1;
         const Armament::PlayerWeaponType next = Armament::CyclePlayerWeapon(selectedPlayerWeapon_, direction);
         if (next == Armament::PlayerWeaponType::P700Granit &&
@@ -1531,7 +1547,8 @@ private:
             .command = command.type,
             .accepted = true,
             .trackId = playerCombat_.SelectedTrackId(),
-            .message = "selected " + std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_))};
+            .message = "selected " + std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_)) +
+                       "; automatic preparation started"};
     }
 
     struct PlayerP700LaunchCandidate final
@@ -2045,6 +2062,10 @@ private:
 
         playerP700LaunchSlotIndex_ = committed->launcherSlotIndices.front();
         playerP700LaunchSlotIndices_ = committed->launcherSlotIndices;
+        if (!targetTrack.estimatedPositionMeters)
+            return std::unexpected("D2 P-700 launch lost its perceived spatial estimate");
+        playerP700LaunchRangeMeters_ = Weapons::P700DistanceMeters(
+            committed->runtime.missiles.front().positionMeters, *targetTrack.estimatedPositionMeters);
         playerP700_ = std::move(committed->runtime.missiles.front());
         playerP700Wingmen_.clear();
         for (std::size_t index = 1U; index < committed->runtime.missiles.size(); ++index)
@@ -2665,6 +2686,7 @@ private:
     std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
     std::optional<Weapons::P700GranitRuntimeState> playerP700_{};
     std::vector<Weapons::P700GranitRuntimeState> playerP700Wingmen_{};
+    std::optional<float> playerP700LaunchRangeMeters_{};
     std::optional<std::size_t> playerP700LaunchSlotIndex_{};
     std::vector<std::size_t> playerP700LaunchSlotIndices_{};
     std::uint64_t nextP700SalvoId_ = 1U;
