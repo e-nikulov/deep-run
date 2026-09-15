@@ -1,0 +1,30 @@
+name: Patch W1-J legacy Gerstner test
+
+on:
+  push:
+    branches:
+      - feature/w1-j-adaptive-sea-tessellation
+    paths:
+      - .github/workflows/patch-w1-j-legacy-test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/w1-j-adaptive-sea-tessellation
+      - name: Apply W1-J legacy test fix
+        run: python Tools/patch_w1_j_legacy_test.py
+      - name: Commit test fix
+        shell: bash
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Tests/TestMain.cpp
+          git commit -m "W1-J: update legacy Gerstner sample ceiling test"
+          git push origin HEAD:feature/w1-j-adaptive-sea-tessellation
