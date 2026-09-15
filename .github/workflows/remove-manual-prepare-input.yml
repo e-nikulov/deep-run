@@ -1,0 +1,35 @@
+name: Remove manual weapon prepare input
+
+on:
+  push:
+    branches:
+      - fix/m5-weapon-ux-soft-envelopes
+    paths:
+      - Tools/remove_manual_prepare_input.py
+      - .github/workflows/remove-manual-prepare-input.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/m5-weapon-ux-soft-envelopes
+          fetch-depth: 0
+      - name: Remove obsolete manual prepare input
+        run: python Tools/remove_manual_prepare_input.py
+      - name: Validate patch
+        run: git diff --check && git diff --stat
+      - name: Commit fix and remove temporary scaffolding
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm Tools/remove_manual_prepare_input.py .github/workflows/remove-manual-prepare-input.yml
+          git add -A
+          git commit -m "fix: remove obsolete manual weapon preparation input"
+          git push origin HEAD:fix/m5-weapon-ux-soft-envelopes
