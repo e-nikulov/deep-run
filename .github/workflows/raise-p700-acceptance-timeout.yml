@@ -1,4 +1,4 @@
-name: Raise P700 acceptance timeout
+name: Verify paired P700 acceptance
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
         with:
           ref: fix/m5-weapon-ux-soft-envelopes
           fetch-depth: 0
-      - name: Apply bounded timing margin
+      - name: Apply paired acceptance repair
         shell: pwsh
         run: python Tools/raise_p700_acceptance_timeout.py
       - name: Configure
@@ -42,6 +42,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm Tools/raise_p700_acceptance_timeout.py .github/workflows/raise-p700-acceptance-timeout.yml
-          git add DeepRun/Main.cpp
-          git commit -m "test: allow wet-launch margin in P-700 acceptance"
+          git add DeepRun/Main.cpp Game/Combat/CombatPlaygroundRuntime.h Game/Combat/P700VisualAcceptance.h
+          git commit -m "test: exercise paired P-700 wet-launch acceptance"
           git push origin HEAD:fix/m5-weapon-ux-soft-envelopes
