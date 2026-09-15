@@ -13,6 +13,9 @@ enum class SensorModality
     PassiveAcoustic,
     ActiveAcoustic,
     Optical,
+    ElectronicSupport,
+    SurfaceRadar,
+    ExternalReport,
 };
 
 // Optical identification deliberately progresses through perceptual detail rather than becoming a binary
@@ -28,8 +31,8 @@ enum class OpticalIdentificationLevel
 };
 
 // Classification is perceived-world knowledge, not authoritative actor identity. Unknown is a valid and
-// important gameplay state: a high-quality acoustic solution can still leave the commander unsure whether a
-// surface contact is a combatant or a civilian vessel.
+// important gameplay state: a high-quality acoustic/radar/ESM solution can still leave the commander unsure
+// whether a surface contact is a combatant or a civilian vessel.
 enum class ContactClassification
 {
     Unknown,
@@ -38,13 +41,13 @@ enum class ContactClassification
 };
 
 // Perceived-world evidence shared above sensor-specific simulation. Deliberately contains no authoritative
-// source/entity identity. Bearing-only passive observations may legitimately carry no range estimate.
-// sensorPositionMeters, when present, is own-sensor state supplied by the observing participant so ranged
-// evidence can be spatialized without exposing the observed source's authoritative position.
+// source/entity identity. Bearing-only passive/ESM observations may legitimately carry no range estimate.
+// sensorPositionMeters, when present, is own-sensor/navigation state supplied by the observing participant so
+// ranged evidence can be spatialized without exposing the observed source's authoritative position.
 //
-// classificationEvidence is accepted only from Optical observations at TypeResolved detail or better. This
-// keeps visual identification inside the normal SensorObservation -> Contact -> Track knowledge path rather
-// than leaking scenario truth into UI, weapon targeting or AI.
+// classificationEvidence is accepted only from Optical observations at TypeResolved detail or better. Radar,
+// ESM and external intelligence improve track geometry/provenance but never magically identify a civilian or
+// military target. sourceAgeSeconds is used only by stale external reports and carries report age, not truth ID.
 struct SensorObservation final
 {
     SensorModality modality = SensorModality::PassiveAcoustic;
@@ -58,6 +61,7 @@ struct SensorObservation final
     float confidence = 0.0F;
     OpticalIdentificationLevel opticalIdentificationLevel = OpticalIdentificationLevel::None;
     std::optional<ContactClassification> classificationEvidence{};
+    std::optional<float> sourceAgeSeconds{};
 };
 
 [[nodiscard]] inline std::optional<SensorObservation> FromAcousticObservation(
@@ -91,6 +95,7 @@ struct SensorObservation final
         .rangeUncertaintyMeters = acoustic.rangeUncertaintyMeters,
         .confidence = acoustic.confidence,
         .opticalIdentificationLevel = OpticalIdentificationLevel::None,
-        .classificationEvidence = std::nullopt};
+        .classificationEvidence = std::nullopt,
+        .sourceAgeSeconds = std::nullopt};
 }
-}
+} // namespace DeepRun::Perception
