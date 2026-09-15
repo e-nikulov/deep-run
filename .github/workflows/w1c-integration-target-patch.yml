@@ -1,0 +1,35 @@
+name: Apply W1-C Integration Target Patch
+
+on:
+  push:
+    branches:
+      - feature/w1-c-surface-vessel-dynamics
+    paths:
+      - Tools/patch_w1c_integration_target.py
+      - .github/workflows/w1c-integration-target-patch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply W1-C integration target patch
+        shell: pwsh
+        run: python Tools/patch_w1c_integration_target.py
+      - name: Commit target and remove patch plumbing
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm Tools/patch_w1c_integration_target.py .github/workflows/w1c-integration-target-patch.yml
+          git add CMakeLists.txt
+          git diff --cached --check
+          git commit -m "tests: register W1-C surface dynamics integration gate"
+          git push origin HEAD:feature/w1-c-surface-vessel-dynamics
