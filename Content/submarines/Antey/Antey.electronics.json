@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
+  "mappingStatus": "MANUAL_CONFIRMED_PARTIAL",
+  "notes": [
+    "Diagram positions are gameplay/content semantics; private SailDevice node names remain inside the production authoring boundary.",
+    "One physical retractable device may carry more than one functional system.",
+    "SIGNAL-3 remains intentionally unbound until its SailDevice node is explicitly confirmed."
+  ],
+  "systems": [
+    {
+      "diagramNumber": 1,
+      "systemId": "SYNTHESIS_SATNAV",
+      "displayNameRu": "Синтез",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_15",
+      "mappingStatus": "MANUAL_CONFIRMED"
+    },
+    {
+      "diagramNumber": 2,
+      "systemId": "ZONA_RDF_ESM",
+      "displayNameRu": "Зона",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_07",
+      "mappingStatus": "MANUAL_CONFIRMED",
+      "sharedPhysicalDeviceWith": [5]
+    },
+    {
+      "diagramNumber": 3,
+      "systemId": "ANIS_RADIO",
+      "displayNameRu": "Анис",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_17",
+      "mappingStatus": "MANUAL_CONFIRMED"
+    },
+    {
+      "diagramNumber": 4,
+      "systemId": "MRSC2_TARGETING",
+      "displayNameRu": "МРСЦ-2",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_05",
+      "mappingStatus": "MANUAL_CONFIRMED"
+    },
+    {
+      "diagramNumber": 5,
+      "systemId": "RADIAN_SURFACE_RADAR",
+      "displayNameRu": "Радиан",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_07",
+      "mappingStatus": "GAMEPLAY_ASSIGNED",
+      "sharedPhysicalDeviceWith": [2]
+    },
+    {
+      "diagramNumber": 6,
+      "systemId": "KORA_MOLNIYA_M",
+      "displayNameRu": "Кора / Молния-М",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_08",
+      "mappingStatus": "MANUAL_CONFIRMED",
+      "sharedPhysicalDeviceWith": [7]
+    },
+    {
+      "diagramNumber": 7,
+      "systemId": "RKP_COMPRESSOR_INTAKE",
+      "displayNameRu": "РКП",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_08",
+      "mappingStatus": "MANUAL_CONFIRMED",
+      "sharedPhysicalDeviceWith": [6]
+    },
+    {
+      "diagramNumber": 8,
+      "systemId": "SELENA_KORALL",
+      "displayNameRu": "Селена / Коралл",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_09",
+      "mappingStatus": "MANUAL_CONFIRMED"
+    },
+    {
+      "diagramNumber": 9,
+      "systemId": "SIGNAL3_NAV_PERISCOPE",
+      "displayNameRu": "Сигнал-3",
+      "nodeReference": null,
+      "mappingStatus": "UNRESOLVED"
+    },
+    {
+      "diagramNumber": 10,
+      "systemId": "PZNS10S_ATTACK_PERISCOPE",
+      "displayNameRu": "ПЗНС-10С",
+      "nodeReference": "SM_Antey_LOD0_SailDevice_10",
+      "mappingStatus": "MANUAL_CONFIRMED"
+    }
+  ]
+}
