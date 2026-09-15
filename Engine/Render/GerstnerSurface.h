@@ -16,6 +16,9 @@ inline constexpr std::size_t LegacyM3GerstnerWaveComponentCount = 3U;
 inline constexpr std::array<std::uint32_t, 4> GerstnerSurfaceHorizontalSampleLods{513U, 1025U, 2049U, 4097U};
 inline constexpr std::uint32_t GerstnerSurfaceMaximumHorizontalSampleCount =
     GerstnerSurfaceHorizontalSampleLods.back();
+static_assert(GerstnerSurfaceHorizontalSampleLods[0] < GerstnerSurfaceHorizontalSampleLods[1] &&
+              GerstnerSurfaceHorizontalSampleLods[1] < GerstnerSurfaceHorizontalSampleLods[2] &&
+              GerstnerSurfaceHorizontalSampleLods[2] < GerstnerSurfaceHorizontalSampleLods[3]);
 
 struct GerstnerWaveComponent final
 {
