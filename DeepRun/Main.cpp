@@ -562,7 +562,7 @@ int main(const int argumentCount, char** argumentValues)
                 }
 
                 const float initialDepthMeters = weatherVisualBeaufortForce.has_value()
-                    ? 3.0F
+                    ? 5.0F
                     : options.p700SmokeTest
                         ? 30.0F
                         : options.smokeTest || options.benchmarkM3
