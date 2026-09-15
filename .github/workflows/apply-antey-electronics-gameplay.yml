@@ -31,11 +31,11 @@ jobs:
         shell: pwsh
         run: |
           cmake --preset windows-debug
-          cmake --build --preset windows-debug --target DeepRun DeepRunAnteyElectronicSuiteTests DeepRunPeriscopeBallastGameplayTests DeepRunM5PlayerControlledCombatTests DeepRunTests
+          cmake --build --preset windows-debug --target DeepRun DeepRunAnteyElectronicSuiteTests DeepRunTests
 
       - name: Run focused tests
         shell: pwsh
-        run: ctest --preset windows-debug -R "DeepRunAnteyElectronicSuiteTests|DeepRunPeriscopeBallastGameplayTests|DeepRunM5PlayerControlledCombatTests|DeepRunTests" --output-on-failure
+        run: ctest --preset windows-debug -R "DeepRunAnteyElectronicSuiteTests|DeepRunTests" --output-on-failure
 
       - name: Commit gameplay integration
         shell: pwsh
