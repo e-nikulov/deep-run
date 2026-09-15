@@ -10,6 +10,7 @@
 #include "Game/Weapons/P700CarrierLaunchContract.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <expected>
 #include <optional>
@@ -104,26 +105,24 @@ public:
             return std::unexpected("M5-I.2 windowed player physical proxy update failed: " + synced.error());
         }
 
-        // Capture the rate before this tick's gameplay safety policy is republished. That is the rate which
-        // paced the authoritative fixed packet containing this tick. Direct/headless composition tests are not
-        // Engine-bound, so they intentionally degrade to 1x telemetry rather than acquiring Engine state.
-        const Core::TimeCompressionRate pacingRate =
-            Core::CurrentTimeCompressionEffectiveRate().value_or(Core::TimeCompressionRate::X1);
         const bool hadSelectedTrackBeforeCommands = runtime_->PlayerCombat().SelectedTrackId().has_value();
-
         const auto frame = runtime_->AdvancePlayerControlled(playerSnapshot, commands, simulationTimeSeconds);
         if (!frame)
         {
             return std::unexpected("M5-J2 windowed player-controlled combat advance failed: " + frame.error());
         }
 
+        // Pacing is intentionally measured on monotonic RealTime rather than SimulationTime. This makes 2x/4x/8x
+        // compression disappear from the metric exactly as it does for the player: multiple accelerated fixed
+        // ticks in one rendered frame consume only the wall-clock duration of that frame.
+        const double playerTimeSeconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
         const auto pacingObserved = pacingMetrics_.Observe(
             std::span<const Perception::Track>{frame->playerTracks.data(), frame->playerTracks.size()},
             frame->playerCombat,
             commands,
             hadSelectedTrackBeforeCommands,
-            simulationTimeSeconds,
-            pacingRate);
+            playerTimeSeconds);
         if (!pacingObserved)
         {
             return std::unexpected("gameplay pacing telemetry failed: " + pacingObserved.error());
