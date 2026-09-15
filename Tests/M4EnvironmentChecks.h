@@ -7,6 +7,7 @@
 #include "Tests/W1SurfaceVesselDynamicsChecks.h"
 #include "Tests/W1WeatherSeaStateChecks.h"
 #include "Tests/W1WeatherSensorCouplingChecks.h"
+#include "Tests/W1WeatherPresentationChecks.h"
 
 namespace DeepRun::Tests
 {
@@ -106,6 +107,7 @@ namespace M4EnvironmentDetail
         loudSameLayerEmission, sameLayerReceiver, 10.0, invalidModifiers);
     return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers &&
            RunW1WeatherSeaStateChecks() && RunW1SpectralOceanChecks() && RunW1SurfaceVesselDynamicsChecks() &&
-           RunW1SurfaceImpactChecks() && RunW1WeatherSensorCouplingChecks();
+           RunW1SurfaceImpactChecks() && RunW1WeatherSensorCouplingChecks() &&
+           RunW1WeatherPresentationChecks();
 }
 }

@@ -19,7 +19,17 @@ cbuffer ScenePresentationConstants : register(b1)
     float3 CameraViewDirection;
     float ScenePresentationPadding1;
     float3 FogColorRgb;
-    float ScenePresentationPadding2;
+    float AtmosphereExtinctionPerMeter;
+    float3 AtmosphereFogColorRgb;
+    float CloudCoverFraction;
+    float PrecipitationFraction;
+    float SunTransmittance;
+    float SkyLuminanceMultiplier;
+    float HorizonHazeFraction;
+    float CloudAdvection;
+    float AtmosphereBoundaryViewportY;
+    float PresentationTimeSeconds;
+    float CloudPatternOffset;
 };
 
 struct VertexInput

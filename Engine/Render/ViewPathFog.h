@@ -17,6 +17,16 @@ struct ScenePresentationParameters final
     std::array<float, 3> cameraViewDirection{};
     float fogExtinctionPerMeter = 0.0F;
     std::array<float, 3> fogColorRgb{};
+    float atmosphereExtinctionPerMeter = 0.0F;
+    std::array<float, 3> atmosphereFogColorRgb{0.390F, 0.550F, 0.720F};
+    float cloudCoverFraction = 0.0F;
+    float precipitationFraction = 0.0F;
+    float sunTransmittance = 1.0F;
+    float skyLuminanceMultiplier = 1.0F;
+    float horizonHazeFraction = 0.0F;
+    float cloudAdvection = 0.0F;
+    float atmosphereBoundaryViewportY = 0.0F;
+    float cloudPatternOffset = 0.0F;
 };
 
 struct ViewPathFogSample final
