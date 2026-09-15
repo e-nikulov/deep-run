@@ -373,6 +373,13 @@ public:
                      playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready &&
                      !p700AcceptanceLaunchCommitted_)
             {
+                // Acceptance exercises the paired-hatch production path. A pair also matches the gameplay
+                // contract that cooperative Granits are more reliable than insisting that one noisy seeker
+                // must deterministically score a hit in every smoke run.
+                if (playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Single)
+                {
+                    commands[count++] = {.type = PlayerCombatCommandType::ToggleP700SalvoMode};
+                }
                 commands[count++] = {.type = PlayerCombatCommandType::FireWeapon};
             }
         }

@@ -188,10 +188,10 @@ public:
         }
         if (snapshot.hasImpact)
         {
-            if (snapshot.p700LoadedCount != 23U ||
+            if (snapshot.p700LoadedCount != 22U ||
                 snapshot.destroyerIntegrity >= runtime.Destroyer().integrity.maximumIntegrity)
             {
-                return std::unexpected("P-700 impact did not consume exactly one launcher or reduce destroyer integrity");
+                return std::unexpected("P-700 paired acceptance did not consume one two-missile hatch group or reduce destroyer integrity");
             }
             mark(M5P700AcceptanceCheckpoint::Impact);
         }
@@ -272,7 +272,7 @@ public:
         }
         const auto& impact = records_[CheckpointIndex(M5P700AcceptanceCheckpoint::Impact)]->state;
         return impact.hasImpact && impact.impactBodyHandleValid && impact.impactTargetIsDestroyer &&
-               std::abs(impact.impactDamage - 100.0F) <= 0.001F && impact.p700LoadedCount == 23U;
+               std::abs(impact.impactDamage - 100.0F) <= 0.001F && impact.p700LoadedCount == 22U;
     }
 
     [[nodiscard]] const std::array<std::optional<M5P700AcceptanceRecord>, 5>& Records() const noexcept

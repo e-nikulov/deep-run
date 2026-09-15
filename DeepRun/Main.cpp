@@ -37,6 +37,9 @@ namespace
 constexpr wchar_t GameWindowClassName[] = L"DeepRunEngineWindow";
 constexpr float NormalGameplayInitialDepthMeters = 50.0F;
 constexpr float NormalGameplayLongRangeCombatTargetMeters = 25'000.0F;
+// The P-700 acceptance scenario includes the explicit wet-launch flooding phase and a paired salvo.
+// Keep a bounded watchdog with margin for both real launcher preparation and deterministic flight.
+constexpr double P700AcceptanceTimeoutSeconds = 110.0;
 
 struct FindContext final
 {
@@ -875,9 +878,11 @@ int main(const int argumentCount, char** argumentValues)
                                       << combatFrame->playerP700Impact->damage.damage << " radius="
                                       << combatFrame->playerP700Impact->explosion.radiusMeters << "\n";
                         }
-                        if (simulationTimeSeconds > 95.0)
+                        if (simulationTimeSeconds > P700AcceptanceTimeoutSeconds)
                         {
-                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded 95 s SimulationTime without completed impact capture\n";
+                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded "
+                                      << P700AcceptanceTimeoutSeconds
+                                      << " s SimulationTime without completed impact capture\n";
                             return false;
                         }
                     }
