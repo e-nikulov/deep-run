@@ -5,17 +5,21 @@
 
 namespace DeepRun::Game
 {
+static_assert(Render::GerstnerWaveComponentCapacity == Marine::WaterWaveComponentCapacity);
+
 Render::GerstnerSurfacePresentationParameters BuildGerstnerSurfacePresentation(const Marine::WaterBody& water)
 {
     Render::GerstnerSurfacePresentationParameters result{
         .minimumX = -340.0F, .maximumX = 340.0F,
         .referenceLevelY = water.Config().surfaceLevelY, .bottomFillY = -600.0F,
         .horizontalSampleCount = 257U,
+        .activeComponentCount = 0U,
         .deepFillRgb = {M2UnderwaterBackgroundColor.r, M2UnderwaterBackgroundColor.g, M2UnderwaterBackgroundColor.b},
         .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};
     if (water.Config().waves)
     {
-        for (std::size_t i = 0; i < result.components.size(); ++i)
+        result.activeComponentCount = water.Config().waves->activeComponentCount;
+        for (std::size_t i = 0; i < result.activeComponentCount; ++i)
         {
             const auto& wave = water.Config().waves->components[i];
             result.components[i] = {wave.amplitudeMeters, wave.wavelengthMeters,
@@ -32,8 +36,6 @@ Physics::PhysicsVector3 ComputeInitialBodyWorldCenter(
 {
     return {
         .x = referencePoint.x,
-        // Depth is measured from the authoritative surface level, never from world Y=0 and never from the
-        // asset-space Y center: signedDepthMeters = surfaceLevelY - bodyWorldY.
         .y = surfaceLevelY - desiredDepthMeters,
         .z = referencePoint.z};
 }
@@ -52,9 +54,6 @@ std::expected<float, std::string> ProjectWorldSurfaceToViewportY(
         return std::unexpected("camera projection data is not finite");
     }
 
-    // The surface point sits in the gameplay plane at the camera target's X/Z; for a flat horizontal
-    // surface only its world Y matters, but projecting the full point keeps this helper honest about using
-    // the actual camera view-projection instead of a duplicated manual formula.
     const std::array<float, 4> clip = Render::TransformPoint(
         camera.viewProjection,
         {camera.target.x, surfaceLevelY, camera.target.z});
@@ -64,15 +63,12 @@ std::expected<float, std::string> ProjectWorldSurfaceToViewportY(
         return std::unexpected("water surface projection produced non-finite clip coordinates");
     }
 
-    // Divide by W explicitly even though the current camera is orthographic (W == 1): the contract must not
-    // silently break if a perspective camera ever reaches this helper.
     const float w = clip[3];
     if (!std::isfinite(w) || std::abs(w) < 1.0e-8F)
     {
         return std::unexpected("water surface projection has a degenerate W");
     }
 
-    // NDC Y (-1 bottom .. +1 top) -> normalized viewport Y from the top (0 top .. 1 bottom).
     const float ndcY = clip[1] / w;
     if (!std::isfinite(ndcY))
     {
@@ -90,9 +86,6 @@ std::expected<std::optional<Render::ViewportRect>, std::string> UnderwaterRegion
     const Render::OrthographicCamera& camera,
     const float surfaceLevelY)
 {
-    // Sub-pixel slivers are not visible regions: a waterline within this normalized distance of the bottom
-    // edge paints nothing (at 720p this is well under one pixel). This keeps the helper from ever emitting
-    // an invalid/empty rectangle for borderline projections.
     constexpr float SurfaceEdgeEpsilon = 1.0e-4F;
 
     const auto surfaceNdcYFromTop = ProjectWorldSurfaceToViewportY(camera, surfaceLevelY);
@@ -101,14 +94,11 @@ std::expected<std::optional<Render::ViewportRect>, std::string> UnderwaterRegion
         return std::unexpected(surfaceNdcYFromTop.error());
     }
 
-    // Surface at or below the viewport bottom: no visible underwater region.
     if (*surfaceNdcYFromTop >= 1.0F - SurfaceEdgeEpsilon)
     {
         return std::optional<Render::ViewportRect>{};
     }
 
-    // Surface above the top edge -> whole viewport is underwater; inside -> band from the waterline down to
-    // the bottom edge. Clamping absorbs floating-point drift at the edges; the renderer validates again.
     const float top = std::clamp(*surfaceNdcYFromTop, 0.0F, 1.0F);
     return std::optional<Render::ViewportRect>(Render::ViewportRect{
         .left = 0.0F,
