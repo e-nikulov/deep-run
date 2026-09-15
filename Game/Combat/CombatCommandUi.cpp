@@ -199,6 +199,8 @@ const char* CommandName(const PlayerCombatCommandType command) noexcept
     case PlayerCombatCommandType::TogglePeriscope: return "PERISCOPE";
     case PlayerCombatCommandType::VisualIdentify: return "VISUAL ID";
     case PlayerCombatCommandType::ToggleP700SalvoMode: return "P-700 SALVO MODE";
+    case PlayerCombatCommandType::CycleElectronicSuite: return "ELECTRONICS SELECT";
+    case PlayerCombatCommandType::OperateElectronicSuite: return "ELECTRONICS OPERATE";
     }
     return "UNKNOWN COMMAND";
 }
@@ -348,6 +350,15 @@ void DrawCombatCommandUi(
                             *selectedRangeMeters / 1000.0F);
             }
 
+            ImGui::Text("Sources: %s%s%s%s%s%s",
+                snapshot.selectedTrackHasPassiveAcousticEvidence ? "PASSIVE " : "",
+                snapshot.selectedTrackHasActiveAcousticEvidence ? "ACTIVE " : "",
+                snapshot.selectedTrackHasElectronicSupportEvidence ? "ESM " : "",
+                snapshot.selectedTrackHasSurfaceRadarEvidence ? "RADAR " : "",
+                snapshot.selectedTrackHasExternalReportEvidence ? "EXT-CU " : "",
+                snapshot.selectedTrackHasOpticalEvidence ? "OPTICAL" : "");
+            if (snapshot.selectedTrackExternalReportAgeSeconds)
+                ImGui::Text("External-CU evidence age: %.0f s", *snapshot.selectedTrackExternalReportAgeSeconds);
             ImGui::Text("Optical detail: %s", OpticalDetailName(snapshot.selectedTrackOpticalIdentificationLevel));
             if (snapshot.selectedTrackVisuallyIdentified)
             {
@@ -380,6 +391,30 @@ void DrawCombatCommandUi(
         ImGui::Text("Optical bearing: %.1f deg", *snapshot.periscopeViewBearingRadians * radiansToDegrees);
     }
     ImGui::Text("Visual ID: %s", snapshot.canVisualIdentify ? "READY" : "UNAVAILABLE");
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("ELECTRONICS / MASTS");
+    const std::string_view selectedElectronicName = AnteyElectronicSystemName(snapshot.selectedElectronicSystem);
+    const bool selectedElectronicRaised = snapshot.electronicSystemDeployed[
+        AnteyElectronicSystemIndex(snapshot.selectedElectronicSystem)];
+    ImGui::Text("Selected: %.*s [%s]", static_cast<int>(selectedElectronicName.size()),
+                selectedElectronicName.data(), selectedElectronicRaised ? "RAISED" : "STOWED");
+    ImGui::Text("RADIAN: %s", snapshot.radianTransmitting ? "TRANSMITTING / INTERCEPT RISK" : "EMCON");
+    ImGui::Text("Radio: %s", snapshot.radioTransmitting ? "BURST TX / INTERCEPT RISK" : "SILENT");
+    ImGui::Text("INS position error: +/- %.0f m", snapshot.navigationErrorMeters);
+    if (snapshot.externalTargetReportSource)
+    {
+        const std::string_view reportSource = ExternalTargetReportSourceName(*snapshot.externalTargetReportSource);
+        ImGui::Text("External CU: %.*s | age %.0f s | unc +/- %.1f km",
+                    static_cast<int>(reportSource.size()), reportSource.data(),
+                    snapshot.externalTargetReportAgeSeconds.value_or(0.0F),
+                    snapshot.externalTargetReportUncertaintyMeters.value_or(0.0F) / 1000.0F);
+    }
+    else
+        ImGui::TextUnformatted("External CU: NONE");
+    ImGui::Text("HP air: %.0f%% | RKP: %s", snapshot.highPressureAirFraction * 100.0F,
+                snapshot.rkpCompressorRunning ? "RUNNING" :
+                (snapshot.rkpCompressorRequested ? "REQUESTED" : "OFF"));
 
     ImGui::Separator();
     ImGui::TextUnformatted("THREAT");
@@ -439,6 +474,8 @@ void DrawCombatCommandUi(
     ImGui::TextUnformatted("RT / LMB         Fire weapon");
     ImGui::TextUnformatted("RB / Space       Range target / active sonar");
     ImGui::TextUnformatted("X / F            Deploy decoy");
+    ImGui::TextUnformatted("LB / R           Select electronic/mast system");
+    ImGui::TextUnformatted("B / =            Raise/operate selected system");
     ImGui::End();
 
     if (snapshot.periscopeRaised)
@@ -784,6 +821,9 @@ void DrawVesselNavigationHud(const VesselNavigationHudSnapshot& snapshot)
                 snapshot.mainBallastFillFraction * 100.0F,
                 MainBallastStateName(snapshot),
                 snapshot.trimMassDeltaKg / 1000.0F);
+    ImGui::Text("HP air: %.0f%% | RKP compressor: %s",
+                snapshot.highPressureAirFraction * 100.0F,
+                snapshot.rkpCompressorRunning ? "RUNNING" : "OFF");
     if (snapshot.mainBallastFlowFractionPerSecond < -1.0e-4F)
     {
         ImGui::TextUnformatted("Surface hold (W / LS UP): MAIN BALLAST BLOW");

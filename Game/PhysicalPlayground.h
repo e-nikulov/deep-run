@@ -39,6 +39,8 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace DeepRun::Assets
@@ -285,6 +287,24 @@ public:
         return primaryPeriscopeDeploymentProgress_;
     }
 
+    [[nodiscard]] std::expected<void, std::string> SetRetractableSystemPresentation(
+        const std::string_view systemRole, const bool raised)
+    {
+        for (auto& binding : retractableSystemPresentationBindings_)
+        {
+            for (auto& request : binding.systemRequests)
+            {
+                if (request.first == systemRole)
+                {
+                    request.second = raised;
+                    return {};
+                }
+            }
+        }
+        return std::unexpected("production retractable-system presentation binding is unavailable: " +
+                               std::string(systemRole));
+    }
+
     // Presentation-only bridge from the P-700 lifecycle.
     [[nodiscard]] std::expected<void, std::string> SetP700HatchPresentation(
         const std::optional<std::string>& hatchGroupSemanticId,
@@ -495,6 +515,15 @@ private:
     // IG1-B.1 fixed submerged presentation state. These per-node post transforms are built from opaque
     // IG1 production bindings once at initialization and never mutate ModelAsset or physics.
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides_;
+    struct RetractableSystemPresentationBinding final
+    {
+        std::size_t nodeIndex = 0U;
+        std::vector<std::pair<std::string, bool>> systemRequests;
+        Assets::ModelTransform stowedTransform{};
+        Assets::ModelTransform deployedTransform{};
+        float deploymentProgress = 0.0F;
+    };
+    std::vector<RetractableSystemPresentationBinding> retractableSystemPresentationBindings_;
     std::optional<std::size_t> primaryPeriscopeNodeIndex_{};
     Assets::ModelTransform primaryPeriscopeStowedTransform_{};
     Assets::ModelTransform primaryPeriscopeDeployedTransform_{};

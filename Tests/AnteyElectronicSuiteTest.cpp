@@ -1,6 +1,7 @@
 #include "Game/Combat/AnteyElectronicSuite.h"
 #include "Game/Submarine/AnteyHighPressureAir.h"
 #include "Simulation/Perception/TrackManager.h"
+#include "Engine/Input/InputSystem.h"
 
 #include <cmath>
 #include <iostream>
@@ -119,6 +120,17 @@ int main()
             navScope.maximumTypeRecognitionRangeMeters < PeriscopeObservationConfig{}.maximumTypeRecognitionRangeMeters,
             "SIGNAL-3 gameplay optic should be wider but weaker than the attack optic");
 
-    std::cout << "[AnteyElectronicSuiteTest][PASS] ESM radar external-CU navigation radio RKP and dual-optics contracts\n";
+    Input::GamepadState controls{};
+    controls.connected = true;
+    controls.buttons = static_cast<std::uint16_t>(Input::GamepadButton::LeftShoulder) |
+                       static_cast<std::uint16_t>(Input::GamepadButton::B);
+    const auto semanticActions = Input::SemanticActionsForGamepad(controls);
+    Require(semanticActions.cycleElectronicSuite && semanticActions.operateElectronicSuite,
+            "controller must expose electronic-suite select/operate actions");
+    Require(AnteyElectronicSystemProductionRoleId(AnteyElectronicSystem::RadianSurfaceRadar) ==
+                std::string_view{"RADIAN_SURFACE_RADAR"},
+            "electronic system semantic role contract mismatch");
+
+    std::cout << "[AnteyElectronicSuiteTest][PASS] ESM radar external-CU navigation radio RKP dual-optics and controls\n";
     return 0;
 }

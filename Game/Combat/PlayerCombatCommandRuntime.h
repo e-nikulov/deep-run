@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Game/Combat/AnteyElectronicSuite.h"
 #include "Game/Combat/SonarPresentation.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Simulation/Weapons/P700Salvo.h"
@@ -30,6 +31,8 @@ enum class PlayerCombatCommandType
     TogglePeriscope,
     VisualIdentify,
     ToggleP700SalvoMode,
+    CycleElectronicSuite,
+    OperateElectronicSuite,
 };
 
 struct PlayerCombatCommand final
@@ -94,6 +97,26 @@ struct PlayerCombatPresentationSnapshot final
     bool canActiveSonarPing = false;
     bool activeSonarPulsePending = false;
     SonarPresentationSnapshot sonar{};
+
+    // Multi-sensor / retractable-device suite. These are perceived/gameplay projections, never raw truth.
+    AnteyElectronicSystem selectedElectronicSystem = AnteyElectronicSystem::ZonaRadioDirectionFinder;
+    std::array<bool, AnteyElectronicSystemCount> electronicSystemDeployed{};
+    bool radianTransmitting = false;
+    bool radioTransmitting = false;
+    bool rkpCompressorRequested = false;
+    bool rkpCompressorRunning = false;
+    float navigationErrorMeters = 0.0F;
+    float highPressureAirFraction = 1.0F;
+    std::optional<ExternalTargetReportSource> externalTargetReportSource{};
+    std::optional<float> externalTargetReportAgeSeconds{};
+    std::optional<float> externalTargetReportUncertaintyMeters{};
+    bool selectedTrackHasPassiveAcousticEvidence = false;
+    bool selectedTrackHasActiveAcousticEvidence = false;
+    bool selectedTrackHasOpticalEvidence = false;
+    bool selectedTrackHasElectronicSupportEvidence = false;
+    bool selectedTrackHasSurfaceRadarEvidence = false;
+    bool selectedTrackHasExternalReportEvidence = false;
+    std::optional<float> selectedTrackExternalReportAgeSeconds{};
 
     // Periscope state is still perceived/presentation state. The runtime may expose whether the mast is raised
     // and whether optical identification can be attempted, but never a target entity/body identity.
@@ -213,6 +236,9 @@ public:
             return std::unexpected("periscope commands are owned by CombatPlaygroundRuntime, not weapon runtime");
         case PlayerCombatCommandType::ToggleP700SalvoMode:
             return ToggleP700SalvoMode();
+        case PlayerCombatCommandType::CycleElectronicSuite:
+        case PlayerCombatCommandType::OperateElectronicSuite:
+            return std::unexpected("Antey electronic-suite commands are owned by CombatPlaygroundRuntime");
         }
         return std::unexpected("M5-J1 received an unknown player combat command");
     }
@@ -260,6 +286,13 @@ public:
         snapshot.selectedTrackClassification = selected->classification;
         snapshot.selectedTrackOpticalIdentificationLevel = selected->opticalIdentificationLevel;
         snapshot.selectedTrackVisuallyIdentified = selected->visuallyIdentified;
+        snapshot.selectedTrackHasPassiveAcousticEvidence = selected->hasPassiveAcousticEvidence;
+        snapshot.selectedTrackHasActiveAcousticEvidence = selected->hasActiveAcousticEvidence;
+        snapshot.selectedTrackHasOpticalEvidence = selected->hasOpticalEvidence;
+        snapshot.selectedTrackHasElectronicSupportEvidence = selected->hasElectronicSupportEvidence;
+        snapshot.selectedTrackHasSurfaceRadarEvidence = selected->hasSurfaceRadarEvidence;
+        snapshot.selectedTrackHasExternalReportEvidence = selected->hasExternalReportEvidence;
+        snapshot.selectedTrackExternalReportAgeSeconds = selected->externalReportAgeSeconds;
         snapshot.selectedTrackWeaponQualified = Weapons::ValidateTrackForWeapon(definition_, *selected).has_value();
         snapshot.selectedTrackCivilianRisk = snapshot.selectedTrackWeaponQualified && !selected->visuallyIdentified;
         snapshot.selectedTrackRulesOfEngagementQualified =

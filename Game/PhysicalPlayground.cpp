@@ -480,6 +480,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     }
     std::vector<Render::ModelNodeTransformOverride> submergedSailDeviceOverrides;
     submergedSailDeviceOverrides.reserve(productionDefinition->retractableSailDevices.size());
+    std::vector<RetractableSystemPresentationBinding> retractableSystemPresentationBindings;
+    retractableSystemPresentationBindings.reserve(productionDefinition->retractableSailDevices.size());
     std::optional<std::size_t> primaryPeriscopeNodeIndex;
     Assets::ModelTransform primaryPeriscopeStowedTransform{};
     Assets::ModelTransform primaryPeriscopeDeployedTransform{};
@@ -497,6 +499,16 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         }
         submergedSailDeviceOverrides.push_back(
             {.nodeIndex = *meshNodeIndex, .nodeLocalPostTransform = device.stowedLocalPostTransform});
+        if (!device.systemRoles.empty() && device.functionalRole != M5PrimaryPeriscopeFunctionalRole)
+        {
+            RetractableSystemPresentationBinding presentationBinding{
+                .nodeIndex = *meshNodeIndex,
+                .stowedTransform = device.stowedLocalPostTransform,
+                .deployedTransform = device.deployedLocalPostTransform};
+            for (const std::string& systemRole : device.systemRoles)
+                presentationBinding.systemRequests.emplace_back(systemRole, false);
+            retractableSystemPresentationBindings.push_back(std::move(presentationBinding));
+        }
         if (device.functionalRole == M5PrimaryPeriscopeFunctionalRole)
         {
             if (primaryPeriscopeNodeIndex.has_value())
@@ -1187,6 +1199,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     modelToBody_ = TranslationTransform(
         {-collisionCenter.x, -collisionCenter.y, -collisionCenter.z});
     submergedSailDeviceOverrides_ = std::move(submergedSailDeviceOverrides);
+    retractableSystemPresentationBindings_ = std::move(retractableSystemPresentationBindings);
     primaryPeriscopeNodeIndex_ = primaryPeriscopeNodeIndex;
     primaryPeriscopeStowedTransform_ = primaryPeriscopeStowedTransform;
     primaryPeriscopeDeployedTransform_ = primaryPeriscopeDeployedTransform;
@@ -1548,8 +1561,16 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
             "physical playground stern control-surface force application failed: " + controlForceError.message);
     }
 
-    // Presentation animation follows committed gameplay periscope state but never feeds physics/sensors.
+    // Presentation animation follows committed gameplay mast state but never feeds physics/sensors.
     const float periscopeStep = fixedDeltaSeconds / M5PrimaryPeriscopeDeploymentSeconds;
+    for (auto& binding : retractableSystemPresentationBindings_)
+    {
+        const bool requestedRaised = std::ranges::any_of(
+            binding.systemRequests, [](const auto& request) { return request.second; });
+        binding.deploymentProgress = std::clamp(
+            binding.deploymentProgress + (requestedRaised ? periscopeStep : -periscopeStep), 0.0F, 1.0F);
+    }
+
     if (primaryPeriscopeRequestedRaised_)
         primaryPeriscopeDeploymentProgress_ = std::clamp(primaryPeriscopeDeploymentProgress_ + periscopeStep, 0.0F, 1.0F);
     else
@@ -1805,6 +1826,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     for (const std::size_t meshNodeIndex : depthPlaneMeshNodeIndices_[M2SternPlaneIndex])
     {
         submarineNodeOverrides.push_back({.nodeIndex = meshNodeIndex, .nodeLocalPostTransform = sternPostTransform});
+    }
+    for (const auto& binding : retractableSystemPresentationBindings_)
+    {
+        Assets::ModelTransform transform = binding.stowedTransform;
+        for (std::size_t element = 0; element < transform.values.size(); ++element)
+        {
+            transform.values[element] = binding.stowedTransform.values[element] +
+                (binding.deployedTransform.values[element] - binding.stowedTransform.values[element]) *
+                    binding.deploymentProgress;
+        }
+        const auto existing = std::ranges::find_if(submarineNodeOverrides, [&](const auto& value) {
+            return value.nodeIndex == binding.nodeIndex;
+        });
+        if (existing == submarineNodeOverrides.end())
+            return std::unexpected("physical playground retractable-system stowed override disappeared");
+        existing->nodeLocalPostTransform = transform;
     }
     if (primaryPeriscopeNodeIndex_.has_value())
     {

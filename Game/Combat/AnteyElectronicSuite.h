@@ -54,6 +54,26 @@ inline constexpr std::size_t AnteyElectronicSystemCount =
     return "UNKNOWN";
 }
 
+[[nodiscard]] inline constexpr std::string_view AnteyElectronicSystemProductionRoleId(
+    const AnteyElectronicSystem system) noexcept
+{
+    switch (system)
+    {
+    case AnteyElectronicSystem::SynthesisSatNav: return "SYNTHESIS_SATNAV";
+    case AnteyElectronicSystem::ZonaRadioDirectionFinder: return "ZONA_RDF_ESM";
+    case AnteyElectronicSystem::AnisRadio: return "ANIS_RADIO";
+    case AnteyElectronicSystem::Mrsc2TargetingReceiver: return "MRSC2_TARGETING";
+    case AnteyElectronicSystem::RadianSurfaceRadar: return "RADIAN_SURFACE_RADAR";
+    case AnteyElectronicSystem::KoraCommunications: return "KORA_MOLNIYA_M";
+    case AnteyElectronicSystem::RkpCompressorIntake: return "RKP_COMPRESSOR_INTAKE";
+    case AnteyElectronicSystem::SelenaSatelliteTargeting: return "SELENA_KORALL";
+    case AnteyElectronicSystem::Signal3NavigationPeriscope: return "SIGNAL3_NAV_PERISCOPE";
+    case AnteyElectronicSystem::Pzns10AttackPeriscope: return "PZNS10S_ATTACK_PERISCOPE";
+    case AnteyElectronicSystem::Count: break;
+    }
+    return "UNKNOWN";
+}
+
 enum class ExternalTargetReportSource
 {
     Tu95Rts,
@@ -246,13 +266,13 @@ inline void CycleAnteyElectronicSystem(AnteyElectronicSuiteState& state) noexcep
     const float speed = std::abs(ownshipSpeedMetersPerSecond);
     const float drift = (config.navigationDriftMetersPerSecond +
                          config.navigationSpeedDriftMetersPerMeter * speed) * dtSeconds;
-    state.navigationErrorMeters = std::max(0.0F, state.navigationErrorMeters + drift);
+    state.navigationErrorMeters = (std::max)(0.0F, state.navigationErrorMeters + drift);
 
     if (AnteyElectronicSystemDeployed(state, AnteyElectronicSystem::SynthesisSatNav) &&
         AnteyElectronicMastsAvailable(config, ownshipDepthMeters))
     {
         const float correction = config.satelliteFixConvergenceMetersPerSecond * dtSeconds;
-        state.navigationErrorMeters = std::max(
+        state.navigationErrorMeters = (std::max)(
             config.satelliteFixErrorMeters,
             state.navigationErrorMeters - correction);
     }
@@ -271,7 +291,7 @@ inline void CycleAnteyElectronicSystem(AnteyElectronicSuiteState& state) noexcep
     Physics::PhysicsVector3 result = authoritativePositionMeters;
     // Deterministic bias avoids adding a second random authority. Only the navigation solution is biased;
     // Jolt/body/sensor truth remains untouched.
-    result.x += std::max(0.0F, state.navigationErrorMeters);
+    result.x += (std::max)(0.0F, state.navigationErrorMeters);
     return result;
 }
 
@@ -355,7 +375,7 @@ inline void CycleAnteyElectronicSystem(AnteyElectronicSuiteState& state) noexcep
         .measuredBearingRadians = AnteyElectronicBearing2d(navigationSensorPositionMeters, targetPositionMeters),
         .bearingUncertaintyRadians = config.radianBearingUncertaintyRadians,
         .estimatedRangeMeters = distance,
-        .rangeUncertaintyMeters = std::max(
+        .rangeUncertaintyMeters = (std::max)(
             config.radianMinimumRangeUncertaintyMeters,
             distance * config.radianFractionalRangeUncertainty),
         .confidence = config.radianConfidence}};
