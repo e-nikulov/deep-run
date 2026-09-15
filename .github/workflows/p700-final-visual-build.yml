@@ -7,12 +7,12 @@ on:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'stage P-700 final visual build helper'
+    if: github.event.head_commit.message == 'run P-700 final visual build helper'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Apply final visual integration in workspace
-        run: python Tools/p700_final_visual_patch.py
+        run: python Tools/p700_final_visual_patch_v2.py
       - name: Package patched sources
         uses: actions/upload-artifact@v4
         with:
