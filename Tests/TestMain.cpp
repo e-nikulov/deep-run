@@ -8524,7 +8524,7 @@ bool M3EGerstnerSurfacePresentationProperties()
     auto tooFewSamples = parameters;
     tooFewSamples.horizontalSampleCount = 1U;
     auto tooManySamples = parameters;
-    tooManySamples.horizontalSampleCount = 514U;
+    tooManySamples.horizontalSampleCount = DeepRun::Render::GerstnerSurfaceMaximumHorizontalSampleCount + 1U;
     auto foldingProfile = parameters;
     foldingProfile.components[0].horizontalSteepness = 1.0F;
     foldingProfile.components[0].wavelengthMeters = 5.0F;
