@@ -75,7 +75,7 @@ public:
         const std::size_t decisionCount = CountPlayerDecisions(commands, hadSelectedTrackBeforeCommands);
         if (decisionCount > 0U)
         {
-            longestCompletedNoDecisionIntervalSeconds_ = std::max(
+            longestCompletedNoDecisionIntervalSeconds_ = (std::max)(
                 longestCompletedNoDecisionIntervalSeconds_,
                 playerElapsedSeconds_ - lastDecisionPlayerTimeSeconds_);
             lastDecisionPlayerTimeSeconds_ = playerElapsedSeconds_;
@@ -88,14 +88,14 @@ public:
     [[nodiscard]] GameplayPacingMetricsSnapshot Snapshot() const noexcept
     {
         const double currentNoDecisionIntervalSeconds = playerTimeOriginSeconds_
-            ? std::max(0.0, playerElapsedSeconds_ - lastDecisionPlayerTimeSeconds_)
+            ? (std::max)(0.0, playerElapsedSeconds_ - lastDecisionPlayerTimeSeconds_)
             : 0.0;
         return GameplayPacingMetricsSnapshot{
             .playerElapsedSeconds = playerElapsedSeconds_,
             .timeToFirstContactSeconds = timeToFirstContactSeconds_,
             .timeToClassificationSeconds = timeToClassificationSeconds_,
             .timeToFirstWeaponLaunchSeconds = timeToFirstWeaponLaunchSeconds_,
-            .longestNoDecisionIntervalSeconds = std::max(
+            .longestNoDecisionIntervalSeconds = (std::max)(
                 longestCompletedNoDecisionIntervalSeconds_, currentNoDecisionIntervalSeconds),
             .currentNoDecisionIntervalSeconds = currentNoDecisionIntervalSeconds,
             .playerDecisionCount = playerDecisionCount_};
