@@ -21,7 +21,7 @@ MAIN_BOW_SONAR_SEMANTIC_ID = "MGK540_BOW_ARRAY"
 # Reviewed production-device identity from the accepted GLB + public 949A retractable-device layout.
 # Private node names stop here; runtime consumes only semantic functional roles.
 ANTEY_RETRACTABLE_SAIL_DEVICE_ROLES = {
-    "SM_Antey_LOD0_SailDevice_08": "PERISCOPE_PRIMARY",
+    "SM_Antey_LOD0_SailDevice_11": "PERISCOPE_PRIMARY",
     "SM_Antey_LOD0_SailDevice_17": "PERISCOPE_SECONDARY",
 }
 
