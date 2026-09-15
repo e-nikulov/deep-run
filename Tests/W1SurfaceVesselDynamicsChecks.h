@@ -5,6 +5,7 @@
 #include "Simulation/Marine/ProductionOceanSpectrum.h"
 #include "Simulation/Marine/WaterBody.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -102,8 +103,8 @@ namespace W1SurfaceVesselDynamicsDetail
     if (!flatDeep || !waveDeepCalculated || !SameHydrostaticOutputs(*flatDeep, waveDeep))
         return false;
 
-    // Surface condition: the 154 m-class hull spans several phases. Local height changes submersion and
-    // therefore produces a real pitch moment from spatially separated vertical forces, never horizontal thrust.
+    // Surface condition: the long hull spans several phases. Local height changes submersion and therefore
+    // produces a real pitch moment from spatially separated vertical forces, never horizontal thrust.
     const Marine::BuoyancyPose surfacePose{.worldPositionMeters = {0.0F, -2.35F, 0.0F}};
     Marine::BuoyancyResult first;
     Marine::BuoyancyResult repeated;
