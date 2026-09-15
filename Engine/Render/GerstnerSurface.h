@@ -40,6 +40,9 @@ struct GerstnerSurfacePresentationParameters final
     std::size_t activeComponentCount = LegacyM3GerstnerWaveComponentCount;
     std::array<float, 3> deepFillRgb{};
     std::array<float, 3> surfaceTintRgb{};
+    // Generic surface-presentation control. Game may map weather/sea semantics to it, but Engine only interprets
+    // it as a normalized crest highlight strength. Zero preserves the accepted M3/W1-J appearance exactly.
+    float crestWhiteningStrength = 0.0F;
 };
 
 struct GerstnerSurfaceBaseVertex final
