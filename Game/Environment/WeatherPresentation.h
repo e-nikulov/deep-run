@@ -21,6 +21,13 @@ struct WeatherPresentationParameters final
     float horizonHazeFraction = 0.0F;
     float cloudAdvection = 0.0F;
     float cloudPatternOffset = 0.0F;
+
+    // Game-only visual sea descriptors derived from the Beaufort force. They do not alter WaterBody,
+    // the production spectrum, buoyancy, sensors or damage. W1-K uses them to progressively expose the
+    // observed Beaufort cues: white horses -> blown foam/spindrift -> airborne spray.
+    float whitecapFraction = 0.0F;
+    float spindriftFraction = 0.0F;
+    float sprayFraction = 0.0F;
 };
 
 [[nodiscard]] inline bool ValidWeatherPresentationParameters(
@@ -38,7 +45,10 @@ struct WeatherPresentationParameters final
         !normalized(parameters.skyLuminanceMultiplier) ||
         !normalized(parameters.horizonHazeFraction) ||
         !std::isfinite(parameters.cloudAdvection) ||
-        !normalized(parameters.cloudPatternOffset))
+        !normalized(parameters.cloudPatternOffset) ||
+        !normalized(parameters.whitecapFraction) ||
+        !normalized(parameters.spindriftFraction) ||
+        !normalized(parameters.sprayFraction))
     {
         return false;
     }
@@ -60,7 +70,9 @@ struct WeatherPresentationParameters final
     const float visibilitySeverity = std::clamp(
         (5.0F - std::log10(visibilityMeters)) * 0.5F, 0.0F, 1.0F);
     const float cloudCover = std::clamp(config.cloudCoverFraction, 0.0F, 1.0F);
-    const float rainFraction = std::clamp(config.rainRateMillimetersPerHour / 50.0F, 0.0F, 1.0F);
+    // Visual rain reaches a strong readable state before the physical rain-rate scale reaches an extreme
+    // 50 mm/h downpour. This remains presentation-only; W1-E still consumes the exact authored mm/h value.
+    const float rainFraction = std::clamp(config.rainRateMillimetersPerHour / 12.0F, 0.0F, 1.0F);
     const float stormFraction = std::clamp(static_cast<float>(config.beaufortForce) / 12.0F, 0.0F, 1.0F);
 
     constexpr std::array<float, 3> ClearHorizon{0.390F, 0.550F, 0.720F};
@@ -81,14 +93,27 @@ struct WeatherPresentationParameters final
     const float cloudPatternOffset =
         static_cast<float>(mixedSeed & 0xffffULL) / static_cast<float>(0xffffU);
 
+    // Thick storm decks must actually hide the solar disk. The previous linear 0.85*cloud term left a very
+    // bright sun visible through B8/B10 overcast. This two-factor cloud occlusion collapses transmittance near
+    // full cover while preserving useful direct light through scattered/broken cloud.
+    const float cloudDirectTransmittance =
+        (1.0F - cloudCover) * (1.0F - 0.72F * cloudCover);
     const float sunTransmittance = std::clamp(
-        (1.0F - 0.85F * cloudCover) * (1.0F - 0.55F * rainFraction), 0.05F, 1.0F);
+        cloudDirectTransmittance * (1.0F - 0.65F * rainFraction), 0.0F, 1.0F);
     const float skyLuminanceMultiplier = std::clamp(
         1.0F - 0.52F * cloudCover - 0.22F * rainFraction - 0.12F * visibilitySeverity,
         0.25F, 1.0F);
     const float horizonHazeFraction = std::clamp(
         0.08F + 0.70F * visibilitySeverity + 0.20F * cloudCover + 0.30F * rainFraction,
         0.08F, 1.0F);
+
+    constexpr std::array<float, 13> WhitecapByBeaufort{
+        0.00F, 0.00F, 0.00F, 0.06F, 0.18F, 0.35F, 0.55F, 0.70F, 0.82F, 0.90F, 0.96F, 1.00F, 1.00F};
+    constexpr std::array<float, 13> SpindriftByBeaufort{
+        0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.08F, 0.30F, 0.48F, 0.68F, 0.86F, 1.00F};
+    constexpr std::array<float, 13> SprayByBeaufort{
+        0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.00F, 0.08F, 0.25F, 0.50F, 0.75F, 1.00F};
+    const std::size_t beaufortIndex = (std::min)(static_cast<std::size_t>(config.beaufortForce), std::size_t{12U});
 
     return WeatherPresentationParameters{
         .atmosphereExtinctionPerMeter = atmosphereExtinctionPerMeter,
@@ -99,6 +124,9 @@ struct WeatherPresentationParameters final
         .skyLuminanceMultiplier = skyLuminanceMultiplier,
         .horizonHazeFraction = horizonHazeFraction,
         .cloudAdvection = cloudAdvection,
-        .cloudPatternOffset = cloudPatternOffset};
+        .cloudPatternOffset = cloudPatternOffset,
+        .whitecapFraction = WhitecapByBeaufort[beaufortIndex],
+        .spindriftFraction = SpindriftByBeaufort[beaufortIndex],
+        .sprayFraction = SprayByBeaufort[beaufortIndex]};
 }
 } // namespace DeepRun::Game

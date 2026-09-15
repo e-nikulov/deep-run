@@ -14,6 +14,7 @@
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Environment/VerticalOceanGameplayContract.h"
 #include "Game/Environment/WeatherSensorCoupling.h"
+#include "Game/Environment/ThunderstormPresentation.h"
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
@@ -176,6 +177,15 @@ public:
         if (!ValidWeatherSensorEnvironment(environment))
             return std::unexpected("physical playground W1-E sensor environment is invalid");
         return environment;
+    }
+
+    // W1-H presentation-only live bridge. Strike scheduling uses PresentationTime and the exact authoritative
+    // WeatherState; returned semantic cues contain no backend/miniaudio type and cannot alter simulation.
+    [[nodiscard]] std::vector<ThunderAudioCue> AdvanceThunderAudioCues(const double presentationTimeSeconds)
+    {
+        if (!weather_.has_value())
+            return {};
+        return thunderstormCueTracker_.Advance(*weather_, presentationTimeSeconds);
     }
 
     // M5-I.2 live hazard bridge. The snapshot is a value copy of the already-authoritative production collision
@@ -505,6 +515,7 @@ private:
     // W1-E retains the exact environment authority that generated the production spectrum. Sensor adapters
     // consume this value directly; they never reconstruct weather from render state or wave geometry.
     std::optional<Environment::WeatherState> weather_;
+    ThunderstormCueTracker thunderstormCueTracker_;
     // Explicit Game-owned M2 Antey playground tuning. Marine owns only the generic point/component data types;
     // production proxy geometry supplies spatial layout, not displaced volume or mass.
     Marine::BuoyancyComponent buoyancy_;

@@ -14,6 +14,11 @@ namespace DeepRun::Assets
 class AssetManager;
 }
 
+namespace DeepRun::Audio
+{
+struct ProceduralNoiseOneShotRequest;
+}
+
 namespace DeepRun::Physics
 {
 class PhysicsWorld;
@@ -113,6 +118,11 @@ public:
     // semantic event meaning remains entirely above this boundary in Game.
     [[nodiscard]] std::expected<void, std::string> SubmitHapticEffect(
         const Input::HapticEffectRequest& request);
+
+    // Generic non-spatialized procedural audio one-shot. Game maps semantic cues (for example thunder) to
+    // renderer/audio-neutral synthesis controls before crossing this boundary; Engine never sees weather semantics.
+    [[nodiscard]] std::expected<void, std::string> SubmitProceduralAudioOneShot(
+        const Audio::ProceduralNoiseOneShotRequest& request);
 
     [[nodiscard]] int ExitCode() const noexcept;
 

@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace DeepRun::Tests
 {
@@ -16,7 +17,12 @@ namespace DeepRun::Tests
     using Environment::SwellState;
 
     float previousWind = -1.0F;
+    float previousGust = -1.0F;
     float previousHs = -1.0F;
+    float previousCloud = -1.0F;
+    float previousRain = -1.0F;
+    float previousLightning = -1.0F;
+    float previousVisibility = std::numeric_limits<float>::infinity();
     for (std::uint8_t force = 0U; force <= 12U; ++force)
     {
         const auto preset = WeatherState::FullyDevelopedBeaufort(force, 450.0F, 0xA11CEULL + force);
@@ -28,7 +34,13 @@ namespace DeepRun::Tests
         if (config.beaufortForce != force || config.windDirectionDegrees != 90.0F ||
             config.windSea.meanDirectionDegrees != 90.0F || config.weatherSeed != 0xA11CEULL + force ||
             config.windSpeedMetersPerSecond < previousWind ||
-            config.windSea.significantWaveHeightMeters < previousHs)
+            config.windGustSpeedMetersPerSecond < config.windSpeedMetersPerSecond ||
+            config.windGustSpeedMetersPerSecond < previousGust ||
+            config.windSea.significantWaveHeightMeters < previousHs ||
+            config.cloudCoverFraction < previousCloud ||
+            config.rainRateMillimetersPerHour < previousRain ||
+            config.lightningRatePerMinute < previousLightning ||
+            config.meteorologicalVisibilityMeters > previousVisibility)
         {
             return false;
         }
@@ -37,16 +49,35 @@ namespace DeepRun::Tests
             return false;
         }
         previousWind = config.windSpeedMetersPerSecond;
+        previousGust = config.windGustSpeedMetersPerSecond;
         previousHs = config.windSea.significantWaveHeightMeters;
+        previousCloud = config.cloudCoverFraction;
+        previousRain = config.rainRateMillimetersPerHour;
+        previousLightning = config.lightningRatePerMinute;
+        previousVisibility = config.meteorologicalVisibilityMeters;
     }
 
+    const auto calm = WeatherState::FullyDevelopedBeaufort(0U, 0.0F, 0U);
     const auto forceSix = WeatherState::FullyDevelopedBeaufort(6U, 0.0F, 6U);
+    const auto forceEight = WeatherState::FullyDevelopedBeaufort(8U, 0.0F, 8U);
     const auto forceTen = WeatherState::FullyDevelopedBeaufort(10U, 0.0F, 10U);
     const auto forceTwelve = WeatherState::FullyDevelopedBeaufort(12U, 0.0F, 12U);
-    if (!forceSix || !forceTen || !forceTwelve ||
+    if (!calm || !forceSix || !forceEight || !forceTen || !forceTwelve ||
+        calm->Config().windSpeedMetersPerSecond != 0.0F ||
+        calm->Config().windGustSpeedMetersPerSecond != 0.0F ||
+        calm->Config().cloudCoverFraction != 0.0F || calm->HasRain() || calm->HasLightning() ||
+        calm->Config().meteorologicalVisibilityMeters != 100000.0F ||
         forceSix->Config().windSpeedMetersPerSecond != 12.0F ||
         forceSix->Config().windSea.significantWaveHeightMeters != 3.0F ||
         forceSix->Config().windSea.probableMaximumWaveHeightMeters != 4.0F ||
+        forceEight->Config().windSpeedMetersPerSecond != 19.0F ||
+        forceEight->Config().windGustSpeedMetersPerSecond != 24.0F ||
+        forceEight->Config().windSea.significantWaveHeightMeters != 5.5F ||
+        forceEight->Config().windSea.probableMaximumWaveHeightMeters != 7.5F ||
+        forceEight->Config().cloudCoverFraction < 0.9F ||
+        forceEight->Config().rainRateMillimetersPerHour < 8.0F ||
+        forceEight->Config().meteorologicalVisibilityMeters > 15000.0F ||
+        !forceEight->HasRain() || !forceEight->HasLightning() ||
         forceTen->Config().windSea.significantWaveHeightMeters != 9.0F ||
         forceTen->Config().windSea.probableMaximumWaveHeightMeters != 12.5F ||
         forceTwelve->Config().windSea.significantWaveHeightMeters != 14.0F ||

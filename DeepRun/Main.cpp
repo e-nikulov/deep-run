@@ -11,6 +11,7 @@
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
 #include "Game/Combat/P700VisualAcceptance.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
+#include "Game/Environment/ThunderAudioPresentation.h"
 #include "Game/PhysicalPlayground.h"
 #include "Game/Submarine/VesselCommandState.h"
 
@@ -1128,6 +1129,19 @@ int main(const int argumentCount, char** argumentValues)
                             return false;
                         }
                     }
+                }
+
+                // W1-H: optical lightning and delayed thunder share one deterministic strike schedule.
+                // Audio submission is presentation-only: an unavailable output device never fails gameplay.
+                for (const auto& thunderCue : playground.AdvanceThunderAudioCues(presentationTimeSeconds))
+                {
+                    const auto request = DeepRun::Game::BuildThunderAudioOneShotRequest(thunderCue);
+                    if (!request)
+                    {
+                        std::cerr << "[Game][WARN] " << request.error() << '\n';
+                        continue;
+                    }
+                    static_cast<void>(engineServices->SubmitProceduralAudioOneShot(*request));
                 }
 
                 const auto rendered = playground.Render(renderer, simulationTimeSeconds, presentationTimeSeconds);
