@@ -2661,8 +2661,10 @@
         2.060953378677368,
         8.29789779663086
       ],
-      "functionalRole": "OTHER_RETRACTABLE",
-      "systemRoles": []
+      "functionalRole": "PERISCOPE_SECONDARY",
+      "systemRoles": [
+        "SIGNAL3_NAV_PERISCOPE"
+      ]
     },
     {
       "semanticId": "sail.retractable.07",
