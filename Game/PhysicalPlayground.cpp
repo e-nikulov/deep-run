@@ -15,6 +15,7 @@
 #include "Game/Submarine/VariableBallastDepthControl.h"
 #include "Game/SurfaceFloatModel.h"
 #include "Game/Environment/ScalableEnvironmentPresentation.h"
+#include "Game/Environment/ThunderstormPresentation.h"
 #include "Game/Environment/WeatherPresentation.h"
 #include "Game/Environment/UnderwaterFaunaField.h"
 #include "Game/Environment/UnderwaterFloraField.h"
@@ -2072,13 +2073,15 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         return std::unexpected("physical playground waterline projection failed: " + waterlineViewportY.error());
 
     WeatherPresentationParameters weatherPresentation{};
+    ThunderstormPresentationSample thunderstormPresentation{};
     if (freePresentationCameraFraming_)
     {
         if (!weather_.has_value())
-            return std::unexpected("physical playground W1-F weather authority is unavailable");
+            return std::unexpected("physical playground W1 weather authority is unavailable");
         weatherPresentation = EvaluateWeatherPresentation(*weather_);
         if (!ValidWeatherPresentationParameters(weatherPresentation))
             return std::unexpected("physical playground W1-F weather presentation is invalid");
+        thunderstormPresentation = EvaluateThunderstormPresentation(*weather_, presentationTimeSeconds);
     }
 
     const float cameraDepthMeters = (std::max)(water_->Config().surfaceLevelY - camera->position.y, 0.0F);
@@ -2109,12 +2112,16 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         .atmosphereBoundaryViewportY = freePresentationCameraFraming_
             ? std::clamp(*waterlineViewportY, 0.0F, 1.0F)
             : 0.0F,
-        .cloudPatternOffset = weatherPresentation.cloudPatternOffset};
+        .cloudPatternOffset = weatherPresentation.cloudPatternOffset,
+        .lightningFlashIntensity = thunderstormPresentation.flashIntensity,
+        .lightningViewportX = thunderstormPresentation.lightningViewportX,
+        .lightningPatternOffset = thunderstormPresentation.lightningPatternOffset};
     if (const auto configured = renderer.SetScenePresentation(scenePresentation); !configured)
         return std::unexpected("physical playground scene presentation configuration failed: " + configured.error());
 
-    // W1-F is presentation-only: legacy benchmark framing remains neutral; free gameplay reconstructs
-    // cloud/haze/precipitation from the same WeatherState already used by ocean and sensor composition.
+    // W1-F/W1-G are presentation-only: legacy benchmark framing remains neutral; free gameplay reconstructs
+    // cloud/haze/precipitation/lightning from the same WeatherState already used by ocean and sensor composition.
+    // Thunder remains a semantic delayed cue in Game and is not owned by this render path.
 
     if (freePresentationCameraFraming_)
     {

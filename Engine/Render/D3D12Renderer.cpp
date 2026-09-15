@@ -146,9 +146,13 @@ struct ScenePresentationConstants final
     float atmosphereBoundaryViewportY = 0.0F;
     float presentationTimeSeconds = 0.0F;
     float cloudPatternOffset = 0.0F;
+    float lightningFlashIntensity = 0.0F;
+    float lightningViewportX = 0.5F;
+    float lightningPatternOffset = 0.0F;
+    float padding2 = 0.0F;
 };
 
-static_assert(sizeof(ScenePresentationConstants) == 128U);
+static_assert(sizeof(ScenePresentationConstants) == 144U);
 constexpr UINT ScenePresentationConstantBufferBytes = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr UINT ModelRootSignatureDwordCost =
     sizeof(DrawRootConstants) / sizeof(std::uint32_t) + 2U;
@@ -1658,7 +1662,10 @@ public:
             .cloudAdvection = parameters.cloudAdvection,
             .atmosphereBoundaryViewportY = parameters.atmosphereBoundaryViewportY,
             .presentationTimeSeconds = presentationTimeSeconds,
-            .cloudPatternOffset = parameters.cloudPatternOffset};
+            .cloudPatternOffset = parameters.cloudPatternOffset,
+            .lightningFlashIntensity = parameters.lightningFlashIntensity,
+            .lightningViewportX = parameters.lightningViewportX,
+            .lightningPatternOffset = parameters.lightningPatternOffset};
         std::memcpy(scenePresentationUploads[frameIndex].mapped, &constants, sizeof(constants));
         scenePresentationConfigured = true;
         return {};
