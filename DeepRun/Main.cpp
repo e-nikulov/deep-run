@@ -416,6 +416,7 @@ bool WriteM5P700AcceptanceReport(
             {"phase", DeepRun::Game::Combat::M5P700PhaseName(state.phase)},
             {"missile_position_meters", JsonVector(state.missilePositionMeters)},
             {"hatch_open_progress", state.hatchOpenProgress},
+            {"launcher_flood_progress", state.launcherFloodProgress},
             {"deployment_progress", state.deploymentProgress},
             {"p700_loaded_count", state.p700LoadedCount},
             {"destroyer_integrity", state.destroyerIntegrity},

@@ -1201,7 +1201,7 @@ private:
                 pendingPlayerTorpedoSeekerEmissions_.clear();
                 playerTorpedoActivePulse_.reset();
                 playerTorpedoActiveReflector_.reset();
-                if (impact->physicsHit.body == destroyer_.body)
+                if (impact->physicsHit.body == destroyer_.body && !destroyer_.integrity.destroyed)
                 {
                     const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, impact->damage);
                     if (!damaged)
@@ -1209,7 +1209,7 @@ private:
                         return std::unexpected("M5-E.1 destroyer damage application failed: " + damaged.error());
                     }
                 }
-                else if (civilian_ && impact->physicsHit.body == civilian_->body)
+                else if (civilian_ && impact->physicsHit.body == civilian_->body && !civilian_->integrity.destroyed)
                 {
                     const auto damaged = ApplySimpleCivilianVesselDamage(civilianDefinition_, *civilian_, impact->damage);
                     if (!damaged)

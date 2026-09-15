@@ -64,6 +64,7 @@ struct M5P700AcceptanceSnapshot final
     Physics::PhysicsVector3 missilePositionMeters{};
     Weapons::P700GranitPhase phase = Weapons::P700GranitPhase::Stored;
     float hatchOpenProgress = 0.0F;
+    float launcherFloodProgress = 0.0F;
     float deploymentProgress = 0.0F;
     std::size_t p700LoadedCount = 0U;
     float destroyerIntegrity = 0.0F;
@@ -118,13 +119,14 @@ public:
         {
             const auto& missile = *runtime.PlayerP700();
             if (!missile.positionMeters.IsFinite() || !std::isfinite(missile.hatchOpenProgress) ||
-                !std::isfinite(missile.deploymentProgress))
+                !std::isfinite(missile.launcherFloodProgress) || !std::isfinite(missile.deploymentProgress))
             {
                 return std::unexpected("P-700 visual acceptance missile state is invalid");
             }
             snapshot.missilePositionMeters = missile.positionMeters;
             snapshot.phase = missile.phase;
             snapshot.hatchOpenProgress = missile.hatchOpenProgress;
+            snapshot.launcherFloodProgress = missile.launcherFloodProgress;
             snapshot.deploymentProgress = missile.deploymentProgress;
         }
 
