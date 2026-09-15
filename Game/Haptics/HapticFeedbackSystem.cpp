@@ -50,6 +50,13 @@ std::expected<Input::HapticEffectRequest, std::string> HapticFeedbackSystem::Map
             .highFrequencyMotor = 0.10F * intensity,
             .durationSeconds = 0.10F,
             .priority = 10};
+    case HapticEventType::WaveSlam:
+        return Input::HapticEffectRequest{
+            .id = WaveSlamEffectId,
+            .lowFrequencyMotor = 0.95F * intensity,
+            .highFrequencyMotor = 0.35F * intensity,
+            .durationSeconds = 0.18F,
+            .priority = 40};
     }
     return std::unexpected("unknown semantic haptic event type");
 }
