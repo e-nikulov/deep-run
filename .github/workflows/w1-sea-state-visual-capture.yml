@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/w1-i-sea-state-visual-acceptance
+      - feature/w1-j-adaptive-sea-tessellation
     paths:
       - .github/workflows/w1-sea-state-visual-capture.yml
       - DeepRun/Main.cpp
@@ -11,6 +12,7 @@ on:
       - Game/PhysicalPlayground.h
       - Engine/Render/GerstnerSurface.cpp
       - Engine/Render/GerstnerSurface.h
+      - Engine/Render/D3D12Renderer.cpp
       - Simulation/Environment/WeatherSeaState.h
       - Simulation/Marine/ProductionOceanSpectrum.h
       - Simulation/Marine/WaterBody.h
