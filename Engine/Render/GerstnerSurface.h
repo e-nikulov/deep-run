@@ -1,8 +1,7 @@
 #pragma once
 
-#include "Simulation/Marine/WaterWaveField.h"
-
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <string>
@@ -10,18 +9,22 @@
 
 namespace DeepRun::Render
 {
+inline constexpr std::size_t GerstnerWaveComponentCapacity = 7U;
+inline constexpr std::size_t LegacyM3GerstnerWaveComponentCount = 3U;
+
 struct GerstnerWaveComponent final
 {
     float amplitudeMeters = 0.0F;
     float wavelengthMeters = 0.0F;
-    // Signed angular frequency mirrors Marine's projected +X/-X travel convention.
+    // W1-B permits signed angular frequency in production snapshots to preserve projected travel direction.
     float angularFrequencyRadiansPerSecond = 0.0F;
     float phaseOffsetRadians = 0.0F;
     float horizontalSteepness = 0.0F;
 };
 
-// Renderer-neutral, Game-supplied snapshot. W1-B expands the retained M3 surface from three hand-authored
-// components to Marine's bounded seven-component production spectrum while preserving one GPU draw.
+// Renderer-neutral, Game-supplied snapshot. Engine owns only this presentation transport; it has no dependency
+// on Marine/WaterBody. activeComponentCount preserves the accepted three-wave M3 snapshot while allowing the
+// Game adapter to supply the seven-component W1-B production surface in the same one-draw path.
 struct GerstnerSurfacePresentationParameters final
 {
     float minimumX = 0.0F;
@@ -29,7 +32,8 @@ struct GerstnerSurfacePresentationParameters final
     float referenceLevelY = 0.0F;
     float bottomFillY = 0.0F;
     std::uint32_t horizontalSampleCount = 0U;
-    std::array<GerstnerWaveComponent, Marine::WaterWaveComponentCapacity> components{};
+    std::array<GerstnerWaveComponent, GerstnerWaveComponentCapacity> components{};
+    std::size_t activeComponentCount = LegacyM3GerstnerWaveComponentCount;
     std::array<float, 3> deepFillRgb{};
     std::array<float, 3> surfaceTintRgb{};
 };
@@ -68,8 +72,6 @@ struct GerstnerSurfaceDrawStats final
     const GerstnerSurfacePresentationParameters& parameters);
 [[nodiscard]] std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseMesh(
     const GerstnerSurfacePresentationParameters& parameters);
-// Evaluates only the presentation formula at caller-supplied SimulationTime for validation/tests. Rendering
-// remains a consumer of the Marine-owned spectrum and never becomes surface authority.
 [[nodiscard]] std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
     const GerstnerSurfacePresentationParameters& parameters,
     float x,
