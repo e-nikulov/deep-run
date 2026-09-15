@@ -22,6 +22,27 @@ if text.count(old_visual_block) != 1:
     raise RuntimeError("unable to locate W1-J visual-capture path patch")
 text = text.replace(old_visual_block, new_visual_block, 1)
 
+# Engine/Render is intentionally renderer-generic. Product/log vocabulary there must describe only the
+# Gerstner presentation surface, never Game/Simulation concepts such as ocean/water.
+renderer_semantic_rewrites = {
+    "W1-J mesh shader ocean unavailable; retaining indexed Gerstner compatibility path":
+        "W1-J mesh shader surface unavailable; retaining indexed Gerstner compatibility path",
+    "D3D12 Mesh Shader Tier 1 path available for W1-J ocean geometry":
+        "D3D12 Mesh Shader Tier 1 path available for W1-J Gerstner geometry",
+    "W1-J meshlet ocean pipeline created (31 cells / 64 vertices / 62 triangles per meshlet)":
+        "W1-J meshlet Gerstner pipeline created (31 cells / 64 vertices / 62 triangles per meshlet)",
+    "W1-J meshlet ocean configured: procedural geometry, persistent ocean VB/IB=0, dispatches=1":
+        "W1-J meshlet Gerstner surface configured: procedural geometry, persistent surface VB/IB=0, dispatches=1",
+    "W1-J indexed compatibility ocean configured: vertices=":
+        "W1-J indexed Gerstner compatibility configured: vertices=",
+    "visible world span instead and generates every ocean vertex procedurally around absolute world X.":
+        "visible world span instead and generates every surface vertex procedurally around absolute world X.",
+}
+for old, new in renderer_semantic_rewrites.items():
+    if text.count(old) != 1:
+        raise RuntimeError(f"expected one renderer semantic phrase, found {text.count(old)}: {old}")
+    text = text.replace(old, new, 1)
+
 patch.write_text(text, encoding="utf-8", newline="\n")
 Path(__file__).unlink()
-print("W1-J patch anchors normalized")
+print("W1-J patch anchors and generic renderer semantics normalized")
