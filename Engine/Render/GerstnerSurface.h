@@ -22,9 +22,9 @@ struct GerstnerWaveComponent final
     float horizontalSteepness = 0.0F;
 };
 
-// Renderer-neutral, Game-supplied snapshot. Engine owns only this presentation transport; it has no dependency
-// on Marine/WaterBody. activeComponentCount preserves the accepted three-wave M3 snapshot while allowing the
-// Game adapter to supply the seven-component W1-B production surface in the same one-draw path.
+// Renderer-neutral, Game-supplied snapshot. Engine owns only this presentation transport.
+// activeComponentCount preserves the accepted three-wave M3 snapshot while allowing Game to supply
+// the seven-component W1-B production surface through the same one-draw path.
 struct GerstnerSurfacePresentationParameters final
 {
     float minimumX = 0.0F;
