@@ -1,0 +1,94 @@
+name: Antey Multisensor Perception
+
+on:
+  push:
+    branches: [feature/antey-electronic-intelligence-suite]
+    paths: [.github/workflows/antey-multisensor-perception.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch multisensor TrackManager and test target
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one patch marker, got {count}: {old[:80]!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          path = 'Simulation/Perception/TrackManager.h'
+          replace_once(path,
+          '''    bool visuallyIdentified = false;\n    OpticalIdentificationLevel opticalIdentificationLevel = OpticalIdentificationLevel::None;\n};\n\nstruct TrackManagerConfig''',
+          '''    bool visuallyIdentified = false;\n    OpticalIdentificationLevel opticalIdentificationLevel = OpticalIdentificationLevel::None;\n    bool hasPassiveAcousticEvidence = false;\n    bool hasActiveAcousticEvidence = false;\n    bool hasOpticalEvidence = false;\n    bool hasElectronicSupportEvidence = false;\n    bool hasSurfaceRadarEvidence = false;\n    bool hasExternalReportEvidence = false;\n    std::optional<float> externalReportAgeSeconds{};\n};\n\nstruct TrackManagerConfig''')
+
+          replace_once(path,
+          '''            (observation.rangeUncertaintyMeters &&\n             (!std::isfinite(*observation.rangeUncertaintyMeters) || *observation.rangeUncertaintyMeters < 0.0F)) ||\n            (hasOpticalDetail && observation.modality != SensorModality::Optical) ||''',
+          '''            (observation.rangeUncertaintyMeters &&\n             (!std::isfinite(*observation.rangeUncertaintyMeters) || *observation.rangeUncertaintyMeters < 0.0F)) ||\n            (observation.sourceAgeSeconds &&\n             (observation.modality != SensorModality::ExternalReport || !std::isfinite(*observation.sourceAgeSeconds) ||\n              *observation.sourceAgeSeconds < 0.0F)) ||\n            (hasOpticalDetail && observation.modality != SensorModality::Optical) ||''')
+
+          replace_once(path,
+          '''            if (record.positionUncertaintyAtEstimateMeters && record.positionEstimateTimeSeconds)\n            {\n                const double positionAgeSeconds = currentTimeSeconds_ - *record.positionEstimateTimeSeconds;\n                record.track.positionUncertaintyMeters = *record.positionUncertaintyAtEstimateMeters +\n                    config_.positionUncertaintyGrowthMetersPerSecond * static_cast<float>(positionAgeSeconds);\n            }\n\n            if (ageSeconds >= config_.coastAfterSeconds)''',
+          '''            if (record.positionUncertaintyAtEstimateMeters && record.positionEstimateTimeSeconds)\n            {\n                const double positionAgeSeconds = currentTimeSeconds_ - *record.positionEstimateTimeSeconds;\n                record.track.positionUncertaintyMeters = *record.positionUncertaintyAtEstimateMeters +\n                    config_.positionUncertaintyGrowthMetersPerSecond * static_cast<float>(positionAgeSeconds);\n            }\n            if (record.externalReportAgeAtObservationSeconds && record.externalReportObservationTimeSeconds)\n            {\n                record.track.externalReportAgeSeconds = *record.externalReportAgeAtObservationSeconds +\n                    static_cast<float>(currentTimeSeconds_ - *record.externalReportObservationTimeSeconds);\n            }\n\n            if (ageSeconds >= config_.coastAfterSeconds)''')
+
+          replace_once(path,
+          '''        std::optional<float> positionUncertaintyAtEstimateMeters{};\n        std::optional<double> positionEstimateTimeSeconds{};\n    };''',
+          '''        std::optional<float> positionUncertaintyAtEstimateMeters{};\n        std::optional<double> positionEstimateTimeSeconds{};\n        std::optional<float> externalReportAgeAtObservationSeconds{};\n        std::optional<double> externalReportObservationTimeSeconds{};\n    };''')
+
+          replace_once(path,
+          '''                .classification = classification,\n                .visuallyIdentified = visuallyIdentified,\n                .opticalIdentificationLevel = opticalLevel},\n            .confidenceAtLastObservation''',
+          '''                .classification = classification,\n                .visuallyIdentified = visuallyIdentified,\n                .opticalIdentificationLevel = opticalLevel,\n                .hasPassiveAcousticEvidence = observation.modality == SensorModality::PassiveAcoustic,\n                .hasActiveAcousticEvidence = observation.modality == SensorModality::ActiveAcoustic,\n                .hasOpticalEvidence = observation.modality == SensorModality::Optical,\n                .hasElectronicSupportEvidence = observation.modality == SensorModality::ElectronicSupport,\n                .hasSurfaceRadarEvidence = observation.modality == SensorModality::SurfaceRadar,\n                .hasExternalReportEvidence = observation.modality == SensorModality::ExternalReport,\n                .externalReportAgeSeconds = observation.modality == SensorModality::ExternalReport\n                    ? std::optional<float>{observation.sourceAgeSeconds.value_or(0.0F)}\n                    : std::nullopt},\n            .confidenceAtLastObservation''')
+
+          replace_once(path,
+          '''            .positionUncertaintyAtEstimateMeters = std::nullopt,\n            .positionEstimateTimeSeconds = std::nullopt};''',
+          '''            .positionUncertaintyAtEstimateMeters = std::nullopt,\n            .positionEstimateTimeSeconds = std::nullopt,\n            .externalReportAgeAtObservationSeconds = observation.modality == SensorModality::ExternalReport\n                ? std::optional<float>{observation.sourceAgeSeconds.value_or(0.0F)}\n                : std::nullopt,\n            .externalReportObservationTimeSeconds = observation.modality == SensorModality::ExternalReport\n                ? std::optional<double>{observation.observationTimeSeconds}\n                : std::nullopt};''')
+
+          replace_once(path,
+          '''        if (observation.modality == SensorModality::Optical)\n        {\n            record.contact.opticalIdentificationLevel = MoreDetailedOpticalLevel(\n                record.contact.opticalIdentificationLevel, observation.opticalIdentificationLevel);\n            record.track.opticalIdentificationLevel = MoreDetailedOpticalLevel(\n                record.track.opticalIdentificationLevel, observation.opticalIdentificationLevel);\n            if (observation.classificationEvidence)\n            {\n                record.contact.classification = *observation.classificationEvidence;\n                record.contact.visuallyIdentified = true;\n                record.track.classification = *observation.classificationEvidence;\n                record.track.visuallyIdentified = true;\n            }\n        }\n\n        record.confidenceAtLastObservation''',
+          '''        if (observation.modality == SensorModality::Optical)\n        {\n            record.contact.opticalIdentificationLevel = MoreDetailedOpticalLevel(\n                record.contact.opticalIdentificationLevel, observation.opticalIdentificationLevel);\n            record.track.opticalIdentificationLevel = MoreDetailedOpticalLevel(\n                record.track.opticalIdentificationLevel, observation.opticalIdentificationLevel);\n            if (observation.classificationEvidence)\n            {\n                record.contact.classification = *observation.classificationEvidence;\n                record.contact.visuallyIdentified = true;\n                record.track.classification = *observation.classificationEvidence;\n                record.track.visuallyIdentified = true;\n            }\n        }\n\n        record.track.hasPassiveAcousticEvidence = record.track.hasPassiveAcousticEvidence ||\n            observation.modality == SensorModality::PassiveAcoustic;\n        record.track.hasActiveAcousticEvidence = record.track.hasActiveAcousticEvidence ||\n            observation.modality == SensorModality::ActiveAcoustic;\n        record.track.hasOpticalEvidence = record.track.hasOpticalEvidence ||\n            observation.modality == SensorModality::Optical;\n        record.track.hasElectronicSupportEvidence = record.track.hasElectronicSupportEvidence ||\n            observation.modality == SensorModality::ElectronicSupport;\n        record.track.hasSurfaceRadarEvidence = record.track.hasSurfaceRadarEvidence ||\n            observation.modality == SensorModality::SurfaceRadar;\n        record.track.hasExternalReportEvidence = record.track.hasExternalReportEvidence ||\n            observation.modality == SensorModality::ExternalReport;\n        if (observation.modality == SensorModality::ExternalReport)\n        {\n            record.externalReportAgeAtObservationSeconds = observation.sourceAgeSeconds.value_or(0.0F);\n            record.externalReportObservationTimeSeconds = observation.observationTimeSeconds;\n            record.track.externalReportAgeSeconds = observation.sourceAgeSeconds.value_or(0.0F);\n        }\n\n        record.confidenceAtLastObservation''')
+
+          cmake = Path('CMakeLists.txt')
+          text = cmake.read_text(encoding='utf-8')
+          marker = '''add_test(NAME DeepRunM5WeaponRuntimeTests COMMAND DeepRunM5WeaponRuntimeTests)\n'''
+          addition = marker + '''\n# Antey electronic-suite perception/resources are headless gameplay contracts.\nadd_executable(DeepRunAnteyElectronicSuiteTests\n    Tests/AnteyElectronicSuiteTest.cpp\n)\ntarget_compile_features(DeepRunAnteyElectronicSuiteTests PRIVATE cxx_std_23)\ntarget_compile_definitions(DeepRunAnteyElectronicSuiteTests PRIVATE\n    NOMINMAX\n    WIN32_LEAN_AND_MEAN\n)\ndeeprun_set_project_warnings(DeepRunAnteyElectronicSuiteTests)\ntarget_link_libraries(DeepRunAnteyElectronicSuiteTests PRIVATE DeepRunEngine)\nadd_test(NAME DeepRunAnteyElectronicSuiteTests COMMAND DeepRunAnteyElectronicSuiteTests)\n'''
+          if text.count(marker) != 1:
+              raise SystemExit('CMake M5 test marker not unique')
+          cmake.write_text(text.replace(marker, addition), encoding='utf-8')
+          '@ | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\patch.py"
+          python "$env:RUNNER_TEMP\patch.py"
+          git diff --check
+
+      - name: Configure build and run electronic suite test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake --preset windows-debug
+          cmake --build --preset windows-debug --target DeepRunAnteyElectronicSuiteTests
+          ctest --preset windows-debug -R DeepRunAnteyElectronicSuiteTests --output-on-failure
+
+      - name: Commit perception slice
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Force '.github/workflows/antey-multisensor-perception.yml'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: fuse ESM radar and external reports into tracks'
+          git push origin HEAD:feature/antey-electronic-intelligence-suite
