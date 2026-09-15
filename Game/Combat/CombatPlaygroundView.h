@@ -99,11 +99,11 @@ public:
         }
 
         Render::GpuTransientVfx transientVfx;
-        if (const auto initialized = transientVfx.Initialize(renderer, "Shaders"); !initialized)
+        if (const auto initialized = transientVfx.Initialize(renderer, assets.Root().parent_path() / "Shaders"); !initialized)
             return std::unexpected("P-700 transient VFX renderer initialization failed: " + initialized.error());
 
         Armament::P700LaunchVfxTuning tuning = Armament::DefaultP700LaunchVfxTuning();
-        if (const auto authored = Armament::LoadP700LaunchVfxTuning(std::filesystem::path("Config") / "p700_vfx.json"); authored)
+        if (const auto authored = Armament::LoadP700LaunchVfxTuning(assets.Root().parent_path() / "Config" / "p700_vfx.json"); authored)
             tuning = *authored;
 
         return CombatPlaygroundView(
