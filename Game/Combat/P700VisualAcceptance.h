@@ -64,6 +64,7 @@ struct M5P700AcceptanceSnapshot final
     Physics::PhysicsVector3 missilePositionMeters{};
     Weapons::P700GranitPhase phase = Weapons::P700GranitPhase::Stored;
     float hatchOpenProgress = 0.0F;
+    float launcherFloodProgress = 0.0F;
     float deploymentProgress = 0.0F;
     std::size_t p700LoadedCount = 0U;
     float destroyerIntegrity = 0.0F;
@@ -118,13 +119,14 @@ public:
         {
             const auto& missile = *runtime.PlayerP700();
             if (!missile.positionMeters.IsFinite() || !std::isfinite(missile.hatchOpenProgress) ||
-                !std::isfinite(missile.deploymentProgress))
+                !std::isfinite(missile.launcherFloodProgress) || !std::isfinite(missile.deploymentProgress))
             {
                 return std::unexpected("P-700 visual acceptance missile state is invalid");
             }
             snapshot.missilePositionMeters = missile.positionMeters;
             snapshot.phase = missile.phase;
             snapshot.hatchOpenProgress = missile.hatchOpenProgress;
+            snapshot.launcherFloodProgress = missile.launcherFloodProgress;
             snapshot.deploymentProgress = missile.deploymentProgress;
         }
 
@@ -186,10 +188,10 @@ public:
         }
         if (snapshot.hasImpact)
         {
-            if (snapshot.p700LoadedCount != 23U ||
+            if (snapshot.p700LoadedCount != 22U ||
                 snapshot.destroyerIntegrity >= runtime.Destroyer().integrity.maximumIntegrity)
             {
-                return std::unexpected("P-700 impact did not consume exactly one launcher or reduce destroyer integrity");
+                return std::unexpected("P-700 paired acceptance did not consume one two-missile hatch group or reduce destroyer integrity");
             }
             mark(M5P700AcceptanceCheckpoint::Impact);
         }
@@ -270,7 +272,7 @@ public:
         }
         const auto& impact = records_[CheckpointIndex(M5P700AcceptanceCheckpoint::Impact)]->state;
         return impact.hasImpact && impact.impactBodyHandleValid && impact.impactTargetIsDestroyer &&
-               std::abs(impact.impactDamage - 100.0F) <= 0.001F && impact.p700LoadedCount == 23U;
+               std::abs(impact.impactDamage - 100.0F) <= 0.001F && impact.p700LoadedCount == 22U;
     }
 
     [[nodiscard]] const std::array<std::optional<M5P700AcceptanceRecord>, 5>& Records() const noexcept

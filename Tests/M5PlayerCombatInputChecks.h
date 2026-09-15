@@ -28,7 +28,7 @@ namespace DeepRun::Tests
         .rightTrigger = 1.0F,
         .buttons = combatButtons});
     if (disconnected.turnAround || disconnected.selectContact || disconnected.previousWeapon ||
-        disconnected.nextWeapon || disconnected.prepareWeapon || disconnected.fireWeapon ||
+        disconnected.nextWeapon || disconnected.fireWeapon ||
         disconnected.activeSonarPing || disconnected.deployDecoy)
     {
         return false;
@@ -40,7 +40,7 @@ namespace DeepRun::Tests
         .rightTrigger = 0.90F,
         .buttons = combatButtons});
     if (!controller.turnAround || !controller.selectContact || !controller.previousWeapon ||
-        !controller.nextWeapon || !controller.prepareWeapon || !controller.fireWeapon ||
+        !controller.nextWeapon || !controller.fireWeapon ||
         !controller.activeSonarPing || !controller.deployDecoy)
     {
         return false;
@@ -51,7 +51,7 @@ namespace DeepRun::Tests
         .connected = true,
         .buttons = static_cast<std::uint16_t>(GamepadButton::A) |
                    static_cast<std::uint16_t>(GamepadButton::B)});
-    if (legacyFaceButtons.turnAround || legacyFaceButtons.prepareWeapon || legacyFaceButtons.fireWeapon ||
+    if (legacyFaceButtons.turnAround || legacyFaceButtons.fireWeapon ||
         legacyFaceButtons.activeSonarPing || legacyFaceButtons.deployDecoy)
     {
         return false;
@@ -66,7 +66,7 @@ namespace DeepRun::Tests
     const auto triggerActions = SemanticActionsForGamepad(thresholdProbe);
     const auto triggerAxes = SemanticAxesForGamepad(thresholdProbe);
     if (triggerActions.turnAround || triggerActions.selectContact || triggerActions.previousWeapon ||
-        triggerActions.nextWeapon || triggerActions.prepareWeapon || !triggerActions.fireWeapon ||
+        triggerActions.nextWeapon || !triggerActions.fireWeapon ||
         triggerActions.activeSonarPing || triggerActions.deployDecoy ||
         triggerAxes.cameraPanY != 0.0F || triggerAxes.cameraZoom <= 0.0F)
     {
@@ -175,20 +175,6 @@ namespace DeepRun::Tests
     input.ProcessEvents(nextWeaponUp);
 
     input.BeginFrame();
-    const std::array prepareKeyDown{
-        Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::R}};
-    input.ProcessEvents(prepareKeyDown);
-    if (!input.State().WasPressed(InputAction::PrepareWeapon) ||
-        !input.State().IsDown(InputAction::PrepareWeapon) || input.State().IsDown(InputAction::FireWeapon) ||
-        input.State().PressSequence(InputAction::PrepareWeapon) == 0U)
-    {
-        return false;
-    }
-    const std::array prepareKeyUp{
-        Platform::WindowEvent{.type = Platform::WindowEventType::KeyUp, .key = Platform::Key::R}};
-    input.ProcessEvents(prepareKeyUp);
-
-    input.BeginFrame();
     const std::array pingKeyDown{
         Platform::WindowEvent{.type = Platform::WindowEventType::KeyDown, .key = Platform::Key::Space}};
     input.ProcessEvents(pingKeyDown);
@@ -215,7 +201,6 @@ namespace DeepRun::Tests
     input.ProcessEvents(decoyKeyDown);
     if (!input.State().WasPressed(InputAction::DeployDecoy) ||
         !input.State().IsDown(InputAction::DeployDecoy) || input.State().IsDown(InputAction::FireWeapon) ||
-        input.State().IsDown(InputAction::PrepareWeapon) ||
         input.State().PressSequence(InputAction::DeployDecoy) == 0U)
     {
         return false;
@@ -228,17 +213,22 @@ namespace DeepRun::Tests
         return false;
     }
 
+    // Manual preparation was removed from player input. RMB is therefore free and must not synthesize fire.
     input.BeginFrame();
-    const std::array prepareMouseDown{
+    const std::array rightMouseDown{
         Platform::WindowEvent{
             .type = Platform::WindowEventType::MouseButtonDown,
             .mouseButton = Platform::MouseButton::Right}};
-    input.ProcessEvents(prepareMouseDown);
-    if (!input.State().WasPressed(InputAction::PrepareWeapon) ||
-        !input.State().IsDown(InputAction::PrepareWeapon))
+    input.ProcessEvents(rightMouseDown);
+    if (input.State().IsDown(InputAction::FireWeapon))
     {
         return false;
     }
+    const std::array rightMouseUp{
+        Platform::WindowEvent{
+            .type = Platform::WindowEventType::MouseButtonUp,
+            .mouseButton = Platform::MouseButton::Right}};
+    input.ProcessEvents(rightMouseUp);
 
     input.BeginFrame();
     const std::array fireMouseDown{
@@ -247,24 +237,18 @@ namespace DeepRun::Tests
             .mouseButton = Platform::MouseButton::Left}};
     input.ProcessEvents(fireMouseDown);
     if (!input.State().WasPressed(InputAction::FireWeapon) ||
-        !input.State().IsDown(InputAction::FireWeapon) ||
-        !input.State().IsDown(InputAction::PrepareWeapon))
+        !input.State().IsDown(InputAction::FireWeapon))
     {
         return false;
     }
 
     input.BeginFrame();
-    const std::array releaseMouse{
-        Platform::WindowEvent{
-            .type = Platform::WindowEventType::MouseButtonUp,
-            .mouseButton = Platform::MouseButton::Right},
+    const std::array fireMouseUp{
         Platform::WindowEvent{
             .type = Platform::WindowEventType::MouseButtonUp,
             .mouseButton = Platform::MouseButton::Left}};
-    input.ProcessEvents(releaseMouse);
-    if (input.State().IsDown(InputAction::PrepareWeapon) ||
-        input.State().IsDown(InputAction::FireWeapon) ||
-        !input.State().WasReleased(InputAction::PrepareWeapon) ||
+    input.ProcessEvents(fireMouseUp);
+    if (input.State().IsDown(InputAction::FireWeapon) ||
         !input.State().WasReleased(InputAction::FireWeapon))
     {
         return false;

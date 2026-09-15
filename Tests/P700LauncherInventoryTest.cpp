@@ -73,6 +73,28 @@ BuildAnchors()
         return false;
     }
 
+    auto rippleInventoryResult = P700LauncherInventory::Create(anchors);
+    if (!rippleInventoryResult)
+        return false;
+    auto rippleInventory = std::move(*rippleInventoryResult);
+    for (std::size_t hatch = 0U; hatch < AnteyP700LauncherSlotCount / 2U; ++hatch)
+    {
+        const auto single = rippleInventory.LoadedSlotIndices(1U);
+        const std::size_t expected = hatch * 2U;
+        if (!single || single->size() != 1U || single->front() != expected ||
+            !rippleInventory.Consume(single->front()))
+        {
+            std::cerr << "P-700 single ripple did not advance across paired hatch groups\n";
+            return false;
+        }
+    }
+    const auto secondPassSingle = rippleInventory.LoadedSlotIndices(1U);
+    if (!secondPassSingle || secondPassSingle->front() != 1U)
+    {
+        std::cerr << "P-700 single ripple did not return to half-used hatch groups on its second pass\n";
+        return false;
+    }
+
     const auto consumed = inventory.Consume(0U);
     if (!consumed || consumed->semanticId != anchors.front().semanticId ||
         inventory.LoadedCount() != AnteyP700LauncherSlotCount - 1U || inventory.SpentCount() != 1U ||

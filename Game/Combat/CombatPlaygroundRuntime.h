@@ -13,6 +13,7 @@
 #include "Game/Weapons/P700LauncherInventory.h"
 #include "Game/Weapons/P700SalvoLaunchCoordinator.h"
 #include "Game/Weapons/AnteyTorpedoInventory.h"
+#include "Game/Weapons/AnteyTorpedoTubeBank.h"
 #include "Game/Weapons/PlayerWeaponSelection.h"
 #include "Game/Weapons/PlayerTorpedoProfiles.h"
 #include "Simulation/Acoustics/ActiveSonar.h"
@@ -53,6 +54,9 @@ inline constexpr float M5CombatTorpedoMaximumVerticalCourseAngleRadians = 0.55F;
 inline constexpr float M5CombatTorpedoAttackPointBelowPerceivedTargetMeters = 1.5F;
 inline constexpr float M5CombatTorpedoSurfaceSafetyMarginMeters = 0.25F;
 inline constexpr double M5CombatActiveRangingIntervalSeconds = 3.0;
+// GAME POLICY: public descriptions support high-tempo sequential Granit salvos but not a dependable
+// SM-225A cycle number. Five seconds keeps the launcher sequence readable and prevents 24 simultaneous starts.
+inline constexpr double M5CombatP700MinimumInterSalvoSeconds = 5.0;
 inline constexpr double M5CombatDestroyerActiveRangingIntervalSeconds = 6.0;
 inline constexpr float M5CombatMineForwardOffsetMeters = 520.0F;
 inline constexpr float M5CombatMineDepthOffsetMeters = 35.0F;
@@ -234,6 +238,12 @@ public:
             (void)physicsWorld.DestroyBody(destroyer->body);
             return std::unexpected("M5-H player commander runtime creation failed: " + playerCombat.error());
         }
+        const auto initialPreparation = playerCombat->BeginAutomaticPreparation(simulationTimeSeconds);
+        if (!initialPreparation)
+        {
+            (void)physicsWorld.DestroyBody(destroyer->body);
+            return std::unexpected("player automatic weapon preparation failed: " + initialPreparation.error());
+        }
         const Weapons::ConventionalTorpedoDefinition destroyerTorpedoDefinition{
             .weapon = destroyerDefinition.weapon,
             .underwaterSpeedMetersPerSecond = 44.0F,
@@ -342,8 +352,7 @@ public:
     {
         std::array<PlayerCombatCommand, 2> commands{};
         std::size_t count = 0U;
-        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit &&
-            playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
+        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit)
         {
             commands[count++] = {.type = PlayerCombatCommandType::NextWeapon};
         }
@@ -360,12 +369,18 @@ public:
             {
                 commands[count++] = {.type = PlayerCombatCommandType::ActiveSonarPing};
             }
-            else if (selected && selected->estimatedPositionMeters.has_value())
+            else if (selected && selected->estimatedPositionMeters.has_value() &&
+                     playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready &&
+                     !p700AcceptanceLaunchCommitted_)
             {
-                if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
-                    commands[count++] = {.type = PlayerCombatCommandType::PrepareWeapon};
-                else if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
-                    commands[count++] = {.type = PlayerCombatCommandType::FireWeapon};
+                // Acceptance exercises the paired-hatch production path. A pair also matches the gameplay
+                // contract that cooperative Granits are more reliable than insisting that one noisy seeker
+                // must deterministically score a hit in every smoke run.
+                if (playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Single)
+                {
+                    commands[count++] = {.type = PlayerCombatCommandType::ToggleP700SalvoMode};
+                }
+                commands[count++] = {.type = PlayerCombatCommandType::FireWeapon};
             }
         }
         return AdvanceImpl(playerSnapshot, std::span<const PlayerCombatCommand>{commands.data(), count}, simulationTimeSeconds, false);
@@ -462,6 +477,10 @@ public:
     {
         return playerTorpedoLaunchPosition_;
     }
+    [[nodiscard]] const std::vector<Weapons::ConventionalTorpedoRuntimeState>& AdditionalPlayerTorpedoes() const noexcept
+    {
+        return additionalPlayerTorpedoes_;
+    }
     [[nodiscard]] const std::optional<Weapons::ConventionalTorpedoRuntimeState>& DestroyerTorpedo() const noexcept
     {
         return destroyerTorpedo_;
@@ -531,6 +550,10 @@ public:
     [[nodiscard]] const std::vector<Weapons::P700GranitRuntimeState>& PlayerP700Wingmen() const noexcept
     {
         return playerP700Wingmen_;
+    }
+    [[nodiscard]] const std::vector<Weapons::P700GranitRuntimeState>& AdditionalPlayerP700Missiles() const noexcept
+    {
+        return additionalPlayerP700Missiles_;
     }
     [[nodiscard]] std::optional<std::string> PlayerP700HatchGroupSemanticId() const
     {
@@ -897,6 +920,13 @@ private:
             return std::unexpected("M5-H player TrackManager failed to advance");
         }
 
+        if (playerLaunchRearmPending_)
+        {
+            const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
+            if (!rearmed)
+                return std::unexpected("player fire-control re-arm after committed launch failed: " + rearmed.error());
+            playerLaunchRearmPending_ = false;
+        }
         const auto readiness = playerCombat_.Advance(simulationTimeSeconds);
         if (!readiness)
         {
@@ -905,7 +935,10 @@ private:
 
         if (automatedPlayer)
         {
-            if (!playerTorpedo_.has_value())
+            // The automated M5 composition is a deterministic one-shot acceptance scenario, not an AI loop.
+            // Once its first player round has been committed, resolving that projectile must not cause an
+            // unintended second launch merely because automatic readiness has re-armed the selected weapon.
+            if (!automatedPlayerLaunchCommitted_ && !playerTorpedo_.has_value())
             {
                 const auto automated = AdvanceAutomatedPlayerCommander(playerSnapshot, simulationTimeSeconds);
                 if (!automated)
@@ -1021,12 +1054,47 @@ private:
                     lastCombatCommand_ = *feedback;
                     continue;
                 }
-                if (playerTorpedo_.has_value() || playerP700_.has_value())
-                {
-                    continue;
-                }
                 if (command.type == PlayerCombatCommandType::FireWeapon)
                 {
+                    if (selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit)
+                    {
+                        if (simulationTimeSeconds + 1.0e-9 < nextP700LaunchAllowedTimeSeconds_)
+                        {
+                            lastCombatCommand_ = PlayerCombatCommandFeedback{
+                                .command = PlayerCombatCommandType::FireWeapon,
+                                .accepted = false,
+                                .trackId = playerCombat_.SelectedTrackId(),
+                                .message = "next P-700 hatch launch sequence available in " +
+                                    std::to_string(nextP700LaunchAllowedTimeSeconds_ - simulationTimeSeconds) + " s"};
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        if (playerTorpedoInventory_.LoadedCount(selectedPlayerWeapon_) == 0U)
+                        {
+                            lastCombatCommand_ = PlayerCombatCommandFeedback{
+                                .command = PlayerCombatCommandType::FireWeapon,
+                                .accepted = false,
+                                .trackId = playerCombat_.SelectedTrackId(),
+                                .message = "selected torpedo ammunition pool is exhausted"};
+                            continue;
+                        }
+                        if (playerTorpedoTubeBank_.ReadyTubeCount(selectedPlayerWeapon_, simulationTimeSeconds) == 0U)
+                        {
+                            const auto wait = playerTorpedoTubeBank_.SecondsUntilNextReadyTube(
+                                selectedPlayerWeapon_, simulationTimeSeconds);
+                            lastCombatCommand_ = PlayerCombatCommandFeedback{
+                                .command = PlayerCombatCommandType::FireWeapon,
+                                .accepted = false,
+                                .trackId = playerCombat_.SelectedTrackId(),
+                                .message = wait
+                                    ? "all compatible torpedo tubes are reloading; next tube ready in " +
+                                        std::to_string(*wait) + " s"
+                                    : "no compatible torpedo tube is available"};
+                            continue;
+                        }
+                    }
                     const auto employment = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
                         ? AssessPlayerP700Employment(playerSnapshot)
                         : AssessPlayerTorpedoEmployment(playerSnapshot);
@@ -1054,8 +1122,7 @@ private:
             }
         }
 
-        if (!playerTorpedo_.has_value() && !playerP700_.has_value() &&
-            playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
+        if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Launched)
         {
             const auto targetTrack = FindTrack(playerTracks_.Tracks(), playerCombat_.Weapon().targetTrackId);
             if (!targetTrack)
@@ -1069,6 +1136,13 @@ private:
             if (!launch)
             {
                 return std::unexpected(launch.error());
+            }
+            playerLaunchRearmPending_ = true;
+            if (p700AcceptanceMode_ && selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit)
+                p700AcceptanceLaunchCommitted_ = true;
+            if (automatedPlayer)
+            {
+                automatedPlayerLaunchCommitted_ = true;
             }
         }
 
@@ -1093,6 +1167,10 @@ private:
         std::optional<Weapons::ConventionalTorpedoImpact> impact{};
         if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Underwater)
         {
+            if (!playerTorpedoInFlightDefinition_)
+            {
+                return std::unexpected("M5-E.1 live torpedo lost its launch-time definition snapshot");
+            }
             const auto seekerDecision = AdvancePlayerTorpedoSeeker(
                 *destroyerAcoustics, civilianEmitter, surfaceTruths, simulationTimeSeconds);
             if (!seekerDecision)
@@ -1111,14 +1189,14 @@ private:
 
             const auto advanced = seekerDecision->guidanceCue
                 ? Weapons::AdvanceConventionalTorpedoWithSeekerCueAndCollision(
-                    playerTorpedoDefinition_,
+                    *playerTorpedoInFlightDefinition_,
                     playerTorpedoSeekerConfig_,
                     *playerTorpedo_,
                     *seekerDecision->guidanceCue,
                     *physicsWorld_,
                     simulationTimeSeconds)
                 : Weapons::AdvanceConventionalTorpedoWithCollision(
-                    playerTorpedoDefinition_, *playerTorpedo_, guidanceTrack, *physicsWorld_, simulationTimeSeconds);
+                    *playerTorpedoInFlightDefinition_, *playerTorpedo_, guidanceTrack, *physicsWorld_, simulationTimeSeconds);
             if (!advanced)
             {
                 return std::unexpected("M5-E.1 torpedo fixed-step advance failed: " + advanced.error());
@@ -1130,7 +1208,7 @@ private:
                 pendingPlayerTorpedoSeekerEmissions_.clear();
                 playerTorpedoActivePulse_.reset();
                 playerTorpedoActiveReflector_.reset();
-                if (impact->physicsHit.body == destroyer_.body)
+                if (impact->physicsHit.body == destroyer_.body && !destroyer_.integrity.destroyed)
                 {
                     const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, impact->damage);
                     if (!damaged)
@@ -1138,7 +1216,7 @@ private:
                         return std::unexpected("M5-E.1 destroyer damage application failed: " + damaged.error());
                     }
                 }
-                else if (civilian_ && impact->physicsHit.body == civilian_->body)
+                else if (civilian_ && impact->physicsHit.body == civilian_->body && !civilian_->integrity.destroyed)
                 {
                     const auto damaged = ApplySimpleCivilianVesselDamage(civilianDefinition_, *civilian_, impact->damage);
                     if (!damaged)
@@ -1148,13 +1226,14 @@ private:
         }
 
         if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent &&
-            (playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::RangeExpired ||
-             playerTorpedo_->terminalReason == Weapons::ConventionalTorpedoTerminalReason::EnduranceExpired))
+            (playerTorpedo_->terminalReason != Weapons::ConventionalTorpedoTerminalReason::Impact ||
+             !impact.has_value()))
         {
-            const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
-            if (!rearmed)
-                return std::unexpected("player torpedo range/endurance re-arm failed: " + rearmed.error());
+            // Range/endurance expiry resolves immediately. A physical impact remains observable for its impact
+            // fixed-step so acceptance/presentation can consume the authoritative Spent pose, then clears on
+            // the following step. CompleteResolvedLaunch() intentionally preserves a newly selected weapon.
             playerTorpedo_.reset();
+            playerTorpedoInFlightDefinition_.reset();
             playerTorpedoLaunchPosition_.reset();
             playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
                 .selectedTrackId = std::nullopt,
@@ -1164,6 +1243,57 @@ private:
             playerTorpedoActivePulse_.reset();
             playerTorpedoActiveReflector_.reset();
             playerTorpedoActivePulseDeadlineSeconds_ = simulationTimeSeconds;
+        }
+
+        for (std::size_t index = 0U; index < additionalPlayerTorpedoes_.size();)
+        {
+            auto& torpedo = additionalPlayerTorpedoes_[index];
+            auto& definition = additionalPlayerTorpedoDefinitions_[index];
+            bool keepImpactFrame = false;
+            if (torpedo.movementDomain == Weapons::MovementDomain::Underwater)
+            {
+                auto perceivedTrack = FindTrack(playerTracks_.Tracks(), torpedo.guidanceTrackId);
+                if (perceivedTrack && perceivedTrack->estimatedPositionMeters)
+                {
+                    const float forwardProgress =
+                        (torpedo.positionMeters.x - additionalPlayerTorpedoLaunchPositions_[index].x) *
+                        additionalPlayerTorpedoForwardSigns_[index];
+                    if (forwardProgress < M5CombatTorpedoStraightRunMeters)
+                        perceivedTrack->estimatedPositionMeters->y = additionalPlayerTorpedoLaunchPositions_[index].y;
+                    else
+                        perceivedTrack->estimatedPositionMeters->y -= M5CombatTorpedoAttackPointBelowPerceivedTargetMeters;
+                }
+                const auto advanced = Weapons::AdvanceConventionalTorpedoWithCollision(
+                    definition, torpedo, perceivedTrack, *physicsWorld_, simulationTimeSeconds, playerBody_);
+                if (!advanced)
+                    return std::unexpected("background player torpedo advance failed: " + advanced.error());
+                if (advanced->has_value())
+                {
+                    const auto& hit = **advanced;
+                    if (!impact) impact = hit;
+                    lastExplosion_ = hit.explosion;
+                    keepImpactFrame = true;
+                    if (hit.physicsHit.body == destroyer_.body && !destroyer_.integrity.destroyed)
+                    {
+                        const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, hit.damage);
+                        if (!damaged) return std::unexpected("background torpedo destroyer damage failed: " + damaged.error());
+                    }
+                    else if (civilian_ && hit.physicsHit.body == civilian_->body && !civilian_->integrity.destroyed)
+                    {
+                        const auto damaged = ApplySimpleCivilianVesselDamage(civilianDefinition_, *civilian_, hit.damage);
+                        if (!damaged) return std::unexpected("background torpedo civilian damage failed: " + damaged.error());
+                    }
+                }
+            }
+            if (torpedo.movementDomain == Weapons::MovementDomain::Spent && !keepImpactFrame)
+            {
+                additionalPlayerTorpedoes_.erase(additionalPlayerTorpedoes_.begin() + static_cast<std::ptrdiff_t>(index));
+                additionalPlayerTorpedoDefinitions_.erase(additionalPlayerTorpedoDefinitions_.begin() + static_cast<std::ptrdiff_t>(index));
+                additionalPlayerTorpedoLaunchPositions_.erase(additionalPlayerTorpedoLaunchPositions_.begin() + static_cast<std::ptrdiff_t>(index));
+                additionalPlayerTorpedoForwardSigns_.erase(additionalPlayerTorpedoForwardSigns_.begin() + static_cast<std::ptrdiff_t>(index));
+                continue;
+            }
+            ++index;
         }
 
         std::optional<Weapons::P700GranitImpact> p700Impact{};
@@ -1221,10 +1351,27 @@ private:
                 if (truth && truth->kind == SurfaceContactTruthKind::CivilianVessel)
                     actualTargetHasTerminalDefense = false;
             }
-            const std::optional<Weapons::P700TerminalDefenseProfile> targetDefense =
-                p700AcceptanceMode_ || !actualTargetHasTerminalDefense
-                    ? std::nullopt
-                    : std::optional<Weapons::P700TerminalDefenseProfile>{Weapons::P700TerminalDefenseProfile{}};
+            std::optional<Weapons::P700TerminalDefenseProfile> targetDefense{};
+            if (!p700AcceptanceMode_ && actualTargetHasTerminalDefense)
+            {
+                Weapons::P700TerminalDefenseProfile defense{};
+                if (playerP700LaunchRangeMeters_ &&
+                    *playerP700LaunchRangeMeters_ < Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters)
+                {
+                    // GAME POLICY: a deliberately too-close Granit shot gets less time/distance to establish its
+                    // preferred flight profile, giving a defended combatant a better terminal interception window.
+                    const float minimumRange = Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters;
+                    const float shortfall = std::clamp(
+                        (minimumRange - *playerP700LaunchRangeMeters_) / minimumRange, 0.0F, 1.0F);
+                    defense.hardKillProbability = std::clamp(
+                        defense.hardKillProbability + 0.30F * shortfall, 0.0F, 1.0F);
+                    defense.maneuverDefeatProbability = std::clamp(
+                        defense.maneuverDefeatProbability + 0.10F * shortfall, 0.0F, 1.0F);
+                    defense.seekerFailureProbability = std::clamp(
+                        defense.seekerFailureProbability + 0.05F * shortfall, 0.0F, 1.0F);
+                }
+                targetDefense = defense;
+            }
 
             const auto applyP700Impact = [&](const Weapons::P700GranitImpact& hit) -> std::expected<void, std::string>
             {
@@ -1267,13 +1414,66 @@ private:
                 });
             if (allSpent && !p700AcceptanceMode_)
             {
-                const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
-                if (!rearmed) return std::unexpected("P-700 commander re-arm failed: " + rearmed.error());
                 playerP700_.reset();
                 playerP700Wingmen_.clear();
+                playerP700LaunchRangeMeters_.reset();
                 playerP700LaunchSlotIndex_.reset();
                 playerP700LaunchSlotIndices_.clear();
             }
+        }
+
+        for (std::size_t index = 0U; index < additionalPlayerP700Missiles_.size();)
+        {
+            auto& missile = additionalPlayerP700Missiles_[index];
+            bool keepImpactFrame = false;
+            if (missile.phase != Weapons::P700GranitPhase::Spent)
+            {
+                const auto perceivedTrack = FindTrack(playerTracks_.Tracks(), missile.guidanceTrackId);
+                std::optional<Weapons::P700TerminalDefenseProfile> targetDefense{};
+                if (!p700AcceptanceMode_)
+                {
+                    Weapons::P700TerminalDefenseProfile defense{};
+                    const float launchRange = additionalPlayerP700LaunchRanges_[index];
+                    if (launchRange < Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters)
+                    {
+                        const float minimumRange = Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters;
+                        const float shortfall = std::clamp((minimumRange - launchRange) / minimumRange, 0.0F, 1.0F);
+                        defense.hardKillProbability = std::clamp(defense.hardKillProbability + 0.30F * shortfall, 0.0F, 1.0F);
+                        defense.maneuverDefeatProbability = std::clamp(defense.maneuverDefeatProbability + 0.10F * shortfall, 0.0F, 1.0F);
+                        defense.seekerFailureProbability = std::clamp(defense.seekerFailureProbability + 0.05F * shortfall, 0.0F, 1.0F);
+                    }
+                    targetDefense = defense;
+                }
+                const auto advanced = Weapons::AdvanceP700GranitWithCollision(
+                    playerP700Definition_, missile, perceivedTrack, *physicsWorld_, simulationTimeSeconds,
+                    playerBody_, targetDefense);
+                if (!advanced)
+                    return std::unexpected("background P-700 advance failed: " + advanced.error());
+                if (advanced->has_value())
+                {
+                    const auto& hit = **advanced;
+                    if (!p700Impact) p700Impact = hit;
+                    lastExplosion_ = hit.explosion;
+                    keepImpactFrame = true;
+                    if (hit.physicsHit.body == destroyer_.body && !destroyer_.integrity.destroyed)
+                    {
+                        const auto damaged = ApplySimpleDestroyerDamage(destroyerDefinition_, destroyer_, hit.damage);
+                        if (!damaged) return std::unexpected("background P-700 destroyer damage failed: " + damaged.error());
+                    }
+                    else if (civilian_ && hit.physicsHit.body == civilian_->body && !civilian_->integrity.destroyed)
+                    {
+                        const auto damaged = ApplySimpleCivilianVesselDamage(civilianDefinition_, *civilian_, hit.damage);
+                        if (!damaged) return std::unexpected("background P-700 civilian damage failed: " + damaged.error());
+                    }
+                }
+            }
+            if (missile.phase == Weapons::P700GranitPhase::Spent && !keepImpactFrame)
+            {
+                additionalPlayerP700Missiles_.erase(additionalPlayerP700Missiles_.begin() + static_cast<std::ptrdiff_t>(index));
+                additionalPlayerP700LaunchRanges_.erase(additionalPlayerP700LaunchRanges_.begin() + static_cast<std::ptrdiff_t>(index));
+                continue;
+            }
+            ++index;
         }
 
         const auto threatPerception = AdvanceIncomingThreatPerception(playerSnapshot, simulationTimeSeconds);
@@ -1402,6 +1602,46 @@ private:
             playerCombat_.BuildPresentationSnapshot(playerTrackSnapshot);
         playerCombatPresentation.selectedWeapon = selectedPlayerWeapon_;
         playerCombatPresentation.p700LoadedCount = p700LauncherInventory_ ? p700LauncherInventory_->LoadedCount() : 0U;
+        playerCombatPresentation.p700NextLaunchReadySeconds = std::max(
+            0.0, nextP700LaunchAllowedTimeSeconds_ - simulationTimeSeconds);
+        playerCombatPresentation.activeP700FloodProgress = playerP700_
+            ? std::optional<float>{playerP700_->launcherFloodProgress} : std::nullopt;
+        playerCombatPresentation.torpedoRoundsRemaining = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
+            ? 0U : playerTorpedoInventory_.LoadedCount(selectedPlayerWeapon_);
+        playerCombatPresentation.torpedo533RoundsRemaining =
+            playerTorpedoInventory_.LoadedCount(Armament::PlayerWeaponType::HeavyweightTorpedo);
+        playerCombatPresentation.torpedo650RoundsRemaining =
+            playerTorpedoInventory_.LoadedCount(Armament::PlayerWeaponType::Type6576AFast);
+        playerCombatPresentation.torpedoReadyTubeCount = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
+            ? 0U : playerTorpedoTubeBank_.ReadyTubeCount(selectedPlayerWeapon_, simulationTimeSeconds);
+        const auto selectedTubeCalibre = Armament::AnteyTorpedoTubeCalibreForWeapon(selectedPlayerWeapon_);
+        playerCombatPresentation.torpedoTubeCount = !selectedTubeCalibre ? 0U :
+            (*selectedTubeCalibre == Armament::AnteyTorpedoTubeCalibre::Mm533
+                ? Armament::Antey533MmTorpedoTubeCount : Armament::Antey650MmTorpedoTubeCount);
+        const auto& torpedoTubes = playerTorpedoTubeBank_.Tubes();
+        static_assert(Armament::AnteyTorpedoTubeCount == 6U);
+        for (std::size_t index = 0U; index < torpedoTubes.size(); ++index)
+        {
+            const auto& tube = torpedoTubes[index];
+            const double reloadSecondsRemaining =
+                std::max(0.0, tube.nextReadyTimeSeconds - simulationTimeSeconds);
+            playerCombatPresentation.torpedoTubes[index] = TorpedoTubePresentationSnapshot{
+                .tubeNumber = index + 1U,
+                .calibreMillimeters = tube.calibre == Armament::AnteyTorpedoTubeCalibre::Mm533 ? 533U : 650U,
+                .ready = reloadSecondsRemaining <= 1.0e-9,
+                .reloadSecondsRemaining = reloadSecondsRemaining};
+        }
+        if (selectedTubeCalibre && playerCombatPresentation.torpedoReadyTubeCount == 0U &&
+            playerCombatPresentation.torpedoRoundsRemaining > 0U)
+            playerCombatPresentation.torpedoNextTubeReadySeconds =
+                playerTorpedoTubeBank_.SecondsUntilNextReadyTube(selectedPlayerWeapon_, simulationTimeSeconds);
+        playerCombatPresentation.playerTorpedoesInFlight = additionalPlayerTorpedoes_.size() +
+            (playerTorpedo_ && playerTorpedo_->movementDomain != Weapons::MovementDomain::Spent ? 1U : 0U);
+        playerCombatPresentation.playerP700InFlight = additionalPlayerP700Missiles_.size() +
+            (playerP700_ && playerP700_->phase != Weapons::P700GranitPhase::Spent ? 1U : 0U) +
+            static_cast<std::size_t>(std::count_if(playerP700Wingmen_.begin(), playerP700Wingmen_.end(), [](const auto& missile) {
+                return missile.phase != Weapons::P700GranitPhase::Spent;
+            }));
         if (selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit &&
             (playerCombatPresentation.p700LoadedCount == 0U ||
              (playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Pair &&
@@ -1409,6 +1649,16 @@ private:
         {
             playerCombatPresentation.canPrepareWeapon = false;
             playerCombatPresentation.canFireWeapon = false;
+        }
+        if (playerCombatPresentation.canFireWeapon)
+        {
+            if (selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit)
+                playerCombatPresentation.canFireWeapon =
+                    simulationTimeSeconds + 1.0e-9 >= nextP700LaunchAllowedTimeSeconds_;
+            else
+                playerCombatPresentation.canFireWeapon =
+                    playerCombatPresentation.torpedoRoundsRemaining > 0U &&
+                    playerCombatPresentation.torpedoReadyTubeCount > 0U;
         }
         if (playerCombatPresentation.canFireWeapon)
         {
@@ -1482,14 +1732,6 @@ private:
         {
             return std::unexpected("M5 Weapon Selector received a non-selector command");
         }
-        if (playerCombat_.Weapon().phase != Weapons::WeaponPhase::Stored || playerTorpedo_ || playerP700_)
-        {
-            return PlayerCombatCommandFeedback{
-                .command = command.type,
-                .accepted = false,
-                .trackId = playerCombat_.SelectedTrackId(),
-                .message = "weapon selection is available only while the current weapon is Stored"};
-        }
         const int direction = command.type == PlayerCombatCommandType::PreviousWeapon ? -1 : 1;
         const Armament::PlayerWeaponType next = Armament::CyclePlayerWeapon(selectedPlayerWeapon_, direction);
         if (next == Armament::PlayerWeaponType::P700Granit &&
@@ -1531,7 +1773,8 @@ private:
             .command = command.type,
             .accepted = true,
             .trackId = playerCombat_.SelectedTrackId(),
-            .message = "selected " + std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_))};
+            .message = "selected " + std::string(Armament::PlayerWeaponName(selectedPlayerWeapon_)) +
+                       "; automatic preparation started"};
     }
 
     struct PlayerP700LaunchCandidate final
@@ -1549,12 +1792,17 @@ private:
         {
             return std::unexpected("P-700 production carrier state is unavailable");
         }
-        const auto slotIndex = p700LauncherInventory_->FirstLoadedSlotIndex();
-        if (!slotIndex)
+        const std::size_t requestedCount =
+            playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Pair ? 2U : 1U;
+        const auto selectedSlots = p700LauncherInventory_->LoadedSlotIndices(requestedCount);
+        if (!selectedSlots || selectedSlots->empty())
         {
-            return std::unexpected("P-700 production launcher inventory is exhausted");
+            return std::unexpected("P-700 production launcher inventory cannot satisfy the selected salvo mode");
         }
-        const auto worldAnchor = p700CarrierLaunchContract_->BuildWorldAnchor(*slotIndex, *currentPlayerPhysicalProxy_);
+        // Employment assessment and materialization must resolve the same physical hatch/slot policy. In
+        // particular, Single mode advances across complete paired hatches before revisiting half-used groups.
+        const std::size_t slotIndex = selectedSlots->front();
+        const auto worldAnchor = p700CarrierLaunchContract_->BuildWorldAnchor(slotIndex, *currentPlayerPhysicalProxy_);
         if (!worldAnchor)
         {
             return std::unexpected("P-700 production world anchor failed: " + worldAnchor.error());
@@ -1576,7 +1824,7 @@ private:
             static_cast<double>(velocity.z) * velocity.z));
         const float surfaceLevelMeters = playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
         return PlayerP700LaunchCandidate{
-            .slotIndex = *slotIndex,
+            .slotIndex = slotIndex,
             .carrier = Weapons::P700CarrierLaunchContext{
                 .launchPositionMeters = worldAnchor->positionMeters,
                 .launchForwardUnitVector = worldAnchor->forwardUnitVector,
@@ -1714,11 +1962,11 @@ private:
 
         if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
         {
-            const auto prepared = playerCombat_.Execute(
-                {.type = PlayerCombatCommandType::PrepareWeapon}, tracks, simulationTimeSeconds);
-            if (!prepared || !prepared->accepted)
+            const auto prepared = playerCombat_.BeginAutomaticPreparation(simulationTimeSeconds);
+            if (!prepared)
             {
-                return std::unexpected("M5-H automated commander could not prepare the player weapon");
+                return std::unexpected("M5-H automated commander could not begin automatic player weapon preparation: " +
+                                       prepared.error());
             }
         }
         if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
@@ -1954,6 +2202,10 @@ private:
                  std::sin(launchHeading) * M5CombatTorpedoLaunchClearanceMeters,
             .z = playerSnapshot.emitter.positionMeters.z};
         auto nextTorpedoInventory = playerTorpedoInventory_;
+        auto nextTorpedoTubeBank = playerTorpedoTubeBank_;
+        const auto tubeLaunch = nextTorpedoTubeBank.CommitLaunch(selectedPlayerWeapon_, simulationTimeSeconds);
+        if (!tubeLaunch)
+            return std::unexpected("M5-H torpedo tube launch failed: " + tubeLaunch.error());
         const auto consumedRoundMass = nextTorpedoInventory.Consume(selectedPlayerWeapon_);
         if (!consumedRoundMass)
         {
@@ -1966,8 +2218,20 @@ private:
         {
             return std::unexpected("M5-H torpedo runtime creation failed: " + launched.error());
         }
-        // Commit the staged inventory only after the weapon runtime is successfully materialized.
+        // Commit launcher/ammunition state only after the new weapon runtime is valid. Preserve an older
+        // in-flight torpedo as an independent background flight instead of blocking another loaded tube.
+        if (playerTorpedo_)
+        {
+            if (!playerTorpedoInFlightDefinition_ || !playerTorpedoLaunchPosition_)
+                return std::unexpected("existing player torpedo lacks launch-time state during ripple launch");
+            additionalPlayerTorpedoes_.push_back(*playerTorpedo_);
+            additionalPlayerTorpedoDefinitions_.push_back(*playerTorpedoInFlightDefinition_);
+            additionalPlayerTorpedoLaunchPositions_.push_back(*playerTorpedoLaunchPosition_);
+            additionalPlayerTorpedoForwardSigns_.push_back(playerTorpedoForwardSign_);
+        }
         playerTorpedoInventory_ = nextTorpedoInventory;
+        playerTorpedoTubeBank_ = nextTorpedoTubeBank;
+        playerTorpedoInFlightDefinition_ = playerTorpedoDefinition_;
         playerTorpedo_ = *launched;
         playerTorpedoLaunchPosition_ = launchPosition;
         playerTorpedoSeekerState_ = Weapons::TorpedoSeekerRuntimeState{
@@ -2043,12 +2307,33 @@ private:
         if (committed->runtime.missiles.empty() || committed->launcherSlotIndices.empty())
             return std::unexpected("D2 production P-700 salvo committed no missile");
 
+        if (playerP700_)
+        {
+            const float priorRange = playerP700LaunchRangeMeters_.value_or(
+                Weapons::P700GranitEmploymentEnvelope.minimumTargetRangeMeters);
+            if (playerP700_->phase != Weapons::P700GranitPhase::Spent)
+            {
+                additionalPlayerP700Missiles_.push_back(*playerP700_);
+                additionalPlayerP700LaunchRanges_.push_back(priorRange);
+            }
+            for (const auto& wingman : playerP700Wingmen_)
+            {
+                if (wingman.phase == Weapons::P700GranitPhase::Spent) continue;
+                additionalPlayerP700Missiles_.push_back(wingman);
+                additionalPlayerP700LaunchRanges_.push_back(priorRange);
+            }
+        }
         playerP700LaunchSlotIndex_ = committed->launcherSlotIndices.front();
         playerP700LaunchSlotIndices_ = committed->launcherSlotIndices;
+        if (!targetTrack.estimatedPositionMeters)
+            return std::unexpected("D2 P-700 launch lost its perceived spatial estimate");
+        playerP700LaunchRangeMeters_ = Weapons::P700DistanceMeters(
+            committed->runtime.missiles.front().positionMeters, *targetTrack.estimatedPositionMeters);
         playerP700_ = std::move(committed->runtime.missiles.front());
         playerP700Wingmen_.clear();
         for (std::size_t index = 1U; index < committed->runtime.missiles.size(); ++index)
             playerP700Wingmen_.push_back(std::move(committed->runtime.missiles[index]));
+        nextP700LaunchAllowedTimeSeconds_ = simulationTimeSeconds + M5CombatP700MinimumInterSalvoSeconds;
 
         const auto exposure = ObserveExposureEvent(
             ExposureSource::P700Launch,
@@ -2658,16 +2943,24 @@ private:
     std::optional<Physics::PhysicsVector3> destroyerTorpedoLaunchPosition_{};
     float destroyerTorpedoForwardSign_ = -1.0F;
     Weapons::ConventionalTorpedoDefinition playerTorpedoDefinition_;
+    // The selected torpedo profile may change while an already-launched weapon is still running.
+    // Keep the launch-time definition with that projectile so selection cannot mutate its kinematics/identity.
+    std::optional<Weapons::ConventionalTorpedoDefinition> playerTorpedoInFlightDefinition_{};
     Weapons::P700GranitDefinition playerP700Definition_;
     Armament::PlayerWeaponType selectedPlayerWeapon_ = Armament::PlayerWeaponType::HeavyweightTorpedo;
     Armament::AnteyTorpedoInventory playerTorpedoInventory_{};
+    Armament::AnteyTorpedoTubeBank playerTorpedoTubeBank_{};
     std::optional<Armament::P700CarrierLaunchContract> p700CarrierLaunchContract_{};
     std::optional<Armament::P700LauncherInventory> p700LauncherInventory_{};
     std::optional<Weapons::P700GranitRuntimeState> playerP700_{};
     std::vector<Weapons::P700GranitRuntimeState> playerP700Wingmen_{};
+    std::vector<Weapons::P700GranitRuntimeState> additionalPlayerP700Missiles_{};
+    std::vector<float> additionalPlayerP700LaunchRanges_{};
+    std::optional<float> playerP700LaunchRangeMeters_{};
     std::optional<std::size_t> playerP700LaunchSlotIndex_{};
     std::vector<std::size_t> playerP700LaunchSlotIndices_{};
     std::uint64_t nextP700SalvoId_ = 1U;
+    double nextP700LaunchAllowedTimeSeconds_ = 0.0;
     PlayerCombatCommandRuntime playerCombat_;
     Weapons::AcousticDecoyDefinition decoyDefinition_;
     std::optional<Weapons::AcousticDecoyRuntimeState> decoy_{};
@@ -2685,6 +2978,10 @@ private:
     std::optional<Weapons::ConventionalTorpedoRuntimeState> playerTorpedo_{};
     std::optional<Physics::PhysicsVector3> playerTorpedoLaunchPosition_{};
     float playerTorpedoForwardSign_ = 1.0F;
+    std::vector<Weapons::ConventionalTorpedoRuntimeState> additionalPlayerTorpedoes_{};
+    std::vector<Weapons::ConventionalTorpedoDefinition> additionalPlayerTorpedoDefinitions_{};
+    std::vector<Physics::PhysicsVector3> additionalPlayerTorpedoLaunchPositions_{};
+    std::vector<float> additionalPlayerTorpedoForwardSigns_{};
     std::optional<Acoustics::ActiveAcousticPulse> activePulse_{};
     std::optional<Acoustics::AcousticReflector> activeReflector_{};
     std::optional<Acoustics::AcousticObservation> lastPlayerActiveEchoObservation_{};
@@ -2695,6 +2992,9 @@ private:
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
     bool p700AcceptanceMode_ = false;
+    bool p700AcceptanceLaunchCommitted_ = false;
+    bool playerLaunchRearmPending_ = false;
+    bool automatedPlayerLaunchCommitted_ = false;
     bool playerFogOfWarActive_ = false;
     bool civilianGameplayEnabled_ = false;
 };

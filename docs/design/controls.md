@@ -38,7 +38,6 @@ Depth
 AimX
 AimY
 FireWeapon
-PrepareWeapon
 ActiveSonarPing
 SilentRunning
 DeployDecoy
@@ -128,7 +127,7 @@ controls used by the controller.
 | X | contextual submarine-system action |
 | Y | select / cycle contact or context |
 | RT | fire selected weapon |
-| LT | prepare weapon / targeting |
+| LT | reserved / contextual; weapon preparation is automatic |
 | RB | active sonar ping |
 | LB | silent-running / acoustic-control action |
 | D-pad | quick submarine/system commands |
@@ -149,7 +148,7 @@ Global actions should remain consistent whenever practical.
 | W / S | depth / vertical manoeuvre |
 | Mouse | tactical cursor / aiming |
 | Left Mouse | fire / confirm according to context |
-| Right Mouse | prepare weapon / alternate according to context |
+| Right Mouse | alternate / contextual; weapon preparation is automatic |
 | E | interact |
 | F | contextual submarine-system action |
 | Space | active sonar ping |
@@ -162,10 +161,10 @@ Global actions should remain consistent whenever practical.
 
 Keyboard bindings must eventually be rebindable.
 
-M5-J5 implementation note: the combat playground now uses the reference `LT` prepare, `RT` fire, `RB` active
-sonar, `Y` contact-select and contextual `X` decoy bindings. In the current tactical-camera context, right-stick
-X pans and right-stick Y zooms so the weapon triggers no longer have a conflicting presentation meaning. This is
-an M5 context mapping, not a change to the semantic-action boundary or a claim about the final rebindable layout.
+M5 weapon-UX implementation note: selecting a weapon automatically starts its preparation timer; there is no
+player-facing `PrepareWeapon` action. `RT` fires, `RB` performs active sonar ranging, `Y` selects contacts and
+contextual `X` deploys a decoy. `LT` and RMB are therefore free for future contextual bindings. In the current
+tactical-camera context, right-stick X pans and right-stick Y zooms.
 
 ---
 

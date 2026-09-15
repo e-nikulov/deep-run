@@ -5,6 +5,7 @@
 #include "Simulation/Weapons/P700Salvo.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -47,10 +48,29 @@ struct PlayerCombatCommandFeedback final
 // Read-only state intended for controller-first combat UI. It deliberately exposes perceived quality and
 // perceived visual classification rather than hostile Transform/entity truth. A weapon-quality acoustic track
 // may remain visually unconfirmed; that is an intentional civilian-identification risk, not a missing field.
+struct TorpedoTubePresentationSnapshot final
+{
+    std::size_t tubeNumber = 0U;
+    std::uint16_t calibreMillimeters = 533U;
+    bool ready = true;
+    double reloadSecondsRemaining = 0.0;
+};
+
 struct PlayerCombatPresentationSnapshot final
 {
     Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
     std::size_t p700LoadedCount = 0U;
+    double p700NextLaunchReadySeconds = 0.0;
+    std::optional<float> activeP700FloodProgress{};
+    std::size_t torpedoRoundsRemaining = 0U;
+    std::size_t torpedo533RoundsRemaining = 0U;
+    std::size_t torpedo650RoundsRemaining = 0U;
+    std::size_t torpedoReadyTubeCount = 0U;
+    std::size_t torpedoTubeCount = 0U;
+    std::optional<double> torpedoNextTubeReadySeconds{};
+    std::array<TorpedoTubePresentationSnapshot, 6U> torpedoTubes{};
+    std::size_t playerTorpedoesInFlight = 0U;
+    std::size_t playerP700InFlight = 0U;
     Weapons::P700SalvoMode p700SalvoMode = Weapons::P700SalvoMode::Single;
     Weapons::WeaponPhase weaponPhase = Weapons::WeaponPhase::Stored;
     std::optional<std::uint64_t> weaponTargetTrackId{};
@@ -120,8 +140,29 @@ public:
         return {};
     }
 
-    // Weapon Selector changes the actual qualification/preparation profile, not merely a UI label. Switching is
-    // legal only from Stored so readiness/target state from one weapon type can never bleed into another type.
+    // Player weapon preparation is automatic. The player chooses the weapon; the crew/fire-control runtime
+    // begins preparation immediately and readiness remains SimulationTime-authoritative.
+    [[nodiscard]] std::expected<void, std::string> BeginAutomaticPreparation(const double simulationTimeSeconds)
+    {
+        if (const auto advanced = Advance(simulationTimeSeconds); !advanced)
+        {
+            return std::unexpected(advanced.error());
+        }
+        if (weapon_.phase != Weapons::WeaponPhase::Stored)
+        {
+            return {};
+        }
+        const auto prepared = Weapons::PrepareWeapon(definition_, weapon_, simulationTimeSeconds);
+        if (!prepared)
+        {
+            return std::unexpected("automatic player weapon preparation failed: " + prepared.error());
+        }
+        return {};
+    }
+
+    // Weapon selection is an intent change, not a lock imposed by the previously selected weapon. Any pending
+    // preparation/readiness state is discarded and the newly selected profile starts its own preparation timer.
+    // An already materialized projectile is independent and continues its flight in CombatPlaygroundRuntime.
     [[nodiscard]] std::expected<void, std::string> ReconfigureStoredWeapon(
         Weapons::WeaponDefinition definition,
         const double simulationTimeSeconds)
@@ -130,10 +171,6 @@ public:
         {
             return std::unexpected(advanced.error());
         }
-        if (weapon_.phase != Weapons::WeaponPhase::Stored)
-        {
-            return std::unexpected("M5 weapon selection can only change while the current weapon is Stored");
-        }
         auto replacement = Weapons::CreateWeaponRuntime(definition, simulationTimeSeconds);
         if (!replacement)
         {
@@ -141,7 +178,7 @@ public:
         }
         definition_ = std::move(definition);
         weapon_ = std::move(*replacement);
-        return {};
+        return BeginAutomaticPreparation(simulationTimeSeconds);
     }
 
     [[nodiscard]] std::expected<PlayerCombatCommandFeedback, std::string> Execute(
@@ -182,7 +219,18 @@ public:
 
     [[nodiscard]] std::expected<void, std::string> CompleteResolvedLaunch(const double simulationTimeSeconds)
     {
-        return Weapons::ResetWeaponAfterResolvedLaunch(definition_, weapon_, simulationTimeSeconds);
+        // The player may have switched weapons while this projectile was in flight. In that case the selected
+        // weapon runtime is already Preparing/Ready and must not be reset by resolution of the old projectile.
+        if (weapon_.phase != Weapons::WeaponPhase::Launched)
+        {
+            return {};
+        }
+        const auto reset = Weapons::ResetWeaponAfterResolvedLaunch(definition_, weapon_, simulationTimeSeconds);
+        if (!reset)
+        {
+            return reset;
+        }
+        return BeginAutomaticPreparation(simulationTimeSeconds);
     }
 
     [[nodiscard]] PlayerCombatPresentationSnapshot BuildPresentationSnapshot(

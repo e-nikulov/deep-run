@@ -101,6 +101,23 @@ public:
         }
         if (requestedCount == 1U)
         {
+            // A single shot uses one missile under a still-complete paired hatch first, then advances to the
+            // next hatch. Only after every hatch has contributed one missile do we revisit half-used groups.
+            // This keeps Single mode a true sequential hatch ripple instead of firing both cells under one lid.
+            for (std::size_t first = 0U; first < slots_.size(); ++first)
+            {
+                if (slots_[first].state != P700LauncherSlotState::Loaded ||
+                    slots_[first].anchor.hatchGroupSemanticId.empty())
+                    continue;
+                const bool completePair = std::ranges::any_of(
+                    slots_.begin() + static_cast<std::ptrdiff_t>(first + 1U), slots_.end(),
+                    [&](const auto& candidate) {
+                        return candidate.state == P700LauncherSlotState::Loaded &&
+                               candidate.anchor.hatchGroupSemanticId == slots_[first].anchor.hatchGroupSemanticId;
+                    });
+                if (completePair)
+                    return std::vector<std::size_t>{first};
+            }
             const auto first = FirstLoadedSlotIndex();
             if (!first)
                 return std::unexpected("P-700 launcher inventory is exhausted");

@@ -39,6 +39,9 @@ struct WeaponEmploymentContext final
 struct WeaponEmploymentAssessment final
 {
     bool allowed = false;
+    // Range limits describe the weapon's effective/nominal employment band. A player may deliberately fire
+    // outside it; rangeOptimal lets gameplay/UI model the resulting risk without turning the band into a trigger lock.
+    bool rangeOptimal = true;
     float targetRangeMeters = 0.0F;
     float offBoresightRadians = 0.0F;
     std::string reason{};
@@ -93,14 +96,13 @@ inline constexpr WeaponEmploymentEnvelope Type6576AEconomyEmploymentEnvelope{
     .minimumTargetDepthMeters = 0.0F,
     .maximumTargetDepthMeters = 25.0F};
 
-// P-700/Project 949A public descriptions allow launch from the surface as well as submerged launch, with
-// underwater depth commonly described around 30-50 m and a 50 m maximum. Deep Run therefore treats 0..50 m
-// as one carrier-depth envelope; sea state/hatch/water-exit constraints belong to the future IG2 launcher
-// lifecycle. A 20 km minimum is reported by a secondary technical compilation. The +/-90 degree horizontal
-// target sector and shallow surface-target band are Game policy.
+// Deep Run gameplay contract: P-700 is launched only while the Antey is submerged. Public descriptions put
+// submerged launch in the roughly 30-50 m region; the 10 m lower bound is conservative GAME POLICY that prevents
+// a visually surfaced boat from launching while preserving the 50 m maximum. The 20 km minimum is retained as an
+// optimal/effective-range threshold, not a trigger lock. The +/-90 degree sector and shallow target band are policy.
 inline constexpr WeaponEmploymentEnvelope P700GranitEmploymentEnvelope{
     .id = "P-700-Granit",
-    .minimumLaunchDepthMeters = 0.0F,
+    .minimumLaunchDepthMeters = 10.0F,
     .maximumLaunchDepthMeters = 50.0F,
     .minimumTargetRangeMeters = 20'000.0F,
     .maximumTargetRangeMeters = 550'000.0F,
@@ -173,14 +175,21 @@ inline constexpr WeaponEmploymentEnvelope P700GranitEmploymentEnvelope{
     {
         return rejected("launch depth exceeds the weapon envelope");
     }
+
+    // Range is deliberately evaluated as effectiveness, not launch authority. Keep checking the true physical
+    // constraints below so a soft range warning can never bypass depth/sector/speed/target-domain restrictions.
+    const bool insideOptimalRange = rangeMeters >= envelope.minimumTargetRangeMeters &&
+                                    rangeMeters <= envelope.maximumTargetRangeMeters;
+    std::string rangeReason{};
     if (rangeMeters < envelope.minimumTargetRangeMeters)
     {
-        return rejected("target is inside the weapon minimum range");
+        rangeReason = "target is inside the optimal weapon range; launch allowed with reduced effectiveness";
     }
-    if (rangeMeters > envelope.maximumTargetRangeMeters)
+    else if (rangeMeters > envelope.maximumTargetRangeMeters)
     {
-        return rejected("target is beyond the weapon maximum range");
+        rangeReason = "target is beyond nominal weapon endurance; launch allowed but intercept is not guaranteed";
     }
+
     if (offBoresightRadians > envelope.maximumOffBoresightRadians)
     {
         return rejected("target bearing is outside the weapon launch sector");
@@ -196,9 +205,10 @@ inline constexpr WeaponEmploymentEnvelope P700GranitEmploymentEnvelope{
     }
 
     return {.allowed = true,
+            .rangeOptimal = insideOptimalRange,
             .targetRangeMeters = rangeMeters,
             .offBoresightRadians = offBoresightRadians,
-            .reason = "weapon employment envelope satisfied"};
+            .reason = insideOptimalRange ? "weapon employment envelope satisfied" : std::move(rangeReason)};
 }
 
 // Compile-time profile sanity catches accidental changes to public/gameplay boundaries before runtime tests.
@@ -206,7 +216,7 @@ static_assert(Uset80EmploymentEnvelope.maximumTargetRangeMeters == 18'000.0F);
 static_assert(Uset80EmploymentEnvelope.maximumLaunchDepthMeters == 400.0F);
 static_assert(Type6576AFastEmploymentEnvelope.maximumTargetRangeMeters == 50'000.0F);
 static_assert(Type6576AEconomyEmploymentEnvelope.maximumTargetRangeMeters == 100'000.0F);
-static_assert(P700GranitEmploymentEnvelope.minimumLaunchDepthMeters == 0.0F);
+static_assert(P700GranitEmploymentEnvelope.minimumLaunchDepthMeters == 10.0F);
 static_assert(P700GranitEmploymentEnvelope.minimumTargetRangeMeters == 20'000.0F);
 static_assert(P700GranitEmploymentEnvelope.maximumTargetRangeMeters == 550'000.0F);
 static_assert(P700GranitEmploymentEnvelope.maximumLaunchDepthMeters == 50.0F);

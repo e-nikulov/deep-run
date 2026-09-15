@@ -37,6 +37,9 @@ namespace
 constexpr wchar_t GameWindowClassName[] = L"DeepRunEngineWindow";
 constexpr float NormalGameplayInitialDepthMeters = 50.0F;
 constexpr float NormalGameplayLongRangeCombatTargetMeters = 25'000.0F;
+// The P-700 acceptance scenario includes the explicit wet-launch flooding phase and a paired salvo.
+// Keep a bounded watchdog with margin for both real launcher preparation and deterministic flight.
+constexpr double P700AcceptanceTimeoutSeconds = 110.0;
 
 struct FindContext final
 {
@@ -416,6 +419,7 @@ bool WriteM5P700AcceptanceReport(
             {"phase", DeepRun::Game::Combat::M5P700PhaseName(state.phase)},
             {"missile_position_meters", JsonVector(state.missilePositionMeters)},
             {"hatch_open_progress", state.hatchOpenProgress},
+            {"launcher_flood_progress", state.launcherFloodProgress},
             {"deployment_progress", state.deploymentProgress},
             {"p700_loaded_count", state.p700LoadedCount},
             {"destroyer_integrity", state.destroyerIntegrity},
@@ -480,7 +484,6 @@ int main(const int argumentCount, char** argumentValues)
         std::uint64_t consumedSelectContactSequence = 0;
         std::uint64_t consumedPreviousWeaponSequence = 0;
         std::uint64_t consumedNextWeaponSequence = 0;
-        std::uint64_t consumedPrepareWeaponSequence = 0;
         std::uint64_t consumedFireWeaponSequence = 0;
         std::uint64_t consumedActiveSonarPingSequence = 0;
         std::uint64_t consumedDeployDecoySequence = 0;
@@ -618,7 +621,7 @@ int main(const int argumentCount, char** argumentValues)
              &combatAcceptance, &p700Acceptance, &p700LifecycleLogged, &combatUiSnapshot,
              &currentOwnshipNavigationPositionMeters, &inputState, &engineServices,
              &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
-             &consumedPrepareWeaponSequence, &consumedFireWeaponSequence,
+             &consumedFireWeaponSequence,
              &consumedActiveSonarPingSequence, &consumedDeployDecoySequence,
              &consumedTogglePeriscopeSequence, &consumedVisualIdentifySequence, &consumedP700SalvoModeSequence,
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
@@ -741,9 +744,6 @@ int main(const int argumentCount, char** argumentValues)
                         consume(*inputState, DeepRun::Input::InputAction::NextWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::NextWeapon,
                                 consumedNextWeaponSequence);
-                        consume(*inputState, DeepRun::Input::InputAction::PrepareWeapon,
-                                DeepRun::Game::Combat::PlayerCombatCommandType::PrepareWeapon,
-                                consumedPrepareWeaponSequence);
                         consume(*inputState, DeepRun::Input::InputAction::FireWeapon,
                                 DeepRun::Game::Combat::PlayerCombatCommandType::FireWeapon,
                                 consumedFireWeaponSequence);
@@ -878,9 +878,11 @@ int main(const int argumentCount, char** argumentValues)
                                       << combatFrame->playerP700Impact->damage.damage << " radius="
                                       << combatFrame->playerP700Impact->explosion.radiusMeters << "\n";
                         }
-                        if (simulationTimeSeconds > 95.0)
+                        if (simulationTimeSeconds > P700AcceptanceTimeoutSeconds)
                         {
-                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded 95 s SimulationTime without completed impact capture\n";
+                            std::cerr << "[Game][ERROR] P-700 acceptance exceeded "
+                                      << P700AcceptanceTimeoutSeconds
+                                      << " s SimulationTime without completed impact capture\n";
                             return false;
                         }
                     }

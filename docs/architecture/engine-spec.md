@@ -2425,7 +2425,6 @@ Depth
 AimX
 AimY
 FireWeapon
-PrepareWeapon
 ActiveSonarPing
 SilentRunning
 DeployDecoy
