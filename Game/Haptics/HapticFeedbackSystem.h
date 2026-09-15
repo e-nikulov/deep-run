@@ -10,12 +10,13 @@
 
 namespace DeepRun::Game
 {
-// Game-owned semantic producer/mapping. The constants below are M2 prototype feel tuning, not Engine
-// policy and not a physical frequency model.
+// Game-owned semantic producer/mapping. The constants below are presentation feel tuning, not Engine policy
+// and not a structural-load model. Marine supplies dimensional impact evidence; Game maps normalized severity.
 class HapticFeedbackSystem final
 {
 public:
     static constexpr Input::HapticEffectId EngineVibrationEffectId = 0x0001'0001U;
+    static constexpr Input::HapticEffectId WaveSlamEffectId = 0x0001'0002U;
 
     [[nodiscard]] std::expected<HapticEvent, std::string> EngineVibrationFromShaftRpm(
         const Marine::PropulsionComponent& component,
