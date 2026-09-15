@@ -111,7 +111,8 @@ public:
         Physics::PhysicsWorld& physics,
         Render::D3D12Renderer& renderer,
         bool verifyDistinctUploads,
-        float initialSubmarineDepthMeters = 100.0F);
+        float initialSubmarineDepthMeters = 100.0F,
+        std::optional<std::uint8_t> weatherBeaufortForce = std::nullopt);
 
     // Produces and applies transient marine forces/torques from one authoritative body snapshot for one
     // fixed tick at beginning-of-step SimulationTime. The Engine calls this before PhysicsWorld::Step; this

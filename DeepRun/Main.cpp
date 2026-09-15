@@ -18,6 +18,7 @@
 #include <dwmapi.h>
 
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -28,6 +29,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -40,6 +42,26 @@ constexpr float NormalGameplayLongRangeCombatTargetMeters = 25'000.0F;
 // The P-700 acceptance scenario includes the explicit wet-launch flooding phase and a paired salvo.
 // Keep a bounded watchdog with margin for both real launcher preparation and deterministic flight.
 constexpr double P700AcceptanceTimeoutSeconds = 110.0;
+
+[[nodiscard]] std::optional<std::uint8_t> WeatherVisualBeaufortFromEnvironment()
+{
+    char* rawValue = nullptr;
+    std::size_t rawSize = 0U;
+    if (_dupenv_s(&rawValue, &rawSize, "DR_WEATHER_VISUAL_BEAUFORT") != 0 || rawValue == nullptr)
+    {
+        std::free(rawValue);
+        return std::nullopt;
+    }
+    const std::string valueText(rawValue);
+    std::free(rawValue);
+
+    unsigned int parsed = 0U;
+    const auto [end, error] = std::from_chars(
+        valueText.data(), valueText.data() + valueText.size(), parsed);
+    if (error != std::errc{} || end != valueText.data() + valueText.size() || parsed > 12U)
+        throw std::runtime_error("DR_WEATHER_VISUAL_BEAUFORT must be an integer in the inclusive range 0..12");
+    return static_cast<std::uint8_t>(parsed);
+}
 
 struct FindContext final
 {
@@ -465,6 +487,7 @@ int main(const int argumentCount, char** argumentValues)
         }
 
         const DeepRun::Core::ApplicationOptions options = DeepRun::Core::ApplicationOptions::Parse(arguments);
+        const std::optional<std::uint8_t> weatherVisualBeaufortForce = WeatherVisualBeaufortFromEnvironment();
         DeepRun::Game::PhysicalPlayground playground;
         DeepRun::Game::HapticFeedbackSystem hapticFeedback;
         std::optional<DeepRun::Game::AcousticPlaygroundRuntime> acousticPlaygroundRuntime;
@@ -481,6 +504,7 @@ int main(const int argumentCount, char** argumentValues)
         DeepRun::Game::Camera::MultiScaleTacticalCamera multiScaleCamera;
         WindowFrameCapture frameCapture;
         std::uint64_t renderFrames = 0;
+        bool weatherVisualCaptured = false;
         std::uint64_t consumedSelectContactSequence = 0;
         std::uint64_t consumedPreviousWeaponSequence = 0;
         std::uint64_t consumedNextWeaponSequence = 0;
@@ -508,7 +532,7 @@ int main(const int argumentCount, char** argumentValues)
 
         DeepRun::Core::Application application(
             options,
-            [&options, &playground, &acousticPlaygroundRuntime, &combatPlayground, &multiScaleCamera,
+            [&options, &weatherVisualBeaufortForce, &playground, &acousticPlaygroundRuntime, &combatPlayground, &multiScaleCamera,
              &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
              &inputState, &engineServices](DeepRun::Core::Engine& engine)
             {
@@ -537,14 +561,16 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
-                const float initialDepthMeters = options.p700SmokeTest
-                    ? 30.0F
-                    : options.smokeTest || options.benchmarkM3
-                        ? 100.0F
-                        : NormalGameplayInitialDepthMeters;
+                const float initialDepthMeters = weatherVisualBeaufortForce.has_value()
+                    ? 3.0F
+                    : options.p700SmokeTest
+                        ? 30.0F
+                        : options.smokeTest || options.benchmarkM3
+                            ? 100.0F
+                            : NormalGameplayInitialDepthMeters;
                 const auto initialized = playground.Initialize(
                     engine.Assets(), *physics, *renderer, options.smokeTest || options.p700SmokeTest,
-                    initialDepthMeters);
+                    initialDepthMeters, weatherVisualBeaufortForce);
                 if (!initialized)
                 {
                     std::cerr << "[Game][ERROR] " << initialized.error() << '\n';
@@ -573,7 +599,7 @@ int main(const int argumentCount, char** argumentValues)
 
                 if (!options.benchmarkM3)
                 {
-                    if (options.smokeTest)
+                    if (options.smokeTest || weatherVisualBeaufortForce.has_value())
                     {
                         const auto localFraming = DeepRun::Game::Combat::CombatPlaygroundCameraDirector::LocalFraming();
                         const auto framing = playground.SetPresentationCameraFraming(
@@ -597,29 +623,32 @@ int main(const int argumentCount, char** argumentValues)
                         }
                     }
 
-                    const float destroyerInitialXMeters = options.p700SmokeTest
-                        ? 20'100.0F
-                        : options.smokeTest
-                            ? DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters
-                            : NormalGameplayLongRangeCombatTargetMeters;
-                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
-                        *renderer,
-                        engine.Assets(),
-                        destroyerInitialXMeters,
-                        options.p700SmokeTest,
-                        options.p700SmokeTest
-                            ? 0.0F
-                            : DeepRun::Game::Combat::M5CombatDestroyerCruiseVelocityXMetersPerSecond);
-                    if (!combat)
+                    if (!weatherVisualBeaufortForce.has_value())
                     {
-                        std::cerr << "[Game][ERROR] " << combat.error() << '\n';
-                        return false;
+                        const float destroyerInitialXMeters = options.p700SmokeTest
+                            ? 20'100.0F
+                            : options.smokeTest
+                                ? DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters
+                                : NormalGameplayLongRangeCombatTargetMeters;
+                        const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
+                            *renderer,
+                            engine.Assets(),
+                            destroyerInitialXMeters,
+                            options.p700SmokeTest,
+                            options.p700SmokeTest
+                                ? 0.0F
+                                : DeepRun::Game::Combat::M5CombatDestroyerCruiseVelocityXMetersPerSecond);
+                        if (!combat)
+                        {
+                            std::cerr << "[Game][ERROR] " << combat.error() << '\n';
+                            return false;
+                        }
+                        combatPlayground = *combat;
                     }
-                    combatPlayground = *combat;
                 }
                 return playground.SubmarineModel().IsValid();
             },
-            [&options, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
+            [&options, &weatherVisualBeaufortForce, &playground, &hapticFeedback, &acousticPlaygroundRuntime, &combatPlayground,
              &combatAcceptance, &p700Acceptance, &p700LifecycleLogged, &combatUiSnapshot,
              &currentOwnshipNavigationPositionMeters, &inputState, &engineServices,
              &consumedSelectContactSequence, &consumedPreviousWeaponSequence, &consumedNextWeaponSequence,
@@ -630,7 +659,8 @@ int main(const int argumentCount, char** argumentValues)
              &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,
              &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)
             {
-                const auto command = (options.smokeTest || options.p700SmokeTest || options.benchmarkM3)
+                const auto command = (options.smokeTest || options.p700SmokeTest || options.benchmarkM3 ||
+                                      weatherVisualBeaufortForce.has_value())
                                          ? std::expected<DeepRun::Game::VesselCommandState, std::string>{
                                                DeepRun::Game::VesselCommandState{}}
                                          : inputState != nullptr
@@ -988,8 +1018,8 @@ int main(const int argumentCount, char** argumentValues)
              &combatUiPresentationSettings, &smokeCombatCameraDirector,
              &calmLaunchCameraAssist, &multiScaleCamera,
              &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
-             &inputState, &frameCapture, &captureEnabled, &options,
-             &renderFrames, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+             &inputState, &frameCapture, &captureEnabled, &options, &weatherVisualBeaufortForce,
+             &renderFrames, &weatherVisualCaptured, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const auto& frameState = engineServices->CurrentFrame();
@@ -1105,6 +1135,35 @@ int main(const int argumentCount, char** argumentValues)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
                     return false;
+                }
+
+                if (weatherVisualBeaufortForce.has_value() && !weatherVisualCaptured &&
+                    simulationTimeSeconds >= 2.0 && renderFrames >= 30U)
+                {
+                    if (!captureEnabled)
+                    {
+                        std::cerr << "[Game][ERROR] W1 sea-state visual acceptance requires frame capture\n";
+                        return false;
+                    }
+                    std::vector<std::byte> pixels;
+                    std::uint32_t width = 0U;
+                    std::uint32_t height = 0U;
+                    const std::filesystem::path imagePath =
+                        "w1-sea-beaufort-" + std::to_string(*weatherVisualBeaufortForce) + ".bmp";
+                    if (!frameCapture.Capture(pixels, width, height) ||
+                        !WriteBmp(imagePath, pixels, width, height))
+                    {
+                        std::cerr << "[Game][ERROR] W1 sea-state visual frame capture failed for Beaufort "
+                                  << static_cast<unsigned int>(*weatherVisualBeaufortForce) << '\n';
+                        return false;
+                    }
+                    weatherVisualCaptured = true;
+                    std::cout << "[Game][W1] Captured Beaufort "
+                              << static_cast<unsigned int>(*weatherVisualBeaufortForce)
+                              << " production sea state to " << imagePath.string()
+                              << " at simulation_time_s=" << simulationTimeSeconds
+                              << " resolution=" << width << 'x' << height << '\n';
+                    engineServices->RequestShutdown();
                 }
 
                 if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
@@ -1337,6 +1396,11 @@ int main(const int argumentCount, char** argumentValues)
                 std::cerr << "[Game][ERROR] P-700 visual acceptance did not observe every required checkpoint\n";
                 return 14;
             }
+        }
+        if (applicationExitCode == 0 && weatherVisualBeaufortForce.has_value() && !weatherVisualCaptured)
+        {
+            std::cerr << "[Game][ERROR] W1 sea-state visual acceptance exited without a captured frame\n";
+            return 15;
         }
         return applicationExitCode;
     }

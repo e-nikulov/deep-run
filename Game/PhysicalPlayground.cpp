@@ -438,7 +438,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     Physics::PhysicsWorld& physics,
     Render::D3D12Renderer& renderer,
     const bool verifyDistinctUploads,
-    const float initialSubmarineDepthMeters)
+    const float initialSubmarineDepthMeters,
+    const std::optional<std::uint8_t> weatherBeaufortForce)
 {
     if (!std::isfinite(initialSubmarineDepthMeters) || initialSubmarineDepthMeters <= 0.0F ||
         initialSubmarineDepthMeters > NormalGameplayMaximumVisibleDepthMeters)
@@ -650,45 +651,47 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
         return std::unexpected("physical playground model pipeline or depth buffer is not ready");
     }
 
-    // W1-B scenario composition: WeatherState is the environment input authority and Marine derives one
-    // deterministic seven-component spectrum from it. The normal gameplay seed intentionally combines a
-    // moderate local wind sea with a longer oblique swell so the surface has natural beats instead of a
-    // repeating three-sine silhouette. Render still receives only a copied WaterBody snapshot.
-    const auto weather = Environment::WeatherState::Create(Environment::WeatherStateConfig{
-        .beaufortForce = 5U,
-        .windSpeedMetersPerSecond = 10.0F,
-        .windGustSpeedMetersPerSecond = 13.0F,
-        .windDirectionDegrees = 18.0F,
-        .windSea = Environment::WindSeaState{
-            .significantWaveHeightMeters = 2.0F,
-            .probableMaximumWaveHeightMeters = 2.5F,
-            .peakPeriodSeconds = 4.8F,
-            .meanDirectionDegrees = 18.0F,
-            .directionalSpreadDegrees = 42.0F},
-        .swell = Environment::SwellState{
-            .significantWaveHeightMeters = 1.2F,
-            .peakPeriodSeconds = 9.5F,
-            .meanDirectionDegrees = 342.0F,
-            .directionalSpreadDegrees = 10.0F},
-        .rainRateMillimetersPerHour = 0.0F,
-        .meteorologicalVisibilityMeters = 100000.0F,
-        .cloudCoverFraction = 0.25F,
-        .lightningRatePerMinute = 0.0F,
-        .weatherSeed = 0x4452554E5F573142ULL});
+    // W1-B scenario composition: WeatherState is the environment input authority and Marine derives the
+    // production spectrum from it. Normal gameplay keeps the accepted mixed wind-sea+swell seed. A bounded
+    // Beaufort override is used by visual acceptance/mission composition and still flows through the same
+    // WeatherState -> ProductionOceanSpectrum -> WaterBody -> Render path; it is not a second wave system.
+    const auto weather = weatherBeaufortForce.has_value()
+        ? Environment::WeatherState::FullyDevelopedBeaufort(
+              *weatherBeaufortForce, 18.0F, 0x5731495F56495355ULL)
+        : Environment::WeatherState::Create(Environment::WeatherStateConfig{
+              .beaufortForce = 5U,
+              .windSpeedMetersPerSecond = 10.0F,
+              .windGustSpeedMetersPerSecond = 13.0F,
+              .windDirectionDegrees = 18.0F,
+              .windSea = Environment::WindSeaState{
+                  .significantWaveHeightMeters = 2.0F,
+                  .probableMaximumWaveHeightMeters = 2.5F,
+                  .peakPeriodSeconds = 4.8F,
+                  .meanDirectionDegrees = 18.0F,
+                  .directionalSpreadDegrees = 42.0F},
+              .swell = Environment::SwellState{
+                  .significantWaveHeightMeters = 1.2F,
+                  .peakPeriodSeconds = 9.5F,
+                  .meanDirectionDegrees = 342.0F,
+                  .directionalSpreadDegrees = 10.0F},
+              .rainRateMillimetersPerHour = 0.0F,
+              .meteorologicalVisibilityMeters = 100000.0F,
+              .cloudCoverFraction = 0.25F,
+              .lightningRatePerMinute = 0.0F,
+              .weatherSeed = 0x4452554E5F573142ULL});
     if (!weather)
     {
         return std::unexpected("physical playground W1 weather creation failed: " + weather.error().message);
     }
     const auto productionWaves = Marine::BuildProductionOceanWaveField(*weather);
-    if (!productionWaves || !productionWaves->has_value())
+    if (!productionWaves)
     {
-        return std::unexpected("physical playground W1 spectral ocean creation failed" +
-                               (productionWaves ? std::string{} : ": " + productionWaves.error()));
+        return std::unexpected("physical playground W1 spectral ocean creation failed: " + productionWaves.error());
     }
     const auto water = Marine::WaterBody::Create(
         {.surfaceLevelY = M2SeaSurfaceLevelMeters,
          .densityKgPerCubicMeter = M2SeaWaterDensityKgPerCubicMeter,
-         .waves = productionWaves->value()});
+         .waves = *productionWaves});
     if (!water)
     {
         return std::unexpected("physical playground water body creation failed: " + water.error().message);
