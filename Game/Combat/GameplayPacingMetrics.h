@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Engine/Core/TimeCompression.h"
 #include "Game/Combat/PlayerCombatCommandRuntime.h"
 
 #include <algorithm>
@@ -14,9 +13,10 @@
 
 namespace DeepRun::Game::Combat
 {
-// Player-time pacing telemetry. These values intentionally measure perceived waiting time rather than raw
-// SimulationTime: a 40 s operational transit at 8x contributes roughly 5 s to the pacing clock. The telemetry is
-// read-only and must never authorize gameplay, targeting, classification or weapon state.
+// Player-time pacing telemetry. The caller supplies a monotonic RealTime clock, so time compression is accounted
+// for naturally: eight SimulationTime ticks executed during one rendered 8x frame still consume only that frame's
+// real player time. This telemetry is read-only and must never authorize gameplay, targeting, classification or
+// weapon state.
 struct GameplayPacingMetricsSnapshot final
 {
     double playerElapsedSeconds = 0.0;
@@ -36,32 +36,27 @@ public:
         const PlayerCombatPresentationSnapshot& playerCombat,
         const std::span<const PlayerCombatCommand> commands,
         const bool hadSelectedTrackBeforeCommands,
-        const double simulationTimeSeconds,
-        const Core::TimeCompressionRate effectiveRate)
+        const double playerTimeSeconds)
     {
-        if (!std::isfinite(simulationTimeSeconds) || simulationTimeSeconds < 0.0 ||
-            !Core::IsValidTimeCompressionRate(effectiveRate))
+        if (!std::isfinite(playerTimeSeconds) || playerTimeSeconds < 0.0)
         {
-            return std::unexpected("gameplay pacing telemetry input is invalid");
+            return std::unexpected("gameplay pacing telemetry player time is invalid");
         }
 
-        if (!initialized_)
+        if (!playerTimeOriginSeconds_)
         {
-            initialized_ = true;
-            lastSimulationTimeSeconds_ = simulationTimeSeconds;
-            previousEffectiveRate_ = effectiveRate;
+            playerTimeOriginSeconds_ = playerTimeSeconds;
+            lastPlayerTimeSeconds_ = playerTimeSeconds;
+            playerElapsedSeconds_ = 0.0;
         }
         else
         {
-            if (simulationTimeSeconds < lastSimulationTimeSeconds_)
+            if (!lastPlayerTimeSeconds_ || playerTimeSeconds < *lastPlayerTimeSeconds_)
             {
-                return std::unexpected("gameplay pacing telemetry SimulationTime must be monotonic");
+                return std::unexpected("gameplay pacing telemetry player time must be monotonic");
             }
-            const double simulationDeltaSeconds = simulationTimeSeconds - lastSimulationTimeSeconds_;
-            playerElapsedSeconds_ += simulationDeltaSeconds /
-                Core::TimeCompressionMultiplier(previousEffectiveRate_);
-            lastSimulationTimeSeconds_ = simulationTimeSeconds;
-            previousEffectiveRate_ = effectiveRate;
+            lastPlayerTimeSeconds_ = playerTimeSeconds;
+            playerElapsedSeconds_ = playerTimeSeconds - *playerTimeOriginSeconds_;
         }
 
         if (!timeToFirstContactSeconds_ && HasPerceivedContact(playerTracks))
@@ -92,7 +87,7 @@ public:
 
     [[nodiscard]] GameplayPacingMetricsSnapshot Snapshot() const noexcept
     {
-        const double currentNoDecisionIntervalSeconds = initialized_
+        const double currentNoDecisionIntervalSeconds = playerTimeOriginSeconds_
             ? std::max(0.0, playerElapsedSeconds_ - lastDecisionPlayerTimeSeconds_)
             : 0.0;
         return GameplayPacingMetricsSnapshot{
@@ -143,9 +138,8 @@ private:
         return count;
     }
 
-    bool initialized_ = false;
-    double lastSimulationTimeSeconds_ = 0.0;
-    Core::TimeCompressionRate previousEffectiveRate_ = Core::TimeCompressionRate::X1;
+    std::optional<double> playerTimeOriginSeconds_{};
+    std::optional<double> lastPlayerTimeSeconds_{};
     double playerElapsedSeconds_ = 0.0;
     double lastDecisionPlayerTimeSeconds_ = 0.0;
     double longestCompletedNoDecisionIntervalSeconds_ = 0.0;
