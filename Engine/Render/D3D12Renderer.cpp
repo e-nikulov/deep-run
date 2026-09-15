@@ -2140,7 +2140,10 @@ public:
                 parameters.components[4].horizontalSteepness,
                 parameters.components[5].horizontalSteepness,
                 parameters.components[6].horizontalSteepness,
-                static_cast<float>(parameters.activeComponentCount)},
+                // Preserve the 64-DWORD root-signature ceiling: integer part transports active component count;
+                // the fractional half-range transports one normalized generic crest highlight control.
+                static_cast<float>(parameters.activeComponentCount) +
+                    parameters.crestWhiteningStrength * 0.5F},
             // Alpha is not consumed by PSMain. On the mesh path it transports renderer-private procedural data.
             .deepFillColor = {
                 parameters.deepFillRgb[0], parameters.deepFillRgb[1], parameters.deepFillRgb[2],

@@ -63,6 +63,11 @@ std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
     {
         return std::unexpected("Gerstner surface colors must be finite SDR-normalized RGB values");
     }
+    if (!std::isfinite(parameters.crestWhiteningStrength) ||
+        parameters.crestWhiteningStrength < 0.0F || parameters.crestWhiteningStrength > 1.0F)
+    {
+        return std::unexpected("Gerstner crest whitening strength must be finite and normalized");
+    }
 
     const bool legacyContract = parameters.activeComponentCount <= LegacyM3GerstnerWaveComponentCount;
     float combinedVerticalAmplitude = 0.0F;

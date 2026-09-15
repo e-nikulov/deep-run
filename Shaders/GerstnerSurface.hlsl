@@ -26,6 +26,7 @@ struct VSOutput
 {
     float4 position : SV_Position;
     float surfaceWeight : TEXCOORD0;
+    float crestSignal : TEXCOORD1;
 };
 
 float2 EvaluateComponent(const float baseX, const float timeSeconds, const float4 wave, const float steepness)
@@ -33,6 +34,25 @@ float2 EvaluateComponent(const float baseX, const float timeSeconds, const float
     const float waveNumber = 6.28318530718F / wave.y;
     const float theta = waveNumber * baseX - wave.z * timeSeconds + wave.w;
     return float2(steepness * wave.x * cos(theta), wave.x * sin(theta));
+}
+
+float ActiveCombinedAmplitude(const uint activeComponentCount)
+{
+    float amplitude = 0.0F;
+    if (activeComponentCount > 0U) amplitude += Wave0.x;
+    if (activeComponentCount > 1U) amplitude += Wave1.x;
+    if (activeComponentCount > 2U) amplitude += Wave2.x;
+    if (activeComponentCount > 3U) amplitude += Wave3.x;
+    if (activeComponentCount > 4U) amplitude += Wave4.x;
+    if (activeComponentCount > 5U) amplitude += Wave5.x;
+    if (activeComponentCount > 6U) amplitude += Wave6.x;
+    return amplitude;
+}
+
+float CrestSignal(const float verticalDisplacement, const uint activeComponentCount)
+{
+    const float amplitude = max(ActiveCombinedAmplitude(activeComponentCount), 1.0e-4F);
+    return smoothstep(0.30F, 0.82F, verticalDisplacement / amplitude);
 }
 
 float2 EvaluateSurfaceDisplacement(const float baseWorldX, const float timeSeconds, const uint activeComponentCount)
@@ -65,6 +85,7 @@ VSOutput VSMain(const VSInput input)
     VSOutput output;
     output.position = mul(ViewProjection, float4(worldX, worldY, 0.0F, 1.0F));
     output.surfaceWeight = surfaceWeight;
+    output.crestSignal = surfaceWeight > 0.5F ? CrestSignal(displacement.y, activeComponentCount) : 0.0F;
     return output;
 }
 
@@ -103,10 +124,12 @@ void MSMain(
             ViewProjection,
             float4(baseWorldX + displacement.x, ReferenceLevelAndTime.x + displacement.y, 0.0F, 1.0F));
         outputVertices[surfaceVertex].surfaceWeight = 1.0F;
+        outputVertices[surfaceVertex].crestSignal = CrestSignal(displacement.y, activeComponentCount);
         outputVertices[bottomVertex].position = mul(
             ViewProjection,
             float4(baseWorldX, DeepFillColor.w, 0.0F, 1.0F));
         outputVertices[bottomVertex].surfaceWeight = 0.0F;
+        outputVertices[bottomVertex].crestSignal = 0.0F;
     }
 
     if (threadIndex < localCellCount)
@@ -123,5 +146,14 @@ void MSMain(
 float4 PSMain(const VSOutput input) : SV_Target
 {
     const float narrowSurfaceBand = pow(saturate(input.surfaceWeight), 24.0F);
-    return float4(lerp(DeepFillColor.rgb, SurfaceTintColor.rgb, narrowSurfaceBand), 1.0F);
+    float3 color = lerp(DeepFillColor.rgb, SurfaceTintColor.rgb, narrowSurfaceBand);
+
+    // The integer part remains active component count; W1-K.1 packs normalized crest strength into half
+    // of the fractional range. A deterministic sub-pixel breakup avoids a continuous glowing white ribbon.
+    const float crestWhiteningStrength = saturate(frac(HorizontalSteepness1.w) * 2.0F);
+    const float breakup = 0.66F + 0.34F * sin(input.position.x * 0.173F + ReferenceLevelAndTime.y * 2.1F);
+    const float whiten = saturate(input.crestSignal * crestWhiteningStrength * breakup) * narrowSurfaceBand;
+    const float3 crestColor = float3(0.82F, 0.86F, 0.88F);
+    color = lerp(color, crestColor, whiten);
+    return float4(color, 1.0F);
 }

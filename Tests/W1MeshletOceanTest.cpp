@@ -93,6 +93,20 @@ int main()
         return 1;
     }
 
+    GerstnerSurfacePresentationParameters invalidCrest = rough;
+    invalidCrest.crestWhiteningStrength = 1.01F;
+    if (!Require(!ValidateGerstnerSurfacePresentationParameters(invalidCrest).has_value(),
+                 "crest whitening above normalized range must be rejected"))
+    {
+        return 1;
+    }
+    rough.crestWhiteningStrength = 0.82F;
+    if (!Require(ValidateGerstnerSurfacePresentationParameters(rough).has_value(),
+                 "normalized crest whitening must remain a valid renderer-neutral surface snapshot"))
+    {
+        return 1;
+    }
+
     std::cout << "W1-J meshlet ocean regression PASS\n";
     return 0;
 }
