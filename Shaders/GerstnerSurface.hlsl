@@ -5,7 +5,12 @@ cbuffer GerstnerDrawConstants : register(b0)
     float4 Wave0;
     float4 Wave1;
     float4 Wave2;
-    float4 HorizontalSteepness;
+    float4 Wave3;
+    float4 Wave4;
+    float4 Wave5;
+    float4 Wave6;
+    float4 HorizontalSteepness0;
+    float4 HorizontalSteepness1;
     float4 DeepFillColor;
     float4 SurfaceTintColor;
 };
@@ -38,9 +43,13 @@ VSOutput VSMain(const VSInput input)
     float2 displacement = float2(0.0F, 0.0F);
     if (input.surfaceWeight > 0.5F)
     {
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave0, HorizontalSteepness.x);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave1, HorizontalSteepness.y);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave2, HorizontalSteepness.z);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave0, HorizontalSteepness0.x);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave1, HorizontalSteepness0.y);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave2, HorizontalSteepness0.z);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave3, HorizontalSteepness0.w);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave4, HorizontalSteepness1.x);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave5, HorizontalSteepness1.y);
+        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave6, HorizontalSteepness1.z);
     }
 
     const float surfaceWeight = input.surfaceWeight;
