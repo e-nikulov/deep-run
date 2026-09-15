@@ -35,6 +35,10 @@ cbuffer ScenePresentationConstants : register(b1)
     float AtmosphereBoundaryViewportY;
     float PresentationTimeSeconds;
     float CloudPatternOffset;
+    float LightningFlashIntensity;
+    float LightningViewportX;
+    float LightningPatternOffset;
+    float ScenePresentationPadding2;
 };
 
 struct VertexInput
