@@ -6,6 +6,7 @@ on:
       - feature/antey-electronic-intelligence-suite
     paths:
       - Tools/apply_antey_electronics_gameplay_integration.py
+      - Tools/run_antey_electronics_gameplay_integration.py
       - Game/Combat/AnteyElectronicCombatRuntime.h
       - .github/workflows/apply-antey-electronics-gameplay.yml
   workflow_dispatch:
@@ -24,7 +25,7 @@ jobs:
 
       - name: Apply gameplay integration patch
         shell: pwsh
-        run: python Tools/apply_antey_electronics_gameplay_integration.py
+        run: python Tools/run_antey_electronics_gameplay_integration.py
 
       - name: Configure and build focused targets
         shell: pwsh
