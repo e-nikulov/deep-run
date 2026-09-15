@@ -47,8 +47,8 @@ dimensional impact evidence together with authored compartment/structure state.
 
 ## Acceptance
 
-Final accepted head before this documentation-only closure: `88f49ca475dfc6acafc70ef9faaf08973ec81d4a`.
-GitHub Actions run `34985029653` passed in both Debug and Release:
+The production/code acceptance head is `88f49ca475dfc6acafc70ef9faaf08973ec81d4a`. GitHub Actions run
+`34985029653` passed in both Debug and Release:
 
 - configure/build;
 - production asset/source-tree staging gate;
