@@ -262,7 +262,7 @@ namespace M5CombatImpactDetail
     }
     if (!RunM5PlayerControlledCombatChecks(physicsWorld))
     {
-        return fail("M5-J2-B normal-play commander gating and explicit prepare-ready-fire sequence");
+        return fail("M5-J2-B automatic weapon readiness, fire and in-flight selection sequence");
     }
     if (!RunM5PlayerDefensiveDecoyChecks(physicsWorld))
     {

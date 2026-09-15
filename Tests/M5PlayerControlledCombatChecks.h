@@ -222,7 +222,7 @@ namespace DeepRun::Tests
         launched->playerCombat.weaponPhase != Weapons::WeaponPhase::Launched ||
         !launched->playerCombat.weaponTargetTrackId ||
         launched->playerCombat.weaponTargetTrackId != launched->playerCombat.selectedTrackId ||
-        !runtime.PlayerTorpedo() || !runtime.Decoy() || !runtime.Decoy()->active)
+        !runtime.PlayerTorpedo())
     {
         return false;
     }

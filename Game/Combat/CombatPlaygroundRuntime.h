@@ -348,8 +348,7 @@ public:
     {
         std::array<PlayerCombatCommand, 2> commands{};
         std::size_t count = 0U;
-        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit &&
-            playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
+        if (selectedPlayerWeapon_ != Armament::PlayerWeaponType::P700Granit)
         {
             commands[count++] = {.type = PlayerCombatCommandType::NextWeapon};
         }
@@ -366,12 +365,10 @@ public:
             {
                 commands[count++] = {.type = PlayerCombatCommandType::ActiveSonarPing};
             }
-            else if (selected && selected->estimatedPositionMeters.has_value())
+            else if (selected && selected->estimatedPositionMeters.has_value() &&
+                     playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
             {
-                if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
-                    commands[count++] = {.type = PlayerCombatCommandType::PrepareWeapon};
-                else if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
-                    commands[count++] = {.type = PlayerCombatCommandType::FireWeapon};
+                commands[count++] = {.type = PlayerCombatCommandType::FireWeapon};
             }
         }
         return AdvanceImpl(playerSnapshot, std::span<const PlayerCombatCommand>{commands.data(), count}, simulationTimeSeconds, false);
