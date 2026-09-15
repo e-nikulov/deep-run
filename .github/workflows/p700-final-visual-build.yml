@@ -7,13 +7,13 @@ on:
 
 jobs:
   validate:
-    if: github.event.head_commit.message == 'run P-700 final visual Windows validation'
+    if: github.event.head_commit.message == 'run corrected P-700 final visual Windows validation'
     runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v4
       - name: Apply final visual integration in workspace
         shell: pwsh
-        run: python Tools/p700_final_visual_patch_v4.py
+        run: python Tools/p700_final_visual_patch_v5.py
       - name: Configure Release
         shell: pwsh
         run: cmake --preset windows-release
