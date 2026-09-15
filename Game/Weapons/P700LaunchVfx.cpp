@@ -8,6 +8,8 @@
 #include <fstream>
 #include <limits>
 #include <numbers>
+#include <stdexcept>
+#include <utility>
 
 namespace DeepRun::Game::Armament
 {
@@ -129,16 +131,16 @@ std::expected<void, std::string> ValidateP700LaunchVfxTuning(const P700LaunchVfx
         if (!positive(scale) || scale > 1.0F)
             return std::unexpected("P-700 VFX LOD particle scales must be in (0,1]");
     if (t.bubbleMicroCount == 0U || t.bubbleMesoCount == 0U || t.bubbleMacroCount == 0U ||
-        t.underwaterCoreParticleCount == 0U || t.dropletCount == 0U || t.mistCount == 0U ||
-        t.waterSheetCount == 0U || t.foamCount == 0U || t.airborneCoreCount == 0U ||
+        t.underwaterCoreParticleCount == 0U || t.waterCrownCount == 0U || t.dropletCount == 0U ||
+        t.mistCount == 0U || t.waterSheetCount == 0U || t.foamCount == 0U || t.airborneCoreCount == 0U ||
         t.airbornePlumeCount == 0U || t.cruiseExhaustCount == 0U || t.maximumTrackedLaunches < 2U)
         return std::unexpected("P-700 VFX particle counts/tracked-launch capacity must be non-zero");
-    const std::array<float, 21> scalars{
+    const std::array<float, 22> scalars{
         t.bubbleLifetimeSeconds, t.underwaterTrailRadiusMeters, t.underwaterTurbulence,
         t.underwaterCoreLengthMeters, t.underwaterCoreRadiusMeters, t.underwaterEmissiveIntensity,
-        t.breachPreReactionDepthMeters, t.splashRadiusMeters, t.dropletLifetimeSeconds,
-        t.mistLifetimeSeconds, t.mistDensity, t.waterSheetLifetimeSeconds, t.foamLifetimeSeconds,
-        t.foamRadiusMeters, t.airborneCoreLengthMeters, t.airbornePlumeLengthMeters,
+        t.breachPreReactionDepthMeters, t.splashRadiusMeters, t.waterCrownLifetimeSeconds,
+        t.dropletLifetimeSeconds, t.mistLifetimeSeconds, t.mistDensity, t.waterSheetLifetimeSeconds,
+        t.foamLifetimeSeconds, t.foamRadiusMeters, t.airborneCoreLengthMeters, t.airbornePlumeLengthMeters,
         t.airborneEmissiveIntensity, t.airbornePlumeLifetimeSeconds, t.cruiseExhaustLengthMeters,
         t.cruiseExhaustLifetimeSeconds, t.condensationLifetimeSeconds};
     if (std::ranges::any_of(scalars, [&](const float value) { return !positive(value); }))
@@ -184,6 +186,8 @@ std::expected<P700LaunchVfxTuning, std::string> LoadP700LaunchVfxTuning(const st
         ReadIfPresent(root, "underwaterCoreParticleCount", t.underwaterCoreParticleCount);
         ReadIfPresent(root, "breachPreReactionDepthMeters", t.breachPreReactionDepthMeters);
         ReadIfPresent(root, "splashRadiusMeters", t.splashRadiusMeters);
+        ReadIfPresent(root, "waterCrownCount", t.waterCrownCount);
+        ReadIfPresent(root, "waterCrownLifetimeSeconds", t.waterCrownLifetimeSeconds);
         ReadIfPresent(root, "dropletCount", t.dropletCount);
         ReadArrayIfPresent(root, "dropletSizeMeters", t.dropletSizeMeters);
         ReadIfPresent(root, "dropletLifetimeSeconds", t.dropletLifetimeSeconds);
@@ -529,6 +533,23 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
         if (record.hasBreach)
         {
             const float breachAge = static_cast<float>(simulationTimeSeconds - record.breachTimeSeconds);
+            if (breachAge < tuning_.waterCrownLifetimeSeconds)
+            {
+                auto crown = emitterBase(Render::TransientVfxPrimitive::WaterCrown, Render::TransientVfxBlendMode::Alpha,
+                    ScaledCount(tuning_.waterCrownCount, lodScale, salvoScale), breachAge,
+                    tuning_.waterCrownLifetimeSeconds);
+                crown.originWorldMeters = record.breachPosition;
+                crown.directionWorldUnit = record.launchDirection;
+                crown.extentMeters = {tuning_.splashRadiusMeters * 0.78F * weatherSplashScale,
+                                     5.4F * weatherSplashScale,
+                                     tuning_.splashRadiusMeters * 0.52F * weatherSplashScale};
+                crown.minimumSizeMeters = 0.16F;
+                crown.maximumSizeMeters = 0.72F;
+                crown.opacity = 0.72F;
+                crown.turbulence = 4.0F;
+                crown.linearColor = {0.55F, 0.72F, 0.82F};
+                append(crown);
+            }
             if (breachAge < tuning_.dropletLifetimeSeconds)
             {
                 auto droplets = emitterBase(Render::TransientVfxPrimitive::Droplet, Render::TransientVfxBlendMode::Alpha,
@@ -663,7 +684,6 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
         record.initialized = true;
     }
 
-    // Keep old foam/trail state only as long as it can still render; stale launch records never grow without bound.
     const double staleAge = (std::max)(static_cast<double>(tuning_.foamLifetimeSeconds),
                                       static_cast<double>(tuning_.bubbleLifetimeSeconds)) + 2.0;
     std::erase_if(records_, [&](const LaunchRecord& record) {
