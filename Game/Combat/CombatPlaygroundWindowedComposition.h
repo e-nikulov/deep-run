@@ -4,6 +4,7 @@
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Combat/CombatPlaygroundView.h"
 #include "Game/Combat/CombatTimeCompressionPolicy.h"
+#include "Game/Combat/GameplayPacingDebugOverlay.h"
 #include "Game/Combat/GameplayPacingMetrics.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
@@ -185,7 +186,16 @@ public:
         {
             return std::unexpected("M5-H.1 windowed combat runtime is not initialized yet");
         }
-        return view_.RenderWithPresentation(renderer, *runtime_, physicsWorld, camera, simulationTimeSeconds);
+        const auto frame = view_.RenderWithPresentation(renderer, *runtime_, physicsWorld, camera, simulationTimeSeconds);
+        if (!frame)
+        {
+            return std::unexpected(frame.error());
+        }
+
+        // Existing normal-play HUD is still debug presentation. Keep pacing telemetry on that same side of the
+        // gameplay boundary: it is drawn read-only after scene submission and never feeds back into simulation.
+        DrawGameplayPacingDebugOverlay(pacingMetrics_.Snapshot());
+        return *frame;
     }
 
     [[nodiscard]] std::expected<Render::ModelDrawStats, std::string> Render(
