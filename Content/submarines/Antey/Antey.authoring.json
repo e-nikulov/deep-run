@@ -2452,7 +2452,7 @@
         2.060953378677368,
         8.29789779663086
       ],
-      "functionalRole": "PERISCOPE_PRIMARY"
+      "functionalRole": "OTHER_RETRACTABLE"
     },
     {
       "semanticId": "sail.retractable.04",
@@ -2644,7 +2644,7 @@
         2.060953378677368,
         8.29789779663086
       ],
-      "functionalRole": "OTHER_RETRACTABLE"
+      "functionalRole": "PERISCOPE_PRIMARY"
     },
     {
       "semanticId": "sail.retractable.07",
