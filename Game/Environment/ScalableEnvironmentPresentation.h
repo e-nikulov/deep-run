@@ -116,6 +116,12 @@ struct DaySunPresentationStrip final
     Render::RgbaColor color{};
 };
 
+// M5 production day-sky marker. The final continuous sky/sun radiance is reconstructed in the scene-linear
+// output shader so it receives the same SDR/HDR tone/output policy as the rest of SceneColorHDR. RGB is a
+// deliberately uncommon sentinel; alpha transports the authoritative presentation waterline fraction.
+inline constexpr Render::RgbaColor M5ProceduralSkyMarkerColor{
+    0.00390625F, 0.00781250F, 0.01562500F, 1.0F};
+
 [[nodiscard]] inline std::expected<std::vector<DaySkyPresentationBand>, std::string>
 BuildM5DaySkyPresentationBands(const float waterlineViewportY)
 {
@@ -130,31 +136,15 @@ BuildM5DaySkyPresentationBands(const float waterlineViewportY)
         return std::vector<DaySkyPresentationBand>{};
     }
 
-    constexpr std::size_t BandCount = 16U;
-    constexpr Render::RgbaColor ZenithColor{0.050F, 0.155F, 0.360F, 1.0F};
-    constexpr Render::RgbaColor HorizonColor{0.085F, 0.225F, 0.465F, 1.0F};
-    const auto lerp = [](const float first, const float second, const float t) noexcept
-    {
-        return first + (second - first) * t;
-    };
-
-    std::vector<DaySkyPresentationBand> result;
-    result.reserve(BandCount);
-    for (std::size_t index = 0U; index < BandCount; ++index)
-    {
-        const float top = skyBottom * static_cast<float>(index) / static_cast<float>(BandCount);
-        const float bottom = skyBottom * static_cast<float>(index + 1U) / static_cast<float>(BandCount);
-        const float linearT = static_cast<float>(index) / static_cast<float>(BandCount - 1U);
-        const float smoothT = linearT * linearT * (3.0F - 2.0F * linearT);
-        result.push_back(DaySkyPresentationBand{
-            .viewport = {.left = 0.0F, .top = top, .right = 1.0F, .bottom = bottom},
-            .color = {
-                lerp(ZenithColor.r, HorizonColor.r, smoothT),
-                lerp(ZenithColor.g, HorizonColor.g, smoothT),
-                lerp(ZenithColor.b, HorizonColor.b, smoothT),
-                1.0F}});
-    }
-    return result;
+    // One marker clear replaces the former sixteen quantized colour bands. The output shader uses alpha to
+    // recover skyBottom and analytically evaluates a continuous FP16 scene-linear gradient, sun disk and halo.
+    return std::vector<DaySkyPresentationBand>{DaySkyPresentationBand{
+        .viewport = {.left = 0.0F, .top = 0.0F, .right = 1.0F, .bottom = skyBottom},
+        .color = {
+            M5ProceduralSkyMarkerColor.r,
+            M5ProceduralSkyMarkerColor.g,
+            M5ProceduralSkyMarkerColor.b,
+            skyBottom}}};
 }
 
 [[nodiscard]] inline std::expected<std::vector<DaySunPresentationStrip>, std::string>
@@ -165,40 +155,9 @@ BuildM5DaySunPresentationStrips(const float waterlineViewportY, const float aspe
         return std::unexpected("day-sun presentation received invalid framing");
     }
 
-    const float skyBottom = std::clamp(waterlineViewportY, 0.0F, 1.0F);
-    if (skyBottom < 0.04F)
-    {
-        return std::vector<DaySunPresentationStrip>{};
-    }
-
-    constexpr std::array<float, 9> RowWidths{{0.45F, 0.70F, 0.88F, 0.98F, 1.0F, 0.98F, 0.88F, 0.70F, 0.45F}};
-    constexpr Render::RgbaColor SunColor{1.0F, 0.78F, 0.30F, 1.0F};
-    const float diameterY = (std::min)(0.036F, skyBottom * 0.30F);
-    const float diameterX = diameterY / aspectRatio;
-    const float centerX = 0.70F;
-    const float centerY = skyBottom * 0.38F;
-    const float rowHeight = diameterY / static_cast<float>(RowWidths.size());
-
-    std::vector<DaySunPresentationStrip> result;
-    result.reserve(RowWidths.size());
-    for (std::size_t row = 0U; row < RowWidths.size(); ++row)
-    {
-        const float width = diameterX * RowWidths[row];
-        const float top = centerY - 0.5F * diameterY + static_cast<float>(row) * rowHeight;
-        const float bottom = (std::min)(skyBottom, top + rowHeight);
-        if (bottom <= top)
-        {
-            continue;
-        }
-        result.push_back(DaySunPresentationStrip{
-            .viewport = {
-                .left = std::clamp(centerX - 0.5F * width, 0.0F, 1.0F),
-                .top = std::clamp(top, 0.0F, skyBottom),
-                .right = std::clamp(centerX + 0.5F * width, 0.0F, 1.0F),
-                .bottom = std::clamp(bottom, 0.0F, skyBottom)},
-            .color = SunColor});
-    }
-    return result;
+    // Kept as a compatibility boundary for the M5 caller while the old ClearRect sun is retired. A procedural
+    // anti-aliased disk/corona is now evaluated per pixel from the sky marker in ToneMap.hlsl.
+    return std::vector<DaySunPresentationStrip>{};
 }
 
 struct EnvironmentPresentationTile final

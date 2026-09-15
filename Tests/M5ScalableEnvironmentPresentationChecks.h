@@ -96,19 +96,20 @@ namespace DeepRun::Tests
     }
 
     const auto daySky = BuildM5DaySkyPresentationBands(0.32F);
+    const auto strategicDaySky = BuildM5DaySkyPresentationBands(0.40F);
     const auto daySun = BuildM5DaySunPresentationStrips(0.32F, 16.0F / 9.0F);
     const auto noSky = BuildM5DaySkyPresentationBands(0.0F);
     const auto invalidSun = BuildM5DaySunPresentationStrips(0.32F, 0.0F);
-    if (!daySky || daySky->size() != 16U || !daySun || daySun->size() != 9U || !noSky || !noSky->empty() ||
-        invalidSun.has_value() || std::abs(daySky->front().viewport.top) > 0.0001F ||
-        std::abs(daySky->back().viewport.bottom - 0.32F) > 0.0001F ||
-        !(daySky->back().color.r > daySky->front().color.r) || !(daySky->back().color.g > daySky->front().color.g) ||
-        !(daySky->back().color.b > daySky->front().color.b))
+    if (!daySky || daySky->size() != 1U || !strategicDaySky || strategicDaySky->size() != 1U ||
+        !daySun || !daySun->empty() || !noSky || !noSky->empty() || invalidSun.has_value() ||
+        std::abs(daySky->front().viewport.top) > 0.0001F ||
+        std::abs(daySky->front().viewport.bottom - 0.32F) > 0.0001F ||
+        std::abs(daySky->front().color.r - M5ProceduralSkyMarkerColor.r) > 0.0001F ||
+        std::abs(daySky->front().color.g - M5ProceduralSkyMarkerColor.g) > 0.0001F ||
+        std::abs(daySky->front().color.b - M5ProceduralSkyMarkerColor.b) > 0.0001F ||
+        std::abs(daySky->front().color.a - 0.32F) > 0.0001F ||
+        std::abs(strategicDaySky->front().color.a - 0.40F) > 0.0001F)
         return false;
-    for (const auto& strip : *daySun)
-        if (!(strip.viewport.left < strip.viewport.right) || !(strip.viewport.top < strip.viewport.bottom) ||
-            strip.viewport.top < 0.0F || strip.viewport.bottom > 0.32F)
-            return false;
 
     const auto tacticalProfile = BuildM5TacticalBathymetryProfile();
     const auto findPoint = [&tacticalProfile](const float x) -> const StrategicSeabedPresentationPoint*

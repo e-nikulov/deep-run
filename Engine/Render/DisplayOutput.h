@@ -8,6 +8,7 @@ namespace DeepRun::Render
 enum class DisplayOutputMode
 {
     Sdr,
+    Sdr10Bit,
     HdrScRgb,
 };
 
@@ -16,6 +17,7 @@ struct DisplayOutputCapabilities final
     bool output6Available = false;
     bool hdrActive = false;
     bool scRgbPresentSupported = false;
+    bool sdr10BitPresentSupported = false;
     std::uint32_t bitsPerColor = 0;
     float minLuminanceNits = 0.0F;
     float maxLuminanceNits = 0.0F;
@@ -37,25 +39,34 @@ struct DisplayOutputSelection final
     DisplayOutputFallbackReason fallbackReason = DisplayOutputFallbackReason::HdrNotRequested;
 };
 
+[[nodiscard]] constexpr bool IsSdrOutputMode(const DisplayOutputMode mode) noexcept
+{
+    return mode == DisplayOutputMode::Sdr || mode == DisplayOutputMode::Sdr10Bit;
+}
+
 [[nodiscard]] constexpr DisplayOutputSelection SelectDisplayOutputMode(
     const bool hdrRequested,
     const DisplayOutputCapabilities& capabilities) noexcept
 {
+    const DisplayOutputMode sdrMode = capabilities.sdr10BitPresentSupported
+        ? DisplayOutputMode::Sdr10Bit
+        : DisplayOutputMode::Sdr;
+
     if (!hdrRequested)
     {
-        return {.mode = DisplayOutputMode::Sdr, .fallbackReason = DisplayOutputFallbackReason::HdrNotRequested};
+        return {.mode = sdrMode, .fallbackReason = DisplayOutputFallbackReason::HdrNotRequested};
     }
     if (!capabilities.output6Available)
     {
-        return {.mode = DisplayOutputMode::Sdr, .fallbackReason = DisplayOutputFallbackReason::Output6Unavailable};
+        return {.mode = sdrMode, .fallbackReason = DisplayOutputFallbackReason::Output6Unavailable};
     }
     if (!capabilities.hdrActive)
     {
-        return {.mode = DisplayOutputMode::Sdr, .fallbackReason = DisplayOutputFallbackReason::HdrInactive};
+        return {.mode = sdrMode, .fallbackReason = DisplayOutputFallbackReason::HdrInactive};
     }
     if (!capabilities.scRgbPresentSupported)
     {
-        return {.mode = DisplayOutputMode::Sdr,
+        return {.mode = sdrMode,
                 .fallbackReason = DisplayOutputFallbackReason::ScRgbPresentUnsupported};
     }
     return {.mode = DisplayOutputMode::HdrScRgb, .fallbackReason = DisplayOutputFallbackReason::None};
