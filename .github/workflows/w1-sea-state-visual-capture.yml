@@ -17,6 +17,7 @@ on:
       - Game/WaterPresentation.cpp
       - Game/WaterPresentation.h
       - Shaders/GerstnerSurface.hlsl
+      - Tools/patch_w1_i_acceptance_depth.py
 
 permissions:
   contents: read
@@ -27,6 +28,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Apply visual-acceptance start-depth correction
+        run: python Tools/patch_w1_i_acceptance_depth.py
       - name: Configure Release
         run: cmake --preset windows-release
       - name: Build Release
