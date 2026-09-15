@@ -10,8 +10,8 @@ namespace
 constexpr float TwoPi = 6.28318530717958647692F;
 constexpr std::uint32_t MinimumHorizontalSampleCount = 2U;
 constexpr std::uint32_t MaximumHorizontalSampleCount = 513U;
-constexpr float MaximumComponentAmplitudeMeters = 3.0F;
-constexpr float MaximumCombinedVerticalAmplitudeMeters = 4.0F;
+constexpr float MaximumComponentAmplitudeMeters = 4.0F;
+constexpr float MaximumCombinedVerticalAmplitudeMeters = 20.0F;
 constexpr float MaximumConservativeHorizontalSlope = 0.5F;
 
 [[nodiscard]] bool IsFiniteColor(const std::array<float, 3>& color) noexcept
@@ -65,7 +65,8 @@ std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
             return std::unexpected("Gerstner surface component values must be finite");
         }
         if (component.amplitudeMeters <= 0.0F || component.amplitudeMeters > MaximumComponentAmplitudeMeters ||
-            component.wavelengthMeters <= 0.0F || component.angularFrequencyRadiansPerSecond <= 0.0F ||
+            component.wavelengthMeters <= 0.0F ||
+            std::abs(component.angularFrequencyRadiansPerSecond) <= 0.0F ||
             component.horizontalSteepness < 0.0F || component.horizontalSteepness > 1.0F)
         {
             return std::unexpected("Gerstner surface component is outside the restrained presentation range");
