@@ -291,7 +291,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
         1.0F + environment.significantWaveHeightMeters * 0.10F + environment.rainRateMillimetersPerHour * 0.006F,
         1.0F, 2.35F);
 
-    const auto append = [&](Render::TransientVfxEmitter emitter) mutable
+    const auto append = [&](Render::TransientVfxEmitter emitter)
     {
         frame.requestedParticles += emitter.particleCount;
         if (frame.emitters.size() >= Render::TransientVfxMaximumEmittersPerFrame ||
@@ -313,7 +313,7 @@ std::expected<P700LaunchVfxFrame, std::string> P700LaunchVfxSystem::BuildFrame(
     };
 
     const auto addAudio = [&](const P700LaunchAudioEvent event, const LaunchRecord& record,
-                              const Weapons::P700GranitRuntimeState& missile, const bool underwater) mutable
+                              const Weapons::P700GranitRuntimeState& missile, const bool underwater)
     {
         frame.audioHooks.push_back(P700LaunchAudioHook{
             .event = event,

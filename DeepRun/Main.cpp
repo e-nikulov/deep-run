@@ -602,7 +602,7 @@ int main(const int argumentCount, char** argumentValues)
                         : options.smokeTest
                             ? DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters
                             : NormalGameplayLongRangeCombatTargetMeters;
-                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
+                    auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
                         *renderer,
                         engine.Assets(),
                         destroyerInitialXMeters,
@@ -615,7 +615,7 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combat.error() << '\n';
                         return false;
                     }
-                    combatPlayground = *combat;
+                    combatPlayground = std::move(*combat);
                 }
                 return playground.SubmarineModel().IsValid();
             },
