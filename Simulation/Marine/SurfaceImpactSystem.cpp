@@ -18,6 +18,13 @@ bool IsFiniteFraction(const float value) noexcept
     return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
 }
 
+bool IsFiniteSample(const SurfaceImpactPointSample& sample) noexcept
+{
+    return std::isfinite(sample.worldXMeters) && std::isfinite(sample.worldYMeters) &&
+           std::isfinite(sample.worldZMeters) && std::isfinite(sample.signedDepthMeters) &&
+           IsFiniteFraction(sample.submergedFraction);
+}
+
 std::expected<void, SurfaceImpactError> ValidateConfig(const SurfaceImpactConfig& config)
 {
     if (!IsFiniteFraction(config.rearmSubmergedFraction) ||
@@ -45,7 +52,7 @@ std::expected<SurfaceImpactPointAdvance, SurfaceImpactError> SurfaceImpactSystem
     const SurfaceImpactConfig& config,
     const float waterDensityKgPerCubicMeter,
     const std::size_t pointIndex,
-    const BuoyancyPointResult& currentPoint,
+    const SurfaceImpactPointSample& currentPoint,
     const SurfaceImpactPointState& currentState,
     const float fixedDeltaSeconds)
 {
@@ -64,12 +71,11 @@ std::expected<SurfaceImpactPointAdvance, SurfaceImpactError> SurfaceImpactSystem
             SurfaceImpactErrorCode::InvalidInput,
             "surface-impact fixed delta must be finite and strictly positive"));
     }
-    if (!currentPoint.worldPositionMeters.IsFinite() || !std::isfinite(currentPoint.signedDepthMeters) ||
-        !IsFiniteFraction(currentPoint.submergedFraction))
+    if (!IsFiniteSample(currentPoint))
     {
         return std::unexpected(MakeError(
             SurfaceImpactErrorCode::InvalidInput,
-            "surface-impact current buoyancy point must be finite and have a bounded submerged fraction"));
+            "surface-impact point sample must be finite and have a bounded submerged fraction"));
     }
     if (currentState.initialized &&
         (!std::isfinite(currentState.previousSignedDepthMeters) ||
@@ -101,8 +107,8 @@ std::expected<SurfaceImpactPointAdvance, SurfaceImpactError> SurfaceImpactSystem
     if (!currentState.armed || !crossedTriggerFromBelow)
         return result;
 
-    // One upward crossing consumes the armed state even when it is gentle. A new impact cannot occur until the
-    // local hull region has emerged far enough to pass the rearm threshold again.
+    // One re-entry consumes the armed state even when it is gentle. A new impact cannot occur until the local
+    // hull region has emerged far enough to pass the rearm threshold again.
     result.nextState.armed = false;
 
     const double wettingSpeed =
@@ -117,7 +123,8 @@ std::expected<SurfaceImpactPointAdvance, SurfaceImpactError> SurfaceImpactSystem
     if (wettingSpeed < static_cast<double>(config.minimumRelativeWettingSpeedMetersPerSecond))
         return result;
 
-    const double dynamicPressure = 0.5 * static_cast<double>(waterDensityKgPerCubicMeter) * wettingSpeed * wettingSpeed;
+    const double dynamicPressure =
+        0.5 * static_cast<double>(waterDensityKgPerCubicMeter) * wettingSpeed * wettingSpeed;
     const double severity = std::clamp(
         (wettingSpeed - static_cast<double>(config.minimumRelativeWettingSpeedMetersPerSecond)) /
             (static_cast<double>(config.severeRelativeWettingSpeedMetersPerSecond) -
@@ -134,7 +141,9 @@ std::expected<SurfaceImpactPointAdvance, SurfaceImpactError> SurfaceImpactSystem
 
     result.event = SurfaceImpactEvent{
         .pointIndex = pointIndex,
-        .worldPositionMeters = currentPoint.worldPositionMeters,
+        .worldXMeters = currentPoint.worldXMeters,
+        .worldYMeters = currentPoint.worldYMeters,
+        .worldZMeters = currentPoint.worldZMeters,
         .relativeWettingSpeedMetersPerSecond = static_cast<float>(wettingSpeed),
         .dynamicPressurePascals = static_cast<float>(dynamicPressure),
         .severity = static_cast<float>(severity)};
