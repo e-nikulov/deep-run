@@ -172,19 +172,33 @@ private:
 
 // Engine binds this scope only while a gameplay fixed-update hook is executing. Game systems may publish a
 // safety ceiling without storing an Engine pointer or introducing a reverse Engine -> Game dependency. The
-// binding is thread-local and nest-safe; publishing outside a fixed update is rejected.
+// binding is thread-local and nest-safe; publishing outside a fixed update is rejected. `pacingRate` is the
+// effective rate used to create the fixed packet containing this tick; it intentionally remains stable even
+// when gameplay tightens the safety cap during the tick.
 class TimeCompressionSafetyScope final
 {
 public:
-    explicit TimeCompressionSafetyScope(TimeCompressionController& controller) noexcept
-        : previousController_(CurrentController())
+    explicit TimeCompressionSafetyScope(
+        TimeCompressionController& controller,
+        const TimeCompressionRate pacingRate) noexcept
+        : previousController_(CurrentController()),
+          previousPacingRate_(CurrentPacingRate())
     {
         CurrentController() = &controller;
+        CurrentPacingRate() = IsValidTimeCompressionRate(pacingRate)
+            ? std::optional<TimeCompressionRate>{pacingRate}
+            : std::nullopt;
+    }
+
+    explicit TimeCompressionSafetyScope(TimeCompressionController& controller) noexcept
+        : TimeCompressionSafetyScope(controller, controller.EffectiveRate())
+    {
     }
 
     ~TimeCompressionSafetyScope()
     {
         CurrentController() = previousController_;
+        CurrentPacingRate() = previousPacingRate_;
     }
 
     TimeCompressionSafetyScope(const TimeCompressionSafetyScope&) = delete;
@@ -196,16 +210,9 @@ public:
         return controller != nullptr && controller->TightenMaximumRate(rate);
     }
 
-    // Read-only fixed-tick telemetry access. Game code can sample the rate that paced the current authoritative
-    // fixed packet without retaining an Engine/TimeCompressionController pointer or changing simulation state.
-    [[nodiscard]] static std::optional<TimeCompressionRate> EffectiveRate() noexcept
+    [[nodiscard]] static std::optional<TimeCompressionRate> PacingRate() noexcept
     {
-        const TimeCompressionController* controller = CurrentController();
-        if (controller == nullptr)
-        {
-            return std::nullopt;
-        }
-        return controller->EffectiveRate();
+        return CurrentPacingRate();
     }
 
 private:
@@ -215,7 +222,14 @@ private:
         return controller;
     }
 
+    [[nodiscard]] static std::optional<TimeCompressionRate>& CurrentPacingRate() noexcept
+    {
+        static thread_local std::optional<TimeCompressionRate> pacingRate{};
+        return pacingRate;
+    }
+
     TimeCompressionController* previousController_ = nullptr;
+    std::optional<TimeCompressionRate> previousPacingRate_{};
 };
 
 [[nodiscard]] inline bool PublishTimeCompressionSafetyCap(const TimeCompressionRate rate) noexcept
@@ -223,9 +237,9 @@ private:
     return TimeCompressionSafetyScope::PublishMaximumRate(rate);
 }
 
-[[nodiscard]] inline std::optional<TimeCompressionRate> CurrentTimeCompressionEffectiveRate() noexcept
+[[nodiscard]] inline std::optional<TimeCompressionRate> CurrentFixedTickPacingRate() noexcept
 {
-    return TimeCompressionSafetyScope::EffectiveRate();
+    return TimeCompressionSafetyScope::PacingRate();
 }
 
 static_assert(TimeCompressionMultiplier(TimeCompressionRate::X1) == 1.0);
