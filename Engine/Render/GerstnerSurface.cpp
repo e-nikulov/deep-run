@@ -1,5 +1,6 @@
 #include "Engine/Render/GerstnerSurface.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -154,6 +155,84 @@ std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseM
         result.indices.insert(result.indices.end(), {upperLeft, lowerLeft, upperRight, upperRight, lowerLeft, lowerRight});
     }
     return result;
+}
+
+std::expected<GerstnerMeshletDispatchPlan, std::string> BuildGerstnerMeshletDispatchPlan(
+    const GerstnerSurfacePresentationParameters& parameters,
+    const float cameraHorizontalSpanMeters,
+    const std::uint32_t viewportWidthPixels)
+{
+    if (const auto valid = ValidateGerstnerSurfacePresentationParameters(parameters); !valid)
+    {
+        return std::unexpected(valid.error());
+    }
+    if (!std::isfinite(cameraHorizontalSpanMeters) || cameraHorizontalSpanMeters <= 0.0F || viewportWidthPixels == 0U)
+    {
+        return std::unexpected("Gerstner meshlet dispatch requires a finite positive camera span and viewport width");
+    }
+
+    float combinedAmplitudeMeters = 0.0F;
+    for (std::size_t index = 0U; index < parameters.activeComponentCount; ++index)
+    {
+        combinedAmplitudeMeters += parameters.components[index].amplitudeMeters;
+    }
+
+    float targetPixelsPerCell = 1.25F;
+    if (combinedAmplitudeMeters >= 2.0F)
+    {
+        targetPixelsPerCell = 0.625F;
+    }
+    else if (combinedAmplitudeMeters >= 1.0F)
+    {
+        targetPixelsPerCell = 0.8F;
+    }
+    else if (combinedAmplitudeMeters >= 0.35F)
+    {
+        targetPixelsPerCell = 1.0F;
+    }
+
+    std::uint32_t requiredCells = GerstnerMeshletMinimumCellCount;
+    if (parameters.activeComponentCount > 0U)
+    {
+        const double screenRequired = std::ceil(
+            static_cast<double>(viewportWidthPixels) / static_cast<double>(targetPixelsPerCell));
+        requiredCells = static_cast<std::uint32_t>((std::min)(
+            screenRequired, static_cast<double>(GerstnerMeshletMaximumCellCount)));
+
+        const double pixelsPerMeter =
+            static_cast<double>(viewportWidthPixels) / static_cast<double>(cameraHorizontalSpanMeters);
+        for (std::size_t index = 0U; index < parameters.activeComponentCount; ++index)
+        {
+            const GerstnerWaveComponent& component = parameters.components[index];
+            const double projectedAmplitudePixels = static_cast<double>(component.amplitudeMeters) * pixelsPerMeter;
+            if (projectedAmplitudePixels < 0.25)
+            {
+                continue;
+            }
+            const double spectralRequired = std::ceil(
+                static_cast<double>(cameraHorizontalSpanMeters) /
+                static_cast<double>(component.wavelengthMeters) *
+                static_cast<double>(GerstnerMeshletVisibleSamplesPerWavelength));
+            const std::uint32_t boundedSpectralRequired = static_cast<std::uint32_t>((std::min)(
+                spectralRequired, static_cast<double>(GerstnerMeshletMaximumCellCount)));
+            requiredCells = (std::max)(requiredCells, boundedSpectralRequired);
+        }
+    }
+
+    const std::uint32_t cellCount = std::clamp(
+        requiredCells, GerstnerMeshletMinimumCellCount, GerstnerMeshletMaximumCellCount);
+    const std::uint32_t meshletCount =
+        (cellCount + GerstnerMeshletCellCapacity - 1U) / GerstnerMeshletCellCapacity;
+
+    // Adjacent meshlets intentionally duplicate their shared boundary sample. This avoids cross-meshlet
+    // index dependencies while keeping each workgroup bounded to 64 output vertices / 62 triangles.
+    const std::uint32_t emittedVertexCount = 2U * (cellCount + meshletCount);
+    const std::uint32_t emittedPrimitiveCount = 2U * cellCount;
+    return GerstnerMeshletDispatchPlan{
+        .cellCount = cellCount,
+        .meshletCount = meshletCount,
+        .emittedVertexCount = emittedVertexCount,
+        .emittedPrimitiveCount = emittedPrimitiveCount};
 }
 
 std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
