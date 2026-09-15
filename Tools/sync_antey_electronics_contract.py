@@ -11,6 +11,7 @@ AUTHORING_PATHS = (
     CONTENT_DIR / "Antey.authoring.json",
     ENGINE_DIR / "Antey.authoring.json",
 )
+PERISCOPE_DOC_PATH = ROOT / "docs/development/periscope-ballast-gameplay.md"
 
 PRIMARY_PERISCOPE_SYSTEM = "PZNS10S_ATTACK_PERISCOPE"
 SECONDARY_PERISCOPE_SYSTEM = "SIGNAL3_NAV_PERISCOPE"
@@ -79,10 +80,43 @@ def sync_authoring(path: Path, node_roles: dict[str, list[str]]) -> None:
 
     if primary_count != 1:
         raise RuntimeError(f"{path}: exactly one PZNS-10S primary periscope binding is required")
-    if secondary_count > 1:
-        raise RuntimeError(f"{path}: at most one SIGNAL-3 secondary periscope binding is allowed")
+    if secondary_count != 1:
+        raise RuntimeError(f"{path}: exactly one SIGNAL-3 secondary periscope binding is required")
 
     write_json(path, payload)
+
+
+def system_node(contract: dict, system_id: str) -> str:
+    for system in contract["systems"]:
+        if system.get("systemId") == system_id:
+            node = system.get("nodeReference")
+            if not isinstance(node, str) or not node:
+                raise RuntimeError(f"{system_id} must have a confirmed production node binding")
+            return node
+    raise RuntimeError(f"Antey electronics contract is missing system {system_id}")
+
+
+def private_sail_device_name(node_reference: str) -> str:
+    prefix = "SM_Antey_LOD0_"
+    return node_reference[len(prefix):] if node_reference.startswith(prefix) else node_reference
+
+
+def sync_periscope_doc(contract: dict) -> None:
+    primary = private_sail_device_name(system_node(contract, PRIMARY_PERISCOPE_SYSTEM))
+    secondary = private_sail_device_name(system_node(contract, SECONDARY_PERISCOPE_SYSTEM))
+    lines = PERISCOPE_DOC_PATH.read_text(encoding="utf-8").splitlines()
+    matches = [index for index, line in enumerate(lines) if line.startswith("Direct production-GLB inspection") or line.startswith("Production authoring mapping now binds")]
+    if len(matches) != 1:
+        raise RuntimeError(f"{PERISCOPE_DOC_PATH}: expected exactly one periscope mapping paragraph, found {len(matches)}")
+    lines[matches[0]] = (
+        f"Production authoring mapping now binds private node `{primary}` to the PZNS-10S gameplay primary/attack periscope "
+        f"and private node `{secondary}` to the SIGNAL-3 navigation/secondary periscope. Those node names do not cross "
+        "into normal runtime: generated sidecars publish `PERISCOPE_PRIMARY` / `PERISCOPE_SECONDARY` plus semantic "
+        "electronic `systemRoles`; gameplay resolves PZNS-10S as the primary combat optic while SIGNAL-3 is driven "
+        "through the electronic-suite mast presentation. No exact classified optics performance is asserted. Both masts "
+        "use their authored stowed/deployed transforms; deployment timing remains GAME POLICY."
+    )
+    PERISCOPE_DOC_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -90,6 +124,7 @@ def main() -> None:
     node_roles = build_node_roles(contract)
     for path in AUTHORING_PATHS:
         sync_authoring(path, node_roles)
+    sync_periscope_doc(contract)
 
     content_payload = load_json(AUTHORING_PATHS[0])
     engine_payload = load_json(AUTHORING_PATHS[1])
