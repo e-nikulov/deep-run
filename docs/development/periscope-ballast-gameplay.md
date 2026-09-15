@@ -95,7 +95,7 @@ Normal-play bindings:
 
 - `P / D-pad Up` — raise or stow the production primary periscope;
 
-Direct production-GLB inspection plus the public Project 949A retractable-device arrangement identifies private authoring node `SailDevice_10` as the PZNS-10S gameplay primary periscope; the SIGNAL-3 node remains intentionally unbound until explicitly confirmed. Those node names do not cross into normal runtime: generated sidecars publish `PERISCOPE_PRIMARY` / `PERISCOPE_SECONDARY`, the production loader requires exactly one of each, and gameplay resolves the primary mast by semantic role. No disputed exact historical optics-model designation is asserted. The primary mast uses the already-authored stowed/deployed transforms and a 2.5 s GAME-POLICY animation.
+Production authoring mapping now binds private node `SailDevice_10` to the PZNS-10S gameplay primary/attack periscope and private node `SailDevice_11` to the SIGNAL-3 navigation/secondary periscope. Those node names do not cross into normal runtime: generated sidecars publish `PERISCOPE_PRIMARY` / `PERISCOPE_SECONDARY` plus semantic electronic `systemRoles`; gameplay resolves PZNS-10S as the primary combat optic while SIGNAL-3 is driven through the electronic-suite mast presentation. No exact classified optics performance is asserted. Both masts use their authored stowed/deployed transforms; deployment timing remains GAME POLICY.
 - `V / A` — attempt visual identification of the selected perceived Track.
 
 ### Staged optical observation
