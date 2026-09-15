@@ -81,7 +81,8 @@ namespace DeepRun::Tests
     if (!rainNoise || rainNoise->ambientNoiseLevelDb.levelDb[0] != baseline.levelDb[0] ||
         rainNoise->ambientNoiseLevelDb.levelDb[1] != baseline.levelDb[1] ||
         !(rainNoise->ambientNoiseLevelDb.levelDb[2] > baseline.levelDb[2]) ||
-        !(rainNoise->ambientNoiseLevelDb.levelDb[3] > rainNoise->ambientNoiseLevelDb.levelDb[2]) ||
+        !((rainNoise->ambientNoiseLevelDb.levelDb[3] - baseline.levelDb[3]) >
+          (rainNoise->ambientNoiseLevelDb.levelDb[2] - baseline.levelDb[2])) ||
         rainEnvironment.optical.meteorologicalVisibilityMeters != 900.0F ||
         !(rainEnvironment.optical.ambientLightFraction < 1.0F) ||
         !(rainEnvironment.optical.seaStateObscurationFraction > 0.0F) ||
