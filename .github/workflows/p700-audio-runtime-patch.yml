@@ -1,0 +1,29 @@
+name: P700 launch audio runtime patch
+
+on:
+  push:
+    branches:
+      - feature/p700-signature-launch-vfx
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'stage P-700 launch audio runtime integration'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/p700-signature-launch-vfx
+      - name: Apply P-700 audio runtime integration
+        run: python Tools/p700_audio_runtime_patch.py
+      - name: Commit patch and remove one-shot helpers
+        shell: bash
+        run: |
+          git rm .github/workflows/p700-audio-runtime-patch.yml Tools/p700_audio_runtime_patch.py
+          git add Engine/Core/Engine.h Engine/Core/Engine.cpp Game/Weapons/P700LaunchAudioPresentation.h Game/Weapons/P700SurfacePresentation.h DeepRun/Main.cpp Tests/P700LaunchVfxTest.cpp
+          git config user.name "Evgeniy N."
+          git config user.email "gnikulov@gmail.com"
+          git commit -m "audio: wire P-700 launch events to miniaudio"
+          git push origin HEAD:feature/p700-signature-launch-vfx
