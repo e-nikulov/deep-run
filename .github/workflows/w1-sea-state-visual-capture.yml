@@ -9,6 +9,8 @@ on:
       - DeepRun/Main.cpp
       - Game/PhysicalPlayground.cpp
       - Game/PhysicalPlayground.h
+      - Engine/Render/GerstnerSurface.cpp
+      - Engine/Render/GerstnerSurface.h
       - Simulation/Environment/WeatherSeaState.h
       - Simulation/Marine/ProductionOceanSpectrum.h
       - Simulation/Marine/WaterBody.h
