@@ -19,6 +19,8 @@
 
   "breachPreReactionDepthMeters": 6.5,
   "splashRadiusMeters": 8.5,
+  "waterCrownCount": 84,
+  "waterCrownLifetimeSeconds": 1.45,
   "dropletCount": 220,
   "dropletSizeMeters": [0.035, 0.18],
   "dropletLifetimeSeconds": 2.2,
