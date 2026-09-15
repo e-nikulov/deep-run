@@ -1,5 +1,6 @@
 #include "Simulation/Marine/WaterBody.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -9,11 +10,10 @@ namespace DeepRun::Marine
 {
 namespace
 {
-// The flat water surface is horizontal with its outward normal along +Y (DeepRun world: +X right, +Y up,
-// +Z toward camera). Water occupies the half-space y < surfaceLevelY.
 constexpr Physics::PhysicsVector3 kSurfaceNormal = {0.0F, 1.0F, 0.0F};
-constexpr float MaximumWaveComponentAmplitudeMeters = 4.0F;
-constexpr double MaximumCombinedVerticalAmplitudeMeters = 20.0;
+constexpr float MaximumWaveComponentAmplitudeMeters = 3.0F;
+constexpr double LegacyMaximumCombinedVerticalAmplitudeMeters = 4.0;
+constexpr double ProductionMaximumCombinedVerticalAmplitudeMeters = 20.0;
 constexpr double MaximumConservativeHorizontalSlope = 0.5;
 
 WaterBodyError MakeConfigError(const std::string& message)
@@ -35,15 +35,25 @@ std::expected<WaterBody, WaterBodyError> WaterBody::Create(const WaterBodyConfig
     }
     if (config.waves)
     {
+        const std::size_t activeCount = config.waves->activeComponentCount;
+        if (activeCount == 0U || activeCount > config.waves->components.size())
+        {
+            return std::unexpected(MakeConfigError("wave active component count is outside the bounded range"));
+        }
+
+        const bool legacyContract = activeCount <= LegacyM3WaterWaveComponentCount;
         double amplitude = 0.0;
         double slope = 0.0;
-        for (const auto& wave : config.waves->components)
+        for (std::size_t index = 0U; index < activeCount; ++index)
         {
+            const auto& wave = config.waves->components[index];
+            const bool validFrequency = legacyContract
+                ? wave.angularFrequencyRadiansPerSecond > 0.0F
+                : std::abs(wave.angularFrequencyRadiansPerSecond) > 0.0F;
             if (!std::isfinite(wave.amplitudeMeters) || wave.amplitudeMeters <= 0.0F ||
                 wave.amplitudeMeters > MaximumWaveComponentAmplitudeMeters ||
                 !std::isfinite(wave.wavelengthMeters) || wave.wavelengthMeters <= 0.0F ||
-                !std::isfinite(wave.angularFrequencyRadiansPerSecond) ||
-                std::abs(wave.angularFrequencyRadiansPerSecond) <= 0.0F ||
+                !std::isfinite(wave.angularFrequencyRadiansPerSecond) || !validFrequency ||
                 !std::isfinite(wave.phaseOffsetRadians) || !std::isfinite(wave.horizontalSteepness) ||
                 wave.horizontalSteepness < 0.0F || wave.horizontalSteepness > 1.0F)
             {
@@ -53,7 +63,10 @@ std::expected<WaterBody, WaterBodyError> WaterBody::Create(const WaterBodyConfig
             slope += static_cast<double>(wave.horizontalSteepness) * wave.amplitudeMeters *
                      (2.0 * std::numbers::pi / wave.wavelengthMeters);
         }
-        if (amplitude > MaximumCombinedVerticalAmplitudeMeters || !std::isfinite(slope) ||
+        const double maximumCombinedAmplitude = legacyContract
+            ? LegacyMaximumCombinedVerticalAmplitudeMeters
+            : ProductionMaximumCombinedVerticalAmplitudeMeters;
+        if (amplitude > maximumCombinedAmplitude || !std::isfinite(slope) ||
             slope >= MaximumConservativeHorizontalSlope)
         {
             return std::unexpected(MakeConfigError("wave amplitude or non-folding bound exceeded"));
@@ -80,18 +93,19 @@ std::expected<WaterSurfaceSample, WaterBodyError> WaterBody::SampleWaveSurface(
         return Sample(position);
     }
 
-    // Fixed work, no query allocations. Non-folding gives dX/du > 0.5 and a unique root. W1-B signed angular
-    // frequency changes only projected travel direction; the spatial inversion remains monotonic.
+    const std::size_t activeCount = config_.waves->activeComponentCount;
     double horizontalBound = 0.0;
-    for (const auto& wave : config_.waves->components)
+    for (std::size_t index = 0U; index < activeCount; ++index)
     {
+        const auto& wave = config_.waves->components[index];
         horizontalBound += static_cast<double>(wave.horizontalSteepness) * wave.amplitudeMeters;
     }
     const auto evaluate = [&](const double u)
     {
-        std::array<double, 4> result{u, config_.surfaceLevelY, 1.0, 0.0}; // X,Y,dX,dY
-        for (const auto& wave : config_.waves->components)
+        std::array<double, 4> result{u, config_.surfaceLevelY, 1.0, 0.0};
+        for (std::size_t index = 0U; index < activeCount; ++index)
         {
+            const auto& wave = config_.waves->components[index];
             const double k = 2.0 * std::numbers::pi / wave.wavelengthMeters;
             const double theta = k * u - static_cast<double>(wave.angularFrequencyRadiansPerSecond) * simulationTimeSeconds +
                                  wave.phaseOffsetRadians;
@@ -154,8 +168,6 @@ std::expected<WaterSurfaceSample, WaterBodyError> WaterBody::Sample(
             WaterBodyErrorCode::InvalidQueryPosition, "world position must be finite"});
     }
 
-    // The single canonical depth definition for this water body. Every other derived value (IsUnderwater,
-    // submersion depth) must come from this expression — never a duplicated calculation.
     const float signedDepthMeters = config_.surfaceLevelY - worldPosition.y;
 
     return WaterSurfaceSample{
