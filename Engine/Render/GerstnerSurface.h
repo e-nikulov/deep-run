@@ -11,6 +11,8 @@ namespace DeepRun::Render
 {
 inline constexpr std::size_t GerstnerWaveComponentCapacity = 7U;
 inline constexpr std::size_t LegacyM3GerstnerWaveComponentCount = 3U;
+// W1-J immutable presentation LODs. The renderer prebuilds them once and only switches buffers per draw;
+// wave authority and phase remain unchanged and no per-frame mesh generation is introduced.
 inline constexpr std::array<std::uint32_t, 4> GerstnerSurfaceHorizontalSampleLods{513U, 1025U, 2049U, 4097U};
 inline constexpr std::uint32_t GerstnerSurfaceMaximumHorizontalSampleCount =
     GerstnerSurfaceHorizontalSampleLods.back();
