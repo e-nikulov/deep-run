@@ -27,6 +27,10 @@ struct ScenePresentationParameters final
     float cloudAdvection = 0.0F;
     float atmosphereBoundaryViewportY = 0.0F;
     float cloudPatternOffset = 0.0F;
+    // W1-G optical-only lightning parameters. Thunder timing remains a Game semantic cue and does not enter Render.
+    float lightningFlashIntensity = 0.0F;
+    float lightningViewportX = 0.5F;
+    float lightningPatternOffset = 0.0F;
 };
 
 struct ViewPathFogSample final
