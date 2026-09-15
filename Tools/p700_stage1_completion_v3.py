@@ -5,11 +5,16 @@ exec(compile(source, "p700_stage1_completion_v3_base", "exec"))
 
 path = Path("DeepRun/Main.cpp")
 text = path.read_text(encoding="utf-8")
-old_move = '''                        combatPlayground = *combat;\n                    }\n                    combatPlayground = std::move(*combat);'''
-new_move = '''                        combatPlayground = std::move(*combat);\n                    }'''
+old_move = '''                        const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(\n'''
+new_move = '''                        auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(\n'''
 if text.count(old_move) != 1:
-    raise SystemExit(f"merged combat ownership anchor count={text.count(old_move)}")
+    raise SystemExit(f"move-only combat create anchor count={text.count(old_move)}")
 text = text.replace(old_move, new_move, 1)
+old_assignment = '''                        combatPlayground = *combat;\n                    }\n                    combatPlayground = std::move(*combat);'''
+new_assignment = '''                        combatPlayground = std::move(*combat);\n                    }'''
+if text.count(old_assignment) != 1:
+    raise SystemExit(f"merged combat ownership anchor count={text.count(old_assignment)}")
+text = text.replace(old_assignment, new_assignment, 1)
 old_capture = '''             &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,\n             &loggedCombatRuntime, &loggedCombatImpact](const float fixedDeltaSeconds)'''
 new_capture = '''             &loggedHapticSubmissionFailure, &loggedFirstAcousticObservation, &loggedConfirmedAcousticTrack,\n             &loggedCombatRuntime, &loggedCombatImpact, &p700ShowcaseProfile](const float fixedDeltaSeconds)'''
 if text.count(old_capture) != 1:
