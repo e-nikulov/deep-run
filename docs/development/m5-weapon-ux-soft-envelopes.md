@@ -22,8 +22,7 @@ Deep Run permits P-700 launch only from a submerged Antey. The current gameplay 
 
 ## Regression coverage
 
-M5 player-controlled combat checks cover automatic initial preparation, fire after readiness, and changing the selected weapon while a previously launched torpedo remains in flight. P-700 acceptance automation follows the same contract and no longer depends on a manual preparation command. The legacy automated M5 combat composition remains a deterministic one-shot acceptance scenario, so automatic re-arm after its resolved test round cannot trigger an unintended second player launch.
-
+M5 player-controlled combat checks cover automatic initial preparation, fire after readiness, and changing the selected weapon while a previously launched torpedo remains in flight. P-700 acceptance automation follows the same contract and no longer depends on a manual preparation command. The P-700 production acceptance path deliberately uses Pair mode so one paired hatch group, both wet-launch preparation paths, cooperative guidance and the two-round launcher consumption contract are exercised in one deterministic smoke scenario. The legacy automated M5 combat composition remains a deterministic one-shot acceptance scenario, so automatic re-arm after its resolved test round cannot trigger an unintended second player launch.
 
 ## Launcher-cycle resource contract
 
