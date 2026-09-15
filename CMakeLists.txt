@@ -25,6 +25,8 @@ set(DEEPRUN_MODEL_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ModelVS.cso")
 set(DEEPRUN_MODEL_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ModelPS.cso")
 set(DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/SuspendedParticlesVS.cso")
 set(DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/SuspendedParticlesPS.cso")
+set(DEEPRUN_TRANSIENT_VFX_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/TransientVfxVS.cso")
+set(DEEPRUN_TRANSIENT_VFX_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/TransientVfxPS.cso")
 set(DEEPRUN_GERSTNER_SURFACE_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/GerstnerSurfaceVS.cso")
 set(DEEPRUN_GERSTNER_SURFACE_PIXEL_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/GerstnerSurfacePS.cso")
 set(DEEPRUN_TONE_MAP_VERTEX_SHADER "${DEEPRUN_COMPILED_SHADER_DIR}/ToneMapVS.cso")
@@ -65,6 +67,24 @@ add_custom_command(
         -T ps_6_0 -E PSMain -Fo "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/UnderwaterParticles.hlsl"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/UnderwaterParticles.hlsl"
+    VERBATIM
+)
+add_custom_command(
+    OUTPUT "${DEEPRUN_TRANSIENT_VFX_VERTEX_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPRUN_COMPILED_SHADER_DIR}"
+    COMMAND "${DEEPRUN_DXC_EXECUTABLE}"
+        -T vs_6_0 -E VSMain -Fo "${DEEPRUN_TRANSIENT_VFX_VERTEX_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/TransientVfx.hlsl"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/TransientVfx.hlsl"
+    VERBATIM
+)
+add_custom_command(
+    OUTPUT "${DEEPRUN_TRANSIENT_VFX_PIXEL_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DEEPRUN_COMPILED_SHADER_DIR}"
+    COMMAND "${DEEPRUN_DXC_EXECUTABLE}"
+        -T ps_6_0 -E PSMain -Fo "${DEEPRUN_TRANSIENT_VFX_PIXEL_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/TransientVfx.hlsl"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Particles/TransientVfx.hlsl"
     VERBATIM
 )
 add_custom_command(
@@ -127,6 +147,8 @@ add_custom_target(DeepRunShaders ALL
         "${DEEPRUN_MODEL_PIXEL_SHADER}"
         "${DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER}"
         "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
+        "${DEEPRUN_TRANSIENT_VFX_VERTEX_SHADER}"
+        "${DEEPRUN_TRANSIENT_VFX_PIXEL_SHADER}"
         "${DEEPRUN_GERSTNER_SURFACE_VERTEX_SHADER}"
         "${DEEPRUN_GERSTNER_SURFACE_PIXEL_SHADER}"
         "${DEEPRUN_TONE_MAP_VERTEX_SHADER}"
@@ -215,6 +237,7 @@ add_library(DeepRunEngine STATIC
     Engine/Render/DepthLighting.cpp
     Engine/Render/GerstnerSurface.cpp
     Engine/Render/SuspendedParticles.cpp
+    Engine/Render/TransientVfx.cpp
     Engine/Render/ViewPathFog.cpp
     Engine/Scene/Scene.cpp
     Simulation/Acoustics/AcousticWorld.cpp
@@ -264,6 +287,7 @@ add_executable(DeepRun
     Game/PhysicsRenderSync.cpp
     Game/PropulsionPresentation.cpp
     Game/Submarine/ProductionAnteyAsset.cpp
+    Game/Weapons/P700LaunchVfx.cpp
     Game/Weapons/ProductionP700Asset.cpp
     Game/SurfaceFloatModel.cpp
     Game/Submarine/VesselCommandState.cpp
@@ -279,6 +303,9 @@ add_custom_target(DeepRunConfig ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/Config/engine.json"
         "$<TARGET_FILE_DIR:DeepRun>/Config/engine.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Config/p700_vfx.json"
+        "$<TARGET_FILE_DIR:DeepRun>/Config/p700_vfx.json"
 )
 add_dependencies(DeepRun DeepRunConfig)
 add_dependencies(DeepRun DeepRunShaders)
@@ -312,6 +339,8 @@ add_custom_command(TARGET DeepRun POST_BUILD
         "${DEEPRUN_MODEL_PIXEL_SHADER}"
         "${DEEPRUN_SUSPENDED_PARTICLE_VERTEX_SHADER}"
         "${DEEPRUN_SUSPENDED_PARTICLE_PIXEL_SHADER}"
+        "${DEEPRUN_TRANSIENT_VFX_VERTEX_SHADER}"
+        "${DEEPRUN_TRANSIENT_VFX_PIXEL_SHADER}"
         "${DEEPRUN_GERSTNER_SURFACE_VERTEX_SHADER}"
         "${DEEPRUN_GERSTNER_SURFACE_PIXEL_SHADER}"
         "${DEEPRUN_TONE_MAP_VERTEX_SHADER}"
@@ -498,5 +527,21 @@ target_compile_definitions(DeepRunP700LauncherInventoryTests PRIVATE
 deeprun_set_project_warnings(DeepRunP700LauncherInventoryTests)
 target_link_libraries(DeepRunP700LauncherInventoryTests PRIVATE DeepRunEngine)
 add_test(NAME DeepRunP700LauncherInventoryTests COMMAND DeepRunP700LauncherInventoryTests)
+
+# P-700 signature launch presentation is headless-testable up to the renderer boundary. These checks exercise
+# lifecycle-driven emitters, deterministic showcase profiles, audio hooks, LOD and 1/2/6/24 salvo budgets.
+add_executable(DeepRunP700LaunchVfxTests
+    Tests/P700LaunchVfxTest.cpp
+    Game/Weapons/P700LaunchVfx.cpp
+)
+target_compile_features(DeepRunP700LaunchVfxTests PRIVATE cxx_std_23)
+target_compile_definitions(DeepRunP700LaunchVfxTests PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    DEEPRUN_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+deeprun_set_project_warnings(DeepRunP700LaunchVfxTests)
+target_link_libraries(DeepRunP700LaunchVfxTests PRIVATE DeepRunEngine nlohmann_json::nlohmann_json)
+add_test(NAME DeepRunP700LaunchVfxTests COMMAND DeepRunP700LaunchVfxTests)
 
 set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT DeepRun)

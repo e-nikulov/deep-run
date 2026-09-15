@@ -221,6 +221,8 @@ public:
         }
 
         timer.Tick();
+        if (audio != nullptr)
+            audio->Update();
 
         // Age only effects inherited from the previous application frame. Current fixed ticks run below and
         // may replace/refresh effects at their full requested lifetime before this frame's backend output.
@@ -643,6 +645,13 @@ const Input::InputState* Engine::InputState() const noexcept
 std::expected<void, std::string> Engine::SubmitHapticEffect(const Input::HapticEffectRequest& request)
 {
     return impl_->hapticMixer.Submit(request);
+}
+
+std::expected<void, std::string> Engine::SubmitAudioOneShot(const Audio::ProceduralNoiseOneShotRequest& request)
+{
+    if (impl_->audio == nullptr || !impl_->audioReady)
+        return std::unexpected("audio playback device is unavailable");
+    return impl_->audio->SubmitProceduralOneShot(request);
 }
 
 int Engine::ExitCode() const noexcept

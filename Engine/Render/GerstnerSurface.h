@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,21 @@ struct GerstnerSurfaceDrawStats final
     std::uint32_t indexCount = 0U;
     std::uint32_t drawCalls = 0U;
 };
+
+inline constexpr std::size_t GerstnerSurfaceTransientDisturbanceCapacity = 3U;
+
+// Generic presentation-only compact height disturbance. The renderer assigns no scene meaning to the source.
+// Game supplies at most three bounded impulses and remains the sole owner of any semantic interpretation.
+struct GerstnerSurfaceTransientDisturbance final
+{
+    float centerX = 0.0F;
+    float radiusMeters = 0.0F;
+    float verticalAmplitudeMeters = 0.0F;
+    float profileExponent = 2.0F;
+};
+
+[[nodiscard]] std::expected<void, std::string> ValidateGerstnerSurfaceTransientDisturbances(
+    std::span<const GerstnerSurfaceTransientDisturbance> disturbances);
 
 [[nodiscard]] std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
     const GerstnerSurfacePresentationParameters& parameters);

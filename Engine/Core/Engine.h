@@ -9,6 +9,11 @@
 #include <memory>
 #include <string>
 
+namespace DeepRun::Audio
+{
+struct ProceduralNoiseOneShotRequest;
+}
+
 namespace DeepRun::Assets
 {
 class AssetManager;
@@ -113,6 +118,11 @@ public:
     // semantic event meaning remains entirely above this boundary in Game.
     [[nodiscard]] std::expected<void, std::string> SubmitHapticEffect(
         const Input::HapticEffectRequest& request);
+
+    // Generic presentation-only audio submission. Game owns semantic event meaning and maps it into the
+    // renderer/audio-neutral synthesis request before crossing this boundary.
+    [[nodiscard]] std::expected<void, std::string> SubmitAudioOneShot(
+        const Audio::ProceduralNoiseOneShotRequest& request);
 
     [[nodiscard]] int ExitCode() const noexcept;
 

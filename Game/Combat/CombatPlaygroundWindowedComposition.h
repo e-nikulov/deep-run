@@ -238,6 +238,13 @@ public:
         return pacingMetrics_.Snapshot();
     }
 
+    [[nodiscard]] std::expected<std::vector<Render::GerstnerSurfaceTransientDisturbance>, std::string>
+    BuildP700SurfaceDisturbances(const double simulationTimeSeconds) const
+    {
+        if (!runtime_.has_value()) return std::vector<Render::GerstnerSurfaceTransientDisturbance>{};
+        return view_.BuildP700SurfaceDisturbances(*runtime_, simulationTimeSeconds);
+    }
+
     // Read-only resize acceptance hook. The view remains the owner of the opaque upload; callers only get
     // the renderer's validity result and cannot inspect or replace the GPU handle.
     [[nodiscard]] bool PresentationModelValid(const Render::D3D12Renderer& renderer) const noexcept

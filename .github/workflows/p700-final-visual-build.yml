@@ -1,0 +1,67 @@
+name: P700 final visual build helper
+
+on:
+  push:
+    branches:
+      - feature/p700-signature-launch-vfx
+
+jobs:
+  validate:
+    if: github.event.head_commit.message == 'run corrected P-700 final visual Windows validation'
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply final visual integration in workspace
+        shell: pwsh
+        run: python Tools/p700_final_visual_patch_v5.py
+      - name: Configure Release
+        shell: pwsh
+        run: cmake --preset windows-release
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build --preset windows-release --parallel
+      - name: P-700 VFX regression
+        shell: pwsh
+        run: ctest --preset windows-release -R DeepRunP700LaunchVfxTests --output-on-failure
+      - name: P-700 final visual smoke
+        shell: pwsh
+        run: |
+          $executable = ".\build\windows-release\Release\DeepRun.exe"
+          $output = & $executable --smoke-p700 2>&1 | Tee-Object -Variable p700Output
+          $exitCode = $LASTEXITCODE
+          $text = ($p700Output | Out-String)
+          Write-Host $text
+          if ($exitCode -ne 0) { throw "P-700 final visual smoke failed with exit code $exitCode" }
+          foreach ($marker in @("UNDERWATER_BOOSTER_EXIT", "WATER_EXIT", "HARDWARE_SEPARATION", "AERODYNAMIC_DEPLOY", "CRUISE", "TERMINAL", "PHYSICAL_IMPACT")) {
+            if ($text -notmatch "\[Game\]\[P700\] $marker") { throw "P-700 smoke missed lifecycle marker $marker" }
+          }
+          if (-not (Test-Path "m5-p700-acceptance.json")) { throw "P-700 acceptance report missing" }
+          $report = Get-Content -Raw "m5-p700-acceptance.json" | ConvertFrom-Json
+          if (-not $report.all_state_checkpoints_seen -or $report.checkpoints.Count -ne 5) {
+            throw "P-700 final visual acceptance did not capture all five checkpoints"
+          }
+      - name: Package final visual captures and patched sources
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p700-final-visual-validation
+          if-no-files-found: warn
+          path: |
+            m5-p700-acceptance.json
+            m5-p700-launch.bmp
+            m5-p700-water-exit.bmp
+            m5-p700-deploy.bmp
+            m5-p700-cruise-terminal.bmp
+            m5-p700-impact.bmp
+            Engine/Render/ViewPathFog.h
+            Engine/Render/ViewPathFog.cpp
+            Engine/Render/D3D12Renderer.cpp
+            Shaders/Model.hlsl
+            Game/PhysicalPlayground.h
+            Game/PhysicalPlayground.cpp
+            Game/Weapons/P700LaunchLightingPresentation.h
+            Game/Combat/CombatPlaygroundView.h
+            Game/Combat/CombatPlaygroundWindowedComposition.h
+            Game/Combat/P700VisualAcceptance.h
+            DeepRun/Main.cpp
+            Tests/P700LaunchVfxTest.cpp

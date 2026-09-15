@@ -11,6 +11,7 @@
 #include "Game/Combat/CombatPlaygroundWindowedComposition.h"
 #include "Game/Combat/P700VisualAcceptance.h"
 #include "Game/Haptics/HapticFeedbackSystem.h"
+#include "Game/Weapons/P700LaunchAudioPresentation.h"
 #include "Game/PhysicalPlayground.h"
 #include "Game/Submarine/VesselCommandState.h"
 
@@ -497,6 +498,7 @@ int main(const int argumentCount, char** argumentValues)
         bool loggedConfirmedAcousticTrack = false;
         bool loggedCombatRuntime = false;
         bool loggedCombatImpact = false;
+        bool loggedP700AudioSubmissionFailure = false;
         DeepRun::Core::Engine* engineServices = nullptr;
         const DeepRun::Input::InputState* inputState = nullptr;
         char* noCaptureValue = nullptr;
@@ -602,7 +604,7 @@ int main(const int argumentCount, char** argumentValues)
                         : options.smokeTest
                             ? DeepRun::Game::Combat::M5CombatDestroyerInitialXMeters
                             : NormalGameplayLongRangeCombatTargetMeters;
-                    const auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
+                    auto combat = DeepRun::Game::Combat::CombatPlaygroundWindowedComposition::Create(
                         *renderer,
                         engine.Assets(),
                         destroyerInitialXMeters,
@@ -615,7 +617,7 @@ int main(const int argumentCount, char** argumentValues)
                         std::cerr << "[Game][ERROR] " << combat.error() << '\n';
                         return false;
                     }
-                    combatPlayground = *combat;
+                    combatPlayground = std::move(*combat);
                 }
                 return playground.SubmarineModel().IsValid();
             },
@@ -989,7 +991,7 @@ int main(const int argumentCount, char** argumentValues)
              &calmLaunchCameraAssist, &multiScaleCamera,
              &initialOwnshipNavigationPositionMeters, &currentOwnshipNavigationPositionMeters,
              &inputState, &frameCapture, &captureEnabled, &options,
-             &renderFrames, &engineServices](DeepRun::Render::D3D12Renderer& renderer)
+             &renderFrames, &engineServices, &loggedP700AudioSubmissionFailure](DeepRun::Render::D3D12Renderer& renderer)
             {
                 const double simulationTimeSeconds = engineServices->SimulationTimeSeconds();
                 const auto& frameState = engineServices->CurrentFrame();
@@ -1100,7 +1102,22 @@ int main(const int argumentCount, char** argumentValues)
                     }
                 }
 
-                const auto rendered = playground.Render(renderer, simulationTimeSeconds, presentationTimeSeconds);
+                std::vector<DeepRun::Render::GerstnerSurfaceTransientDisturbance> p700SurfaceDisturbances;
+                if (combatPlayground.has_value() && combatPlayground->Runtime().has_value())
+                {
+                    const auto disturbances = combatPlayground->BuildP700SurfaceDisturbances(simulationTimeSeconds);
+                    if (!disturbances)
+                    {
+                        std::cerr << "[Game][ERROR] P-700 surface disturbance composition failed: "
+                                  << disturbances.error() << '\n';
+                        return false;
+                    }
+                    p700SurfaceDisturbances = *disturbances;
+                }
+                const auto rendered = playground.Render(
+                    renderer, simulationTimeSeconds, presentationTimeSeconds,
+                    std::span<const DeepRun::Render::GerstnerSurfaceTransientDisturbance>(
+                        p700SurfaceDisturbances.data(), p700SurfaceDisturbances.size()));
                 if (!rendered)
                 {
                     std::cerr << "[Game][ERROR] " << rendered.error() << '\n';
@@ -1127,6 +1144,26 @@ int main(const int argumentCount, char** argumentValues)
                     {
                         std::cerr << "[Game][ERROR] " << combatRendered.error() << '\n';
                         return false;
+                    }
+                    const std::array<float, 3> audioListenerPosition{
+                        camera->target.x, camera->target.y, camera->target.z};
+                    for (const auto& hook : combatRendered->p700Vfx.audioHooks)
+                    {
+                        const auto request = DeepRun::Game::Armament::BuildP700LaunchAudioOneShotRequest(
+                            hook, audioListenerPosition);
+                        if (!request)
+                        {
+                            std::cerr << "[Game][ERROR] P-700 launch audio mapping failed: " << request.error() << '\n';
+                            return false;
+                        }
+                        if (!request->has_value())
+                            continue;
+                        const auto submitted = engineServices->SubmitAudioOneShot(**request);
+                        if (!submitted && !loggedP700AudioSubmissionFailure)
+                        {
+                            loggedP700AudioSubmissionFailure = true;
+                            std::cerr << "[Game][WARN] P-700 launch audio suppressed: " << submitted.error() << '\n';
+                        }
                     }
                     // CombatPlaygroundView owns asset-specific draw validation. In normal gameplay D2 fog-of-war
                     // may legitimately hide every hostile/civilian presentation before visual classification, so

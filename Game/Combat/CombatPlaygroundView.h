@@ -2,12 +2,20 @@
 
 #include "Engine/Assets/AssetManager.h"
 #include "Engine/Render/D3D12Renderer.h"
+#include "Engine/Render/DepthLighting.h"
+#include "Engine/Render/TransientVfx.h"
 #include "Game/Combat/CivilianVesselPresentation.h"
 #include "Game/Combat/CombatPlaygroundPresentation.h"
+#include "Game/Weapons/P700LaunchVfx.h"
+#include "Game/Weapons/P700SurfacePresentation.h"
 #include "Game/Weapons/ProductionP700Asset.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <expected>
+#include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -19,12 +27,14 @@ struct CombatPlaygroundRenderFrame final
 {
     CombatPlaygroundPresentationSnapshot presentation{};
     Render::ModelDrawStats stats{};
+    Render::TransientVfxDrawStats p700VfxStats{};
+    Armament::P700LaunchVfxFrame p700Vfx{};
     bool explosionDrawn = false;
 };
 
-// M5-H.1-B renderer composition for the bounded combat playground. The view owns only opaque GPU uploads.
-// Simulation, PhysicsWorld, TrackManager, target selection, damage and weapon lifecycle all remain external
-// authorities. Each frame is rebuilt from read-only presentation boundaries.
+// M5-H.1-B renderer composition for the bounded combat playground. Simulation, PhysicsWorld, TrackManager,
+// target selection, damage and weapon lifecycle remain external authorities. P-700 launch VFX observes the
+// same immutable runtime state and writes only scene-linear presentation plus semantic audio/camera hooks.
 class CombatPlaygroundView final
 {
 public:
@@ -33,15 +43,11 @@ public:
         Assets::AssetManager& assets)
     {
         if (!renderer.IsInitialized() || !renderer.IsModelPipelineReady())
-        {
             return std::unexpected("M5-H.1 combat view requires an initialized model renderer");
-        }
 
         const auto proxyModel = BuildCombatPlaygroundPresentationModel();
         if (!proxyModel)
-        {
             return std::unexpected("M5-H.1 combat view model creation failed: " + proxyModel.error());
-        }
         const auto proxyUploaded = renderer.UploadModel(*proxyModel);
         if (!proxyUploaded || !proxyUploaded->handle.IsValid() || !proxyUploaded->stats.uploadCompleted ||
             proxyUploaded->stats.primitiveCount != 1U || proxyUploaded->stats.indexCount != 36U)
@@ -51,9 +57,6 @@ public:
                 : "M5-H.1 combat view upload failed: " + proxyUploaded.error());
         }
 
-        // M5-V2 review torpedo GLBs are optional presentation candidates, not simulation or startup authority.
-        // A malformed/unpromoted review asset must never prevent the accepted M5 combat playground from starting.
-        // When a candidate cannot be loaded/uploaded, that torpedo keeps the existing readable proxy draw.
         Assets::AssetHandle<Assets::ModelAsset> uset80Asset{};
         Render::GpuModelHandle uset80GpuModel{};
         const auto uset80 = assets.LoadModel("Weapons/Torpedoes/USET80/USET80_review.glb");
@@ -70,14 +73,10 @@ public:
 
         const auto p700Definition = Armament::LoadProductionP700AssetDefinition(assets);
         if (!p700Definition)
-        {
             return std::unexpected("M5 production P-700 definition load failed: " + p700Definition.error());
-        }
         const auto p700 = assets.LoadModel(p700Definition->modelAssetId.Value());
         if (!p700 || !p700->IsValid() || p700->Get() == nullptr)
-        {
             return std::unexpected("M5 production P-700 GLB load failed");
-        }
         const auto p700Uploaded = renderer.UploadModel(**p700);
         if (!p700Uploaded || !p700Uploaded->handle.IsValid() || !p700Uploaded->stats.uploadCompleted)
         {
@@ -100,6 +99,14 @@ public:
             }
         }
 
+        Render::GpuTransientVfx transientVfx;
+        if (const auto initialized = transientVfx.Initialize(renderer, assets.Root().parent_path() / "Shaders"); !initialized)
+            return std::unexpected("P-700 transient VFX renderer initialization failed: " + initialized.error());
+
+        Armament::P700LaunchVfxTuning tuning = Armament::DefaultP700LaunchVfxTuning();
+        if (const auto authored = Armament::LoadP700LaunchVfxTuning(assets.Root().parent_path() / "Config" / "p700_vfx.json"); authored)
+            tuning = *authored;
+
         return CombatPlaygroundView(
             proxyUploaded->handle,
             std::move(uset80Asset),
@@ -108,7 +115,25 @@ public:
             kit6576GpuModel,
             *p700Definition,
             *p700,
-            p700Uploaded->handle);
+            p700Uploaded->handle,
+            std::move(transientVfx),
+            Armament::P700LaunchVfxSystem{tuning});
+    }
+
+    void SetP700VfxEnvironment(const Armament::P700LaunchVfxEnvironment& environment) noexcept
+    {
+        p700VfxEnvironment_ = environment;
+    }
+
+    [[nodiscard]] std::expected<std::vector<Render::GerstnerSurfaceTransientDisturbance>, std::string>
+    BuildP700SurfaceDisturbances(const CombatPlaygroundRuntime& runtime, const double simulationTimeSeconds) const
+    {
+        std::vector<const Weapons::P700GranitRuntimeState*> missiles;
+        missiles.reserve(1U + runtime.PlayerP700Wingmen().size() + runtime.AdditionalPlayerP700Missiles().size());
+        if (const auto& leader = runtime.PlayerP700(); leader) missiles.push_back(&*leader);
+        for (const auto& wingman : runtime.PlayerP700Wingmen()) missiles.push_back(&wingman);
+        for (const auto& ripple : runtime.AdditionalPlayerP700Missiles()) missiles.push_back(&ripple);
+        return Armament::BuildP700SurfaceDisturbances(missiles, p700VfxSystem_.Tuning(), simulationTimeSeconds);
     }
 
     [[nodiscard]] std::expected<CombatPlaygroundRenderFrame, std::string> RenderWithPresentation(
@@ -118,40 +143,28 @@ public:
         const Render::OrthographicCamera& camera,
         const double simulationTimeSeconds) const
     {
-        if (!ModelsValid(renderer))
-        {
-            return std::unexpected("M5-H.1 combat view GPU proxy model is unavailable");
-        }
+        if (!ModelsValid(renderer) || !p700TransientVfx_.IsReady())
+            return std::unexpected("M5 combat presentation GPU resources are unavailable");
 
-        const auto snapshot = BuildCombatPlaygroundPresentationSnapshot(
-            runtime, physicsWorld, simulationTimeSeconds);
+        const auto snapshot = BuildCombatPlaygroundPresentationSnapshot(runtime, physicsWorld, simulationTimeSeconds);
         if (!snapshot)
-        {
             return std::unexpected("M5-H.1 combat view snapshot failed: " + snapshot.error());
-        }
         const auto presentationDraws = BuildCombatPlaygroundPresentationDraws(*snapshot);
         if (!presentationDraws)
-        {
             return std::unexpected("M5-H.1 combat view draw composition failed: " + presentationDraws.error());
-        }
+
         std::expected<std::vector<Render::ModelDrawInstance>, std::string> civilianDraws =
             std::vector<Render::ModelDrawInstance>{};
         if (!runtime.PlayerFogOfWarActive() ||
             runtime.PlayerHasVisualClassification(Perception::ContactClassification::CivilianSurfaceVessel))
-        {
             civilianDraws = BuildCivilianVesselPresentationDraws(runtime, physicsWorld);
-        }
         if (!civilianDraws)
-        {
             return std::unexpected("civilian surface-vessel presentation failed: " + civilianDraws.error());
-        }
 
-        const bool useUset80Review =
-            uset80Asset_.IsValid() && uset80Asset_.Get() != nullptr && uset80GpuModel_.IsValid() &&
-            renderer.IsGpuModelValid(uset80GpuModel_);
-        const bool useKit6576Review =
-            kit6576Asset_.IsValid() && kit6576Asset_.Get() != nullptr && kit6576GpuModel_.IsValid() &&
-            renderer.IsGpuModelValid(kit6576GpuModel_);
+        const bool useUset80Review = uset80Asset_.IsValid() && uset80Asset_.Get() != nullptr &&
+            uset80GpuModel_.IsValid() && renderer.IsGpuModelValid(uset80GpuModel_);
+        const bool useKit6576Review = kit6576Asset_.IsValid() && kit6576Asset_.Get() != nullptr &&
+            kit6576GpuModel_.IsValid() && renderer.IsGpuModelValid(kit6576GpuModel_);
 
         std::vector<Render::ModelDrawInstance> proxyDraws;
         proxyDraws.reserve(presentationDraws->size() + civilianDraws->size());
@@ -160,23 +173,16 @@ public:
         for (const auto& presentationDraw : *presentationDraws)
         {
             if (presentationDraw.element == CombatPlaygroundPresentationElement::PlayerTorpedo && useUset80Review)
-            {
                 playerTorpedoTransform = presentationDraw.draw.modelToWorld;
-            }
             else if (presentationDraw.element == CombatPlaygroundPresentationElement::DestroyerTorpedo && useKit6576Review)
-            {
                 destroyerTorpedoTransform = presentationDraw.draw.modelToWorld;
-            }
-            else
-            {
+            else if (presentationDraw.element != CombatPlaygroundPresentationElement::P700LaunchBoosterPlume &&
+                     presentationDraw.element != CombatPlaygroundPresentationElement::P700MainEnginePlume)
                 proxyDraws.push_back(presentationDraw.draw);
-            }
         }
         proxyDraws.insert(proxyDraws.end(), civilianDraws->begin(), civilianDraws->end());
         if (proxyDraws.empty() && !runtime.PlayerFogOfWarActive())
-        {
             return std::unexpected("M5-H.1 combat view must contain at least the destroyer presentation");
-        }
 
         Render::ModelDrawStats totalStats{};
         const auto accumulate = [&totalStats](const Render::ModelDrawStats& stats)
@@ -191,9 +197,7 @@ public:
             const auto proxyStats = renderer.DrawModel(
                 proxyGpuModel_, std::span<const Render::ModelDrawInstance>(proxyDraws.data(), proxyDraws.size()), camera);
             if (!proxyStats)
-            {
                 return std::unexpected("M5-H.1 combat proxy view draw failed: " + proxyStats.error());
-            }
             accumulate(*proxyStats);
         }
 
@@ -203,14 +207,10 @@ public:
                                           const std::string_view label) -> std::expected<void, std::string>
         {
             if (!transform)
-            {
                 return {};
-            }
             const Assets::ModelAsset* model = asset.Get();
             if (model == nullptr || !gpuModel.IsValid() || !renderer.IsGpuModelValid(gpuModel))
-            {
                 return std::unexpected(std::string(label) + " playground model is unavailable");
-            }
             const auto draws = Render::PrepareModelDraws(*model, *transform);
             if (!draws || draws->empty())
             {
@@ -221,30 +221,20 @@ public:
             const auto stats = renderer.DrawModel(
                 gpuModel, std::span<const Render::ModelDrawInstance>(draws->data(), draws->size()), camera);
             if (!stats)
-            {
                 return std::unexpected(std::string(label) + " draw failed: " + stats.error());
-            }
             if (stats->drawCalls != draws->size() || stats->submittedPrimitives != draws->size() ||
                 stats->submittedIndices == 0U)
-            {
                 return std::unexpected(std::string(label) + " draw statistics are invalid");
-            }
             accumulate(*stats);
             return {};
         };
 
-        // When the review candidates are valid, exercise them at authored metre scale. Otherwise the torpedo
-        // remains in proxyDraws above. This fallback affects presentation only; weapon simulation is identical.
         if (const auto playerDraw = drawTorpedoModel(
                 playerTorpedoTransform, uset80Asset_, uset80GpuModel_, "M5-V2 USET-80"); !playerDraw)
-        {
             return std::unexpected(playerDraw.error());
-        }
         if (const auto hostileDraw = drawTorpedoModel(
                 destroyerTorpedoTransform, kit6576Asset_, kit6576GpuModel_, "M5-V2 65-76A"); !hostileDraw)
-        {
             return std::unexpected(hostileDraw.error());
-        }
 
         const auto drawP700 = [&](const CombatPlaygroundP700Presentation& p700) -> std::expected<void, std::string>
         {
@@ -253,53 +243,111 @@ public:
                 return std::unexpected("M5 production P-700 presentation model is unavailable");
             const auto modelToWorld = CombatPlaygroundPresentationDetail::BodyPoseTransform(
                 p700.positionMeters, Weapons::P700HeadingQuaternion(p700.headingRadians));
-            if (!modelToWorld) return std::unexpected("M5 production P-700 pose failed: " + modelToWorld.error());
-            const auto overrides = Armament::BuildProductionP700DeploymentOverrides(p700Definition_, p700.deploymentProgress);
-            if (!overrides) return std::unexpected("M5 production P-700 deployment override failed: " + overrides.error());
+            if (!modelToWorld)
+                return std::unexpected("M5 production P-700 pose failed: " + modelToWorld.error());
+            const auto overrides = Armament::BuildProductionP700DeploymentOverrides(
+                p700Definition_, p700.deploymentProgress);
+            if (!overrides)
+                return std::unexpected("M5 production P-700 deployment override failed: " + overrides.error());
             const auto prepared = Render::PrepareModelDraws(*p700Asset_, *modelToWorld, {}, *overrides);
-            if (!prepared) return std::unexpected("M5 production P-700 draw preparation failed: " + prepared.error());
+            if (!prepared)
+                return std::unexpected("M5 production P-700 draw preparation failed: " + prepared.error());
             std::vector<Render::ModelDrawInstance> p700Draws;
             for (const auto& draw : *prepared)
+            {
                 if (Armament::IsProductionP700Lod0MeshNode(p700Definition_, draw.nodeIndex) &&
-                    (p700.launchBoosterAttached || !Armament::IsProductionP700BoosterLod0MeshNode(p700Definition_, draw.nodeIndex)))
+                    (p700.launchBoosterAttached ||
+                     !Armament::IsProductionP700BoosterLod0MeshNode(p700Definition_, draw.nodeIndex)))
                     p700Draws.push_back(draw);
-            if (p700Draws.empty()) return std::unexpected("M5 production P-700 LOD0 produced no presentation draws");
-            const auto stats = renderer.DrawModel(p700GpuModel_,
-                std::span<const Render::ModelDrawInstance>(p700Draws.data(), p700Draws.size()), camera);
+            }
+            if (p700Draws.empty())
+                return std::unexpected("M5 production P-700 LOD0 produced no presentation draws");
+            const auto stats = renderer.DrawModel(
+                p700GpuModel_, std::span<const Render::ModelDrawInstance>(p700Draws.data(), p700Draws.size()), camera);
             if (!stats || stats->drawCalls != p700Draws.size() || stats->submittedIndices == 0U)
-                return std::unexpected(stats ? "M5 production P-700 draw statistics are invalid" : "M5 production P-700 draw failed: " + stats.error());
+            {
+                return std::unexpected(stats
+                    ? "M5 production P-700 draw statistics are invalid"
+                    : "M5 production P-700 draw failed: " + stats.error());
+            }
             accumulate(*stats);
+
+            // The authored booster remains a real mesh after separation. Presentation adds a small physical-looking
+            // tumble and ballistic drop instead of hiding it; no gameplay collision/damage authority is created.
             if (!p700.launchBoosterAttached && p700.phase == Weapons::P700GranitPhase::PostExitTransition &&
                 p700.postExitTransitionProgress < 0.95F)
             {
                 const float p = p700.postExitTransitionProgress;
+                const float angle = p * 0.55F;
                 Assets::ModelTransform separation{};
-                separation.values[12] = -4.0F * p; separation.values[13] = -2.0F * p;
+                separation.values[0] = std::cos(angle);
+                separation.values[1] = std::sin(angle);
+                separation.values[4] = -std::sin(angle);
+                separation.values[5] = std::cos(angle);
+                separation.values[12] = -4.2F * p;
+                separation.values[13] = -1.35F * p - 2.8F * p * p;
+                separation.values[14] = 0.65F * p;
                 const Assets::ModelTransform detachedToWorld = Render::Multiply(*modelToWorld, separation);
                 const auto detachedPrepared = Render::PrepareModelDraws(*p700Asset_, detachedToWorld);
-                if (!detachedPrepared) return std::unexpected("M5 detached P-700 booster draw preparation failed: " + detachedPrepared.error());
+                if (!detachedPrepared)
+                    return std::unexpected("M5 detached P-700 booster draw preparation failed: " + detachedPrepared.error());
                 std::vector<Render::ModelDrawInstance> detached;
                 for (const auto& draw : *detachedPrepared)
-                    if (Armament::IsProductionP700BoosterLod0MeshNode(p700Definition_, draw.nodeIndex)) detached.push_back(draw);
-                if (detached.empty()) return std::unexpected("M5 detached P-700 booster has no LOD0 draw");
-                const auto detachedStats = renderer.DrawModel(p700GpuModel_,
-                    std::span<const Render::ModelDrawInstance>(detached.data(), detached.size()), camera);
-                if (!detachedStats) return std::unexpected("M5 detached P-700 booster draw failed: " + detachedStats.error());
+                {
+                    if (Armament::IsProductionP700BoosterLod0MeshNode(p700Definition_, draw.nodeIndex))
+                        detached.push_back(draw);
+                }
+                if (detached.empty())
+                    return std::unexpected("M5 detached P-700 booster has no LOD0 draw");
+                const auto detachedStats = renderer.DrawModel(
+                    p700GpuModel_, std::span<const Render::ModelDrawInstance>(detached.data(), detached.size()), camera);
+                if (!detachedStats)
+                    return std::unexpected("M5 detached P-700 booster draw failed: " + detachedStats.error());
                 accumulate(*detachedStats);
             }
             return {};
         };
+
         if (snapshot->playerP700)
             if (auto r = drawP700(*snapshot->playerP700); !r) return std::unexpected(r.error());
         for (const auto& wingman : snapshot->playerP700Wingmen)
             if (auto r = drawP700(wingman); !r) return std::unexpected(r.error());
+
+        std::vector<const Weapons::P700GranitRuntimeState*> liveP700;
+        liveP700.reserve(1U + runtime.PlayerP700Wingmen().size() + runtime.AdditionalPlayerP700Missiles().size());
+        if (const auto& leader = runtime.PlayerP700(); leader)
+            liveP700.push_back(&*leader);
+        for (const auto& wingman : runtime.PlayerP700Wingmen())
+            liveP700.push_back(&wingman);
+        for (const auto& ripple : runtime.AdditionalPlayerP700Missiles())
+            liveP700.push_back(&ripple);
+
+        auto p700VfxFrame = p700VfxSystem_.BuildFrame(liveP700, camera, p700VfxEnvironment_, simulationTimeSeconds);
+        if (!p700VfxFrame)
+            return std::unexpected("P-700 launch VFX frame build failed: " + p700VfxFrame.error());
+
+        float surfaceLevel = 0.0F;
+        if (!liveP700.empty() && liveP700.front() != nullptr)
+            surfaceLevel = liveP700.front()->surfaceLevelYMeters;
+        constexpr std::array<float, 3> OpenOceanAbsorption{0.045F, 0.020F, 0.010F};
+        constexpr std::array<float, 3> OpenOceanDeepAmbient{0.006F, 0.024F, 0.050F};
+        const Render::DepthLightingParameters vfxDepthLighting{
+            .surfaceLevelYMeters = surfaceLevel,
+            .attenuationPerMeterRgb = OpenOceanAbsorption,
+            .deepAmbientRgb = OpenOceanDeepAmbient};
+        const auto p700VfxStats = p700TransientVfx_.Draw(
+            renderer,
+            std::span<const Render::TransientVfxEmitter>(p700VfxFrame->emitters.data(), p700VfxFrame->emitters.size()),
+            camera,
+            vfxDepthLighting);
+        if (!p700VfxStats)
+            return std::unexpected("P-700 transient VFX draw failed: " + p700VfxStats.error());
+
         const bool historicalPresentationGate = !runtime.PlayerFogOfWarActive();
-        if (totalStats.drawCalls < proxyDraws.size() ||
-            totalStats.submittedPrimitives != totalStats.drawCalls ||
+        if (totalStats.drawCalls < proxyDraws.size() || totalStats.submittedPrimitives != totalStats.drawCalls ||
             (historicalPresentationGate && totalStats.submittedIndices < 72U))
-        {
             return std::unexpected("M5-V2 combat view aggregate draw statistics are invalid");
-        }
+
         const bool explosionDrawn = std::ranges::any_of(
             *presentationDraws, [](const CombatPlaygroundPresentationDraw& draw) {
                 return draw.element == CombatPlaygroundPresentationElement::Explosion;
@@ -307,6 +355,8 @@ public:
         return CombatPlaygroundRenderFrame{
             .presentation = *snapshot,
             .stats = totalStats,
+            .p700VfxStats = *p700VfxStats,
+            .p700Vfx = std::move(*p700VfxFrame),
             .explosionDrawn = explosionDrawn};
     }
 
@@ -319,9 +369,7 @@ public:
     {
         const auto frame = RenderWithPresentation(renderer, runtime, physicsWorld, camera, simulationTimeSeconds);
         if (!frame)
-        {
             return std::unexpected(frame.error());
-        }
         return frame->stats;
     }
 
@@ -332,8 +380,6 @@ public:
 
     [[nodiscard]] bool ModelsValid(const Render::D3D12Renderer& renderer) const noexcept
     {
-        // Review torpedo candidates are intentionally optional. The canonical combat proxy model is the only
-        // presentation resource required for M5 startup and smoke stability.
         return proxyGpuModel_.IsValid() && renderer.IsGpuModelValid(proxyGpuModel_) &&
                p700Asset_.IsValid() && p700Asset_.Get() != nullptr && p700GpuModel_.IsValid() &&
                renderer.IsGpuModelValid(p700GpuModel_);
@@ -348,7 +394,9 @@ private:
         const Render::GpuModelHandle kit6576Model,
         Armament::ProductionP700AssetDefinition p700Definition,
         Assets::AssetHandle<Assets::ModelAsset> p700Asset,
-        const Render::GpuModelHandle p700Model) noexcept
+        const Render::GpuModelHandle p700Model,
+        Render::GpuTransientVfx p700TransientVfx,
+        Armament::P700LaunchVfxSystem p700VfxSystem) noexcept
         : proxyGpuModel_(proxyModel),
           uset80Asset_(std::move(uset80Asset)),
           uset80GpuModel_(uset80Model),
@@ -356,7 +404,9 @@ private:
           kit6576GpuModel_(kit6576Model),
           p700Definition_(std::move(p700Definition)),
           p700Asset_(std::move(p700Asset)),
-          p700GpuModel_(p700Model)
+          p700GpuModel_(p700Model),
+          p700TransientVfx_(std::move(p700TransientVfx)),
+          p700VfxSystem_(std::move(p700VfxSystem))
     {
     }
 
@@ -368,5 +418,8 @@ private:
     Armament::ProductionP700AssetDefinition p700Definition_;
     Assets::AssetHandle<Assets::ModelAsset> p700Asset_{};
     Render::GpuModelHandle p700GpuModel_{};
+    mutable Render::GpuTransientVfx p700TransientVfx_{};
+    mutable Armament::P700LaunchVfxSystem p700VfxSystem_{};
+    Armament::P700LaunchVfxEnvironment p700VfxEnvironment_{};
 };
 } // namespace DeepRun::Game::Combat

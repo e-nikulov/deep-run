@@ -1864,7 +1864,8 @@ std::expected<VesselPresentationTelemetry, std::string> PhysicalPlayground::Buil
 std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     Render::D3D12Renderer& renderer,
     const double simulationTimeSeconds,
-    const double presentationTimeSeconds) const
+    const double presentationTimeSeconds,
+    const std::span<const Render::GerstnerSurfaceTransientDisturbance> surfaceDisturbances) const
 {
     if (!modelAsset_.IsValid() || !renderer.IsGpuModelValid(submarineModel_) || !seabedSection_.has_value() ||
         !renderer.IsGpuModelValid(seabedModel_) || seabedDraws_.size() != 2U || !floraField_.has_value() ||
@@ -2264,7 +2265,7 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     // The renderer remaps the immutable Gerstner mesh around the current camera. Waves therefore remain
     // continuous while the boat travels or the camera zooms; absolute world X still owns phase continuity.
     std::expected<Render::GerstnerSurfaceDrawStats, std::string> gerstnerStats =
-        renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds);
+        renderer.DrawGerstnerSurface(*camera, simulationTimeSeconds, surfaceDisturbances);
     if (!gerstnerStats)
     {
         return std::unexpected("physical playground Gerstner surface draw failed: " + gerstnerStats.error());
