@@ -165,6 +165,18 @@ public:
         return *snapshot;
     }
 
+    // W1-E read-only adapter. The returned value is derived from the exact WeatherState that also generated
+    // this playground's production wave spectrum. Consumers receive values only and cannot mutate Environment.
+    [[nodiscard]] std::expected<WeatherSensorEnvironment, std::string> BuildWeatherSensorEnvironment() const
+    {
+        if (!weather_.has_value())
+            return std::unexpected("physical playground W1-E weather authority is unavailable");
+        const WeatherSensorEnvironment environment = EvaluateWeatherSensorEnvironment(*weather_);
+        if (!ValidWeatherSensorEnvironment(environment))
+            return std::unexpected("physical playground W1-E sensor environment is invalid");
+        return environment;
+    }
+
     // M5-I.2 live hazard bridge. The snapshot is a value copy of the already-authoritative production collision
     // body and proxy dimensions. Combat may use it for generic sweeps but cannot mutate physics through it.
     [[nodiscard]] std::expected<VesselPresentationTelemetry, std::string> BuildVesselPresentationTelemetry() const;

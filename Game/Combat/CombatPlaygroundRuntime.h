@@ -8,6 +8,7 @@
 #include "Game/Combat/SimpleCivilianVesselRuntime.h"
 #include "Game/Combat/SimpleDestroyerRuntime.h"
 #include "Game/Combat/SurfaceContactSensorTruth.h"
+#include "Game/Environment/WeatherSensorCoupling.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/AnteyPhysicalCollisionProxy.h"
 #include "Game/Weapons/P700CarrierLaunchContract.h"
@@ -563,6 +564,26 @@ public:
             return std::nullopt;
         return p700LauncherInventory_->Slots()[*playerP700LaunchSlotIndex_].anchor.hatchGroupSemanticId;
     }
+    [[nodiscard]] std::expected<void, std::string> SetWeatherSensorEnvironment(
+        const WeatherSensorEnvironment& environment)
+    {
+        if (!ValidWeatherSensorEnvironment(environment))
+            return std::unexpected("combat playground weather sensor environment is invalid");
+        const PeriscopeOpticalConditions opticalConditions{
+            .meteorologicalVisibilityMeters = environment.optical.meteorologicalVisibilityMeters,
+            .ambientLightFraction = environment.optical.ambientLightFraction,
+            .glareFraction = periscopeOpticalConditions_.glareFraction,
+            .seaStateObscurationFraction = environment.optical.seaStateObscurationFraction};
+        if (!ValidPeriscopeOpticalConditions(opticalConditions))
+            return std::unexpected("combat playground weather-derived optical conditions are invalid");
+        const auto electronicConfigured = electronics_.SetWeatherSensorEnvironment(environment);
+        if (!electronicConfigured)
+            return std::unexpected(electronicConfigured.error());
+        weatherSensorEnvironment_ = environment;
+        periscopeOpticalConditions_ = opticalConditions;
+        return {};
+    }
+
     [[nodiscard]] std::expected<void, std::string> SetPeriscopeOpticalConditions(
         const PeriscopeOpticalConditions& conditions)
     {
@@ -715,12 +736,22 @@ private:
                 return std::unexpected(civilianReady.error());
         }
 
-        const auto destroyerAcoustics = SampleSimpleDestroyerAcoustics(
+        auto destroyerAcoustics = SampleSimpleDestroyerAcoustics(
             destroyerDefinition_, destroyer_, *physicsWorld_);
         if (!destroyerAcoustics)
         {
             return std::unexpected("M5-H destroyer acoustic snapshot failed: " + destroyerAcoustics.error());
         }
+        const auto destroyerWeatherAmbient = ApplyWeatherPassiveAmbientNoise(
+            weatherSensorEnvironment_.passiveAcoustic,
+            destroyerDefinition_.bodyCenterBelowSurfaceMeters,
+            destroyerAcoustics->passiveReceiver.ambientNoiseLevelDb);
+        if (!destroyerWeatherAmbient)
+        {
+            return std::unexpected("W1-E destroyer passive weather coupling failed: " +
+                                   destroyerWeatherAmbient.error());
+        }
+        destroyerAcoustics->passiveReceiver.ambientNoiseLevelDb = destroyerWeatherAmbient->ambientNoiseLevelDb;
         std::optional<Acoustics::AcousticEmitter> civilianEmitter{};
         if (civilian_)
         {
@@ -3004,6 +3035,7 @@ private:
     Perception::TrackManager incomingThreatTracks_;
     PeriscopeState periscopeState_{};
     PeriscopeOpticalConditions periscopeOpticalConditions_{};
+    WeatherSensorEnvironment weatherSensorEnvironment_{};
     AnteyElectronicCombatRuntime electronics_{};
     std::vector<Acoustics::AcousticEmission> pendingIncomingThreatEmissions_{};
     double nextIncomingThreatEmissionSampleTimeSeconds_ = 0.0;

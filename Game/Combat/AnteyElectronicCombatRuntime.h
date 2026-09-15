@@ -2,6 +2,7 @@
 
 #include "Game/Combat/AnteyElectronicSuite.h"
 #include "Game/Combat/SurfaceContactSensorTruth.h"
+#include "Game/Environment/WeatherSensorCoupling.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Simulation/Perception/TrackManager.h"
 
@@ -70,6 +71,15 @@ public:
         return std::isfinite(simulationTimeSeconds) && state_.radioTransmitUntilSeconds > simulationTimeSeconds;
     }
 
+    [[nodiscard]] std::expected<void, std::string> SetWeatherSensorEnvironment(
+        const WeatherSensorEnvironment& environment)
+    {
+        if (!ValidWeatherSensorEnvironment(environment))
+            return std::unexpected("Antey electronic weather sensor environment is invalid");
+        weatherSensorEnvironment_ = environment;
+        return {};
+    }
+
     [[nodiscard]] std::expected<AnteyElectronicCombatFrame, std::string> Advance(
         const Submarine::AnteyAcousticSnapshot& playerSnapshot,
         const std::span<const SurfaceContactSensorTruth> surfaceTruths,
@@ -98,6 +108,18 @@ public:
         if (!advanced)
             return std::unexpected("Antey electronic suite advance failed: " + advanced.error());
 
+        AnteyElectronicSuiteConfig sensorConfig = config_;
+        sensorConfig.zonaConfidence = std::clamp(
+            config_.zonaConfidence * weatherSensorEnvironment_.rf.terrestrialConfidenceMultiplier, 0.0F, 1.0F);
+        sensorConfig.radianMaximumDetectionRangeMeters =
+            config_.radianMaximumDetectionRangeMeters * weatherSensorEnvironment_.surfaceRadar.detectionRangeMultiplier;
+        sensorConfig.radianMinimumRangeUncertaintyMeters =
+            config_.radianMinimumRangeUncertaintyMeters * weatherSensorEnvironment_.surfaceRadar.rangeUncertaintyMultiplier;
+        sensorConfig.radianFractionalRangeUncertainty =
+            config_.radianFractionalRangeUncertainty * weatherSensorEnvironment_.surfaceRadar.rangeUncertaintyMultiplier;
+        sensorConfig.radianConfidence = std::clamp(
+            config_.radianConfidence * weatherSensorEnvironment_.surfaceRadar.confidenceMultiplier, 0.0F, 1.0F);
+
         AnteyElectronicCombatFrame frame{};
         const Physics::PhysicsVector3 navigationPosition = AnteyNavigationEstimatedPosition(
             playerSnapshot.passiveReceiver.positionMeters, state_);
@@ -112,7 +134,7 @@ public:
                 if (truth.kind != SurfaceContactTruthKind::MilitaryCombatant)
                     continue;
                 const auto observed = ObserveZonaEmitter(
-                    config_, state_, navigationPosition, truth.emitter.positionMeters,
+                    sensorConfig, state_, navigationPosition, truth.emitter.positionMeters,
                     true, simulationTimeSeconds, "ANTEY_ZONA_SURFACE_RF_ESM");
                 if (!observed)
                     return std::unexpected("ZONA ESM simulation failed: " + observed.error());
@@ -132,7 +154,7 @@ public:
             for (const SurfaceContactSensorTruth& truth : surfaceTruths)
             {
                 const auto observed = ObserveRadianSurfaceTarget(
-                    config_, state_, navigationPosition, truth.emitter.positionMeters, simulationTimeSeconds);
+                    sensorConfig, state_, navigationPosition, truth.emitter.positionMeters, simulationTimeSeconds);
                 if (!observed)
                     return std::unexpected("RADIAN surface-radar simulation failed: " + observed.error());
                 if (observed->has_value())
@@ -163,10 +185,25 @@ public:
 
             // The remote sensor truth is sampled only to manufacture the report. The player receives a stale,
             // uncertain observation; classification/entity identity never crosses the perception boundary.
+            AnteyElectronicSuiteConfig reportConfig = config_;
+            if (source == ExternalTargetReportSource::MkrcSatellite)
+            {
+                reportConfig.selenaInitialPositionUncertaintyMeters *=
+                    weatherSensorEnvironment_.rf.satelliteReportUncertaintyMultiplier;
+                reportConfig.externalReportConfidence = std::clamp(
+                    config_.externalReportConfidence * weatherSensorEnvironment_.rf.satelliteReportConfidenceMultiplier,
+                    0.0F, 1.0F);
+            }
+            else
+            {
+                reportConfig.externalReportConfidence = std::clamp(
+                    config_.externalReportConfidence * weatherSensorEnvironment_.rf.terrestrialConfidenceMultiplier,
+                    0.0F, 1.0F);
+            }
             const ExternalTargetReport report = BuildExternalTargetReport(
-                config_, source, militaryTruth->emitter.positionMeters, simulationTimeSeconds);
+                reportConfig, source, militaryTruth->emitter.positionMeters, simulationTimeSeconds);
             const auto observed = ExternalTargetReportObservation(
-                config_, report, navigationPosition, simulationTimeSeconds);
+                reportConfig, report, navigationPosition, simulationTimeSeconds);
             if (!observed)
                 return std::unexpected("external target-designation report failed: " + observed.error());
             const auto integrated = playerTracks.IntegrateObservation(*observed);
@@ -212,7 +249,7 @@ public:
                 .measuredBearingRadians = AnteyElectronicBearing2d(
                     hostileElectronicSupportReceiverPositionMeters, playerSnapshot.emitter.positionMeters),
                 .bearingUncertaintyRadians = 3.0F * AnteyElectronicPi / 180.0F,
-                .confidence = 0.74F};
+                .confidence = 0.74F * weatherSensorEnvironment_.rf.hostileInterceptConfidenceMultiplier};
             const auto integrated = hostileTracks.IntegrateObservation(exposure);
             if (!integrated)
                 return std::unexpected("player RF emission failed hostile ESM Track integration: " + integrated.error());
@@ -225,5 +262,6 @@ public:
 private:
     AnteyElectronicSuiteConfig config_{};
     AnteyElectronicSuiteState state_{};
+    WeatherSensorEnvironment weatherSensorEnvironment_{};
 };
 } // namespace DeepRun::Game::Combat

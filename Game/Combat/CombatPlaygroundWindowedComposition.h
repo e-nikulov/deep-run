@@ -6,6 +6,7 @@
 #include "Game/Combat/CombatTimeCompressionPolicy.h"
 #include "Game/Combat/GameplayPacingDebugOverlay.h"
 #include "Game/Combat/GameplayPacingMetrics.h"
+#include "Game/Environment/WeatherSensorCoupling.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Weapons/P700CarrierLaunchContract.h"
@@ -212,6 +213,21 @@ public:
         return frame->stats;
     }
 
+    [[nodiscard]] std::expected<void, std::string> SetWeatherSensorEnvironment(
+        const WeatherSensorEnvironment& environment)
+    {
+        if (!ValidWeatherSensorEnvironment(environment))
+            return std::unexpected("windowed combat weather sensor environment is invalid");
+        if (runtime_.has_value())
+        {
+            const auto configured = runtime_->SetWeatherSensorEnvironment(environment);
+            if (!configured)
+                return std::unexpected("windowed combat weather propagation failed: " + configured.error());
+        }
+        weatherSensorEnvironment_ = environment;
+        return {};
+    }
+
     [[nodiscard]] const std::optional<CombatPlaygroundRuntime>& Runtime() const noexcept
     {
         return runtime_;
@@ -283,6 +299,14 @@ private:
         {
             return std::unexpected("M5-H.1 windowed combat runtime creation failed: " + runtime.error());
         }
+        if (weatherSensorEnvironment_.has_value())
+        {
+            const auto configured = runtime->SetWeatherSensorEnvironment(*weatherSensorEnvironment_);
+            if (!configured)
+            {
+                return std::unexpected("M5-H.1 windowed combat weather configuration failed: " + configured.error());
+            }
+        }
         const auto boundPlayer = runtime->BindPlayerPhysicalProxy(
             playerCollisionProxy, playerSnapshot, simulationTimeSeconds);
         if (!boundPlayer)
@@ -298,6 +322,7 @@ private:
     float destroyerInitialXMeters_ = M5CombatDestroyerInitialXMeters;
     bool p700AcceptanceMode_ = false;
     float destroyerCruiseVelocityXMetersPerSecond_ = M5CombatDestroyerCruiseVelocityXMetersPerSecond;
+    std::optional<WeatherSensorEnvironment> weatherSensorEnvironment_{};
     std::optional<CombatPlaygroundRuntime> runtime_{};
     GameplayPacingMetrics pacingMetrics_{};
 };

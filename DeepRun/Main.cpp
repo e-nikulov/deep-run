@@ -694,6 +694,24 @@ int main(const int argumentCount, char** argumentValues)
                     return false;
                 }
 
+                const auto weatherSensors = playground.BuildWeatherSensorEnvironment();
+                if (!weatherSensors)
+                {
+                    std::cerr << "[Game][ERROR] W1-E weather sensor environment failed: "
+                              << weatherSensors.error() << '\n';
+                    return false;
+                }
+                if (combatPlayground.has_value())
+                {
+                    const auto weatherConfigured = combatPlayground->SetWeatherSensorEnvironment(*weatherSensors);
+                    if (!weatherConfigured)
+                    {
+                        std::cerr << "[Game][ERROR] W1-E combat weather propagation failed: "
+                                  << weatherConfigured.error() << '\n';
+                        return false;
+                    }
+                }
+
                 if (combatPlayground.has_value())
                 {
                     DeepRun::Physics::PhysicsWorld* physics = engineServices->Physics();
