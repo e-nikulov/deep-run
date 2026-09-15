@@ -17,10 +17,14 @@ text = text[:start] + replacement + text[end:]
 
 # The validation runner token cannot update workflow files. Keep the product patch self-contained; the
 # permanent visual-capture workflow is updated separately through the GitHub API after validation.
-visual_block = '''replace_once(\n    ".github/workflows/w1-sea-state-visual-capture.yml",\n    "      - Engine/Render/D3D12Renderer.cpp\\n",\n    "      - Engine/Render/D3D12Renderer.cpp\\n      - CMakeLists.txt\\n      - Tests/W1MeshletOceanTest.cpp\\n",\n)\n'''
-if text.count(visual_block) != 1:
-    raise RuntimeError("unable to locate W1-J visual-capture path patch")
-text = text.replace(visual_block, "", 1)
+workflow_blocks = (
+    '''replace_once(\n    ".github/workflows/w1-sea-state-visual-capture.yml",\n    "      - feature/w1-i-sea-state-visual-acceptance\\n",\n    "      - feature/w1-i-sea-state-visual-acceptance\\n      - feature/w1-j-meshlet-ocean\\n",\n)\n''',
+    '''replace_once(\n    ".github/workflows/w1-sea-state-visual-capture.yml",\n    "      - Engine/Render/D3D12Renderer.cpp\\n",\n    "      - Engine/Render/D3D12Renderer.cpp\\n      - CMakeLists.txt\\n      - Tests/W1MeshletOceanTest.cpp\\n",\n)\n''',
+)
+for block in workflow_blocks:
+    if text.count(block) != 1:
+        raise RuntimeError("unable to locate W1-J visual-capture workflow patch")
+    text = text.replace(block, "", 1)
 
 # Engine/Render is intentionally renderer-generic. Product/log vocabulary there must describe only the
 # Gerstner presentation surface, never Game/Simulation concepts such as ocean/water.
