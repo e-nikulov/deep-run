@@ -6,6 +6,7 @@ on:
       - feature/w1-j-meshlet-ocean
     paths:
       - Tools/CI/apply_w1_j_meshlet_ocean.py
+      - Tools/CI/prepatch_w1_j.py
       - .github/workflows/w1-j-meshlet-ocean-patch.yml
   workflow_dispatch:
 
@@ -25,6 +26,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Normalize patch anchors
+        shell: pwsh
+        run: python Tools/CI/prepatch_w1_j.py
 
       - name: Apply meshlet ocean patch
         shell: pwsh
