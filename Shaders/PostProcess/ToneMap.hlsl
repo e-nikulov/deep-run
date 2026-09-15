@@ -23,6 +23,10 @@ cbuffer ScenePresentationConstants : register(b1)
     float AtmosphereBoundaryViewportY;
     float PresentationTimeSeconds;
     float CloudPatternOffset;
+    float LightningFlashIntensity;
+    float LightningViewportX;
+    float LightningPatternOffset;
+    float ScenePresentationPadding2;
 };
 
 struct FullscreenPixelInput
@@ -46,8 +50,8 @@ FullscreenPixelInput VSMain(const uint vertexId : SV_VertexID)
 
 float3 ToneMapSceneLinear(const float3 sceneLinear)
 {
-    // Fixed neutral exposure with a per-channel Reinhard shoulder. Procedural sky/sun is deliberately evaluated
-    // before this function so SDR and HDR consume the same scene-linear radiance source.
+    // Fixed neutral exposure with a per-channel Reinhard shoulder. Procedural sky/sun/lightning is deliberately
+    // evaluated before this function so SDR and HDR consume the same scene-linear radiance source.
     const float3 nonNegative = max(sceneLinear, 0.0F.xxx);
     return nonNegative / (1.0F.xxx + nonNegative);
 }
@@ -130,6 +134,34 @@ float AtmosphereFbm(float2 p)
     return sum;
 }
 
+float LightningChannelCoverage(const float2 uv, const float safeSkyBottom)
+{
+    if (LightningFlashIntensity <= 1.0e-4F)
+        return 0.0F;
+
+    const float skyT = saturate(uv.y / safeSkyBottom);
+    const float verticalMask = smoothstep(0.10F, 0.18F, skyT) *
+                               (1.0F - smoothstep(0.88F, 0.98F, skyT));
+    const float jagged = AtmosphereValueNoise(float2(
+        skyT * 19.0F + LightningPatternOffset * 23.0F,
+        LightningPatternOffset * 41.0F));
+    const float bend = (jagged - 0.5F) * (0.035F + 0.055F * skyT);
+    const float primaryX = LightningViewportX + bend;
+    const float pixelWidth = max(fwidth(uv.x) * 1.35F, 0.00075F);
+    const float primary = 1.0F - smoothstep(pixelWidth, pixelWidth * 2.35F, abs(uv.x - primaryX));
+
+    // One restrained lower branch makes the silhouette read as lightning without turning the sky into a neon tree.
+    const float branchMask = smoothstep(0.48F, 0.58F, skyT) *
+                             (1.0F - smoothstep(0.76F, 0.88F, skyT));
+    const float branchDirection = LightningPatternOffset >= 0.5F ? 1.0F : -1.0F;
+    const float branchX = primaryX + branchDirection * (skyT - 0.50F) * 0.11F;
+    const float branch = (1.0F - smoothstep(
+        pixelWidth * 0.8F,
+        pixelWidth * 2.0F,
+        abs(uv.x - branchX))) * branchMask * 0.55F;
+    return saturate(max(primary, branch) * verticalMask);
+}
+
 float3 EvaluateProceduralDaySkySun(const float2 uv, const float skyBottom)
 {
     const float safeSkyBottom = max(skyBottom, 1.0e-4F);
@@ -185,6 +217,15 @@ float3 EvaluateProceduralDaySkySun(const float2 uv, const float skyBottom)
     const float solarPath =
         exp2(-abs((uv.x - sunCenter.x) * aspectRatio) / max(radiusY, 1.0e-5F) * 0.45F) * horizonHaze;
     sky += float3(0.35F, 0.22F, 0.10F) * (0.16F * solarPath * SunTransmittance);
+
+    if (LightningFlashIntensity > 1.0e-4F)
+    {
+        const float channel = LightningChannelCoverage(uv, safeSkyBottom);
+        const float lateralGlow = exp2(-abs(uv.x - LightningViewportX) * 7.5F);
+        const float3 flashColor = float3(0.72F, 0.86F, 1.25F);
+        sky += flashColor * LightningFlashIntensity * (0.24F + 0.34F * lateralGlow);
+        sky += float3(8.5F, 10.5F, 15.0F) * (channel * LightningFlashIntensity);
+    }
     return sky + diskRadiance * diskCoverage;
 }
 
@@ -211,6 +252,20 @@ float3 ApplyPrecipitationPresentation(const float3 sceneLinear, const float2 uv)
     return result;
 }
 
+float3 ApplyLightningPresentation(const float3 sceneLinear, const float2 uv)
+{
+    if (LightningFlashIntensity <= 1.0e-4F ||
+        AtmosphereBoundaryViewportY <= 1.0e-4F ||
+        uv.y > AtmosphereBoundaryViewportY)
+        return sceneLinear;
+
+    // A real lightning flash lifts the whole above-water scene for a fraction of a second; it is not a white
+    // fullscreen card. Keep the cold spectral bias and lateral falloff around the deterministic strike azimuth.
+    const float lateral = 0.45F + 0.55F * exp2(-abs(uv.x - LightningViewportX) * 3.5F);
+    return sceneLinear + float3(0.34F, 0.45F, 0.72F) *
+        (LightningFlashIntensity * lateral);
+}
+
 float4 ResolveSceneLinear(const FullscreenPixelInput input)
 {
     // Tone mapping is 1:1 with SceneColorHDR, so Load avoids filtering the sky sentinel across the waterline.
@@ -223,10 +278,16 @@ float4 ResolveSceneLinear(const FullscreenPixelInput input)
     return float4(scene.rgb, 1.0F);
 }
 
+float3 ResolveWeatherPresentation(const float3 sceneLinear, const float2 uv)
+{
+    const float3 precipitated = ApplyPrecipitationPresentation(sceneLinear, uv);
+    return ApplyLightningPresentation(precipitated, uv);
+}
+
 float4 PSMain(FullscreenPixelInput input) : SV_TARGET
 {
     const float4 scene = ResolveSceneLinear(input);
-    const float3 weatherPresented = ApplyPrecipitationPresentation(scene.rgb, input.uv);
+    const float3 weatherPresented = ResolveWeatherPresentation(scene.rgb, input.uv);
     const float3 encoded = LinearToSrgb(ToneMapSceneLinear(weatherPresented));
     return float4(saturate(DitherForQuantization(encoded, 255.0F, input.position.xy)), 1.0F);
 }
@@ -234,7 +295,7 @@ float4 PSMain(FullscreenPixelInput input) : SV_TARGET
 float4 PSMainSdr10(FullscreenPixelInput input) : SV_TARGET
 {
     const float4 scene = ResolveSceneLinear(input);
-    const float3 weatherPresented = ApplyPrecipitationPresentation(scene.rgb, input.uv);
+    const float3 weatherPresented = ResolveWeatherPresentation(scene.rgb, input.uv);
     const float3 encoded = LinearToSrgb(ToneMapSceneLinear(weatherPresented));
     return float4(saturate(DitherForQuantization(encoded, 1023.0F, input.position.xy)), 1.0F);
 }
@@ -242,7 +303,7 @@ float4 PSMainSdr10(FullscreenPixelInput input) : SV_TARGET
 float4 PSHdrScRgb(FullscreenPixelInput input) : SV_TARGET
 {
     const float4 scene = ResolveSceneLinear(input);
-    const float3 weatherPresented = ApplyPrecipitationPresentation(scene.rgb, input.uv);
+    const float3 weatherPresented = ResolveWeatherPresentation(scene.rgb, input.uv);
     const float3 scRgb = MapSceneLinearToHdrScRgb(weatherPresented);
     // FP16 scRGB stays high precision. Half an expected 10-bit scan-out LSB of static dither prevents common
     // compositor/display quantization from exposing contours in the sky and dark-water gradients.
