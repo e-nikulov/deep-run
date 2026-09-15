@@ -7411,6 +7411,47 @@ bool D2ShiftedWaterSurfacePlacement()
            sample->surfaceLevelY == SurfaceLevelY;
 }
 
+
+bool W1JAdaptiveGerstnerTessellationPolicy()
+{
+    DeepRun::Render::GerstnerSurfacePresentationParameters flat{
+        .minimumX = -340.0F,
+        .maximumX = 340.0F,
+        .referenceLevelY = 0.0F,
+        .bottomFillY = -600.0F,
+        .horizontalSampleCount = DeepRun::Render::GerstnerSurfaceHorizontalSampleLods.front(),
+        .activeComponentCount = 0U,
+        .deepFillRgb = {0.003F, 0.04F, 0.12F},
+        .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};
+    const auto flatSelection = DeepRun::Render::SelectGerstnerSurfaceHorizontalSampleCount(flat, 1028U, 600.0F);
+    if (!flatSelection || *flatSelection != 513U)
+        return false;
+
+    auto rough = flat;
+    rough.activeComponentCount = 1U;
+    rough.components[0] = DeepRun::Render::GerstnerWaveComponent{
+        .amplitudeMeters = 2.0F,
+        .wavelengthMeters = 40.0F,
+        .angularFrequencyRadiansPerSecond = 0.7F,
+        .phaseOffsetRadians = 0.0F,
+        .horizontalSteepness = 0.2F};
+    const auto acceptanceSelection = DeepRun::Render::SelectGerstnerSurfaceHorizontalSampleCount(
+        rough, 1028U, 600.0F);
+    const auto targetSelection = DeepRun::Render::SelectGerstnerSurfaceHorizontalSampleCount(
+        rough, 2560U, 600.0F);
+    if (!acceptanceSelection || *acceptanceSelection != 2049U ||
+        !targetSelection || *targetSelection != 4097U)
+        return false;
+
+    rough.horizontalSampleCount = DeepRun::Render::GerstnerSurfaceMaximumHorizontalSampleCount;
+    const auto maximumMesh = DeepRun::Render::GenerateGerstnerSurfaceBaseMesh(rough);
+    if (!maximumMesh || maximumMesh->vertices.size() != 8194U || maximumMesh->indices.size() != 24576U)
+        return false;
+
+    return !DeepRun::Render::SelectGerstnerSurfaceHorizontalSampleCount(rough, 0U, 600.0F) &&
+           !DeepRun::Render::SelectGerstnerSurfaceHorizontalSampleCount(rough, 2560U, 0.0F);
+}
+
 bool D2SurfaceProjectionInsideViewport()
 {
     // Gameplay camera: target Y = -100, horizontal span 600 m, aspect 16:9 -> vertical span 337.5 m. The
@@ -10047,6 +10088,7 @@ int main(const int argumentCount, const char* const* arguments)
         // M2 Slice D2: world placement, water-surface viewport projection, and generic clear-rect validation.
         {"D2 off-center asset world placement", D2OffCenterAssetPlacement},
         {"D2 shifted water surface placement", D2ShiftedWaterSurfacePlacement},
+        {"W1-J adaptive Gerstner tessellation policy", W1JAdaptiveGerstnerTessellationPolicy},
         {"D2 surface projection inside viewport", D2SurfaceProjectionInsideViewport},
         {"D2 surface projection aspect ratio change", D2SurfaceProjectionAspectRatioChange},
         {"D2 surface projection edge cases", D2SurfaceProjectionEdgeCases},

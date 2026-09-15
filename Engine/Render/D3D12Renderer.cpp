@@ -229,15 +229,21 @@ constexpr UINT GerstnerRootSignatureDwordCost = sizeof(GerstnerDrawConstants) / 
 static_assert(GerstnerRootSignatureDwordCost == 64U);
 static_assert(GerstnerRootSignatureDwordCost <= D3D12_MAX_ROOT_COST);
 
-struct GpuGerstnerSurface final
+struct GpuGerstnerSurfaceLod final
 {
     ComPtr<ID3D12Resource> vertexBuffer;
     ComPtr<ID3D12Resource> indexBuffer;
     D3D12_VERTEX_BUFFER_VIEW vertexView{};
     D3D12_INDEX_BUFFER_VIEW indexView{};
-    GerstnerSurfacePresentationParameters parameters{};
+    std::uint32_t horizontalSampleCount = 0U;
     std::uint32_t vertexCount = 0U;
     std::uint32_t indexCount = 0U;
+};
+
+struct GpuGerstnerSurface final
+{
+    std::array<GpuGerstnerSurfaceLod, GerstnerSurfaceHorizontalSampleLods.size()> lods{};
+    GerstnerSurfacePresentationParameters parameters{};
 };
 
 std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path)
@@ -1857,7 +1863,7 @@ public:
         {
             return std::unexpected("Gerstner surface configuration is not valid during a frame");
         }
-        if (gerstnerSurface.vertexBuffer != nullptr)
+        if (gerstnerSurface.lods.front().vertexBuffer != nullptr)
         {
             return std::unexpected("Gerstner surface is already configured for this renderer");
         }
@@ -1865,19 +1871,6 @@ public:
         {
             return std::unexpected(valid.error());
         }
-        const auto mesh = GenerateGerstnerSurfaceBaseMesh(parameters);
-        if (!mesh)
-        {
-            return std::unexpected(mesh.error());
-        }
-
-        std::vector<GerstnerSurfaceVertex> vertices;
-        vertices.reserve(mesh->vertices.size());
-        for (const GerstnerSurfaceBaseVertex& vertex : mesh->vertices)
-        {
-            vertices.push_back({.basePosition = {vertex.x, vertex.y}, .surfaceWeight = vertex.surfaceWeight});
-        }
-
         try
         {
             const D3D12_HEAP_PROPERTIES uploadHeap = HeapProperties(D3D12_HEAP_TYPE_UPLOAD);
@@ -1903,23 +1896,43 @@ public:
             };
 
             GpuGerstnerSurface surface;
-            surface.vertexBuffer = createUploadBuffer(
-                vertices.data(),
-                static_cast<std::uint64_t>(vertices.size()) * sizeof(GerstnerSurfaceVertex),
-                "Create Gerstner surface vertex buffer");
-            surface.indexBuffer = createUploadBuffer(
-                mesh->indices.data(),
-                static_cast<std::uint64_t>(mesh->indices.size()) * sizeof(std::uint32_t),
-                "Create Gerstner surface index buffer");
-            surface.vertexView.BufferLocation = surface.vertexBuffer->GetGPUVirtualAddress();
-            surface.vertexView.SizeInBytes = static_cast<UINT>(vertices.size() * sizeof(GerstnerSurfaceVertex));
-            surface.vertexView.StrideInBytes = sizeof(GerstnerSurfaceVertex);
-            surface.indexView.BufferLocation = surface.indexBuffer->GetGPUVirtualAddress();
-            surface.indexView.SizeInBytes = static_cast<UINT>(mesh->indices.size() * sizeof(std::uint32_t));
-            surface.indexView.Format = DXGI_FORMAT_R32_UINT;
             surface.parameters = parameters;
-            surface.vertexCount = static_cast<std::uint32_t>(vertices.size());
-            surface.indexCount = static_cast<std::uint32_t>(mesh->indices.size());
+            for (std::size_t lodIndex = 0U; lodIndex < GerstnerSurfaceHorizontalSampleLods.size(); ++lodIndex)
+            {
+                GerstnerSurfacePresentationParameters lodParameters = parameters;
+                lodParameters.horizontalSampleCount = GerstnerSurfaceHorizontalSampleLods[lodIndex];
+                const auto mesh = GenerateGerstnerSurfaceBaseMesh(lodParameters);
+                if (!mesh)
+                {
+                    return std::unexpected(mesh.error());
+                }
+
+                std::vector<GerstnerSurfaceVertex> vertices;
+                vertices.reserve(mesh->vertices.size());
+                for (const GerstnerSurfaceBaseVertex& vertex : mesh->vertices)
+                {
+                    vertices.push_back({.basePosition = {vertex.x, vertex.y}, .surfaceWeight = vertex.surfaceWeight});
+                }
+
+                GpuGerstnerSurfaceLod& lod = surface.lods[lodIndex];
+                lod.vertexBuffer = createUploadBuffer(
+                    vertices.data(),
+                    static_cast<std::uint64_t>(vertices.size()) * sizeof(GerstnerSurfaceVertex),
+                    "Create Gerstner surface vertex buffer");
+                lod.indexBuffer = createUploadBuffer(
+                    mesh->indices.data(),
+                    static_cast<std::uint64_t>(mesh->indices.size()) * sizeof(std::uint32_t),
+                    "Create Gerstner surface index buffer");
+                lod.vertexView.BufferLocation = lod.vertexBuffer->GetGPUVirtualAddress();
+                lod.vertexView.SizeInBytes = static_cast<UINT>(vertices.size() * sizeof(GerstnerSurfaceVertex));
+                lod.vertexView.StrideInBytes = sizeof(GerstnerSurfaceVertex);
+                lod.indexView.BufferLocation = lod.indexBuffer->GetGPUVirtualAddress();
+                lod.indexView.SizeInBytes = static_cast<UINT>(mesh->indices.size() * sizeof(std::uint32_t));
+                lod.indexView.Format = DXGI_FORMAT_R32_UINT;
+                lod.horizontalSampleCount = lodParameters.horizontalSampleCount;
+                lod.vertexCount = static_cast<std::uint32_t>(vertices.size());
+                lod.indexCount = static_cast<std::uint32_t>(mesh->indices.size());
+            }
 #if defined(DEEPRUN_DEBUG)
             if (ValidateDebugMessages("Gerstner surface creation") != 0)
             {
@@ -1929,8 +1942,9 @@ public:
             gerstnerSurface = std::move(surface);
             logger.Info(
                 Diagnostics::LogCategory::Render,
-                "W1-B spectral surface configured: vertices=" + std::to_string(gerstnerSurface.vertexCount) +
-                    ", indices=" + std::to_string(gerstnerSurface.indexCount) + ", draw calls=1");
+                "W1-J adaptive spectral surface configured: lod samples=513/1025/2049/4097, max vertices=" +
+                    std::to_string(gerstnerSurface.lods.back().vertexCount) + ", max indices=" +
+                    std::to_string(gerstnerSurface.lods.back().indexCount) + ", draw calls=1");
             return {};
         }
         catch (const std::exception& exception)
@@ -1953,7 +1967,8 @@ public:
             return std::unexpected("Gerstner surface draw is only valid between BeginFrame and EndFrame");
         }
         if (gerstnerSurfacePipeline == nullptr || gerstnerSurfaceRootSignature == nullptr ||
-            gerstnerSurface.vertexBuffer == nullptr || gerstnerSurface.indexBuffer == nullptr)
+            gerstnerSurface.lods.front().vertexBuffer == nullptr ||
+            gerstnerSurface.lods.front().indexBuffer == nullptr)
         {
             return std::unexpected("Gerstner surface pipeline or geometry is not ready");
         }
@@ -1964,6 +1979,21 @@ public:
         }
 
         const GerstnerSurfacePresentationParameters& parameters = gerstnerSurface.parameters;
+        const auto selectedSampleCount = SelectGerstnerSurfaceHorizontalSampleCount(parameters, width, camera.width);
+        if (!selectedSampleCount)
+        {
+            return std::unexpected(selectedSampleCount.error());
+        }
+        const auto selectedLod = std::ranges::find_if(
+            gerstnerSurface.lods,
+            [&selectedSampleCount](const GpuGerstnerSurfaceLod& lod)
+            {
+                return lod.horizontalSampleCount == *selectedSampleCount;
+            });
+        if (selectedLod == gerstnerSurface.lods.end())
+        {
+            return std::unexpected("Gerstner adaptive tessellation selected an unavailable LOD");
+        }
         const auto asConstants = [](const GerstnerWaveComponent& component)
         {
             return std::array<float, 4>{
@@ -2008,12 +2038,12 @@ public:
             &constants,
             0);
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        commandList->IASetVertexBuffers(0, 1, &gerstnerSurface.vertexView);
-        commandList->IASetIndexBuffer(&gerstnerSurface.indexView);
-        commandList->DrawIndexedInstanced(gerstnerSurface.indexCount, 1, 0, 0, 0);
+        commandList->IASetVertexBuffers(0, 1, &selectedLod->vertexView);
+        commandList->IASetIndexBuffer(&selectedLod->indexView);
+        commandList->DrawIndexedInstanced(selectedLod->indexCount, 1, 0, 0, 0);
         return GerstnerSurfaceDrawStats{
-            .vertexCount = gerstnerSurface.vertexCount,
-            .indexCount = gerstnerSurface.indexCount,
+            .vertexCount = selectedLod->vertexCount,
+            .indexCount = selectedLod->indexCount,
             .drawCalls = 1U};
     }
 
@@ -2541,7 +2571,10 @@ bool D3D12Renderer::IsSuspendedParticleFieldReady() const noexcept
 bool D3D12Renderer::IsGerstnerSurfaceReady() const noexcept
 {
     return impl_->gerstnerSurfacePipeline != nullptr && impl_->gerstnerSurfaceRootSignature != nullptr &&
-           impl_->gerstnerSurface.vertexBuffer != nullptr && impl_->gerstnerSurface.indexBuffer != nullptr;
+           impl_->gerstnerSurface.lods.front().vertexBuffer != nullptr &&
+           impl_->gerstnerSurface.lods.front().indexBuffer != nullptr &&
+           impl_->gerstnerSurface.lods.back().vertexBuffer != nullptr &&
+           impl_->gerstnerSurface.lods.back().indexBuffer != nullptr;
 }
 
 float D3D12Renderer::AspectRatio() const noexcept

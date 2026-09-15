@@ -11,6 +11,9 @@ namespace DeepRun::Render
 {
 inline constexpr std::size_t GerstnerWaveComponentCapacity = 7U;
 inline constexpr std::size_t LegacyM3GerstnerWaveComponentCount = 3U;
+inline constexpr std::array<std::uint32_t, 4> GerstnerSurfaceHorizontalSampleLods{513U, 1025U, 2049U, 4097U};
+inline constexpr std::uint32_t GerstnerSurfaceMaximumHorizontalSampleCount =
+    GerstnerSurfaceHorizontalSampleLods.back();
 
 struct GerstnerWaveComponent final
 {
@@ -76,4 +79,8 @@ struct GerstnerSurfaceDrawStats final
     const GerstnerSurfacePresentationParameters& parameters,
     float x,
     float phaseTimeSeconds);
+[[nodiscard]] std::expected<std::uint32_t, std::string> SelectGerstnerSurfaceHorizontalSampleCount(
+    const GerstnerSurfacePresentationParameters& parameters,
+    std::uint32_t viewportWidthPixels,
+    float cameraWidthMeters);
 }

@@ -12,7 +12,7 @@ Render::GerstnerSurfacePresentationParameters BuildGerstnerSurfacePresentation(c
     Render::GerstnerSurfacePresentationParameters result{
         .minimumX = -340.0F, .maximumX = 340.0F,
         .referenceLevelY = water.Config().surfaceLevelY, .bottomFillY = -600.0F,
-        .horizontalSampleCount = 257U,
+        .horizontalSampleCount = Render::GerstnerSurfaceHorizontalSampleLods.front(),
         .activeComponentCount = 0U,
         .deepFillRgb = {M2UnderwaterBackgroundColor.r, M2UnderwaterBackgroundColor.g, M2UnderwaterBackgroundColor.b},
         .surfaceTintRgb = {0.0065F, 0.075F, 0.18F}};

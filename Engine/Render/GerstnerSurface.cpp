@@ -9,7 +9,7 @@ namespace
 {
 constexpr float TwoPi = 6.28318530717958647692F;
 constexpr std::uint32_t MinimumHorizontalSampleCount = 2U;
-constexpr std::uint32_t MaximumHorizontalSampleCount = 513U;
+constexpr std::uint32_t MaximumHorizontalSampleCount = GerstnerSurfaceMaximumHorizontalSampleCount;
 constexpr float MaximumComponentAmplitudeMeters = 3.0F;
 constexpr float LegacyMaximumCombinedVerticalAmplitudeMeters = 4.0F;
 constexpr float ProductionMaximumCombinedVerticalAmplitudeMeters = 20.0F;
@@ -154,6 +154,67 @@ std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseM
         result.indices.insert(result.indices.end(), {upperLeft, lowerLeft, upperRight, upperRight, lowerLeft, lowerRight});
     }
     return result;
+}
+
+
+std::expected<std::uint32_t, std::string> SelectGerstnerSurfaceHorizontalSampleCount(
+    const GerstnerSurfacePresentationParameters& parameters,
+    const std::uint32_t viewportWidthPixels,
+    const float cameraWidthMeters)
+{
+    if (const auto valid = ValidateGerstnerSurfacePresentationParameters(parameters); !valid)
+    {
+        return std::unexpected(valid.error());
+    }
+    if (viewportWidthPixels == 0U || !std::isfinite(cameraWidthMeters) || cameraWidthMeters <= 0.0F)
+    {
+        return std::unexpected("Gerstner tessellation selection requires positive finite viewport/camera dimensions");
+    }
+    if (parameters.activeComponentCount == 0U)
+    {
+        return GerstnerSurfaceHorizontalSampleLods.front();
+    }
+
+    float combinedAmplitudeMeters = 0.0F;
+    std::uint32_t wavelengthRequiredSamples = GerstnerSurfaceHorizontalSampleLods.front();
+    const float pixelsPerMeter = static_cast<float>(viewportWidthPixels) / cameraWidthMeters;
+    for (std::size_t index = 0U; index < parameters.activeComponentCount; ++index)
+    {
+        const auto& component = parameters.components[index];
+        combinedAmplitudeMeters += component.amplitudeMeters;
+        const float projectedAmplitudePixels = component.amplitudeMeters * pixelsPerMeter;
+        if (projectedAmplitudePixels >= 0.25F)
+        {
+            constexpr float SamplesPerVisibleWavelength = 20.0F;
+            const float required = std::ceil(
+                cameraWidthMeters / component.wavelengthMeters * SamplesPerVisibleWavelength) + 1.0F;
+            if (std::isfinite(required) && required > 0.0F)
+            {
+                wavelengthRequiredSamples = (std::max)(
+                    wavelengthRequiredSamples,
+                    static_cast<std::uint32_t>((std::min)(
+                        required, static_cast<float>(GerstnerSurfaceMaximumHorizontalSampleCount))));
+            }
+        }
+    }
+
+    const float targetPixelSpacing = combinedAmplitudeMeters >= 1.0F
+        ? 0.60F
+        : combinedAmplitudeMeters >= 0.25F
+            ? 0.75F
+            : 1.00F;
+    const float pixelRequired = std::ceil(static_cast<float>(viewportWidthPixels) / targetPixelSpacing) + 1.0F;
+    const std::uint32_t pixelRequiredSamples = static_cast<std::uint32_t>((std::min)(
+        pixelRequired, static_cast<float>(GerstnerSurfaceMaximumHorizontalSampleCount)));
+    const std::uint32_t requiredSamples = (std::max)(pixelRequiredSamples, wavelengthRequiredSamples);
+    for (const std::uint32_t lodSamples : GerstnerSurfaceHorizontalSampleLods)
+    {
+        if (lodSamples >= requiredSamples)
+        {
+            return lodSamples;
+        }
+    }
+    return GerstnerSurfaceHorizontalSampleLods.back();
 }
 
 std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
