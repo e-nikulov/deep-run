@@ -2,6 +2,7 @@
 #include "Game/Weapons/P700LaunchVfx.h"
 
 #include <array>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -94,9 +95,10 @@ using DeepRun::Weapons::P700GranitRuntimeState;
     if (!(tuning->lodParticleScales[0] > tuning->lodParticleScales[1] &&
           tuning->lodParticleScales[1] > tuning->lodParticleScales[2] &&
           tuning->lodParticleScales[2] > tuning->lodParticleScales[3]) ||
-        tuning->foamLifetimeSeconds <= tuning->dropletLifetimeSeconds)
+        tuning->foamLifetimeSeconds <= tuning->dropletLifetimeSeconds ||
+        tuning->waterCrownCount == 0U || tuning->waterCrownLifetimeSeconds <= 0.0F)
     {
-        std::cerr << "P-700 VFX LOD/persistent-water tuning is not production-bounded\n";
+        std::cerr << "P-700 VFX LOD/persistent-water/crown tuning is not production-bounded\n";
         return false;
     }
     return true;
@@ -130,14 +132,15 @@ using DeepRun::Weapons::P700GranitRuntimeState;
     missile.phaseStartTimeSeconds = 1.20;
     missile.launchBoosterActive = true;
     auto breach = vfx.BuildFrame(std::span<const P700GranitRuntimeState* const>(&pointer, 1U), camera, environment, 1.24);
-    if (!breach || !HasPrimitive(*breach, TransientVfxPrimitive::Droplet) ||
+    if (!breach || !HasPrimitive(*breach, TransientVfxPrimitive::WaterCrown) ||
+        !HasPrimitive(*breach, TransientVfxPrimitive::Droplet) ||
         !HasPrimitive(*breach, TransientVfxPrimitive::WaterSheet) ||
         !HasPrimitive(*breach, TransientVfxPrimitive::Mist) ||
         !HasPrimitive(*breach, TransientVfxPrimitive::Foam) ||
         !HasAudio(*breach, P700LaunchAudioEvent::SurfaceBreach) ||
         !HasAudio(*breach, P700LaunchAudioEvent::BoosterAir))
     {
-        std::cerr << "P-700 surface breach did not preserve the continuous water event\n";
+        std::cerr << "P-700 surface breach did not preserve the crown/sheet/droplet/mist/foam water event\n";
         return false;
     }
 
@@ -209,8 +212,53 @@ using DeepRun::Weapons::P700GranitRuntimeState;
         return false;
     }
     std::cout << "P700 VFX salvo " << missileCount << ": submittedParticles=" << frame->submittedParticles
+              << " requestedParticles=" << frame->requestedParticles
               << " emitters=" << frame->emitters.size()
               << " clamped=" << (frame->particleBudgetClamped ? "yes" : "no") << '\n';
+    return true;
+}
+
+[[nodiscard]] bool RunCpuPresentationBenchmark()
+{
+    constexpr std::size_t MissileCount = 24U;
+    constexpr std::size_t Iterations = 600U;
+    P700LaunchVfxSystem vfx{};
+    auto camera = TestCamera();
+    const auto environment = DeepRun::Game::Combat::P700VfxShowcaseProfileFor(
+        DeepRun::Game::Combat::P700VfxShowcaseEnvironment::Storm).environment;
+
+    std::vector<P700GranitRuntimeState> missiles;
+    missiles.reserve(MissileCount);
+    for (std::size_t index = 0; index < MissileCount; ++index)
+    {
+        auto missile = MakeMissile(7000U + index, P700GranitPhase::UnderwaterLaunch,
+                                   static_cast<float>(index) * 2.15F, -24.0F);
+        missile.positionMeters.z = static_cast<float>(index % 2U == 0U ? 6.0F : -6.0F);
+        missiles.push_back(missile);
+    }
+    std::vector<const P700GranitRuntimeState*> pointers;
+    pointers.reserve(MissileCount);
+    for (const auto& missile : missiles)
+        pointers.push_back(&missile);
+
+    std::uint64_t checksum = 0U;
+    const auto start = std::chrono::steady_clock::now();
+    for (std::size_t iteration = 0; iteration < Iterations; ++iteration)
+    {
+        const double time = 1.12 + static_cast<double>(iteration) * 0.00001;
+        const auto frame = vfx.BuildFrame(pointers, camera, environment, time);
+        if (!frame)
+        {
+            std::cerr << "P-700 CPU presentation benchmark frame failed: " << frame.error() << '\n';
+            return false;
+        }
+        checksum += frame->submittedParticles + frame->emitters.size();
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const double totalMicroseconds = std::chrono::duration<double, std::micro>(elapsed).count();
+    const double averageMicroseconds = totalMicroseconds / static_cast<double>(Iterations);
+    std::cout << "P700 VFX CPU BuildFrame 24-missile storm: avg_us=" << averageMicroseconds
+              << " iterations=" << Iterations << " checksum=" << checksum << '\n';
     return true;
 }
 
@@ -237,7 +285,7 @@ int main()
 {
     if (!RunDataDrivenChecks() || !RunLifecycleChecks() || !RunSalvoBudgetCheck(1U) ||
         !RunSalvoBudgetCheck(2U) || !RunSalvoBudgetCheck(6U) || !RunSalvoBudgetCheck(24U) ||
-        !RunShowcaseChecks())
+        !RunCpuPresentationBenchmark() || !RunShowcaseChecks())
     {
         return EXIT_FAILURE;
     }
