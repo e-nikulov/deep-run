@@ -11,7 +11,6 @@ namespace
 {
 constexpr float FixedDeltaSeconds = 1.0F / 60.0F;
 constexpr int FixedTickCount = 1'200;
-constexpr float GravityMetersPerSecondSquared = 9.80665F;
 constexpr float SurfaceMassKg = 14'820'000.0F;
 constexpr float PointPotentialVolumeCubicMeters = 4'696.0F;
 constexpr float PointHalfHeightMeters = 4.35F;
@@ -57,6 +56,14 @@ int main()
         std::cerr << "PhysicsWorld initialization failed\n";
         return 1;
     }
+    const auto gravity = physics.Gravity();
+    if (!gravity || !gravity->IsFinite() || gravity->y >= 0.0F ||
+        std::abs(gravity->x) > 1.0e-6F || std::abs(gravity->z) > 1.0e-6F)
+    {
+        std::cerr << "authoritative gravity is unavailable or not vertical\n";
+        return 1;
+    }
+    const float gravityMagnitudeMetersPerSecondSquared = -gravity->y;
 
     const float fullPotentialVolume = PointPotentialVolumeCubicMeters * static_cast<float>(component.points.size());
     const float equilibriumFraction =
@@ -123,14 +130,14 @@ int main()
             *water,
             component,
             {.worldPositionMeters = waveState->position, .worldOrientation = waveState->orientation},
-            GravityMetersPerSecondSquared,
+            gravityMagnitudeMetersPerSecondSquared,
             simulationTimeSeconds,
             waveResult);
         const auto flatCalculated = Marine::BuoyancySystem::Calculate(
             *water,
             component,
             {.worldPositionMeters = flatState->position, .worldOrientation = flatState->orientation},
-            GravityMetersPerSecondSquared);
+            gravityMagnitudeMetersPerSecondSquared);
         if (!waveCalculated || !flatCalculated ||
             !ApplyPointForces(physics, waveBody, waveResult) ||
             !ApplyPointForces(physics, flatBody, *flatCalculated))
