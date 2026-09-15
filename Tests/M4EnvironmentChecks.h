@@ -5,6 +5,7 @@
 #include "Tests/W1SpectralOceanChecks.h"
 #include "Tests/W1SurfaceImpactChecks.h"
 #include "Tests/W1SurfaceVesselDynamicsChecks.h"
+#include "Tests/W1ThunderstormPresentationChecks.h"
 #include "Tests/W1WeatherSeaStateChecks.h"
 #include "Tests/W1WeatherSensorCouplingChecks.h"
 #include "Tests/W1WeatherPresentationChecks.h"
@@ -108,6 +109,6 @@ namespace M4EnvironmentDetail
     return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers &&
            RunW1WeatherSeaStateChecks() && RunW1SpectralOceanChecks() && RunW1SurfaceVesselDynamicsChecks() &&
            RunW1SurfaceImpactChecks() && RunW1WeatherSensorCouplingChecks() &&
-           RunW1WeatherPresentationChecks();
+           RunW1WeatherPresentationChecks() && RunW1ThunderstormPresentationChecks();
 }
 }
