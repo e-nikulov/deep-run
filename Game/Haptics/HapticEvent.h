@@ -5,6 +5,7 @@ namespace DeepRun::Game
 enum class HapticEventType
 {
     EngineVibration,
+    WaveSlam,
 };
 
 // Game-owned semantic feedback. Intensity is finite in [0, 1]; each event type defines its meaning.
