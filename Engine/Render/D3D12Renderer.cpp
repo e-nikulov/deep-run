@@ -2417,8 +2417,11 @@ RendererMemoryDiagnostics D3D12Renderer::MemoryDiagnostics() const noexcept
             count(primitive.vertexBuffer.Get(), true);
             count(primitive.indexBuffer.Get(), true);
         }
-    count(impl_->gerstnerSurface.vertexBuffer.Get(), true);
-    count(impl_->gerstnerSurface.indexBuffer.Get(), true);
+    for (const auto& lod : impl_->gerstnerSurface.lods)
+    {
+        count(lod.vertexBuffer.Get(), true);
+        count(lod.indexBuffer.Get(), true);
+    }
     count(impl_->suspendedParticleField.vertexBuffer.Get(), true);
     count(impl_->suspendedParticleField.indexBuffer.Get(), true);
     for (const auto& upload : impl_->scenePresentationUploads) count(upload.resource.Get());
