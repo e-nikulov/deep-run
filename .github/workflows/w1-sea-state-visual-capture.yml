@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Apply wave-envelope underlay fix and restore clean capture workflow
+      - name: Apply and commit wave-envelope underlay fix
         shell: pwsh
         run: |
           @'
@@ -92,78 +92,12 @@ jobs:
               raise SystemExit(f"expected one later Gerstner presentation declaration, found {text.count(duplicate)}")
           text = text.replace(duplicate, replacement, 1)
           path.write_text(text, encoding="utf-8", newline="\n")
-
-          clean_workflow = '''name: W1 sea-state visual capture
-
-          on:
-            push:
-              branches:
-                - feature/w1-i-sea-state-visual-acceptance
-              paths:
-                - .github/workflows/w1-sea-state-visual-capture.yml
-                - DeepRun/Main.cpp
-                - Game/PhysicalPlayground.cpp
-                - Game/PhysicalPlayground.h
-                - Engine/Render/GerstnerSurface.cpp
-                - Engine/Render/GerstnerSurface.h
-                - Simulation/Environment/WeatherSeaState.h
-                - Simulation/Marine/ProductionOceanSpectrum.h
-                - Simulation/Marine/WaterBody.h
-                - Game/WaterPresentation.cpp
-                - Game/WaterPresentation.h
-                - Shaders/GerstnerSurface.hlsl
-
-          permissions:
-            contents: read
-
-          jobs:
-            capture:
-              runs-on: windows-latest
-              timeout-minutes: 30
-              steps:
-                - uses: actions/checkout@v4
-                - name: Configure Release
-                  run: cmake --preset windows-release
-                - name: Build Release
-                  run: cmake --build --preset windows-release --parallel
-                - name: Capture production Beaufort frames
-                  shell: pwsh
-                  run: |
-                    $exe = ".\\build\\windows-release\\Release\\DeepRun.exe"
-                    foreach ($force in @(0, 1, 2, 8)) {
-                      $env:DR_WEATHER_VISUAL_BEAUFORT = "$force"
-                      Write-Host "Capturing Beaufort $force"
-                      & $exe
-                      if ($LASTEXITCODE -ne 0) {
-                        throw "DeepRun Beaufort $force visual acceptance failed with exit code $LASTEXITCODE"
-                      }
-                      $path = "w1-sea-beaufort-$force.bmp"
-                      if (-not (Test-Path $path)) {
-                        throw "Expected visual acceptance frame is missing: $path"
-                      }
-                    }
-                    Remove-Item Env:\\DR_WEATHER_VISUAL_BEAUFORT -ErrorAction SilentlyContinue
-                - name: Upload sea-state visual review
-                  uses: actions/upload-artifact@v4
-                  with:
-                    name: w1-sea-state-visual-review
-                    path: |
-                      w1-sea-beaufort-0.bmp
-                      w1-sea-beaufort-1.bmp
-                      w1-sea-beaufort-2.bmp
-                      w1-sea-beaufort-8.bmp
-                    if-no-files-found: error
-                    retention-days: 14
-          '''
-          clean_workflow = "\n".join(line[10:] if line.startswith("          ") else line for line in clean_workflow.splitlines()) + "\n"
-          Path(".github/workflows/w1-sea-state-visual-capture.yml").write_text(
-              clean_workflow, encoding="utf-8", newline="\n")
           print("W1-I wave-envelope underlay fix applied")
           '@ | python -
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Game/PhysicalPlayground.cpp .github/workflows/w1-sea-state-visual-capture.yml
+          git add Game/PhysicalPlayground.cpp
           git commit -m "W1-I: hide flat mean-sea underlay below wave trough envelope"
           git push origin HEAD:feature/w1-i-sea-state-visual-acceptance
       - name: Configure Release
