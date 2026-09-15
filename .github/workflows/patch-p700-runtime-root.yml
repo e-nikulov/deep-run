@@ -1,0 +1,30 @@
+name: Patch P700 runtime root
+
+on:
+  push:
+    branches:
+      - feature/p700-signature-launch-vfx
+    paths:
+      - .github/workflows/patch-p700-runtime-root.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/p700-signature-launch-vfx
+      - name: Apply runtime-root repair
+        run: python Tools/patch_p700_runtime_root.py
+      - name: Commit production fix and remove patch plumbing
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-p700-runtime-root.yml Tools/patch_p700_runtime_root.py
+          git add Game/Combat/CombatPlaygroundView.h
+          git commit -m "Fix P-700 VFX runtime resource roots"
+          git push origin HEAD:feature/p700-signature-launch-vfx
