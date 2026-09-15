@@ -1002,10 +1002,8 @@ private:
                         playerSnapshot.signedDepthMeters, simulationTimeSeconds);
                     if (!operated)
                         return std::unexpected("electronic-suite command failed: " + operated.error());
-                    const bool unresolvedSignal3 =
-                        electronics_.SelectedSystem() == AnteyElectronicSystem::Signal3NavigationPeriscope;
                     lastCombatCommand_ = PlayerCombatCommandFeedback{
-                        .command = command.type, .accepted = mastAvailable && !unresolvedSignal3,
+                        .command = command.type, .accepted = mastAvailable,
                         .trackId = playerCombat_.SelectedTrackId(), .message = *operated};
                     continue;
                 }
@@ -1092,22 +1090,38 @@ private:
                     }
                     const float surfaceLevelYMeters =
                         playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
-                    const auto feedback = VisualIdentifySelectedTrack(
-                        periscopeState_,
-                        playerTracks_,
-                        playerCombat_.SelectedTrackId(),
-                        playerSnapshot.emitter.positionMeters,
-                        playerSnapshot.signedDepthMeters,
-                        surfaceLevelYMeters,
-                        PeriscopeTargetTruth{
-                            .positionMeters = truth->emitter.positionMeters,
-                            .visualClassification = truth->visualClassification,
-                            .visibleHeightAboveSurfaceMeters = truth->visibleHeightAboveSurfaceMeters},
-                        simulationTimeSeconds,
-                        periscopeOpticalConditions_);
+                    const PeriscopeTargetTruth opticalTruth{
+                        .positionMeters = truth->emitter.positionMeters,
+                        .visualClassification = truth->visualClassification,
+                        .visibleHeightAboveSurfaceMeters = truth->visibleHeightAboveSurfaceMeters};
+                    std::expected<PlayerCombatCommandFeedback, std::string> feedback =
+                        PlayerCombatCommandFeedback{
+                            .command = PlayerCombatCommandType::VisualIdentify,
+                            .accepted = false,
+                            .trackId = playerCombat_.SelectedTrackId(),
+                            .message = "visual identification requires PZNS-10S or SIGNAL-3 to be raised"};
+                    if (periscopeState_.raised)
+                    {
+                        feedback = VisualIdentifySelectedTrack(
+                            periscopeState_, playerTracks_, playerCombat_.SelectedTrackId(),
+                            playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,
+                            surfaceLevelYMeters, opticalTruth, simulationTimeSeconds, periscopeOpticalConditions_);
+                    }
+                    else if (electronics_.Signal3Raised())
+                    {
+                        PeriscopeState signal3{
+                            .raised = true,
+                            .viewBearingRadians = selectedTrack->estimatedBearingRadians};
+                        feedback = VisualIdentifySelectedTrackWithConfig(
+                            Signal3NavigationPeriscopeConfig(), signal3, playerTracks_, playerCombat_.SelectedTrackId(),
+                            playerSnapshot.emitter.positionMeters, playerSnapshot.signedDepthMeters,
+                            surfaceLevelYMeters, opticalTruth, simulationTimeSeconds, periscopeOpticalConditions_);
+                        if (feedback)
+                            feedback->message = "SIGNAL-3 / " + feedback->message;
+                    }
                     if (!feedback)
                     {
-                        return std::unexpected("periscope visual-identification command failed: " + feedback.error());
+                        return std::unexpected("optical visual-identification command failed: " + feedback.error());
                     }
                     lastCombatCommand_ = *feedback;
                     continue;
@@ -1733,6 +1747,13 @@ private:
             !activePulse_.has_value() && simulationTimeSeconds + 1.0e-9 >= nextActivePulseTimeSeconds_;
         playerCombatPresentation.activeSonarPulsePending = activePulse_.has_value();
         ApplyPeriscopePresentation(playerCombatPresentation, periscopeState_, playerSnapshot.signedDepthMeters);
+        if (electronics_.Signal3Raised() &&
+            AnteyElectronicMastsAvailable(electronics_.Config(), playerSnapshot.signedDepthMeters) &&
+            selectedPlayerTrack.has_value() &&
+            selectedPlayerTrack->lifecycle != Perception::TrackLifecycleState::Lost)
+        {
+            playerCombatPresentation.canVisualIdentify = true;
+        }
         const auto& electronicState = electronics_.State();
         playerCombatPresentation.selectedElectronicSystem = electronicState.selectedSystem;
         playerCombatPresentation.electronicSystemDeployed = electronicState.deployed;

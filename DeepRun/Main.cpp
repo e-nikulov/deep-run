@@ -805,8 +805,7 @@ int main(const int argumentCount, char** argumentValues)
                          systemIndex < DeepRun::Game::Combat::AnteyElectronicSystemCount; ++systemIndex)
                     {
                         const auto system = static_cast<DeepRun::Game::Combat::AnteyElectronicSystem>(systemIndex);
-                        if (system == DeepRun::Game::Combat::AnteyElectronicSystem::Pzns10AttackPeriscope ||
-                            system == DeepRun::Game::Combat::AnteyElectronicSystem::Signal3NavigationPeriscope)
+                        if (system == DeepRun::Game::Combat::AnteyElectronicSystem::Pzns10AttackPeriscope)
                             continue;
                         const auto mastPresentation = playground.SetRetractableSystemPresentation(
                             DeepRun::Game::Combat::AnteyElectronicSystemProductionRoleId(system),

@@ -47,10 +47,6 @@ public:
         const float ownshipDepthMeters,
         const double simulationTimeSeconds)
     {
-        // SIGNAL-3 has a gameplay optics profile, but the production SailDevice node is intentionally unresolved.
-        // Do not create a virtual mast that can see while no physical presentation binding exists.
-        if (state_.selectedSystem == AnteyElectronicSystem::Signal3NavigationPeriscope)
-            return std::string("SIGNAL-3 unavailable: production SailDevice mapping is not confirmed yet");
         return OperateAnteyElectronicSystem(config_, state_, ownshipDepthMeters, simulationTimeSeconds);
     }
 
@@ -62,6 +58,11 @@ public:
     [[nodiscard]] bool RkpRequested() const noexcept
     {
         return AnteyElectronicSystemDeployed(state_, AnteyElectronicSystem::RkpCompressorIntake);
+    }
+
+    [[nodiscard]] bool Signal3Raised() const noexcept
+    {
+        return AnteyElectronicSystemDeployed(state_, AnteyElectronicSystem::Signal3NavigationPeriscope);
     }
 
     [[nodiscard]] bool RadioTransmitting(const double simulationTimeSeconds) const noexcept
@@ -197,7 +198,11 @@ public:
         // RADIAN and explicit radio transmissions are detectable by the hostile ESM path. This is bearing-only
         // perceived evidence: using an emitting sensor buys information but can improve the enemy's awareness.
         const bool radioTransmitting = RadioTransmitting(simulationTimeSeconds);
-        if (state_.radianTransmitting || radioTransmitting)
+        const float emissionDx = playerSnapshot.emitter.positionMeters.x - hostileElectronicSupportReceiverPositionMeters.x;
+        const float emissionDy = playerSnapshot.emitter.positionMeters.y - hostileElectronicSupportReceiverPositionMeters.y;
+        const float emissionDistanceMeters = std::hypot(emissionDx, emissionDy);
+        if ((state_.radianTransmitting || radioTransmitting) &&
+            emissionDistanceMeters <= config_.radioExposureMaximumRangeMeters)
         {
             const Perception::SensorObservation exposure{
                 .modality = Perception::SensorModality::ElectronicSupport,

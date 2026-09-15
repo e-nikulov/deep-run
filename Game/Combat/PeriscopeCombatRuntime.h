@@ -66,7 +66,8 @@ namespace DeepRun::Game::Combat
         .message = "periscope raised; mast exposed"};
 }
 
-[[nodiscard]] inline std::expected<PlayerCombatCommandFeedback, std::string> VisualIdentifySelectedTrack(
+[[nodiscard]] inline std::expected<PlayerCombatCommandFeedback, std::string> VisualIdentifySelectedTrackWithConfig(
+    const PeriscopeObservationConfig& config,
     PeriscopeState& periscope,
     Perception::TrackManager& tracks,
     const std::optional<std::uint64_t> selectedTrackId,
@@ -99,7 +100,7 @@ namespace DeepRun::Game::Combat
     // optical sensor simulator below, exactly like reflector/emitter truth enters acoustic simulation.
     periscope.viewBearingRadians = selected->estimatedBearingRadians;
     const auto observation = ObserveThroughPeriscope(
-        PeriscopeObservationConfig{},
+        config,
         periscope,
         ownshipPositionMeters,
         ownshipDepthMeters,
@@ -117,7 +118,7 @@ namespace DeepRun::Game::Combat
             .command = PlayerCombatCommandType::VisualIdentify,
             .accepted = false,
             .trackId = selectedTrackId,
-            .message = ownshipDepthMeters > PeriscopeObservationConfig{}.maximumOperatingDepthMeters
+            .message = ownshipDepthMeters > config.maximumOperatingDepthMeters
                 ? "visual identification unavailable: ownship is too deep"
                 : "selected contact is outside current optical visibility or field of view"};
     }
@@ -157,6 +158,22 @@ namespace DeepRun::Game::Combat
         .accepted = true,
         .trackId = selected->trackId,
         .message = std::string("visual identification: ") + label + " (" + detailLabel + ")"};
+}
+
+[[nodiscard]] inline std::expected<PlayerCombatCommandFeedback, std::string> VisualIdentifySelectedTrack(
+    PeriscopeState& periscope,
+    Perception::TrackManager& tracks,
+    const std::optional<std::uint64_t> selectedTrackId,
+    const Physics::PhysicsVector3& ownshipPositionMeters,
+    const float ownshipDepthMeters,
+    const float surfaceLevelYMeters,
+    const PeriscopeTargetTruth& targetTruth,
+    const double simulationTimeSeconds,
+    const PeriscopeOpticalConditions& opticalConditions = {})
+{
+    return VisualIdentifySelectedTrackWithConfig(
+        PeriscopeObservationConfig{}, periscope, tracks, selectedTrackId, ownshipPositionMeters,
+        ownshipDepthMeters, surfaceLevelYMeters, targetTruth, simulationTimeSeconds, opticalConditions);
 }
 
 inline void ApplyPeriscopePresentation(

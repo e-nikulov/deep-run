@@ -1,3 +1,4 @@
+#include "Game/Combat/AnteyElectronicCombatRuntime.h"
 #include "Game/Combat/AnteyElectronicSuite.h"
 #include "Game/Submarine/AnteyHighPressureAir.h"
 #include "Simulation/Perception/TrackManager.h"
@@ -119,6 +120,19 @@ int main()
     Require(navScope.viewHalfAngleRadians > PeriscopeObservationConfig{}.viewHalfAngleRadians &&
             navScope.maximumTypeRecognitionRangeMeters < PeriscopeObservationConfig{}.maximumTypeRecognitionRangeMeters,
             "SIGNAL-3 gameplay optic should be wider but weaker than the attack optic");
+
+    AnteyElectronicCombatRuntime electronics{200.0};
+    for (std::size_t index = 0; index < AnteyElectronicSystemCount &&
+         electronics.SelectedSystem() != AnteyElectronicSystem::Signal3NavigationPeriscope; ++index)
+        electronics.CycleSelectedSystem();
+    Require(electronics.SelectedSystem() == AnteyElectronicSystem::Signal3NavigationPeriscope,
+            "electronic-suite selection should reach SIGNAL-3");
+    const auto signal3Raised = electronics.OperateSelectedSystem(10.0F, 200.0);
+    Require(signal3Raised.has_value() && electronics.Signal3Raised(),
+            "confirmed SailDevice11 SIGNAL-3 must raise inside the mast operating zone");
+    const auto signal3Stowed = electronics.OperateSelectedSystem(10.0F, 200.0);
+    Require(signal3Stowed.has_value() && !electronics.Signal3Raised(),
+            "SIGNAL-3 second operation should stow the mast");
 
     Input::GamepadState controls{};
     controls.connected = true;
