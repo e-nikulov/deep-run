@@ -10,6 +10,7 @@ cbuffer GerstnerDrawConstants : register(b0)
     float4 Wave5;
     float4 Wave6;
     float4 HorizontalSteepness0;
+    // xyz = steepness for waves 4..6; w = active component count (1..7).
     float4 HorizontalSteepness1;
     float4 DeepFillColor;
     float4 SurfaceTintColor;
@@ -40,16 +41,17 @@ VSOutput VSMain(const VSInput input)
     const float cameraCenterX = ReferenceLevelAndTime.z;
     const float horizontalScale = ReferenceLevelAndTime.w;
     const float baseWorldX = cameraCenterX + input.basePosition.x * horizontalScale;
+    const uint activeComponentCount = (uint)HorizontalSteepness1.w;
     float2 displacement = float2(0.0F, 0.0F);
     if (input.surfaceWeight > 0.5F)
     {
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave0, HorizontalSteepness0.x);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave1, HorizontalSteepness0.y);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave2, HorizontalSteepness0.z);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave3, HorizontalSteepness0.w);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave4, HorizontalSteepness1.x);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave5, HorizontalSteepness1.y);
-        displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave6, HorizontalSteepness1.z);
+        if (activeComponentCount > 0U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave0, HorizontalSteepness0.x);
+        if (activeComponentCount > 1U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave1, HorizontalSteepness0.y);
+        if (activeComponentCount > 2U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave2, HorizontalSteepness0.z);
+        if (activeComponentCount > 3U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave3, HorizontalSteepness0.w);
+        if (activeComponentCount > 4U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave4, HorizontalSteepness1.x);
+        if (activeComponentCount > 5U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave5, HorizontalSteepness1.y);
+        if (activeComponentCount > 6U) displacement += EvaluateComponent(baseWorldX, timeSeconds, Wave6, HorizontalSteepness1.z);
     }
 
     const float surfaceWeight = input.surfaceWeight;
