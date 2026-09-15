@@ -67,28 +67,31 @@ struct BuoyancyResult final
 class BuoyancySystem final
 {
 public:
-    // Computes per-point submersion and Archimedes force for one body pose against one water body.
-    //
-    // Contract (per point, in input order):
-    //   worldPoint = pose.worldPositionMeters + Rotate(pose.worldOrientation, bodyLocalPositionMeters)
-    //   sample     = WaterBody::Sample(worldPoint)  (signed depth and normal come only from here)
-    //   fraction   = clamp((sample.signedDepthMeters + h) / (2h), 0, 1), h = submersionHalfHeightMeters
-    //   volume     = displacedVolumeCubicMeters * fraction
-    //   force      = sample.surfaceNormal * densityKgPerCubicMeter * gravityMagnitude * volume
-    //
-    // Invalid configuration/pose/gravity and any non-finite derived value are recoverable errors; nothing
-    // is clamped to a finite sentinel.
+    // Computes per-point submersion and Archimedes force for one body pose against the reference plane.
+    // Existing M2/M3 callers retain this exact contract even when the WaterBody also owns waves.
     [[nodiscard]] static std::expected<BuoyancyResult, BuoyancyError> Calculate(
         const WaterBody& water,
         const BuoyancyComponent& component,
         const BuoyancyPose& pose,
         float gravityMagnitudeMetersPerSecondSquared);
 
-    // Explicit M3-F opt-in: samples the instantaneous M3-E.1 free surface at every buoyancy point.
-    // `result` is caller-owned reusable storage. Reserve it for component.points before a fixed-tick loop
-    // to avoid heap allocation in this calculation. Existing Calculate() always retains flat/reference-plane
-    // semantics, even for a WaterBody with waves configured.
+    // M3-F compatibility operation: samples the instantaneous free surface at every point and aligns the
+    // bounded engineering-float force with that local surface normal. `result` is caller-owned reusable
+    // storage. Production vessel hydrostatics must use CalculateWaveHydrostatic instead.
     [[nodiscard]] static std::expected<void, BuoyancyError> CalculateWaveSurface(
+        const WaterBody& water,
+        const BuoyancyComponent& component,
+        const BuoyancyPose& pose,
+        float gravityMagnitudeMetersPerSecondSquared,
+        double simulationTimeSeconds,
+        BuoyancyResult& result);
+
+    // W1-C production surface-vessel hydrostatics. Each point samples the instantaneous wave elevation for
+    // signed depth/submerged volume, while Archimedean force remains gravity-opposed (+Y). This prevents a
+    // steep local wave normal from becoming artificial horizontal propulsion on a long hull. Spatially
+    // separated vertical forces still create physical heave and pitch through the rigid-body integrator.
+    // Fully submerged points are identical to reference-plane buoyancy because their fractions remain 1.
+    [[nodiscard]] static std::expected<void, BuoyancyError> CalculateWaveHydrostatic(
         const WaterBody& water,
         const BuoyancyComponent& component,
         const BuoyancyPose& pose,
