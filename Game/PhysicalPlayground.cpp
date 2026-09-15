@@ -120,6 +120,13 @@ constexpr float M5SurfaceEquilibriumBodyCenterDepthMeters =
     M2BuoyancySubmersionHalfHeightMeters * (2.0F * M5SurfaceEquilibriumSubmergedFraction - 1.0F);
 static_assert(M5SurfaceEquilibriumBodyCenterDepthMeters > 2.3463F &&
               M5SurfaceEquilibriumBodyCenterDepthMeters < 2.3467F);
+// W1-D GAME POLICY: dimensional wetting speed and q=1/2*rho*v^2 remain in Marine evidence; only the
+// hysteresis and presentation-severity endpoints are authored here. No structural damage threshold is implied.
+constexpr Marine::SurfaceImpactConfig W1DSurfaceImpactConfig{
+    .rearmSubmergedFraction = 0.55F,
+    .triggerSubmergedFraction = 0.65F,
+    .minimumRelativeWettingSpeedMetersPerSecond = 1.0F,
+    .severeRelativeWettingSpeedMetersPerSecond = 6.0F};
 // Exact tank timing remains explicit GAME POLICY in the pure ballast-state controller. Main ballast is not
 // used for ordinary submerged depth changes. Normal blowing starts in the final surface band, with a
 // deadlock fallback when held Surface has saturated low-speed trim and still requests maximum buoyancy.
@@ -1212,6 +1219,8 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     water_ = *water;
     buoyancy_ = std::move(buoyancy);
     surfaceVesselBuoyancyResult_.points.reserve(buoyancy_.points.size());
+    surfaceImpactPointStates_.assign(buoyancy_.points.size(), {});
+    pendingSurfaceImpactPointStates_.assign(buoyancy_.points.size(), {});
     surfaceFloatBuoyancy_ = surfaceFloatBuoyancy;
     surfaceFloatBuoyancyResult_.points.reserve(surfaceFloatBuoyancy_.points.size());
     hydroDrag_ = BuildM2HydroDrag();
@@ -1379,6 +1388,40 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
                                vesselBuoyancyCalculated.error().message);
     }
     const Marine::BuoyancyResult* buoyancyResult = &surfaceVesselBuoyancyResult_;
+
+    // W1-D derives impact exposure from the SAME local free-surface samples already used by W1-C. The detector
+    // neither applies another force nor owns damage. Its signed-depth derivative naturally includes hull heave,
+    // pitch/forward traversal and wave motion. State remains pending until the fixed-tick transaction commits.
+    if (surfaceImpactPointStates_.size() != buoyancyResult->points.size() ||
+        pendingSurfaceImpactPointStates_.size() != buoyancyResult->points.size())
+    {
+        return std::unexpected("physical playground W1-D impact-state cardinality mismatch");
+    }
+    std::optional<Marine::SurfaceImpactEvent> strongestSurfaceImpact;
+    for (std::size_t index = 0U; index < buoyancyResult->points.size(); ++index)
+    {
+        const Marine::BuoyancyPointResult& point = buoyancyResult->points[index];
+        const Marine::SurfaceImpactPointSample sample{
+            .worldXMeters = point.worldPositionMeters.x,
+            .worldYMeters = point.worldPositionMeters.y,
+            .worldZMeters = point.worldPositionMeters.z,
+            .signedDepthMeters = point.signedDepthMeters,
+            .submergedFraction = point.submergedFraction};
+        const auto impactAdvance = Marine::SurfaceImpactSystem::AdvancePoint(
+            W1DSurfaceImpactConfig, water_->Config().densityKgPerCubicMeter, index, sample,
+            surfaceImpactPointStates_[index], fixedDeltaSeconds);
+        if (!impactAdvance)
+        {
+            return std::unexpected("physical playground W1-D surface-impact evaluation failed at point " +
+                                   std::to_string(index) + ": " + impactAdvance.error().message);
+        }
+        pendingSurfaceImpactPointStates_[index] = impactAdvance->nextState;
+        if (impactAdvance->event &&
+            (!strongestSurfaceImpact || impactAdvance->event->severity > strongestSurfaceImpact->severity))
+        {
+            strongestSurfaceImpact = *impactAdvance->event;
+        }
+    }
 
     // M3-F retains its accepted small-float surface-normal response independently from W1-C vessel hydrostatics.
     const auto surfaceFloatCalculated = Marine::BuoyancySystem::CalculateWaveSurface(
@@ -1617,6 +1660,7 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
         primaryPeriscopeDeploymentProgress_ = std::clamp(primaryPeriscopeDeploymentProgress_ - periscopeStep, 0.0F, 1.0F);
 
     // Transaction boundary: state advances only after every calculation and force/torque application succeeds.
+    surfaceImpactPointStates_.swap(pendingSurfaceImpactPointStates_);
     propulsionState_ = propulsionResult->nextState;
     propellerPresentationAngleRadians_ = *nextPresentationAngle;
     facingState_ = facingAdvance->nextState;
@@ -1628,6 +1672,39 @@ std::expected<void, std::string> PhysicalPlayground::FixedUpdate(
     consumedTurnAroundPressSequence_ = command.turnAroundPressSequence;
     committedThrottleFraction_ = command.throttleFraction;
     committedSternPlaneDeflection_ = sternControlDeflection;
+
+    // W1-D presentation bridge: only a committed impact may produce controller feedback. The Marine event keeps
+    // dimensional load evidence; Game exposes only its bounded severity to the semantic haptic layer. A callback
+    // failure is presentation-only and can never roll back the already-successful simulation transaction.
+    if (strongestSurfaceImpact && strongestSurfaceImpact->severity > 0.0F && hapticEventSink)
+    {
+        try
+        {
+            hapticEventSink(HapticEvent{
+                .type = HapticEventType::WaveSlam,
+                .intensity = strongestSurfaceImpact->severity});
+        }
+        catch (const std::exception& exception)
+        {
+            if (!loggedHapticFailure_)
+            {
+                loggedHapticFailure_ = true;
+                PlaygroundLog().Warning(
+                    Diagnostics::LogCategory::Input,
+                    "Wave-slam haptic callback failed and was suppressed: " + std::string(exception.what()));
+            }
+        }
+        catch (...)
+        {
+            if (!loggedHapticFailure_)
+            {
+                loggedHapticFailure_ = true;
+                PlaygroundLog().Warning(
+                    Diagnostics::LogCategory::Input,
+                    "Wave-slam haptic callback failed and was suppressed");
+            }
+        }
+    }
 
     // I2 presentation producer: derive semantic intensity only from the newly committed authoritative shaft
     // RPM. A malformed impossible state is validated and diagnosed once, but haptic presentation can never

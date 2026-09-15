@@ -28,6 +28,7 @@
 #include "Simulation/Marine/HydroDragComponent.h"
 #include "Simulation/Marine/PropulsionComponent.h"
 #include "Simulation/Marine/PropulsionSystem.h"
+#include "Simulation/Marine/SurfaceImpactSystem.h"
 #include "Simulation/Marine/WaterBody.h"
 
 #include <algorithm>
@@ -484,6 +485,9 @@ private:
     Marine::BuoyancyComponent surfaceFloatBuoyancy_;
     // W1-C and M3-F reuse caller-owned result storage in every fixed tick; neither surface calculation allocates.
     Marine::BuoyancyResult surfaceVesselBuoyancyResult_;
+    // W1-D detector state is double-buffered so a failed fixed tick can never partially commit impact history.
+    std::vector<Marine::SurfaceImpactPointState> surfaceImpactPointStates_;
+    std::vector<Marine::SurfaceImpactPointState> pendingSurfaceImpactPointStates_;
     Marine::BuoyancyResult surfaceFloatBuoyancyResult_;
     Marine::HydroDragComponent hydroDrag_;
     Marine::PropulsionComponent propulsion_;
