@@ -15,12 +15,12 @@ if start < 0 or end < 0:
 replacement = '''cmake = read("CMakeLists.txt")\nshader_staging_old = (\n    '        "${DEEPRUN_GERSTNER_SURFACE_PIXEL_SHADER}"\\n'\n    '        "${DEEPRUN_TONE_MAP_VERTEX_SHADER}"\\n'\n)\nshader_staging_new = (\n    '        "${DEEPRUN_GERSTNER_SURFACE_PIXEL_SHADER}"\\n'\n    '        "${DEEPRUN_GERSTNER_SURFACE_MESH_SHADER}"\\n'\n    '        "${DEEPRUN_TONE_MAP_VERTEX_SHADER}"\\n'\n)\nif cmake.count(shader_staging_old) != 2:\n    raise RuntimeError(f"CMakeLists.txt: expected two Gerstner shader staging anchors, found {cmake.count(shader_staging_old)}")\nwrite("CMakeLists.txt", cmake.replace(shader_staging_old, shader_staging_new, 2))\n\n'''
 text = text[:start] + replacement + text[end:]
 
-# W1-I did not watch D3D12Renderer.cpp yet. W1-J must add it rather than expecting it to exist already.
-old_visual_block = '''replace_once(\n    ".github/workflows/w1-sea-state-visual-capture.yml",\n    "      - Engine/Render/D3D12Renderer.cpp\\n",\n    "      - Engine/Render/D3D12Renderer.cpp\\n      - CMakeLists.txt\\n      - Tests/W1MeshletOceanTest.cpp\\n",\n)\n'''
-new_visual_block = '''replace_once(\n    ".github/workflows/w1-sea-state-visual-capture.yml",\n    "      - Engine/Render/GerstnerSurface.cpp\\n",\n    "      - Engine/Render/D3D12Renderer.cpp\\n      - Engine/Render/GerstnerSurface.cpp\\n      - CMakeLists.txt\\n      - Tests/W1MeshletOceanTest.cpp\\n",\n)\n'''
-if text.count(old_visual_block) != 1:
+# The validation runner token cannot update workflow files. Keep the product patch self-contained; the
+# permanent visual-capture workflow is updated separately through the GitHub API after validation.
+visual_block = '''replace_once(\n    ".github/workflows/w1-sea-state-visual-capture.yml",\n    "      - Engine/Render/D3D12Renderer.cpp\\n",\n    "      - Engine/Render/D3D12Renderer.cpp\\n      - CMakeLists.txt\\n      - Tests/W1MeshletOceanTest.cpp\\n",\n)\n'''
+if text.count(visual_block) != 1:
     raise RuntimeError("unable to locate W1-J visual-capture path patch")
-text = text.replace(old_visual_block, new_visual_block, 1)
+text = text.replace(visual_block, "", 1)
 
 # Engine/Render is intentionally renderer-generic. Product/log vocabulary there must describe only the
 # Gerstner presentation surface, never Game/Simulation concepts such as ocean/water.
@@ -45,4 +45,4 @@ for old, new in renderer_semantic_rewrites.items():
 
 patch.write_text(text, encoding="utf-8", newline="\n")
 Path(__file__).unlink()
-print("W1-J patch anchors and generic renderer semantics normalized")
+print("W1-J patch anchors, workflow permissions and generic renderer semantics normalized")
