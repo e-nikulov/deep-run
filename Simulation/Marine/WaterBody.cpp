@@ -12,6 +12,9 @@ namespace
 // The flat water surface is horizontal with its outward normal along +Y (DeepRun world: +X right, +Y up,
 // +Z toward camera). Water occupies the half-space y < surfaceLevelY.
 constexpr Physics::PhysicsVector3 kSurfaceNormal = {0.0F, 1.0F, 0.0F};
+constexpr float MaximumWaveComponentAmplitudeMeters = 4.0F;
+constexpr double MaximumCombinedVerticalAmplitudeMeters = 20.0;
+constexpr double MaximumConservativeHorizontalSlope = 0.5;
 
 WaterBodyError MakeConfigError(const std::string& message)
 {
@@ -36,9 +39,11 @@ std::expected<WaterBody, WaterBodyError> WaterBody::Create(const WaterBodyConfig
         double slope = 0.0;
         for (const auto& wave : config.waves->components)
         {
-            if (!std::isfinite(wave.amplitudeMeters) || wave.amplitudeMeters <= 0.0F || wave.amplitudeMeters > 3.0F ||
+            if (!std::isfinite(wave.amplitudeMeters) || wave.amplitudeMeters <= 0.0F ||
+                wave.amplitudeMeters > MaximumWaveComponentAmplitudeMeters ||
                 !std::isfinite(wave.wavelengthMeters) || wave.wavelengthMeters <= 0.0F ||
-                !std::isfinite(wave.angularFrequencyRadiansPerSecond) || wave.angularFrequencyRadiansPerSecond <= 0.0F ||
+                !std::isfinite(wave.angularFrequencyRadiansPerSecond) ||
+                std::abs(wave.angularFrequencyRadiansPerSecond) <= 0.0F ||
                 !std::isfinite(wave.phaseOffsetRadians) || !std::isfinite(wave.horizontalSteepness) ||
                 wave.horizontalSteepness < 0.0F || wave.horizontalSteepness > 1.0F)
             {
@@ -48,7 +53,8 @@ std::expected<WaterBody, WaterBodyError> WaterBody::Create(const WaterBodyConfig
             slope += static_cast<double>(wave.horizontalSteepness) * wave.amplitudeMeters *
                      (2.0 * std::numbers::pi / wave.wavelengthMeters);
         }
-        if (amplitude > 4.0 || !std::isfinite(slope) || slope >= 0.5)
+        if (amplitude > MaximumCombinedVerticalAmplitudeMeters || !std::isfinite(slope) ||
+            slope >= MaximumConservativeHorizontalSlope)
         {
             return std::unexpected(MakeConfigError("wave amplitude or non-folding bound exceeded"));
         }
@@ -74,7 +80,8 @@ std::expected<WaterSurfaceSample, WaterBodyError> WaterBody::SampleWaveSurface(
         return Sample(position);
     }
 
-    // Fixed work, no query allocations. Non-folding gives dX/du > 0.5 and a unique root.
+    // Fixed work, no query allocations. Non-folding gives dX/du > 0.5 and a unique root. W1-B signed angular
+    // frequency changes only projected travel direction; the spatial inversion remains monotonic.
     double horizontalBound = 0.0;
     for (const auto& wave : config_.waves->components)
     {
