@@ -1,11 +1,16 @@
 #include "Engine/Core/FixedStepAccumulator.h"
 #include "Engine/Core/TimeCompression.h"
 #include "Game/Combat/CombatTimeCompressionPolicy.h"
+#include "Game/Combat/GameplayPacingMetrics.h"
 
+#include <array>
+#include <cmath>
 #include <iostream>
+#include <span>
 
 namespace
 {
+using DeepRun::Core::CurrentTimeCompressionEffectiveRate;
 using DeepRun::Core::FixedStepAccumulator;
 using DeepRun::Core::PublishTimeCompressionSafetyCap;
 using DeepRun::Core::ShouldInterruptCompressedFixedPacket;
@@ -14,8 +19,16 @@ using DeepRun::Core::TimeCompressionMultiplier;
 using DeepRun::Core::TimeCompressionRate;
 using DeepRun::Core::TimeCompressionSafetyScope;
 using DeepRun::Game::Combat::CombatTimeCompressionSignals;
+using DeepRun::Game::Combat::GameplayPacingMetrics;
+using DeepRun::Game::Combat::PlayerCombatCommand;
+using DeepRun::Game::Combat::PlayerCombatCommandType;
+using DeepRun::Game::Combat::PlayerCombatPresentationSnapshot;
 using DeepRun::Game::Combat::ResolveCombatTimeCompressionMaximum;
+using DeepRun::Perception::ContactClassification;
+using DeepRun::Perception::Track;
+using DeepRun::Perception::TrackLifecycleState;
 using DeepRun::Weapons::P700GranitPhase;
+using DeepRun::Weapons::WeaponPhase;
 
 [[nodiscard]] bool Expect(const bool condition, const char* message)
 {
@@ -25,6 +38,15 @@ using DeepRun::Weapons::P700GranitPhase;
         return false;
     }
     return true;
+}
+
+[[nodiscard]] bool ExpectNear(
+    const double actual,
+    const double expected,
+    const double tolerance,
+    const char* message)
+{
+    return Expect(std::abs(actual - expected) <= tolerance, message);
 }
 
 [[nodiscard]] std::uint32_t StepsForOneRealFrame(
@@ -92,6 +114,146 @@ using DeepRun::Weapons::P700GranitPhase;
     }
     return true;
 }
+
+[[nodiscard]] bool RunGameplayPacingChecks()
+{
+    GameplayPacingMetrics metrics;
+    PlayerCombatPresentationSnapshot combat{};
+    const std::span<const Track> noTracks{};
+    const std::span<const PlayerCombatCommand> noCommands{};
+
+    if (const auto observed = metrics.Observe(
+            noTracks, combat, noCommands, false, 0.0, TimeCompressionRate::X8);
+        !observed)
+    {
+        return Expect(false, "pacing telemetry must accept its first 8x sample");
+    }
+
+    Track contact{
+        .trackId = 1U,
+        .lifecycle = TrackLifecycleState::Confirmed,
+        .classification = ContactClassification::Unknown};
+    std::array<Track, 1> tracks{contact};
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, noCommands, false, 8.0, TimeCompressionRate::X8);
+        !observed)
+    {
+        return Expect(false, "pacing telemetry must accept first-contact sample");
+    }
+    auto snapshot = metrics.Snapshot();
+    if (!ExpectNear(snapshot.playerElapsedSeconds, 1.0, 1.0e-9,
+                    "8 s SimulationTime at 8x must equal 1 s player time") ||
+        !Expect(snapshot.timeToFirstContactSeconds.has_value(), "first contact metric must be populated") ||
+        !ExpectNear(*snapshot.timeToFirstContactSeconds, 1.0, 1.0e-9,
+                    "TimeToFirstContact must use player time") ||
+        !Expect(!snapshot.timeToClassificationSeconds.has_value(),
+                "unknown contact must not satisfy classification metric") ||
+        !ExpectNear(snapshot.longestNoDecisionIntervalSeconds, 1.0, 1.0e-9,
+                    "idle interval must grow before the first decision"))
+    {
+        return false;
+    }
+
+    tracks[0].classification = ContactClassification::MilitarySurfaceCombatant;
+    const std::array<PlayerCombatCommand, 1> activeDecision{
+        PlayerCombatCommand{.type = PlayerCombatCommandType::ActiveSonarPing}};
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, std::span<const PlayerCombatCommand>{activeDecision},
+            false, 16.0, TimeCompressionRate::X8);
+        !observed)
+    {
+        return Expect(false, "pacing telemetry must accept classification/decision sample");
+    }
+    snapshot = metrics.Snapshot();
+    if (!Expect(snapshot.timeToClassificationSeconds.has_value(), "classification metric must be populated") ||
+        !ExpectNear(*snapshot.timeToClassificationSeconds, 2.0, 1.0e-9,
+                    "TimeToClassification must use compressed player time") ||
+        !Expect(snapshot.playerDecisionCount == 1U, "semantic player command must count as a decision") ||
+        !ExpectNear(snapshot.longestNoDecisionIntervalSeconds, 2.0, 1.0e-9,
+                    "first decision must close the initial idle interval") ||
+        !ExpectNear(snapshot.currentNoDecisionIntervalSeconds, 0.0, 1.0e-9,
+                    "decision must reset the current idle interval"))
+    {
+        return false;
+    }
+
+    combat.weaponPhase = WeaponPhase::Launched;
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, noCommands, true, 20.0, TimeCompressionRate::X2);
+        !observed)
+    {
+        return Expect(false, "pacing telemetry must accept first-launch sample");
+    }
+    snapshot = metrics.Snapshot();
+    if (!Expect(snapshot.timeToFirstWeaponLaunchSeconds.has_value(), "first launch metric must be populated") ||
+        !ExpectNear(*snapshot.timeToFirstWeaponLaunchSeconds, 2.5, 1.0e-9,
+                    "rate switch applies after the interval paced by the previous 8x tick"))
+    {
+        return false;
+    }
+
+    combat.weaponPhase = WeaponPhase::Stored;
+    const std::array<PlayerCombatCommand, 1> automaticSelection{
+        PlayerCombatCommand{.type = PlayerCombatCommandType::SelectNextTrack}};
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, std::span<const PlayerCombatCommand>{automaticSelection},
+            false, 24.0, TimeCompressionRate::X2);
+        !observed)
+    {
+        return Expect(false, "pacing telemetry must accept automatic-selection sample");
+    }
+    snapshot = metrics.Snapshot();
+    if (!Expect(snapshot.playerDecisionCount == 1U,
+                "automatic initial contact selection must not count as a player decision") ||
+        !ExpectNear(snapshot.currentNoDecisionIntervalSeconds, 2.5, 1.0e-9,
+                    "automatic target selection must not reset player idle time") ||
+        !ExpectNear(snapshot.longestNoDecisionIntervalSeconds, 2.5, 1.0e-9,
+                    "live idle interval must participate in LongestNoDecisionInterval"))
+    {
+        return false;
+    }
+
+    const std::array<PlayerCombatCommand, 1> manualSelection{
+        PlayerCombatCommand{.type = PlayerCombatCommandType::SelectNextTrack}};
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, std::span<const PlayerCombatCommand>{manualSelection},
+            true, 26.0, TimeCompressionRate::X2);
+        !observed)
+    {
+        return Expect(false, "pacing telemetry must accept manual selection sample");
+    }
+    snapshot = metrics.Snapshot();
+    if (!Expect(snapshot.playerDecisionCount == 2U, "manual contact cycling must count as a decision") ||
+        !ExpectNear(snapshot.longestNoDecisionIntervalSeconds, 3.5, 1.0e-9,
+                    "manual selection must close the accumulated idle interval") ||
+        !ExpectNear(snapshot.currentNoDecisionIntervalSeconds, 0.0, 1.0e-9,
+                    "manual selection must reset current idle time") ||
+        !ExpectNear(*snapshot.timeToFirstContactSeconds, 1.0, 1.0e-9,
+                    "first-contact metric must remain sticky") ||
+        !ExpectNear(*snapshot.timeToClassificationSeconds, 2.0, 1.0e-9,
+                    "classification metric must remain sticky") ||
+        !ExpectNear(*snapshot.timeToFirstWeaponLaunchSeconds, 2.5, 1.0e-9,
+                    "first-launch metric must remain sticky"))
+    {
+        return false;
+    }
+
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, noCommands, true, 25.0, TimeCompressionRate::X2);
+        observed)
+    {
+        return Expect(false, "pacing telemetry must reject time reversal");
+    }
+    if (const auto observed = metrics.Observe(
+            std::span<const Track>{tracks}, combat, noCommands, true, 26.0,
+            static_cast<TimeCompressionRate>(255U));
+        observed)
+    {
+        return Expect(false, "pacing telemetry must reject invalid compression rates");
+    }
+
+    return true;
+}
 }
 
 int main()
@@ -145,14 +307,21 @@ int main()
     }
 
     if (!Expect(controller.SetMaximumRate(TimeCompressionRate::X8), "8x safety ceiling must be accepted") ||
-        !Expect(controller.EffectiveRate() == TimeCompressionRate::X8, "releasing clamp must restore requested rate"))
+        !Expect(controller.EffectiveRate() == TimeCompressionRate::X8, "releasing clamp must restore requested rate") ||
+        !Expect(!CurrentTimeCompressionEffectiveRate().has_value(),
+                "effective-rate telemetry must be unavailable outside fixed-update scope"))
     {
         return 1;
     }
 
     {
         TimeCompressionSafetyScope scope(controller);
-        if (!Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X4), "bound safety publisher must accept 4x") ||
+        const auto boundRate = CurrentTimeCompressionEffectiveRate();
+        if (!Expect(boundRate.has_value() && *boundRate == TimeCompressionRate::X8,
+                    "bound telemetry must expose the current effective rate before gameplay caps") ||
+            !Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X4), "bound safety publisher must accept 4x") ||
+            !Expect(CurrentTimeCompressionEffectiveRate() == TimeCompressionRate::X4,
+                    "bound telemetry must reflect a newly tightened cap") ||
             !Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X1), "bound safety publisher must accept 1x") ||
             !Expect(PublishTimeCompressionSafetyCap(TimeCompressionRate::X4), "later looser cap must be accepted but not relax") ||
             !Expect(controller.MaximumRate() == TimeCompressionRate::X1,
@@ -164,13 +333,16 @@ int main()
         }
     }
     if (!Expect(!PublishTimeCompressionSafetyCap(TimeCompressionRate::X1),
-                "publisher outside fixed-update safety scope must be rejected"))
+                "publisher outside fixed-update safety scope must be rejected") ||
+        !Expect(!CurrentTimeCompressionEffectiveRate().has_value(),
+                "effective-rate telemetry must leave scope with the controller binding"))
     {
         return 1;
     }
 
     if (!Expect(controller.SetMaximumRate(TimeCompressionRate::X8), "test must release safety ceiling") ||
-        !RunCombatPolicyChecks())
+        !RunCombatPolicyChecks() ||
+        !RunGameplayPacingChecks())
     {
         return 1;
     }
@@ -202,6 +374,6 @@ int main()
         return 1;
     }
 
-    std::cout << "Time compression policy: PASS\n";
+    std::cout << "Time compression and gameplay pacing telemetry: PASS\n";
     return 0;
 }
