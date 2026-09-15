@@ -200,15 +200,20 @@ struct GerstnerDrawConstants final
     std::array<float, 4> wave0{};
     std::array<float, 4> wave1{};
     std::array<float, 4> wave2{};
-    std::array<float, 4> horizontalSteepness{};
+    std::array<float, 4> wave3{};
+    std::array<float, 4> wave4{};
+    std::array<float, 4> wave5{};
+    std::array<float, 4> wave6{};
+    std::array<float, 4> horizontalSteepness0{};
+    std::array<float, 4> horizontalSteepness1{};
     std::array<float, 4> deepFillColor{};
     std::array<float, 4> surfaceTintColor{};
 };
 
-static_assert(sizeof(GerstnerDrawConstants) == sizeof(std::uint32_t) * 44U);
+static_assert(sizeof(GerstnerDrawConstants) == sizeof(std::uint32_t) * 64U);
 constexpr UINT GerstnerRootSignatureDwordCost = sizeof(GerstnerDrawConstants) / sizeof(std::uint32_t);
-static_assert(GerstnerRootSignatureDwordCost == 44U);
-static_assert(GerstnerRootSignatureDwordCost < D3D12_MAX_ROOT_COST);
+static_assert(GerstnerRootSignatureDwordCost == 64U);
+static_assert(GerstnerRootSignatureDwordCost <= D3D12_MAX_ROOT_COST);
 
 struct GpuGerstnerSurface final
 {
@@ -1890,7 +1895,7 @@ public:
             gerstnerSurface = std::move(surface);
             logger.Info(
                 Diagnostics::LogCategory::Render,
-                "M3-E Gerstner surface configured: vertices=" + std::to_string(gerstnerSurface.vertexCount) +
+                "W1-B spectral surface configured: vertices=" + std::to_string(gerstnerSurface.vertexCount) +
                     ", indices=" + std::to_string(gerstnerSurface.indexCount) + ", draw calls=1");
             return {};
         }
@@ -1943,10 +1948,19 @@ public:
             .wave0 = asConstants(parameters.components[0]),
             .wave1 = asConstants(parameters.components[1]),
             .wave2 = asConstants(parameters.components[2]),
-            .horizontalSteepness = {
+            .wave3 = asConstants(parameters.components[3]),
+            .wave4 = asConstants(parameters.components[4]),
+            .wave5 = asConstants(parameters.components[5]),
+            .wave6 = asConstants(parameters.components[6]),
+            .horizontalSteepness0 = {
                 parameters.components[0].horizontalSteepness,
                 parameters.components[1].horizontalSteepness,
                 parameters.components[2].horizontalSteepness,
+                parameters.components[3].horizontalSteepness},
+            .horizontalSteepness1 = {
+                parameters.components[4].horizontalSteepness,
+                parameters.components[5].horizontalSteepness,
+                parameters.components[6].horizontalSteepness,
                 0.0F},
             .deepFillColor = {
                 parameters.deepFillRgb[0], parameters.deepFillRgb[1], parameters.deepFillRgb[2], 1.0F},
