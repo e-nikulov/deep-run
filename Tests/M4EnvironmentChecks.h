@@ -2,6 +2,7 @@
 
 #include "Simulation/Acoustics/AcousticEnvironment.h"
 #include "Simulation/Acoustics/AcousticWorld.h"
+#include "Tests/W1WeatherSeaStateChecks.h"
 
 namespace DeepRun::Tests
 {
@@ -99,6 +100,7 @@ namespace M4EnvironmentDetail
     invalidModifiers.additionalTransmissionLossDb.levelDb[0] = -1.0F;
     const auto invalidResult = world->CollectPassiveDirectObservation(
         loudSameLayerEmission, sameLayerReceiver, 10.0, invalidModifiers);
-    return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers;
+    return !invalidResult && invalidResult.error().code == AcousticErrorCode::InvalidPropagationModifiers &&
+           RunW1WeatherSeaStateChecks();
 }
 }
