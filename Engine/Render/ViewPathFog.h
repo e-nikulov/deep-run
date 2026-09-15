@@ -31,6 +31,9 @@ struct ScenePresentationParameters final
     float lightningFlashIntensity = 0.0F;
     float lightningViewportX = 0.5F;
     float lightningPatternOffset = 0.0F;
+    // Generic near-boundary aerosol presentation. Game may map spindrift/spray semantics into this value;
+    // Engine sees only a normalized optical intensity and never owns weather/sea-state authority.
+    float boundaryAerosolFraction = 0.0F;
 };
 
 struct ViewPathFogSample final
