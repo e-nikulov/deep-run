@@ -31,6 +31,7 @@ namespace
 using Microsoft::WRL::ComPtr;
 constexpr std::uint32_t BufferCount = 2;
 constexpr DXGI_FORMAT SdrBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+constexpr DXGI_FORMAT Sdr10BitBackBufferFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
 constexpr DXGI_FORMAT HdrScRgbBackBufferFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 constexpr DXGI_FORMAT SceneColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 constexpr DXGI_FORMAT DepthFormat = DXGI_FORMAT_D32_FLOAT;
@@ -41,7 +42,13 @@ constexpr float ScRgbNominalWhiteNits = 80.0F;
 
 [[nodiscard]] constexpr DXGI_FORMAT BackBufferFormatFor(const DisplayOutputMode mode) noexcept
 {
-    return mode == DisplayOutputMode::HdrScRgb ? HdrScRgbBackBufferFormat : SdrBackBufferFormat;
+    switch (mode)
+    {
+    case DisplayOutputMode::Sdr: return SdrBackBufferFormat;
+    case DisplayOutputMode::Sdr10Bit: return Sdr10BitBackBufferFormat;
+    case DisplayOutputMode::HdrScRgb: return HdrScRgbBackBufferFormat;
+    }
+    return SdrBackBufferFormat;
 }
 
 [[nodiscard]] constexpr DXGI_COLOR_SPACE_TYPE BackBufferColorSpaceFor(const DisplayOutputMode mode) noexcept
@@ -52,12 +59,24 @@ constexpr float ScRgbNominalWhiteNits = 80.0F;
 
 [[nodiscard]] constexpr const char* OutputModeName(const DisplayOutputMode mode) noexcept
 {
-    return mode == DisplayOutputMode::HdrScRgb ? "HDR scRGB" : "SDR";
+    switch (mode)
+    {
+    case DisplayOutputMode::Sdr: return "SDR 8-bit";
+    case DisplayOutputMode::Sdr10Bit: return "SDR 10-bit";
+    case DisplayOutputMode::HdrScRgb: return "HDR scRGB";
+    }
+    return "unknown";
 }
 
 [[nodiscard]] constexpr const char* OutputFormatName(const DisplayOutputMode mode) noexcept
 {
-    return mode == DisplayOutputMode::HdrScRgb ? "R16G16B16A16_FLOAT" : "R8G8B8A8_UNORM";
+    switch (mode)
+    {
+    case DisplayOutputMode::Sdr: return "R8G8B8A8_UNORM";
+    case DisplayOutputMode::Sdr10Bit: return "R10G10B10A2_UNORM";
+    case DisplayOutputMode::HdrScRgb: return "R16G16B16A16_FLOAT";
+    }
+    return "unknown";
 }
 
 [[nodiscard]] constexpr const char* OutputColorSpaceName(const DisplayOutputMode mode) noexcept
@@ -591,17 +610,42 @@ public:
         return SUCCEEDED(swapChain->SetColorSpace1(colorSpace));
     }
 
-    void ConfigureSdrColorSpace()
+    bool ConfigureSdrColorSpace(const DisplayOutputMode mode)
     {
-        // R8G8B8A8_UNORM contains the output shader's manually sRGB-encoded values. Keep the swap chain's
-        // display interpretation explicit where DXGI permits it, but never make SDR startup depend on this
-        // redundant standard setting because SDR is the required fallback.
-        if (FAILED(swapChain->SetColorSpace1(BackBufferColorSpaceFor(DisplayOutputMode::Sdr))))
+        if (!IsSdrOutputMode(mode))
+        {
+            return false;
+        }
+        const DXGI_COLOR_SPACE_TYPE colorSpace = BackBufferColorSpaceFor(mode);
+        UINT support = 0;
+        if (FAILED(swapChain->CheckColorSpaceSupport(colorSpace, &support)) ||
+            (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0)
+        {
+            return false;
+        }
+        return SUCCEEDED(swapChain->SetColorSpace1(colorSpace));
+    }
+
+    bool TryCreateSdr10BitSwapChain(HWND windowHandle)
+    {
+        // Do not call a 10-bit swap chain "10-bit output" merely because resource creation succeeds. Require
+        // the matched DXGI output to report at least 10 bits per colour and require PRESENT support for SDR
+        // Rec.709/G22 on the actual swap chain. Otherwise retain the established 8-bit+dither fallback.
+        if (!displayCapabilities.output6Available || displayCapabilities.bitsPerColor < 10U ||
+            !TryCreateSwapChain(windowHandle, DisplayOutputMode::Sdr10Bit))
+        {
+            return false;
+        }
+        if (!ConfigureSdrColorSpace(DisplayOutputMode::Sdr10Bit))
         {
             logger.Warning(
                 Diagnostics::LogCategory::Render,
-                "Unable to explicitly set the standard SDR swap-chain color space; retaining DXGI default");
+                "10-bit SDR swap chain created but SDR Rec.709 Present color space is unsupported; falling back to 8-bit SDR");
+            swapChain.Reset();
+            return false;
         }
+        displayCapabilities.sdr10BitPresentSupported = true;
+        return true;
     }
 
     void LogOutputSelection(const DisplayOutputSelection& selection) const
@@ -614,12 +658,13 @@ public:
                 << "; swap chain: " << OutputFormatName(selection.mode)
                 << "; color space: " << OutputColorSpaceName(selection.mode)
                 << "; BitsPerColor: " << displayCapabilities.bitsPerColor
+                << "; SDR10 Present: " << (displayCapabilities.sdr10BitPresentSupported ? "yes" : "no")
                 << "; luminance nits min/max/full-frame: " << displayCapabilities.minLuminanceNits << "/"
                 << displayCapabilities.maxLuminanceNits << "/" << displayCapabilities.maxFullFrameLuminanceNits
                 << "; reference white: " << HdrReferenceWhiteNits << " nits";
-        if (selection.mode == DisplayOutputMode::Sdr)
+        if (IsSdrOutputMode(selection.mode))
         {
-            message << "; SDR fallback: " << FallbackReasonName(selection.fallbackReason);
+            message << "; SDR/HDR selection reason: " << FallbackReasonName(selection.fallbackReason);
         }
         logger.Info(Diagnostics::LogCategory::Render, message.str());
     }
@@ -631,29 +676,35 @@ public:
         if (tryHdr && TryCreateSwapChain(windowHandle, DisplayOutputMode::HdrScRgb))
         {
             displayCapabilities.scRgbPresentSupported = ConfigureHdrScRgbColorSpace();
-            if (displayCapabilities.scRgbPresentSupported)
-            {
-                outputMode = SelectDisplayOutputMode(hdrRequested, displayCapabilities).mode;
-            }
-            else
+            if (!displayCapabilities.scRgbPresentSupported)
             {
                 logger.Warning(
                     Diagnostics::LogCategory::Render,
-                    "HDR scRGB color-space configuration failed; falling back to SDR output");
+                    "HDR scRGB color-space configuration failed; trying SDR output");
                 swapChain.Reset();
+            }
+        }
+
+        if (!displayCapabilities.scRgbPresentSupported)
+        {
+            displayCapabilities.sdr10BitPresentSupported = TryCreateSdr10BitSwapChain(windowHandle);
+            if (!displayCapabilities.sdr10BitPresentSupported)
+            {
+                if (!TryCreateSwapChain(windowHandle, DisplayOutputMode::Sdr))
+                {
+                    throw std::runtime_error("Create SDR swap chain failed");
+                }
+                if (!ConfigureSdrColorSpace(DisplayOutputMode::Sdr))
+                {
+                    logger.Warning(
+                        Diagnostics::LogCategory::Render,
+                        "Unable to explicitly set standard SDR swap-chain color space; retaining DXGI default");
+                }
             }
         }
 
         const DisplayOutputSelection selection = SelectDisplayOutputMode(hdrRequested, displayCapabilities);
         outputMode = selection.mode;
-        if (outputMode == DisplayOutputMode::Sdr)
-        {
-            if (!TryCreateSwapChain(windowHandle, DisplayOutputMode::Sdr))
-            {
-                throw std::runtime_error("Create SDR swap chain failed");
-            }
-            ConfigureSdrColorSpace();
-        }
         ThrowIfFailed(factory->MakeWindowAssociation(windowHandle, DXGI_MWA_NO_ALT_ENTER), "MakeWindowAssociation");
         frameIndex = swapChain->GetCurrentBackBufferIndex();
         LogOutputSelection(selection);
@@ -1068,8 +1119,10 @@ public:
     void CreateOutputPipeline(const std::filesystem::path& shaderRoot)
     {
         const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "ToneMapVS.cso");
-        const std::vector<std::byte> pixelShader = ReadBinaryFile(
-            shaderRoot / (outputMode == DisplayOutputMode::HdrScRgb ? "ToneMapHdrPS.cso" : "ToneMapPS.cso"));
+        const char* pixelShaderName = outputMode == DisplayOutputMode::HdrScRgb
+            ? "ToneMapHdrPS.cso"
+            : (outputMode == DisplayOutputMode::Sdr10Bit ? "ToneMapSdr10PS.cso" : "ToneMapPS.cso");
+        const std::vector<std::byte> pixelShader = ReadBinaryFile(shaderRoot / pixelShaderName);
 
         D3D12_DESCRIPTOR_RANGE sceneColorRange{};
         sceneColorRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -1988,9 +2041,15 @@ public:
             {
                 throw std::runtime_error("Restore HDR scRGB color space after ResizeBuffers failed");
             }
-            if (outputMode == DisplayOutputMode::Sdr)
+            if (IsSdrOutputMode(outputMode) && !ConfigureSdrColorSpace(outputMode))
             {
-                ConfigureSdrColorSpace();
+                if (outputMode == DisplayOutputMode::Sdr10Bit)
+                {
+                    throw std::runtime_error("Restore 10-bit SDR Rec.709 color space after ResizeBuffers failed");
+                }
+                logger.Warning(
+                    Diagnostics::LogCategory::Render,
+                    "Unable to restore explicit standard SDR color space after ResizeBuffers; retaining DXGI default");
             }
             width = newWidth;
             height = newHeight;

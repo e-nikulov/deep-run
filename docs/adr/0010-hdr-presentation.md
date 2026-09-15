@@ -32,3 +32,16 @@ features.
 - HDR settings cannot alter physics, sonar, contacts, AI knowledge, weapons,
   or damage;
 - detailed behaviour is defined in `docs/architecture/rendering-spec.md`.
+
+
+## M5 sky/sun and SDR precision refinement
+
+The daytime tactical sky and sun remain presentation-only. Their continuous gradient, anti-aliased solar disk,
+and atmospheric aureole are evaluated in scene-linear FP16 before the existing output transfer, so SDR and HDR
+consume the same radiance source. Game supplies only the projected sky/waterline presentation mask; it does not
+create lighting, weather, physics, sensor or gameplay authority.
+
+For SDR, the renderer now prefers `R10G10B10A2_UNORM` only when the matched `IDXGIOutput6` reports at least
+10 bits per colour and the created swap chain confirms `RGB_FULL_G22_NONE_P709` Present support. Otherwise it
+retains the established `R8G8B8A8_UNORM` path. Each path dithers at its own quantization step (1023 or 255).
+HDR remains FP16 scRGB and keeps 10-bit-aware output dithering for common compositor/scan-out quantization.
