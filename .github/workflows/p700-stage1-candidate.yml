@@ -39,7 +39,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
       - name: Apply P700 stage1 completion
         shell: pwsh
-        run: python Tools/p700_stage1_completion.py
+        run: python Tools/p700_stage1_completion_v2.py
       - name: Configure Release
         shell: pwsh
         run: cmake --preset windows-release
