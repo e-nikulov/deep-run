@@ -228,7 +228,18 @@ namespace DeepRun::Tests
     }
     if (runtime.PlayerTorpedo()->guidanceTrackId != *launched->playerCombat.selectedTrackId ||
         runtime.PlayerTorpedo()->impactedBody || launched->playerCombat.torpedoReadyTubeCount != 3U ||
-        launched->playerCombat.playerTorpedoesInFlight != 1U)
+        launched->playerCombat.playerTorpedoesInFlight != 1U ||
+        launched->playerCombat.torpedo533RoundsRemaining != 17U ||
+        launched->playerCombat.torpedo650RoundsRemaining != 10U)
+    {
+        return false;
+    }
+    const auto& tubeHud = launched->playerCombat.torpedoTubes;
+    if (tubeHud[0].tubeNumber != 1U || tubeHud[0].calibreMillimeters != 533U || tubeHud[0].ready ||
+        std::abs(tubeHud[0].reloadSecondsRemaining - Game::Armament::Antey533MmTorpedoTubeReloadSeconds) > 0.01 ||
+        tubeHud[1].tubeNumber != 2U || tubeHud[1].calibreMillimeters != 533U || !tubeHud[1].ready ||
+        tubeHud[4].tubeNumber != 5U || tubeHud[4].calibreMillimeters != 650U || !tubeHud[4].ready ||
+        tubeHud[5].tubeNumber != 6U || tubeHud[5].calibreMillimeters != 650U || !tubeHud[5].ready)
     {
         return false;
     }

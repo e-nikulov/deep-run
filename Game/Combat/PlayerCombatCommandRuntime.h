@@ -5,6 +5,7 @@
 #include "Simulation/Weapons/P700Salvo.h"
 #include "Simulation/Weapons/WeaponRuntime.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -47,6 +48,14 @@ struct PlayerCombatCommandFeedback final
 // Read-only state intended for controller-first combat UI. It deliberately exposes perceived quality and
 // perceived visual classification rather than hostile Transform/entity truth. A weapon-quality acoustic track
 // may remain visually unconfirmed; that is an intentional civilian-identification risk, not a missing field.
+struct TorpedoTubePresentationSnapshot final
+{
+    std::size_t tubeNumber = 0U;
+    std::uint16_t calibreMillimeters = 533U;
+    bool ready = true;
+    double reloadSecondsRemaining = 0.0;
+};
+
 struct PlayerCombatPresentationSnapshot final
 {
     Armament::PlayerWeaponType selectedWeapon = Armament::PlayerWeaponType::HeavyweightTorpedo;
@@ -54,9 +63,12 @@ struct PlayerCombatPresentationSnapshot final
     double p700NextLaunchReadySeconds = 0.0;
     std::optional<float> activeP700FloodProgress{};
     std::size_t torpedoRoundsRemaining = 0U;
+    std::size_t torpedo533RoundsRemaining = 0U;
+    std::size_t torpedo650RoundsRemaining = 0U;
     std::size_t torpedoReadyTubeCount = 0U;
     std::size_t torpedoTubeCount = 0U;
     std::optional<double> torpedoNextTubeReadySeconds{};
+    std::array<TorpedoTubePresentationSnapshot, 6U> torpedoTubes{};
     std::size_t playerTorpedoesInFlight = 0U;
     std::size_t playerP700InFlight = 0U;
     Weapons::P700SalvoMode p700SalvoMode = Weapons::P700SalvoMode::Single;

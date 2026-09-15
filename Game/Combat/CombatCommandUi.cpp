@@ -238,9 +238,26 @@ void DrawCombatCommandUi(
         ImGui::Text("Next P-700 hatch sequence: %.1f s", snapshot.p700NextLaunchReadySeconds);
     if (snapshot.activeP700FloodProgress && *snapshot.activeP700FloodProgress < 1.0F)
         ImGui::Text("P-700 launcher flooding: %.0f%%", *snapshot.activeP700FloodProgress * 100.0F);
+    ImGui::TextUnformatted("Torpedo tubes:");
+    const auto drawTorpedoTubeCalibre = [&](const std::uint16_t calibreMillimeters, const std::size_t roundsRemaining)
+    {
+        ImGui::Text("%u mm / ammo %zu:", static_cast<unsigned int>(calibreMillimeters), roundsRemaining);
+        for (const auto& tube : snapshot.torpedoTubes)
+        {
+            if (tube.calibreMillimeters != calibreMillimeters)
+                continue;
+            ImGui::SameLine(0.0F, 8.0F);
+            if (tube.ready)
+                ImGui::Text("#%zu READY", tube.tubeNumber);
+            else
+                ImGui::Text("#%zu RLD %.0fs", tube.tubeNumber, tube.reloadSecondsRemaining);
+        }
+    };
+    drawTorpedoTubeCalibre(533U, snapshot.torpedo533RoundsRemaining);
+    drawTorpedoTubeCalibre(650U, snapshot.torpedo650RoundsRemaining);
     if (snapshot.selectedWeapon != Armament::PlayerWeaponType::P700Granit)
     {
-        ImGui::Text("Torpedo ammo: %zu | ready tubes: %zu / %zu",
+        ImGui::Text("Selected torpedo pool: %zu | ready tubes: %zu / %zu",
                     snapshot.torpedoRoundsRemaining, snapshot.torpedoReadyTubeCount, snapshot.torpedoTubeCount);
         if (snapshot.torpedoNextTubeReadySeconds)
             ImGui::Text("Next compatible tube reload: %.1f s", *snapshot.torpedoNextTubeReadySeconds);

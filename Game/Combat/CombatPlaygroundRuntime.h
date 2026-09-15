@@ -1608,12 +1608,29 @@ private:
             ? std::optional<float>{playerP700_->launcherFloodProgress} : std::nullopt;
         playerCombatPresentation.torpedoRoundsRemaining = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
             ? 0U : playerTorpedoInventory_.LoadedCount(selectedPlayerWeapon_);
+        playerCombatPresentation.torpedo533RoundsRemaining =
+            playerTorpedoInventory_.LoadedCount(Armament::PlayerWeaponType::HeavyweightTorpedo);
+        playerCombatPresentation.torpedo650RoundsRemaining =
+            playerTorpedoInventory_.LoadedCount(Armament::PlayerWeaponType::Type6576AFast);
         playerCombatPresentation.torpedoReadyTubeCount = selectedPlayerWeapon_ == Armament::PlayerWeaponType::P700Granit
             ? 0U : playerTorpedoTubeBank_.ReadyTubeCount(selectedPlayerWeapon_, simulationTimeSeconds);
         const auto selectedTubeCalibre = Armament::AnteyTorpedoTubeCalibreForWeapon(selectedPlayerWeapon_);
         playerCombatPresentation.torpedoTubeCount = !selectedTubeCalibre ? 0U :
             (*selectedTubeCalibre == Armament::AnteyTorpedoTubeCalibre::Mm533
                 ? Armament::Antey533MmTorpedoTubeCount : Armament::Antey650MmTorpedoTubeCount);
+        const auto& torpedoTubes = playerTorpedoTubeBank_.Tubes();
+        static_assert(Armament::AnteyTorpedoTubeCount == 6U);
+        for (std::size_t index = 0U; index < torpedoTubes.size(); ++index)
+        {
+            const auto& tube = torpedoTubes[index];
+            const double reloadSecondsRemaining =
+                std::max(0.0, tube.nextReadyTimeSeconds - simulationTimeSeconds);
+            playerCombatPresentation.torpedoTubes[index] = TorpedoTubePresentationSnapshot{
+                .tubeNumber = index + 1U,
+                .calibreMillimeters = tube.calibre == Armament::AnteyTorpedoTubeCalibre::Mm533 ? 533U : 650U,
+                .ready = reloadSecondsRemaining <= 1.0e-9,
+                .reloadSecondsRemaining = reloadSecondsRemaining};
+        }
         if (selectedTubeCalibre && playerCombatPresentation.torpedoReadyTubeCount == 0U &&
             playerCombatPresentation.torpedoRoundsRemaining > 0U)
             playerCombatPresentation.torpedoNextTubeReadySeconds =
