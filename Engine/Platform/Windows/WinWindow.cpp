@@ -149,7 +149,7 @@ public:
 
         ShowWindow(handle_, SW_SHOWDEFAULT);
         UpdateWindow(handle_);
-        logger_.Info(LogCategory::Platform, "Win32 window created");
+        logger_.Info(Diagnostics::LogCategory::Platform, "Win32 window created");
     }
 
     ~Impl()
@@ -160,7 +160,7 @@ public:
             handle_ = nullptr;
         }
         UnregisterClassW(WindowClassName, instance_);
-        logger_.Info(LogCategory::Platform, "Win32 window shut down");
+        logger_.Info(Diagnostics::LogCategory::Platform, "Win32 window shut down");
     }
 
     std::span<const WindowEvent> PumpEvents()
