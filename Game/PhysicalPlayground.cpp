@@ -2167,7 +2167,22 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
         }
     }
 
-    const auto underwaterRegion = UnderwaterRegionForSurface(*camera, water_->Config().surfaceLevelY);
+    const Render::GerstnerSurfacePresentationParameters gerstnerPresentation =
+        BuildGerstnerSurfacePresentation(*water_);
+    const auto maximumGerstnerAmplitudeMeters =
+        Render::MaximumGerstnerCombinedVerticalAmplitudeMeters(gerstnerPresentation);
+    if (!maximumGerstnerAmplitudeMeters)
+    {
+        return std::unexpected(
+            "physical playground Gerstner underlay envelope failed: " + maximumGerstnerAmplitudeMeters.error());
+    }
+    // W1-I visual closure: the rectangular underwater underlay must never intersect the visible free
+    // surface. Starting it below the conservative lowest possible trough keeps deep background coverage
+    // without leaking a perfectly horizontal mean-sea-level stripe through displaced troughs.
+    constexpr float W1IUnderwaterUnderlaySafetyMarginMeters = 0.05F;
+    const float underwaterBackgroundCeilingY = gerstnerPresentation.referenceLevelY -
+        *maximumGerstnerAmplitudeMeters - W1IUnderwaterUnderlaySafetyMarginMeters;
+    const auto underwaterRegion = UnderwaterRegionForSurface(*camera, underwaterBackgroundCeilingY);
     if (!underwaterRegion)
     {
         return std::unexpected("physical playground scalable underwater region failed: " + underwaterRegion.error());
@@ -2262,8 +2277,6 @@ std::expected<Render::ModelDrawStats, std::string> PhysicalPlayground::Render(
     // Draw them only while that envelope fully covers the viewport. At wider/panned framing the full-width
     // WaterBody-derived underlay + depth/fog presentation remains, so no differently shaded rectangle can
     // reveal the local mesh/field bounds. Untouched 600 m M3 still takes the original draw path exactly once.
-    const Render::GerstnerSurfacePresentationParameters gerstnerPresentation =
-        BuildGerstnerSurfacePresentation(*water_);
     // The renderer remaps the immutable Gerstner mesh around the current camera. Waves therefore remain
     // continuous while the boat travels or the camera zooms; absolute world X still owns phase continuity.
     std::expected<Render::GerstnerSurfaceDrawStats, std::string> gerstnerStats =
