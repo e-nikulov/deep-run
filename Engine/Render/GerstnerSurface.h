@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Simulation/Marine/WaterWaveField.h"
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -12,13 +14,14 @@ struct GerstnerWaveComponent final
 {
     float amplitudeMeters = 0.0F;
     float wavelengthMeters = 0.0F;
+    // Signed angular frequency mirrors Marine's projected +X/-X travel convention.
     float angularFrequencyRadiansPerSecond = 0.0F;
     float phaseOffsetRadians = 0.0F;
     float horizontalSteepness = 0.0F;
 };
 
-// Renderer-neutral, Game-supplied snapshot for the bounded M3-E backdrop. It describes visual presentation only;
-// it is not a world-state, physics, or simulation interface.
+// Renderer-neutral, Game-supplied snapshot. W1-B expands the retained M3 surface from three hand-authored
+// components to Marine's bounded seven-component production spectrum while preserving one GPU draw.
 struct GerstnerSurfacePresentationParameters final
 {
     float minimumX = 0.0F;
@@ -26,7 +29,7 @@ struct GerstnerSurfacePresentationParameters final
     float referenceLevelY = 0.0F;
     float bottomFillY = 0.0F;
     std::uint32_t horizontalSampleCount = 0U;
-    std::array<GerstnerWaveComponent, 3> components{};
+    std::array<GerstnerWaveComponent, Marine::WaterWaveComponentCapacity> components{};
     std::array<float, 3> deepFillRgb{};
     std::array<float, 3> surfaceTintRgb{};
 };
@@ -65,10 +68,8 @@ struct GerstnerSurfaceDrawStats final
     const GerstnerSurfacePresentationParameters& parameters);
 [[nodiscard]] std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseMesh(
     const GerstnerSurfacePresentationParameters& parameters);
-// Evaluates only the M3-E visual presentation formula at caller-supplied phase time for validation/tests.
-// M3-E.1 supplies SimulationTime explicitly, not the global particle PresentationTime clock.
-// This API supplies no authoritative state and must not drive Simulation, force/rigid-body, sonar, or gameplay
-// depth consumers. M3-E.1 owns a separate authoritative definition/query contract outside Render.
+// Evaluates only the presentation formula at caller-supplied SimulationTime for validation/tests. Rendering
+// remains a consumer of the Marine-owned spectrum and never becomes surface authority.
 [[nodiscard]] std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
     const GerstnerSurfacePresentationParameters& parameters,
     float x,
