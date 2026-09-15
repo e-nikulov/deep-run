@@ -1,4 +1,4 @@
-name: P700 stage1 completion candidate
+name: P700 signature launch final candidate
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    if: contains(github.event.head_commit.message, '[p700-stage1]')
+    if: contains(github.event.head_commit.message, '[p700-final]')
     runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v4
@@ -37,51 +37,76 @@ jobs:
           $remaining = @(git diff --name-only --diff-filter=U)
           if ($remaining.Count -ne 0) { throw "unresolved merge conflicts remain" }
           $ErrorActionPreference = 'Stop'
-      - name: Apply P700 stage1 completion
+      - name: Apply complete P700 presentation patch
         shell: pwsh
-        run: python Tools/p700_stage1_completion_v3.py
+        run: python Tools/p700_stage3_game_completion.py
       - name: Configure Release
         shell: pwsh
         run: cmake --preset windows-release
       - name: Build Release
         shell: pwsh
         run: cmake --build --preset windows-release --parallel
-      - name: P700 regression
+      - name: P700 regression and measurements
         shell: pwsh
-        run: ctest --preset windows-release -R DeepRunP700LaunchVfxTests --output-on-failure
+        run: |
+          ctest --preset windows-release -R DeepRunP700LaunchVfxTests -V --output-on-failure 2>&1 | Tee-Object -FilePath p700-vfx-test-output.txt
+          if ($LASTEXITCODE -ne 0) { throw "P700 regression failed" }
       - name: Full regression
         shell: pwsh
-        run: ctest --preset windows-release --output-on-failure
-      - name: P700 day showcase smoke
-        shell: pwsh
-        env:
-          DR_P700_SHOWCASE: DAY_CALM
         run: |
-          .\build\windows-release\Release\DeepRun.exe --smoke-p700
-          if ($LASTEXITCODE -ne 0) { throw "P700 DAY_CALM showcase smoke failed" }
-      - name: Package candidate
+          ctest --preset windows-release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "full regression failed" }
+      - name: Configure 2560x1440 visual acceptance
+        shell: pwsh
+        run: |
+          python -c "import json; p='Config/engine.json'; d=json.load(open(p)); d['renderer']['width']=2560; d['renderer']['height']=1440; json.dump(d, open(p,'w'), indent=2)"
+          New-Item -ItemType Directory -Force -Path p700-final-captures | Out-Null
+      - name: Four-profile P700 showcase smoke
+        shell: pwsh
+        run: |
+          $profiles = @('DAY_CALM','SUNSET','NIGHT','STORM')
+          $captures = @('m5-p700-launch.bmp','m5-p700-water-exit.bmp','m5-p700-deploy.bmp','m5-p700-cruise-terminal.bmp','m5-p700-impact.bmp')
+          foreach ($profile in $profiles) {
+            $env:DR_P700_SHOWCASE = $profile
+            .\build\windows-release\Release\DeepRun.exe --smoke-p700
+            if ($LASTEXITCODE -ne 0) { throw "P700 $profile showcase smoke failed" }
+            foreach ($capture in $captures) {
+              if (!(Test-Path $capture)) { throw "P700 $profile missing capture $capture" }
+              $base = [System.IO.Path]::GetFileNameWithoutExtension($capture)
+              Move-Item -Force $capture "p700-final-captures\$profile-$base.bmp"
+            }
+            if (!(Test-Path 'm5-p700-acceptance.json')) { throw "P700 $profile missing acceptance report" }
+            Move-Item -Force 'm5-p700-acceptance.json' "p700-final-captures\$profile-acceptance.json"
+          }
+          Remove-Item Env:DR_P700_SHOWCASE -ErrorAction SilentlyContinue
+      - name: Package final candidate
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: p700-stage1-candidate
+          name: p700-signature-launch-final-candidate
           if-no-files-found: warn
           path: |
-            m5-p700-acceptance.json
-            m5-p700-launch.bmp
-            m5-p700-water-exit.bmp
-            m5-p700-deploy.bmp
-            m5-p700-cruise-terminal.bmp
-            m5-p700-impact.bmp
+            p700-final-captures/
+            p700-vfx-test-output.txt
+            Config/p700_vfx.json
             Engine/Render/Camera.h
             Engine/Render/Camera.cpp
+            Engine/Render/TransientVfx.h
+            Engine/Render/TransientVfx.cpp
             Engine/Render/ViewPathFog.h
             Engine/Render/ViewPathFog.cpp
             Engine/Render/D3D12Renderer.cpp
             Shaders/Model.hlsl
+            Shaders/Particles/TransientVfx.hlsl
+            Shaders/PostProcess/ToneMap.hlsl
             Game/PhysicalPlayground.h
             Game/PhysicalPlayground.cpp
+            Game/Weapons/P700LaunchVfx.h
+            Game/Weapons/P700LaunchVfx.cpp
             Game/Weapons/P700LaunchLightingPresentation.h
+            Game/Weapons/P700LaunchDistortionPresentation.h
             Game/Weapons/P700LaunchWeatherPresentation.h
+            Game/Weapons/P700SurfacePresentation.h
             Game/Combat/P700LaunchCameraPresentation.h
             Game/Combat/P700VfxShowcase.h
             Game/Combat/CombatPlaygroundView.h
