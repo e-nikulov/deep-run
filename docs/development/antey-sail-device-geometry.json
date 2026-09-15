@@ -1,0 +1,931 @@
+{
+  "schemaVersion": 1,
+  "coordinateContract": "+X bow; +Y port; +Z up; 1 BU = 1 m",
+  "deviceCount": 20,
+  "devices": [
+    {
+      "name": "SM_Antey_LOD0_SailDevice_05",
+      "center": [
+        25.735076904296875,
+        -0.12708856165409088,
+        10.416501998901367
+      ],
+      "minimum": [
+        25.177900314331055,
+        -0.5056373476982117,
+        8.185809135437012
+      ],
+      "maximum": [
+        26.292253494262695,
+        0.2514602243900299,
+        12.647194862365723
+      ],
+      "dimensions": [
+        1.1143531799316406,
+        0.7570975720882416,
+        4.461385726928711
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 945,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "e95cffedb29930733f2a39787995a8f7fa593a7054fb7d477cc1e45c38b925d1",
+        "source_boundary_edge_fingerprint": "ac1a4d89d4d6f85e37b356189485a5a10476f272c493d3e769279c3f7acb8182",
+        "source_component": 5,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_06",
+      "center": [
+        33.73608589172363,
+        -0.07828262448310852,
+        7.8403990268707275
+      ],
+      "minimum": [
+        30.62316131591797,
+        -1.0229637622833252,
+        6.929996013641357
+      ],
+      "maximum": [
+        36.8490104675293,
+        0.8663985133171082,
+        8.750802040100098
+      ],
+      "dimensions": [
+        6.225849151611328,
+        1.8893622756004333,
+        1.8208060264587402
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 870,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "62c441d6472f508e738d5df4252be9ef036b342b913811b42dfe06027712a956",
+        "source_boundary_edge_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_component": 6,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_07",
+      "center": [
+        23.740636825561523,
+        -0.10002955794334412,
+        9.821231842041016
+      ],
+      "minimum": [
+        23.13762664794922,
+        -0.5107465982437134,
+        8.148344993591309
+      ],
+      "maximum": [
+        24.343647003173828,
+        0.31068748235702515,
+        11.494118690490723
+      ],
+      "dimensions": [
+        1.2060203552246094,
+        0.8214340806007385,
+        3.345773696899414
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 769,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "0f89170dad8112acc4cef2959e552a0c647e21c34afdc0d35382462134de3414",
+        "source_boundary_edge_fingerprint": "05c6bfb5e2e4ce874ecc0f117036d6621cc2fa16b1c77079849418cecf29428c",
+        "source_component": 7,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_08",
+      "center": [
+        27.426105499267578,
+        0.07186544500291348,
+        11.004337310791016
+      ],
+      "minimum": [
+        27.283565521240234,
+        -0.024976912885904312,
+        8.163082122802734
+      ],
+      "maximum": [
+        27.568645477294922,
+        0.16870780289173126,
+        13.845592498779297
+      ],
+      "dimensions": [
+        0.2850799560546875,
+        0.19368471577763557,
+        5.6825103759765625
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 561,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "f905325518dee62620dab03c087bd38250ed75121ec0144d818afeb3445edfa8",
+        "source_boundary_edge_fingerprint": "ab5701ff757badc8349e0e7ec0999454694fc933dcf3f5c3566d77ea1d142e6d",
+        "source_component": 8,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_09",
+      "center": [
+        29.42920207977295,
+        0.42598726600408554,
+        9.94568419456482
+      ],
+      "minimum": [
+        28.517972946166992,
+        -0.19310744106769562,
+        7.786622524261475
+      ],
+      "maximum": [
+        30.340431213378906,
+        1.0450819730758667,
+        12.104745864868164
+      ],
+      "dimensions": [
+        1.822458267211914,
+        1.2381894141435623,
+        4.3181233406066895
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 545,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "15c158376bcce06648e74ef28abafda35f504a421a5573b757685460ed3ae2d6",
+        "source_boundary_edge_fingerprint": "71cf1cb3565208ea3e078d5e6ca0a9418efc6462e4ff3482c746d5b1be8b9ad2",
+        "source_component": 9,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_10",
+      "center": [
+        40.42131233215332,
+        -0.028913192451000214,
+        9.408312559127808
+      ],
+      "minimum": [
+        40.25124740600586,
+        -0.14366795122623444,
+        7.284757137298584
+      ],
+      "maximum": [
+        40.59137725830078,
+        0.08584156632423401,
+        11.531867980957031
+      ],
+      "dimensions": [
+        0.3401298522949219,
+        0.22950951755046844,
+        4.247110843658447
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 534,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "3b7a65995e4239f2b78bb110a7c15150206d0cead477ebf1ec70cda2788594a1",
+        "source_boundary_edge_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_component": 10,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_11",
+      "center": [
+        37.57697296142578,
+        -0.04364379867911339,
+        9.847870826721191
+      ],
+      "minimum": [
+        37.35490417480469,
+        -0.20258687436580658,
+        8.136470794677734
+      ],
+      "maximum": [
+        37.799041748046875,
+        0.1152992770075798,
+        11.559270858764648
+      ],
+      "dimensions": [
+        0.4441375732421875,
+        0.3178861513733864,
+        3.422800064086914
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 465,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "6dea93fa414ce645b3df26cdacb2b6dbff6e3a44ef54e633fe414b1dbed3f2a1",
+        "source_boundary_edge_fingerprint": "ece20a34b0f164e4517189f3977a196c258520c67abd64e6ac008154ae29eac1",
+        "source_component": 11,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_12",
+      "center": [
+        29.33402729034424,
+        2.617936134338379,
+        9.254170656204224
+      ],
+      "minimum": [
+        28.18701171875,
+        2.0791614055633545,
+        7.982450008392334
+      ],
+      "maximum": [
+        30.481042861938477,
+        3.1567108631134033,
+        10.525891304016113
+      ],
+      "dimensions": [
+        2.2940311431884766,
+        1.0775494575500488,
+        2.5434412956237793
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 319,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "1e189026563e08a27cb973f279e165cc507b0208c1dfccba0a4fef5305e2f727",
+        "source_boundary_edge_fingerprint": "8f8d1b47de9798eb5dda1ee46396dba43a400b20719a3aa3040b7c8b279fb231",
+        "source_component": 12,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_15",
+      "center": [
+        21.91162872314453,
+        -0.10806088894605637,
+        10.170104503631592
+      ],
+      "minimum": [
+        21.556127548217773,
+        -0.3495903015136719,
+        8.163082122802734
+      ],
+      "maximum": [
+        22.26712989807129,
+        0.13346852362155914,
+        12.17712688446045
+      ],
+      "dimensions": [
+        0.7110023498535156,
+        0.483058825135231,
+        4.014044761657715
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 273,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "dfe96c9ccfff55143b2fb75ce78d98c71ec8d85bf821e65ed978271ade8be147",
+        "source_boundary_edge_fingerprint": "8853fd2f6dcabb6eb6e85c2cfdfcaea727b35d5b6fe96c201a3ca0df652c2e7c",
+        "source_component": 15,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_16",
+      "center": [
+        43.86439514160156,
+        0.013249932555481791,
+        8.180826187133789
+      ],
+      "minimum": [
+        43.84867477416992,
+        -0.006519986782222986,
+        8.161124229431152
+      ],
+      "maximum": [
+        43.8801155090332,
+        0.03301985189318657,
+        8.200528144836426
+      ],
+      "dimensions": [
+        0.03144073486328125,
+        0.039539838675409555,
+        0.03940391540527344
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 209,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "e9406b4d5ac52899e7d6e3b2208c6f429804c5ef0c0f9ae7a5446b16823d1080",
+        "source_boundary_edge_fingerprint": "f6bc196ddf8e6714ce9850bd9c1c5b398816ae156c27796a3378c78efbe9bdd8",
+        "source_component": 16,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_17",
+      "center": [
+        26.468531608581543,
+        -1.1475918889045715,
+        10.667459964752197
+      ],
+      "minimum": [
+        26.373994827270508,
+        -1.211817979812622,
+        8.264388084411621
+      ],
+      "maximum": [
+        26.563068389892578,
+        -1.083365797996521,
+        13.070531845092773
+      ],
+      "dimensions": [
+        0.1890735626220703,
+        0.12845218181610107,
+        4.806143760681152
+      ],
+      "deployment": "RETRACTABLE",
+      "motion": "TRANSLATION",
+      "axis": "LOCAL_Z",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 97,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "93864100a2119a1aeeb009b1bbbd5644b2d2f1f6b5ff0281c2c3c9a36f1b620b",
+        "source_boundary_edge_fingerprint": "4f96714787e3173e3a25650eb29f1314520957ea43eea9e27b05aa2937fcbf61",
+        "source_component": 17,
+        "DEVICE_DEPLOYMENT": "RETRACTABLE",
+        "MOTION": "TRANSLATION",
+        "AXIS": "LOCAL_Z",
+        "SIMULATION_OWNS_STATE": true
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_18",
+      "center": [
+        29.315305709838867,
+        2.187919855117798,
+        8.048602104187012
+      ],
+      "minimum": [
+        28.1773681640625,
+        2.1431353092193604,
+        8.00366497039795
+      ],
+      "maximum": [
+        30.453243255615234,
+        2.2327044010162354,
+        8.093539237976074
+      ],
+      "dimensions": [
+        2.2758750915527344,
+        0.089569091796875,
+        0.089874267578125
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 50,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "8512f71bffe6b4c5d2ffdd261f0447cfc1942469e125ebcff9c1f5eeb99a8cab",
+        "source_boundary_edge_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "source_component": 18,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_19",
+      "center": [
+        33.8642520904541,
+        -2.015550971031189,
+        6.32962703704834
+      ],
+      "minimum": [
+        32.62291717529297,
+        -2.0193121433258057,
+        5.348930358886719
+      ],
+      "maximum": [
+        35.105587005615234,
+        -2.0117897987365723,
+        7.310323715209961
+      ],
+      "dimensions": [
+        2.4826698303222656,
+        0.0075223445892333984,
+        1.9613933563232422
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 42,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "c0ab382cf3274ba6442e65696ba7d27e50d8f256e557df84a3728e2744b4e45b",
+        "source_boundary_edge_fingerprint": "4435ed70c1850e4ee307702592d8fe86cc2d2aa4d5ed4b1b0cbd2b05ed250138",
+        "source_component": 19,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_22",
+      "center": [
+        33.864248275756836,
+        2.061033606529236,
+        6.329626560211182
+      ],
+      "minimum": [
+        32.6229133605957,
+        2.0574426651000977,
+        5.348929405212402
+      ],
+      "maximum": [
+        35.10558319091797,
+        2.064624547958374,
+        7.310323715209961
+      ],
+      "dimensions": [
+        2.4826698303222656,
+        0.007181882858276367,
+        1.9613943099975586
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 16,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "a4dc66dee9887aa2744fefea6c60b8ec4162cdd2f588181fa0a984f2a0dca3d5",
+        "source_boundary_edge_fingerprint": "4974beb9eed74fdf5a1d80222a823cb86b15ea1a4628ec66d600b1cf94877aa5",
+        "source_component": 22,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_26",
+      "center": [
+        40.32183837890625,
+        -1.9261934161186218,
+        6.874310255050659
+      ],
+      "minimum": [
+        39.98733901977539,
+        -1.968888521194458,
+        6.633472919464111
+      ],
+      "maximum": [
+        40.65633773803711,
+        -1.8834983110427856,
+        7.115147590637207
+      ],
+      "dimensions": [
+        0.6689987182617188,
+        0.08539021015167236,
+        0.4816746711730957
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 9,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "2ea7d802fea641c624560db52ff78144f5fc73c27f8236ca012d7cb7c35748a9",
+        "source_boundary_edge_fingerprint": "63e9ad59e274c85baa48332511864de1e312116e320f348cebc62e038d0598ca",
+        "source_component": 26,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_27",
+      "center": [
+        40.321224212646484,
+        1.9540005326271057,
+        6.876450538635254
+      ],
+      "minimum": [
+        39.9964714050293,
+        1.913609266281128,
+        6.646659851074219
+      ],
+      "maximum": [
+        40.64597702026367,
+        1.9943917989730835,
+        7.106241226196289
+      ],
+      "dimensions": [
+        0.649505615234375,
+        0.08078253269195557,
+        0.4595813751220703
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 9,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "a29000374fcc755610e135cd55753caca74eb7672fd27d422ae7a60671a7102e",
+        "source_boundary_edge_fingerprint": "51fe29ec3005cd9a82f4cee450842c4de2200e960282f92649b11c26f78edfd0",
+        "source_component": 27,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_28",
+      "center": [
+        39.283735275268555,
+        2.021476984024048,
+        6.919593095779419
+      ],
+      "minimum": [
+        39.05263900756836,
+        2.019268035888672,
+        6.738780498504639
+      ],
+      "maximum": [
+        39.51483154296875,
+        2.023685932159424,
+        7.100405693054199
+      ],
+      "dimensions": [
+        0.4621925354003906,
+        0.004417896270751953,
+        0.36162519454956055
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 9,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "a6a7fc960d1942c62d90e6b449167cae46e82dc2ebaf59f306e6b853610c25a4",
+        "source_boundary_edge_fingerprint": "086f66a874cba89ce54bc1a22c4e6f8f8d76fc09e86860203cb496c3f1e06c6e",
+        "source_component": 28,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_29",
+      "center": [
+        38.40459060668945,
+        2.0249569416046143,
+        6.988580703735352
+      ],
+      "minimum": [
+        38.27241134643555,
+        2.023959159851074,
+        6.8875627517700195
+      ],
+      "maximum": [
+        38.53676986694336,
+        2.0259547233581543,
+        7.089598655700684
+      ],
+      "dimensions": [
+        0.2643585205078125,
+        0.001995563507080078,
+        0.20203590393066406
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 9,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "a82d17ad5352e99bc5c6e0cbae6f74dab692655f0e5ddffd7bf7340ee1cec1e4",
+        "source_boundary_edge_fingerprint": "b6f2a6831bb2862c81d8f792e27d63722106751d1360919ffa64f968e88b5465",
+        "source_component": 29,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_30",
+      "center": [
+        43.96586227416992,
+        0.013304442167282104,
+        6.482784986495972
+      ],
+      "minimum": [
+        43.76508331298828,
+        -0.7702949047088623,
+        5.646724224090576
+      ],
+      "maximum": [
+        44.16664123535156,
+        0.7969037890434265,
+        7.318845748901367
+      ],
+      "dimensions": [
+        0.40155792236328125,
+        1.5671986937522888,
+        1.672121524810791
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 8,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "3b9b296d957b88b93816f2f383086e6979f1768e22b1b95236e943af9bcc7bbf",
+        "source_boundary_edge_fingerprint": "995d8083b4e2dc20b68bc44ede83ae289e8d8cf5afcbe19e0e2d951e772b3736",
+        "source_component": 30,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    },
+    {
+      "name": "SM_Antey_LOD0_SailDevice_31",
+      "center": [
+        39.285634994506836,
+        -1.994567334651947,
+        6.921044111251831
+      ],
+      "minimum": [
+        39.0413703918457,
+        -1.9971084594726562,
+        6.736656665802002
+      ],
+      "maximum": [
+        39.52989959716797,
+        -1.9920262098312378,
+        7.10543155670166
+      ],
+      "dimensions": [
+        0.4885292053222656,
+        0.005082249641418457,
+        0.3687748908996582
+      ],
+      "deployment": "STATIC",
+      "motion": "NONE",
+      "axis": "NONE",
+      "sourceObject": "Bridge",
+      "sourceFirstRole": "SAIL_DEVICE",
+      "properties": {
+        "source_object": "Bridge",
+        "source_first_role": "SAIL_DEVICE",
+        "source_geometry": true,
+        "runtime_export": true,
+        "lod": 0,
+        "SOURCE_FACE_COUNT": 8,
+        "SYNTHETIC_CLOSURE_FACE_COUNT": 0,
+        "source_face_fingerprint": "73af995f2dea6572becfa10f08035e67bc263227d65d7d6dcce2b7241012e9e4",
+        "source_boundary_edge_fingerprint": "2df7ed5c13094d47a6d65822f20bf6eb1e2397db92d61d1617d56f6e95dcad71",
+        "source_component": 31,
+        "DEVICE_DEPLOYMENT": "STATIC",
+        "MOTION": "NONE",
+        "AXIS": "NONE",
+        "SIMULATION_OWNS_STATE": false
+      }
+    }
+  ],
+  "byBowToStern": [
+    "SM_Antey_LOD0_SailDevice_30",
+    "SM_Antey_LOD0_SailDevice_16",
+    "SM_Antey_LOD0_SailDevice_10",
+    "SM_Antey_LOD0_SailDevice_26",
+    "SM_Antey_LOD0_SailDevice_27",
+    "SM_Antey_LOD0_SailDevice_31",
+    "SM_Antey_LOD0_SailDevice_28",
+    "SM_Antey_LOD0_SailDevice_29",
+    "SM_Antey_LOD0_SailDevice_11",
+    "SM_Antey_LOD0_SailDevice_19",
+    "SM_Antey_LOD0_SailDevice_22",
+    "SM_Antey_LOD0_SailDevice_06",
+    "SM_Antey_LOD0_SailDevice_09",
+    "SM_Antey_LOD0_SailDevice_12",
+    "SM_Antey_LOD0_SailDevice_18",
+    "SM_Antey_LOD0_SailDevice_08",
+    "SM_Antey_LOD0_SailDevice_17",
+    "SM_Antey_LOD0_SailDevice_05",
+    "SM_Antey_LOD0_SailDevice_07",
+    "SM_Antey_LOD0_SailDevice_15"
+  ],
+  "bySternToBow": [
+    "SM_Antey_LOD0_SailDevice_15",
+    "SM_Antey_LOD0_SailDevice_07",
+    "SM_Antey_LOD0_SailDevice_05",
+    "SM_Antey_LOD0_SailDevice_17",
+    "SM_Antey_LOD0_SailDevice_08",
+    "SM_Antey_LOD0_SailDevice_18",
+    "SM_Antey_LOD0_SailDevice_12",
+    "SM_Antey_LOD0_SailDevice_09",
+    "SM_Antey_LOD0_SailDevice_06",
+    "SM_Antey_LOD0_SailDevice_22",
+    "SM_Antey_LOD0_SailDevice_19",
+    "SM_Antey_LOD0_SailDevice_11",
+    "SM_Antey_LOD0_SailDevice_29",
+    "SM_Antey_LOD0_SailDevice_28",
+    "SM_Antey_LOD0_SailDevice_31",
+    "SM_Antey_LOD0_SailDevice_27",
+    "SM_Antey_LOD0_SailDevice_26",
+    "SM_Antey_LOD0_SailDevice_10",
+    "SM_Antey_LOD0_SailDevice_16",
+    "SM_Antey_LOD0_SailDevice_30"
+  ]
+}
