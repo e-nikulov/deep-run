@@ -168,9 +168,9 @@ jobs:
           if (-not $p700Report.all_state_checkpoints_seen -or $p700Report.checkpoints.Count -ne 5) {
             throw "P-700 visual acceptance did not observe all five required checkpoints"
           }
-          $badInventory = @($p700Report.checkpoints | Where-Object { $_.p700_loaded_count -ne 23 })
+          $badInventory = @($p700Report.checkpoints | Where-Object { $_.p700_loaded_count -ne 22 })
           if ($badInventory.Count -ne 0) {
-            throw "P-700 visual acceptance did not retain the expected 23/24 launcher inventory after launch"
+            throw "P-700 paired visual acceptance did not retain the expected 22/24 launcher inventory after launch"
           }
           $impact = @($p700Report.checkpoints | Where-Object { $_.name -eq 'M5_P700_IMPACT' })
           if ($impact.Count -ne 1 -or -not $impact[0].impact.target_is_destroyer_body -or $impact[0].impact.damage -ne 100) {
