@@ -11,6 +11,10 @@ namespace DeepRun::Render
 {
 inline constexpr std::size_t GerstnerWaveComponentCapacity = 7U;
 inline constexpr std::size_t LegacyM3GerstnerWaveComponentCount = 3U;
+inline constexpr std::uint32_t GerstnerMeshletCellCapacity = 31U;
+inline constexpr std::uint32_t GerstnerMeshletMinimumCellCount = 256U;
+inline constexpr std::uint32_t GerstnerMeshletMaximumCellCount = 8192U;
+inline constexpr std::uint32_t GerstnerMeshletVisibleSamplesPerWavelength = 16U;
 
 struct GerstnerWaveComponent final
 {
@@ -59,11 +63,21 @@ struct GerstnerSurfacePresentationPosition final
     [[nodiscard]] bool operator==(const GerstnerSurfacePresentationPosition&) const noexcept = default;
 };
 
+struct GerstnerMeshletDispatchPlan final
+{
+    std::uint32_t cellCount = 0U;
+    std::uint32_t meshletCount = 0U;
+    std::uint32_t emittedVertexCount = 0U;
+    std::uint32_t emittedPrimitiveCount = 0U;
+};
+
 struct GerstnerSurfaceDrawStats final
 {
     std::uint32_t vertexCount = 0U;
     std::uint32_t indexCount = 0U;
     std::uint32_t drawCalls = 0U;
+    std::uint32_t meshletCount = 0U;
+    bool meshShaderPath = false;
 };
 
 [[nodiscard]] std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
@@ -72,6 +86,10 @@ struct GerstnerSurfaceDrawStats final
     const GerstnerSurfacePresentationParameters& parameters);
 [[nodiscard]] std::expected<GerstnerSurfaceBaseMesh, std::string> GenerateGerstnerSurfaceBaseMesh(
     const GerstnerSurfacePresentationParameters& parameters);
+[[nodiscard]] std::expected<GerstnerMeshletDispatchPlan, std::string> BuildGerstnerMeshletDispatchPlan(
+    const GerstnerSurfacePresentationParameters& parameters,
+    float cameraHorizontalSpanMeters,
+    std::uint32_t viewportWidthPixels);
 [[nodiscard]] std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstnerSurfacePresentation(
     const GerstnerSurfacePresentationParameters& parameters,
     float x,

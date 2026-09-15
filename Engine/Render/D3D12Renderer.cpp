@@ -238,6 +238,29 @@ struct GpuGerstnerSurface final
     GerstnerSurfacePresentationParameters parameters{};
     std::uint32_t vertexCount = 0U;
     std::uint32_t indexCount = 0U;
+    bool configured = false;
+};
+
+template <D3D12_PIPELINE_STATE_SUBOBJECT_TYPE Type, typename T>
+struct alignas(void*) PipelineStateStreamSubobject final
+{
+    D3D12_PIPELINE_STATE_SUBOBJECT_TYPE type = Type;
+    T data{};
+};
+
+struct GerstnerMeshPipelineStateStream final
+{
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE, ID3D12RootSignature*> rootSignature;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, D3D12_SHADER_BYTECODE> meshShader;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, D3D12_SHADER_BYTECODE> pixelShader;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND, D3D12_BLEND_DESC> blend;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK, UINT> sampleMask;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER, D3D12_RASTERIZER_DESC> rasterizer;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL, D3D12_DEPTH_STENCIL_DESC> depthStencil;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY, D3D12_PRIMITIVE_TOPOLOGY_TYPE> primitiveTopology;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS, D3D12_RT_FORMAT_ARRAY> renderTargetFormats;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT, DXGI_FORMAT> depthStencilFormat;
+    PipelineStateStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC, DXGI_SAMPLE_DESC> sampleDescription;
 };
 
 std::vector<std::byte> ReadBinaryFile(const std::filesystem::path& path)
@@ -419,6 +442,7 @@ public:
                     IID_PPV_ARGS(&commandList)),
                 "CreateCommandList");
             ThrowIfFailed(commandList->Close(), "Close initial command list");
+            DetectMeshShaderSupport();
             CreateScenePresentationUploads();
 
             D3D12_DESCRIPTOR_HEAP_DESC rtvDescription{};
@@ -1045,6 +1069,46 @@ public:
             "Create suspended particle graphics pipeline");
     }
 
+    void DetectMeshShaderSupport()
+    {
+        D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7{};
+        const HRESULT optionsResult = device->CheckFeatureSupport(
+            D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
+        if (FAILED(optionsResult) || options7.MeshShaderTier == D3D12_MESH_SHADER_TIER_NOT_SUPPORTED)
+        {
+            logger.Info(
+                Diagnostics::LogCategory::Render,
+                "W1-J mesh shader surface unavailable; retaining indexed Gerstner compatibility path");
+            return;
+        }
+
+        D3D12_FEATURE_DATA_SHADER_MODEL shaderModel{D3D_SHADER_MODEL_6_5};
+        if (FAILED(device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shaderModel, sizeof(shaderModel))) ||
+            shaderModel.HighestShaderModel < D3D_SHADER_MODEL_6_5)
+        {
+            logger.Info(
+                Diagnostics::LogCategory::Render,
+                "W1-J mesh shader tier is present but Shader Model 6.5 is unavailable; retaining compatibility path");
+            return;
+        }
+
+        ComPtr<ID3D12GraphicsCommandList6> commandList6;
+        if (FAILED(commandList.As(&commandList6)))
+        {
+            logger.Warning(
+                Diagnostics::LogCategory::Render,
+                "W1-J mesh shader tier is present but ID3D12GraphicsCommandList6 is unavailable");
+            return;
+        }
+
+        meshShaderTier = options7.MeshShaderTier;
+        meshCommandList = std::move(commandList6);
+        meshShaderSupported = true;
+        logger.Info(
+            Diagnostics::LogCategory::Render,
+            "D3D12 Mesh Shader Tier 1 path available for W1-J Gerstner geometry");
+    }
+
     void CreateGerstnerSurfacePipeline(const std::filesystem::path& shaderRoot)
     {
         const std::vector<std::byte> vertexShader = ReadBinaryFile(shaderRoot / "GerstnerSurfaceVS.cso");
@@ -1060,6 +1124,8 @@ public:
         D3D12_ROOT_SIGNATURE_DESC rootDescription{};
         rootDescription.NumParameters = 1U;
         rootDescription.pParameters = &rootParameter;
+        // One root signature intentionally serves both paths. IA access is harmless to the mesh path and
+        // preserves the WARP / pre-mesh-shader compatibility renderer without parallel presentation state.
         rootDescription.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
                                 D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
                                 D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
@@ -1133,6 +1199,52 @@ public:
         ThrowIfFailed(
             device->CreateGraphicsPipelineState(&pipeline, IID_PPV_ARGS(&gerstnerSurfacePipeline)),
             "Create Gerstner surface graphics pipeline");
+
+        if (!meshShaderSupported)
+        {
+            return;
+        }
+
+        try
+        {
+            const std::vector<std::byte> meshShader = ReadBinaryFile(shaderRoot / "GerstnerSurfaceMS.cso");
+            ComPtr<ID3D12Device2> meshDevice;
+            ThrowIfFailed(device.As(&meshDevice), "Query ID3D12Device2 for Gerstner mesh shader");
+
+            GerstnerMeshPipelineStateStream meshPipeline{};
+            meshPipeline.rootSignature.data = gerstnerSurfaceRootSignature.Get();
+            meshPipeline.meshShader.data = {meshShader.data(), meshShader.size()};
+            meshPipeline.pixelShader.data = {pixelShader.data(), pixelShader.size()};
+            meshPipeline.blend.data = pipeline.BlendState;
+            meshPipeline.sampleMask.data = pipeline.SampleMask;
+            meshPipeline.rasterizer.data = pipeline.RasterizerState;
+            meshPipeline.depthStencil.data = pipeline.DepthStencilState;
+            meshPipeline.primitiveTopology.data = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+            meshPipeline.renderTargetFormats.data.NumRenderTargets = 1U;
+            meshPipeline.renderTargetFormats.data.RTFormats[0] = SceneColorFormat;
+            meshPipeline.depthStencilFormat.data = DepthFormat;
+            meshPipeline.sampleDescription.data.Count = 1U;
+            meshPipeline.sampleDescription.data.Quality = 0U;
+
+            const D3D12_PIPELINE_STATE_STREAM_DESC streamDescription{
+                sizeof(meshPipeline), &meshPipeline};
+            ThrowIfFailed(
+                meshDevice->CreatePipelineState(&streamDescription, IID_PPV_ARGS(&gerstnerSurfaceMeshPipeline)),
+                "Create Gerstner mesh shader pipeline");
+            logger.Info(
+                Diagnostics::LogCategory::Render,
+                "W1-J meshlet Gerstner pipeline created (31 cells / 64 vertices / 62 triangles per meshlet)");
+        }
+        catch (const std::exception& exception)
+        {
+            gerstnerSurfaceMeshPipeline.Reset();
+            meshCommandList.Reset();
+            meshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+            meshShaderSupported = false;
+            logger.Warning(
+                Diagnostics::LogCategory::Render,
+                std::string("W1-J mesh pipeline creation failed; using indexed compatibility path: ") + exception.what());
+        }
     }
 
     void CreateOutputPipeline(const std::filesystem::path& shaderRoot)
@@ -1857,7 +1969,7 @@ public:
         {
             return std::unexpected("Gerstner surface configuration is not valid during a frame");
         }
-        if (gerstnerSurface.vertexBuffer != nullptr)
+        if (gerstnerSurface.configured)
         {
             return std::unexpected("Gerstner surface is already configured for this renderer");
         }
@@ -1865,6 +1977,17 @@ public:
         {
             return std::unexpected(valid.error());
         }
+
+        if (meshShaderSupported && meshCommandList != nullptr && gerstnerSurfaceMeshPipeline != nullptr)
+        {
+            gerstnerSurface.parameters = parameters;
+            gerstnerSurface.configured = true;
+            logger.Info(
+                Diagnostics::LogCategory::Render,
+                "W1-J meshlet Gerstner surface configured: procedural geometry, persistent surface VB/IB=0, dispatches=1");
+            return {};
+        }
+
         const auto mesh = GenerateGerstnerSurfaceBaseMesh(parameters);
         if (!mesh)
         {
@@ -1920,6 +2043,7 @@ public:
             surface.parameters = parameters;
             surface.vertexCount = static_cast<std::uint32_t>(vertices.size());
             surface.indexCount = static_cast<std::uint32_t>(mesh->indices.size());
+            surface.configured = true;
 #if defined(DEEPRUN_DEBUG)
             if (ValidateDebugMessages("Gerstner surface creation") != 0)
             {
@@ -1929,8 +2053,9 @@ public:
             gerstnerSurface = std::move(surface);
             logger.Info(
                 Diagnostics::LogCategory::Render,
-                "W1-B spectral surface configured: vertices=" + std::to_string(gerstnerSurface.vertexCount) +
-                    ", indices=" + std::to_string(gerstnerSurface.indexCount) + ", draw calls=1");
+                "W1-J indexed Gerstner compatibility configured: vertices=" +
+                    std::to_string(gerstnerSurface.vertexCount) + ", indices=" +
+                    std::to_string(gerstnerSurface.indexCount) + ", draw calls=1");
             return {};
         }
         catch (const std::exception& exception)
@@ -1952,8 +2077,11 @@ public:
         {
             return std::unexpected("Gerstner surface draw is only valid between BeginFrame and EndFrame");
         }
-        if (gerstnerSurfacePipeline == nullptr || gerstnerSurfaceRootSignature == nullptr ||
-            gerstnerSurface.vertexBuffer == nullptr || gerstnerSurface.indexBuffer == nullptr)
+        const bool meshPath = meshShaderSupported && meshCommandList != nullptr &&
+                              gerstnerSurfaceMeshPipeline != nullptr;
+        const bool indexedPath = gerstnerSurfacePipeline != nullptr &&
+                                 gerstnerSurface.vertexBuffer != nullptr && gerstnerSurface.indexBuffer != nullptr;
+        if (!gerstnerSurface.configured || gerstnerSurfaceRootSignature == nullptr || (!meshPath && !indexedPath))
         {
             return std::unexpected("Gerstner surface pipeline or geometry is not ready");
         }
@@ -1974,11 +2102,28 @@ public:
         };
         const float authoredSpanMeters = parameters.maximumX - parameters.minimumX;
         const float horizontalScale = (std::max)(1.0F, camera.width * 1.05F / authoredSpanMeters);
+        const float renderSpanMeters = authoredSpanMeters * horizontalScale;
+
+        GerstnerMeshletDispatchPlan dispatchPlan{};
+        if (meshPath)
+        {
+            const auto plan = BuildGerstnerMeshletDispatchPlan(parameters, camera.width, width);
+            if (!plan)
+            {
+                return std::unexpected(plan.error());
+            }
+            dispatchPlan = *plan;
+        }
+
         const GerstnerDrawConstants constants{
             .viewProjection = camera.viewProjection.values,
-            // z/w remap the immutable local M3 mesh around the live camera; wave phase still uses absolute world X.
-            .referenceLevelAndTime = {parameters.referenceLevelY, static_cast<float>(simulationTimeSeconds),
-                                      camera.target.x, horizontalScale},
+            // The compatibility VS receives historical horizontalScale in .w. The mesh shader receives
+            // visible world span instead and generates every surface vertex procedurally around absolute world X.
+            .referenceLevelAndTime = {
+                parameters.referenceLevelY,
+                static_cast<float>(simulationTimeSeconds),
+                camera.target.x,
+                meshPath ? renderSpanMeters : horizontalScale},
             .wave0 = asConstants(parameters.components[0]),
             .wave1 = asConstants(parameters.components[1]),
             .wave2 = asConstants(parameters.components[2]),
@@ -1996,17 +2141,33 @@ public:
                 parameters.components[5].horizontalSteepness,
                 parameters.components[6].horizontalSteepness,
                 static_cast<float>(parameters.activeComponentCount)},
+            // Alpha is not consumed by PSMain. On the mesh path it transports renderer-private procedural data.
             .deepFillColor = {
-                parameters.deepFillRgb[0], parameters.deepFillRgb[1], parameters.deepFillRgb[2], 1.0F},
+                parameters.deepFillRgb[0], parameters.deepFillRgb[1], parameters.deepFillRgb[2],
+                meshPath ? parameters.bottomFillY : 1.0F},
             .surfaceTintColor = {
-                parameters.surfaceTintRgb[0], parameters.surfaceTintRgb[1], parameters.surfaceTintRgb[2], 1.0F}};
+                parameters.surfaceTintRgb[0], parameters.surfaceTintRgb[1], parameters.surfaceTintRgb[2],
+                meshPath ? static_cast<float>(dispatchPlan.cellCount) : 1.0F}};
         commandList->SetGraphicsRootSignature(gerstnerSurfaceRootSignature.Get());
-        commandList->SetPipelineState(gerstnerSurfacePipeline.Get());
         commandList->SetGraphicsRoot32BitConstants(
             0,
             sizeof(GerstnerDrawConstants) / sizeof(std::uint32_t),
             &constants,
             0);
+
+        if (meshPath)
+        {
+            commandList->SetPipelineState(gerstnerSurfaceMeshPipeline.Get());
+            meshCommandList->DispatchMesh(dispatchPlan.meshletCount, 1U, 1U);
+            return GerstnerSurfaceDrawStats{
+                .vertexCount = dispatchPlan.emittedVertexCount,
+                .indexCount = dispatchPlan.emittedPrimitiveCount * 3U,
+                .drawCalls = 1U,
+                .meshletCount = dispatchPlan.meshletCount,
+                .meshShaderPath = true};
+        }
+
+        commandList->SetPipelineState(gerstnerSurfacePipeline.Get());
         commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         commandList->IASetVertexBuffers(0, 1, &gerstnerSurface.vertexView);
         commandList->IASetIndexBuffer(&gerstnerSurface.indexView);
@@ -2014,7 +2175,9 @@ public:
         return GerstnerSurfaceDrawStats{
             .vertexCount = gerstnerSurface.vertexCount,
             .indexCount = gerstnerSurface.indexCount,
-            .drawCalls = 1U};
+            .drawCalls = 1U,
+            .meshletCount = 0U,
+            .meshShaderPath = false};
     }
 
     void SetPresentationTime(const float elapsedSeconds) noexcept
@@ -2258,6 +2421,10 @@ public:
         gerstnerSurface = {};
         outputPipeline.Reset();
         outputRootSignature.Reset();
+        gerstnerSurfaceMeshPipeline.Reset();
+        meshCommandList.Reset();
+        meshShaderSupported = false;
+        meshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
         gerstnerSurfacePipeline.Reset();
         gerstnerSurfaceRootSignature.Reset();
         suspendedParticlePipeline.Reset();
@@ -2315,6 +2482,10 @@ public:
     ComPtr<ID3D12PipelineState> modelDoubleSidedPipeline;
     ComPtr<ID3D12RootSignature> gerstnerSurfaceRootSignature;
     ComPtr<ID3D12PipelineState> gerstnerSurfacePipeline;
+    ComPtr<ID3D12PipelineState> gerstnerSurfaceMeshPipeline;
+    ComPtr<ID3D12GraphicsCommandList6> meshCommandList;
+    D3D12_MESH_SHADER_TIER meshShaderTier = D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+    bool meshShaderSupported = false;
     ComPtr<ID3D12RootSignature> suspendedParticleRootSignature;
     ComPtr<ID3D12PipelineState> suspendedParticlePipeline;
     ComPtr<ID3D12RootSignature> outputRootSignature;
@@ -2540,8 +2711,13 @@ bool D3D12Renderer::IsSuspendedParticleFieldReady() const noexcept
 
 bool D3D12Renderer::IsGerstnerSurfaceReady() const noexcept
 {
-    return impl_->gerstnerSurfacePipeline != nullptr && impl_->gerstnerSurfaceRootSignature != nullptr &&
-           impl_->gerstnerSurface.vertexBuffer != nullptr && impl_->gerstnerSurface.indexBuffer != nullptr;
+    const bool meshPath = impl_->meshShaderSupported && impl_->meshCommandList != nullptr &&
+                          impl_->gerstnerSurfaceMeshPipeline != nullptr;
+    const bool indexedPath = impl_->gerstnerSurfacePipeline != nullptr &&
+                             impl_->gerstnerSurface.vertexBuffer != nullptr &&
+                             impl_->gerstnerSurface.indexBuffer != nullptr;
+    return impl_->gerstnerSurface.configured && impl_->gerstnerSurfaceRootSignature != nullptr &&
+           (meshPath || indexedPath);
 }
 
 float D3D12Renderer::AspectRatio() const noexcept
