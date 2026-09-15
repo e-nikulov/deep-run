@@ -14,6 +14,12 @@ BuoyancyError MakeError(const BuoyancyErrorCode code, const std::string& message
     return BuoyancyError{code, message};
 }
 
+enum class BuoyancyForceDirection
+{
+    SampleSurfaceNormal,
+    GravityOpposedUp
+};
+
 // Unit quaternion kept in double precision: the input float components are normalized once, and every
 // derived value is computed from these doubles so intermediate rounding never feeds back into itself.
 struct UnitQuaternion final
@@ -86,6 +92,7 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
     const BuoyancyPose& pose,
     const float gravityMagnitudeMetersPerSecondSquared,
     const std::optional<double> waveSimulationTimeSeconds,
+    const BuoyancyForceDirection forceDirection,
     BuoyancyResult& result)
 {
     if (waveSimulationTimeSeconds &&
@@ -96,7 +103,6 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
             "wave SimulationTime must be finite and non-negative"));
     }
 
-    // --- Configuration: every point must be individually valid; no silent correction. -------------------
     if (component.points.empty())
     {
         return std::unexpected(MakeError(BuoyancyErrorCode::InvalidConfiguration, "buoyancy point set is empty"));
@@ -111,7 +117,6 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
         }
     }
 
-    // --- Pose: finite world position; finite non-zero quaternion (normalized internally). ----------------
     if (!pose.worldPositionMeters.IsFinite())
     {
         return std::unexpected(MakeError(BuoyancyErrorCode::InvalidPose, "body world position must be finite"));
@@ -142,19 +147,16 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
             MakeError(BuoyancyErrorCode::NonFiniteResult, "normalized orientation quaternion is not finite"));
     }
 
-    // --- Gravity: explicit positive finite scalar; never hard-coded. --------------------------------------
     if (!std::isfinite(gravityMagnitudeMetersPerSecondSquared) || gravityMagnitudeMetersPerSecondSquared <= 0.0F)
     {
         return std::unexpected(
             MakeError(BuoyancyErrorCode::InvalidGravity, "gravity magnitude must be finite and strictly positive"));
     }
 
-    // Water density comes exclusively from the water body's validated configuration — never duplicated here.
     const double density = static_cast<double>(water.Config().densityKgPerCubicMeter);
     const double gravity = static_cast<double>(gravityMagnitudeMetersPerSecondSquared);
 
-    // The M3-F caller reserves this vector during initialization. resize therefore only initializes two
-    // existing slots during each fixed tick; no surface sampler or callback allocation is introduced here.
+    // Callers reserve this vector during initialization. resize therefore reuses existing storage during fixed ticks.
     result.points.resize(component.points.size());
 
     double totalForceX = 0.0;
@@ -166,8 +168,6 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
     {
         const BuoyancyPoint& point = component.points[index];
 
-        // Body-local -> world: position + Rotate(orientation, local). Computed in double so a finite-but-
-        // extreme input overflows here (and is rejected) instead of producing an inf float silently.
         double rotated[3];
         RotateVector(unit, point.bodyLocalPositionMeters, rotated);
         const double worldX = static_cast<double>(pose.worldPositionMeters.x) + rotated[0];
@@ -181,7 +181,6 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
         const Physics::PhysicsVector3 worldPosition{static_cast<float>(worldX), static_cast<float>(worldY),
                                                     static_cast<float>(worldZ)};
 
-        // Only this explicit private selection differs between the accepted flat operation and M3-F.
         const auto sample = waveSimulationTimeSeconds
                                 ? water.SampleWaveSurface(worldPosition, *waveSimulationTimeSeconds)
                                 : water.Sample(worldPosition);
@@ -213,7 +212,6 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
                 BuoyancyErrorCode::NonFiniteResult, "buoyancy point " + std::to_string(index) + ": submerged volume overflowed"));
         }
 
-        // Bounded M3-F approximation: hydrostatic force uses one coherent local surface normal/depth sample.
         const double forceMagnitude = density * gravity * submergedVolume;
         if (!FitsInFloat(forceMagnitude))
         {
@@ -221,10 +219,12 @@ std::expected<void, BuoyancyError> CalculateWithSurfaceSample(
                 BuoyancyErrorCode::NonFiniteResult, "buoyancy point " + std::to_string(index) + ": force magnitude overflowed"));
         }
 
-        const Physics::PhysicsVector3& normal = sample->surfaceNormal;
-        const double forceX = static_cast<double>(normal.x) * forceMagnitude;
-        const double forceY = static_cast<double>(normal.y) * forceMagnitude;
-        const double forceZ = static_cast<double>(normal.z) * forceMagnitude;
+        const Physics::PhysicsVector3 forceDirectionVector = forceDirection == BuoyancyForceDirection::SampleSurfaceNormal
+            ? sample->surfaceNormal
+            : Physics::PhysicsVector3{0.0F, 1.0F, 0.0F};
+        const double forceX = static_cast<double>(forceDirectionVector.x) * forceMagnitude;
+        const double forceY = static_cast<double>(forceDirectionVector.y) * forceMagnitude;
+        const double forceZ = static_cast<double>(forceDirectionVector.z) * forceMagnitude;
         if (!FitsInFloat(forceX) || !FitsInFloat(forceY) || !FitsInFloat(forceZ))
         {
             return std::unexpected(MakeError(
@@ -269,7 +269,8 @@ std::expected<BuoyancyResult, BuoyancyError> BuoyancySystem::Calculate(
 {
     BuoyancyResult result;
     if (const auto calculated = CalculateWithSurfaceSample(
-            water, component, pose, gravityMagnitudeMetersPerSecondSquared, std::nullopt, result);
+            water, component, pose, gravityMagnitudeMetersPerSecondSquared, std::nullopt,
+            BuoyancyForceDirection::SampleSurfaceNormal, result);
         !calculated)
     {
         return std::unexpected(calculated.error());
@@ -286,6 +287,20 @@ std::expected<void, BuoyancyError> BuoyancySystem::CalculateWaveSurface(
     BuoyancyResult& result)
 {
     return CalculateWithSurfaceSample(
-        water, component, pose, gravityMagnitudeMetersPerSecondSquared, simulationTimeSeconds, result);
+        water, component, pose, gravityMagnitudeMetersPerSecondSquared, simulationTimeSeconds,
+        BuoyancyForceDirection::SampleSurfaceNormal, result);
+}
+
+std::expected<void, BuoyancyError> BuoyancySystem::CalculateWaveHydrostatic(
+    const WaterBody& water,
+    const BuoyancyComponent& component,
+    const BuoyancyPose& pose,
+    const float gravityMagnitudeMetersPerSecondSquared,
+    const double simulationTimeSeconds,
+    BuoyancyResult& result)
+{
+    return CalculateWithSurfaceSample(
+        water, component, pose, gravityMagnitudeMetersPerSecondSquared, simulationTimeSeconds,
+        BuoyancyForceDirection::GravityOpposedUp, result);
 }
 }
