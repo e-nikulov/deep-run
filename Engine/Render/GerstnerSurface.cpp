@@ -10,8 +10,9 @@ namespace
 constexpr float TwoPi = 6.28318530717958647692F;
 constexpr std::uint32_t MinimumHorizontalSampleCount = 2U;
 constexpr std::uint32_t MaximumHorizontalSampleCount = 513U;
-constexpr float MaximumComponentAmplitudeMeters = 4.0F;
-constexpr float MaximumCombinedVerticalAmplitudeMeters = 20.0F;
+constexpr float MaximumComponentAmplitudeMeters = 3.0F;
+constexpr float LegacyMaximumCombinedVerticalAmplitudeMeters = 4.0F;
+constexpr float ProductionMaximumCombinedVerticalAmplitudeMeters = 20.0F;
 constexpr float MaximumConservativeHorizontalSlope = 0.5F;
 
 [[nodiscard]] bool IsFiniteColor(const std::array<float, 3>& color) noexcept
@@ -51,22 +52,30 @@ std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
     {
         return std::unexpected("Gerstner surface sample count is outside the bounded range");
     }
+    if (parameters.activeComponentCount == 0U || parameters.activeComponentCount > parameters.components.size())
+    {
+        return std::unexpected("Gerstner surface active component count is outside the bounded range");
+    }
     if (!IsFiniteColor(parameters.deepFillRgb) || !IsFiniteColor(parameters.surfaceTintRgb))
     {
         return std::unexpected("Gerstner surface colors must be finite SDR-normalized RGB values");
     }
 
+    const bool legacyContract = parameters.activeComponentCount <= LegacyM3GerstnerWaveComponentCount;
     float combinedVerticalAmplitude = 0.0F;
     float conservativeHorizontalSlope = 0.0F;
-    for (const GerstnerWaveComponent& component : parameters.components)
+    for (std::size_t index = 0U; index < parameters.activeComponentCount; ++index)
     {
+        const GerstnerWaveComponent& component = parameters.components[index];
+        const bool validFrequency = legacyContract
+            ? component.angularFrequencyRadiansPerSecond > 0.0F
+            : std::abs(component.angularFrequencyRadiansPerSecond) > 0.0F;
         if (!IsFiniteComponent(component))
         {
             return std::unexpected("Gerstner surface component values must be finite");
         }
         if (component.amplitudeMeters <= 0.0F || component.amplitudeMeters > MaximumComponentAmplitudeMeters ||
-            component.wavelengthMeters <= 0.0F ||
-            std::abs(component.angularFrequencyRadiansPerSecond) <= 0.0F ||
+            component.wavelengthMeters <= 0.0F || !validFrequency ||
             component.horizontalSteepness < 0.0F || component.horizontalSteepness > 1.0F)
         {
             return std::unexpected("Gerstner surface component is outside the restrained presentation range");
@@ -80,8 +89,10 @@ std::expected<void, std::string> ValidateGerstnerSurfacePresentationParameters(
         combinedVerticalAmplitude += component.amplitudeMeters;
         conservativeHorizontalSlope += component.horizontalSteepness * component.amplitudeMeters * waveNumber;
     }
-    if (!std::isfinite(combinedVerticalAmplitude) ||
-        combinedVerticalAmplitude > MaximumCombinedVerticalAmplitudeMeters)
+    const float maximumCombinedAmplitude = legacyContract
+        ? LegacyMaximumCombinedVerticalAmplitudeMeters
+        : ProductionMaximumCombinedVerticalAmplitudeMeters;
+    if (!std::isfinite(combinedVerticalAmplitude) || combinedVerticalAmplitude > maximumCombinedAmplitude)
     {
         return std::unexpected("Gerstner surface combined vertical amplitude is outside the restrained range");
     }
@@ -105,9 +116,9 @@ std::expected<float, std::string> MaximumGerstnerCombinedVerticalAmplitudeMeters
     }
 
     float result = 0.0F;
-    for (const GerstnerWaveComponent& component : parameters.components)
+    for (std::size_t index = 0U; index < parameters.activeComponentCount; ++index)
     {
-        result += component.amplitudeMeters;
+        result += parameters.components[index].amplitudeMeters;
     }
     return result;
 }
@@ -159,8 +170,9 @@ std::expected<GerstnerSurfacePresentationPosition, std::string> EvaluateGerstner
 
     double displacedX = static_cast<double>(x);
     double displacedY = static_cast<double>(parameters.referenceLevelY);
-    for (const GerstnerWaveComponent& component : parameters.components)
+    for (std::size_t index = 0U; index < parameters.activeComponentCount; ++index)
     {
+        const GerstnerWaveComponent& component = parameters.components[index];
         const double waveNumber = static_cast<double>(TwoPi) / static_cast<double>(component.wavelengthMeters);
         const double theta = waveNumber * static_cast<double>(x) -
                              static_cast<double>(component.angularFrequencyRadiansPerSecond) *
