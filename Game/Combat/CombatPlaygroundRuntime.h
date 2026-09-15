@@ -908,7 +908,10 @@ private:
 
         if (automatedPlayer)
         {
-            if (!playerTorpedo_.has_value())
+            // The automated M5 composition is a deterministic one-shot acceptance scenario, not an AI loop.
+            // Once its first player round has been committed, resolving that projectile must not cause an
+            // unintended second launch merely because automatic readiness has re-armed the selected weapon.
+            if (!automatedPlayerLaunchCommitted_ && !playerTorpedo_.has_value())
             {
                 const auto automated = AdvanceAutomatedPlayerCommander(playerSnapshot, simulationTimeSeconds);
                 if (!automated)
@@ -1072,6 +1075,10 @@ private:
             if (!launch)
             {
                 return std::unexpected(launch.error());
+            }
+            if (automatedPlayer)
+            {
+                automatedPlayerLaunchCommitted_ = true;
             }
         }
 
@@ -1736,11 +1743,11 @@ private:
 
         if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Stored)
         {
-            const auto prepared = playerCombat_.Execute(
-                {.type = PlayerCombatCommandType::PrepareWeapon}, tracks, simulationTimeSeconds);
-            if (!prepared || !prepared->accepted)
+            const auto prepared = playerCombat_.BeginAutomaticPreparation(simulationTimeSeconds);
+            if (!prepared)
             {
-                return std::unexpected("M5-H automated commander could not prepare the player weapon");
+                return std::unexpected("M5-H automated commander could not begin automatic player weapon preparation: " +
+                                       prepared.error());
             }
         }
         if (playerCombat_.Weapon().phase == Weapons::WeaponPhase::Ready)
@@ -2726,6 +2733,7 @@ private:
     std::optional<DeepRun::Combat::CombatExplosionEvent> lastExplosion_{};
     double lastUpdateTimeSeconds_ = 0.0;
     bool p700AcceptanceMode_ = false;
+    bool automatedPlayerLaunchCommitted_ = false;
     bool playerFogOfWarActive_ = false;
     bool civilianGameplayEnabled_ = false;
 };

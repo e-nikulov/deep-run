@@ -478,7 +478,7 @@ namespace DeepRun::Tests
         !runtime.Destroyer().weapon.targetTrackId.has_value() ||
         runtime.Destroyer().integrity.destroyed ||
         std::abs(runtime.Destroyer().integrity.remainingIntegrity - 40.0F) > 0.001F ||
-        !runtime.PlayerTorpedo() || runtime.PlayerTorpedo()->movementDomain != Weapons::MovementDomain::Spent ||
+        runtime.PlayerTorpedo().has_value() ||
         !runtime.DestroyerTorpedo() || runtime.DestroyerTorpedo()->movementDomain != Weapons::MovementDomain::Spent ||
         runtime.DestroyerTorpedo()->impactedBody != std::optional<Physics::PhysicsBodyHandle>{playerBody} ||
         !runtime.PlayerIntegrity() || runtime.PlayerIntegrity()->destroyed ||
