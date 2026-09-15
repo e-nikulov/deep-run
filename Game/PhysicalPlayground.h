@@ -13,6 +13,7 @@
 #include "Game/Environment/UnderwaterFloraField.h"
 #include "Game/Environment/UnderwaterIceField.h"
 #include "Game/Environment/VerticalOceanGameplayContract.h"
+#include "Game/Environment/WeatherSensorCoupling.h"
 #include "Game/Haptics/HapticEvent.h"
 #include "Game/PhysicsRenderSync.h"
 #include "Game/Submarine/AnteyAcousticRuntimeBridge.h"
@@ -22,6 +23,7 @@
 #include "Game/Submarine/AnteyHighPressureAir.h"
 #include "Game/Submarine/VesselCommandState.h"
 #include "Game/Weapons/AnteyOrdnanceMass.h"
+#include "Simulation/Environment/WeatherSeaState.h"
 #include "Simulation/Marine/BuoyancyComponent.h"
 #include "Simulation/Marine/BuoyancySystem.h"
 #include "Simulation/Marine/ControlSurfaceComponent.h"
@@ -126,9 +128,9 @@ public:
     [[nodiscard]] std::expected<Submarine::AnteyAcousticSnapshot, std::string> BuildAcousticSnapshot(
         const Acoustics::AcousticSpectrum& ambientNoiseLevelDb) const
     {
-        if (physics_ == nullptr || !physicsBody_.IsValid() || !water_.has_value())
+        if (physics_ == nullptr || !physicsBody_.IsValid() || !water_.has_value() || !weather_.has_value())
         {
-            return std::unexpected("physical playground live acoustic authorities are unavailable");
+            return std::unexpected("physical playground live acoustic/weather authorities are unavailable");
         }
         const auto bodyState = physics_->GetBodyState(physicsBody_);
         if (!bodyState)
@@ -147,7 +149,15 @@ public:
         {
             return std::unexpected("physical playground live acoustic composition failed: " + runtimeState.error());
         }
-        const auto snapshot = Submarine::BuildAnteyAcousticSnapshot(*runtimeState, ambientNoiseLevelDb);
+        const auto weatherAmbient = EvaluateWeatherPassiveAmbientNoise(
+            *weather_, waterSample->signedDepthMeters, ambientNoiseLevelDb);
+        if (!weatherAmbient)
+        {
+            return std::unexpected("physical playground W1-E weather acoustic coupling failed: " +
+                                   weatherAmbient.error());
+        }
+        const auto snapshot = Submarine::BuildAnteyAcousticSnapshot(
+            *runtimeState, weatherAmbient->ambientNoiseLevelDb);
         if (!snapshot)
         {
             return std::unexpected("physical playground live acoustic snapshot failed: " + snapshot.error());
@@ -479,6 +489,9 @@ private:
     // M2 scenario composition (D2): the authoritative water body, owned by value as part of this concrete
     // scenario. No MarineEnvironment/global/singleton — just a member of the playground that composes it.
     std::optional<Marine::WaterBody> water_;
+    // W1-E retains the exact environment authority that generated the production spectrum. Sensor adapters
+    // consume this value directly; they never reconstruct weather from render state or wave geometry.
+    std::optional<Environment::WeatherState> weather_;
     // Explicit Game-owned M2 Antey playground tuning. Marine owns only the generic point/component data types;
     // production proxy geometry supplies spatial layout, not displaced volume or mass.
     Marine::BuoyancyComponent buoyancy_;

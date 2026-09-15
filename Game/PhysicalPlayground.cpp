@@ -1217,6 +1217,7 @@ std::expected<void, std::string> PhysicalPlayground::Initialize(
     surfaceFloatBody_ = surfaceFloatBody;
     physics_ = &physics;
     water_ = *water;
+    weather_ = *weather;
     buoyancy_ = std::move(buoyancy);
     surfaceVesselBuoyancyResult_.points.reserve(buoyancy_.points.size());
     surfaceImpactPointStates_.assign(buoyancy_.points.size(), {});
