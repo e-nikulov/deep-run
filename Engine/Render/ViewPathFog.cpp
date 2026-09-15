@@ -70,7 +70,10 @@ std::expected<void, std::string> ValidateScenePresentationParameters(
         !normalized(parameters.horizonHazeFraction) ||
         !std::isfinite(parameters.cloudAdvection) ||
         !normalized(parameters.atmosphereBoundaryViewportY) ||
-        !normalized(parameters.cloudPatternOffset))
+        !normalized(parameters.cloudPatternOffset) ||
+        !normalized(parameters.lightningFlashIntensity) ||
+        !normalized(parameters.lightningViewportX) ||
+        !normalized(parameters.lightningPatternOffset))
         return std::unexpected("scene presentation atmosphere controls are invalid");
     return {};
 }
