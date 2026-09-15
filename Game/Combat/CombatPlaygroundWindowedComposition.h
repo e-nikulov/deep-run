@@ -4,6 +4,7 @@
 #include "Game/Combat/CombatPlaygroundRuntime.h"
 #include "Game/Combat/CombatPlaygroundView.h"
 #include "Game/Combat/CombatTimeCompressionPolicy.h"
+#include "Game/Combat/GameplayPacingMetrics.h"
 #include "Game/Submarine/AnteyAcousticModel.h"
 #include "Game/Submarine/ProductionAnteyAsset.h"
 #include "Game/Weapons/P700CarrierLaunchContract.h"
@@ -102,10 +103,30 @@ public:
         {
             return std::unexpected("M5-I.2 windowed player physical proxy update failed: " + synced.error());
         }
+
+        // Capture the rate before this tick's gameplay safety policy is republished. That is the rate which
+        // paced the authoritative fixed packet containing this tick. Direct/headless composition tests are not
+        // Engine-bound, so they intentionally degrade to 1x telemetry rather than acquiring Engine state.
+        const Core::TimeCompressionRate pacingRate =
+            Core::CurrentTimeCompressionEffectiveRate().value_or(Core::TimeCompressionRate::X1);
+        const bool hadSelectedTrackBeforeCommands = runtime_->PlayerCombat().SelectedTrackId().has_value();
+
         const auto frame = runtime_->AdvancePlayerControlled(playerSnapshot, commands, simulationTimeSeconds);
         if (!frame)
         {
             return std::unexpected("M5-J2 windowed player-controlled combat advance failed: " + frame.error());
+        }
+
+        const auto pacingObserved = pacingMetrics_.Observe(
+            std::span<const Perception::Track>{frame->playerTracks.data(), frame->playerTracks.size()},
+            frame->playerCombat,
+            commands,
+            hadSelectedTrackBeforeCommands,
+            simulationTimeSeconds,
+            pacingRate);
+        if (!pacingObserved)
+        {
+            return std::unexpected("gameplay pacing telemetry failed: " + pacingObserved.error());
         }
 
         // Safety policy consumes only gameplay state already owned by the combat composition. Publishing is
@@ -187,6 +208,11 @@ public:
         return runtime_;
     }
 
+    [[nodiscard]] GameplayPacingMetricsSnapshot PacingMetrics() const noexcept
+    {
+        return pacingMetrics_.Snapshot();
+    }
+
     // Read-only resize acceptance hook. The view remains the owner of the opaque upload; callers only get
     // the renderer's validity result and cannot inspect or replace the GPU handle.
     [[nodiscard]] bool PresentationModelValid(const Render::D3D12Renderer& renderer) const noexcept
@@ -264,5 +290,6 @@ private:
     bool p700AcceptanceMode_ = false;
     float destroyerCruiseVelocityXMetersPerSecond_ = M5CombatDestroyerCruiseVelocityXMetersPerSecond;
     std::optional<CombatPlaygroundRuntime> runtime_{};
+    GameplayPacingMetrics pacingMetrics_{};
 };
 } // namespace DeepRun::Game::Combat
