@@ -1154,10 +1154,13 @@ private:
             }
         }
 
-        if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent)
+        if (playerTorpedo_ && playerTorpedo_->movementDomain == Weapons::MovementDomain::Spent &&
+            (playerTorpedo_->terminalReason != Weapons::ConventionalTorpedoTerminalReason::Impact ||
+             !impact.has_value()))
         {
-            // Impact, endurance and range expiry all resolve the launched projectile. CompleteResolvedLaunch()
-            // intentionally no-ops when the player already selected/prepared a different weapon.
+            // Range/endurance expiry resolves immediately. A physical impact remains observable for its impact
+            // fixed-step so acceptance/presentation can consume the authoritative Spent pose, then clears on
+            // the following step. CompleteResolvedLaunch() intentionally preserves a newly selected weapon.
             const auto rearmed = playerCombat_.CompleteResolvedLaunch(simulationTimeSeconds);
             if (!rearmed)
                 return std::unexpected("player torpedo resolution re-arm failed: " + rearmed.error());
