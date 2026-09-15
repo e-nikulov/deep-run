@@ -7,7 +7,6 @@ on:
     paths:
       - Content/submarines/Antey/Antey.electronics.json
       - Tools/sync_antey_electronics_contract.py
-      - Tools/apply_antey_device_control_hud_patch.py
       - .github/workflows/sync-antey-electronics.yml
   workflow_dispatch:
 
@@ -17,7 +16,7 @@ permissions:
 jobs:
   sync:
     runs-on: windows-2025-vs2026
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,34 +26,13 @@ jobs:
         shell: pwsh
         run: python Tools/sync_antey_electronics_contract.py
 
-      - name: Apply device control HUD patch
-        shell: pwsh
-        run: |
-          python Tools/apply_antey_device_control_hud_patch.py
-          if ($LASTEXITCODE -ne 0) { throw 'device control HUD patch failed' }
-          git diff --check
-
-      - name: Build HUD integration
-        shell: pwsh
-        run: |
-          cmake --preset windows-debug
-          cmake --build --preset windows-debug --target DeepRun DeepRunTests DeepRunAnteyElectronicSuiteTests
-
-      - name: Test HUD integration
-        shell: pwsh
-        run: ctest --preset windows-debug -R "DeepRunTests|DeepRunAnteyElectronicSuiteTests" --output-on-failure
-
-      - name: Commit synced sidecars docs and HUD
+      - name: Commit synced sidecars and docs
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git show HEAD^:.github/workflows/sync-antey-electronics.yml | Set-Content -Encoding utf8 .github/workflows/sync-antey-electronics.yml
-          Remove-Item -Force Tools/apply_antey_device_control_hud_patch.py -ErrorAction SilentlyContinue
-          Remove-Item -Force .github/workflows/add-antey-device-control-hud.yml -ErrorAction SilentlyContinue
-          Remove-Item -Force .github/workflows/add-antey-device-control-hud-v2.yml -ErrorAction SilentlyContinue
-          git add -A
+          git add Content/submarines/Antey/Antey.authoring.json Engine/Assets/submarines/Antey/Antey.authoring.json docs/development/periscope-ballast-gameplay.md
           git diff --cached --check
           if (git diff --cached --quiet) { exit 0 }
-          git commit -m "feat: add Antey device control menu to HUD"
+          git commit -m "content: sync Antey electronic system bindings"
           git push origin HEAD:feature/antey-electronic-intelligence-suite
