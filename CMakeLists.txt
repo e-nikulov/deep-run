@@ -222,6 +222,7 @@ add_library(DeepRunEngine STATIC
     Simulation/Marine/ControlSurfaceSystem.cpp
     Simulation/Marine/HydroDragSystem.cpp
     Simulation/Marine/PropulsionSystem.cpp
+    Simulation/Marine/SurfaceImpactSystem.cpp
     Simulation/Marine/WaterBody.cpp
 )
 
