@@ -1768,12 +1768,17 @@ private:
         {
             return std::unexpected("P-700 production carrier state is unavailable");
         }
-        const auto slotIndex = p700LauncherInventory_->FirstLoadedSlotIndex();
-        if (!slotIndex)
+        const std::size_t requestedCount =
+            playerCombat_.P700SalvoMode() == Weapons::P700SalvoMode::Pair ? 2U : 1U;
+        const auto selectedSlots = p700LauncherInventory_->LoadedSlotIndices(requestedCount);
+        if (!selectedSlots || selectedSlots->empty())
         {
-            return std::unexpected("P-700 production launcher inventory is exhausted");
+            return std::unexpected("P-700 production launcher inventory cannot satisfy the selected salvo mode");
         }
-        const auto worldAnchor = p700CarrierLaunchContract_->BuildWorldAnchor(*slotIndex, *currentPlayerPhysicalProxy_);
+        // Employment assessment and materialization must resolve the same physical hatch/slot policy. In
+        // particular, Single mode advances across complete paired hatches before revisiting half-used groups.
+        const std::size_t slotIndex = selectedSlots->front();
+        const auto worldAnchor = p700CarrierLaunchContract_->BuildWorldAnchor(slotIndex, *currentPlayerPhysicalProxy_);
         if (!worldAnchor)
         {
             return std::unexpected("P-700 production world anchor failed: " + worldAnchor.error());
@@ -1795,7 +1800,7 @@ private:
             static_cast<double>(velocity.z) * velocity.z));
         const float surfaceLevelMeters = playerSnapshot.emitter.positionMeters.y + playerSnapshot.signedDepthMeters;
         return PlayerP700LaunchCandidate{
-            .slotIndex = *slotIndex,
+            .slotIndex = slotIndex,
             .carrier = Weapons::P700CarrierLaunchContext{
                 .launchPositionMeters = worldAnchor->positionMeters,
                 .launchForwardUnitVector = worldAnchor->forwardUnitVector,

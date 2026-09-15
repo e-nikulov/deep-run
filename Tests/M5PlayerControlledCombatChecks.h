@@ -227,12 +227,43 @@ namespace DeepRun::Tests
         return false;
     }
     if (runtime.PlayerTorpedo()->guidanceTrackId != *launched->playerCombat.selectedTrackId ||
-        runtime.PlayerTorpedo()->impactedBody)
+        runtime.PlayerTorpedo()->impactedBody || launched->playerCombat.torpedoReadyTubeCount != 3U ||
+        launched->playerCombat.playerTorpedoesInFlight != 1U)
     {
         return false;
     }
 
-    // Weapon selection remains legal while the previously launched torpedo is still in flight. The projectile
+    // Fire control re-arms independently of the weapon already in the water. Once automatic preparation finishes,
+    // a second loaded 533 mm tube can fire while the first torpedo keeps its independent runtime.
+    physicsWorld.Step(fixedDeltaSeconds);
+    bool readyForSecondShot = false;
+    for (int tick = 0; tick < 90; ++tick)
+    {
+        commandTimeSeconds += fixedDeltaSeconds;
+        const auto frame = runtime.AdvancePlayerControlled(playerSnapshot, {}, commandTimeSeconds);
+        if (!frame || !runtime.PlayerTorpedo())
+            return false;
+        readyForSecondShot = frame->playerCombat.weaponPhase == Weapons::WeaponPhase::Ready &&
+                             frame->playerCombat.canFireWeapon;
+        physicsWorld.Step(fixedDeltaSeconds);
+        if (readyForSecondShot)
+            break;
+    }
+    if (!readyForSecondShot)
+        return false;
+
+    commandTimeSeconds += fixedDeltaSeconds;
+    const auto secondLaunch = runtime.AdvancePlayerControlled(playerSnapshot, fire, commandTimeSeconds);
+    if (!secondLaunch || !secondLaunch->playerCombat.lastCommand ||
+        !secondLaunch->playerCombat.lastCommand->accepted ||
+        secondLaunch->playerCombat.playerTorpedoesInFlight != 2U ||
+        secondLaunch->playerCombat.torpedoReadyTubeCount != 2U ||
+        runtime.AdditionalPlayerTorpedoes().size() != 1U || !runtime.PlayerTorpedo())
+    {
+        return false;
+    }
+
+    // Weapon selection remains legal while the previously launched torpedoes are still in flight. The projectiles
     // keeps its independent runtime while the newly selected profile starts automatic preparation immediately.
     const auto launchedWeapon = runtime.SelectedPlayerWeapon();
     const auto launchedTorpedoTrackId = runtime.PlayerTorpedo()->guidanceTrackId;
