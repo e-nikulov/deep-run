@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace DeepRun::Core
@@ -195,6 +196,18 @@ public:
         return controller != nullptr && controller->TightenMaximumRate(rate);
     }
 
+    // Read-only fixed-tick telemetry access. Game code can sample the rate that paced the current authoritative
+    // fixed packet without retaining an Engine/TimeCompressionController pointer or changing simulation state.
+    [[nodiscard]] static std::optional<TimeCompressionRate> EffectiveRate() noexcept
+    {
+        const TimeCompressionController* controller = CurrentController();
+        if (controller == nullptr)
+        {
+            return std::nullopt;
+        }
+        return controller->EffectiveRate();
+    }
+
 private:
     [[nodiscard]] static TimeCompressionController*& CurrentController() noexcept
     {
@@ -208,6 +221,11 @@ private:
 [[nodiscard]] inline bool PublishTimeCompressionSafetyCap(const TimeCompressionRate rate) noexcept
 {
     return TimeCompressionSafetyScope::PublishMaximumRate(rate);
+}
+
+[[nodiscard]] inline std::optional<TimeCompressionRate> CurrentTimeCompressionEffectiveRate() noexcept
+{
+    return TimeCompressionSafetyScope::EffectiveRate();
 }
 
 static_assert(TimeCompressionMultiplier(TimeCompressionRate::X1) == 1.0);
