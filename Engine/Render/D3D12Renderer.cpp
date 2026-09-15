@@ -1961,7 +1961,7 @@ public:
                 parameters.components[4].horizontalSteepness,
                 parameters.components[5].horizontalSteepness,
                 parameters.components[6].horizontalSteepness,
-                0.0F},
+                static_cast<float>(parameters.activeComponentCount)},
             .deepFillColor = {
                 parameters.deepFillRgb[0], parameters.deepFillRgb[1], parameters.deepFillRgb[2], 1.0F},
             .surfaceTintColor = {
