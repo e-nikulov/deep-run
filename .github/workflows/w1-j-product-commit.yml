@@ -1,0 +1,33 @@
+name: W1-J product commit
+
+on:
+  push:
+    branches:
+      - feature/w1-j-meshlet-ocean
+    paths:
+      - .github/workflows/w1-j-product-commit.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  commit-product:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Materialize already-validated W1-J product diff
+        shell: pwsh
+        run: |
+          python Tools/CI/prepatch_w1_j.py
+          python Tools/CI/apply_w1_j_meshlet_ocean.py
+          git restore --source=HEAD -- Tools/CI/prepatch_w1_j.py Tools/CI/apply_w1_j_meshlet_ocean.py .github/workflows/w1-j-meshlet-ocean-patch.yml .github/workflows/w1-j-product-commit.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if (git diff --cached --quiet) { throw "W1-J product diff is empty" }
+          git commit -m "W1-J: add mesh-shader Gerstner surface"
+          git push origin HEAD:feature/w1-j-meshlet-ocean
